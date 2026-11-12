@@ -127,6 +127,10 @@ export const Compression = { COMPRESSION_NONE: 0, COMPRESSION_GZIP: 1, COMPRESSI
 
 export const Acks = { ACKS_UNSPECIFIED: 0, ACKS_NONE: 1, ACKS_LEADER: 2, ACKS_ALL: 3 };
 
+export const ConfigResourceType = { CONFIG_RESOURCE_UNKNOWN: 0, CONFIG_RESOURCE_TOPIC: 2, CONFIG_RESOURCE_BROKER: 4, CONFIG_RESOURCE_BROKER_LOGGER: 8, CONFIG_RESOURCE_CLIENT_METRICS: 16, CONFIG_RESOURCE_GROUP: 32 };
+
+export const ConfigOp = { CONFIG_OP_SET: 0, CONFIG_OP_DELETE: 1 };
+
 export class Header {
   constructor({ key = "", value = new Uint8Array(0) } = {}) {
     this.key = key;
@@ -786,7 +790,7 @@ export class ConsumeResponse {
 }
 
 export class GroupSubscribeRequest {
-  constructor({ groupId = "", topics = [], groupInstanceId = "", sessionTimeoutMs = 0, maxPollRecords = 0, autoOffsetReset = "", readCommitted = false } = {}) {
+  constructor({ groupId = "", topics = [], groupInstanceId = "", sessionTimeoutMs = 0, maxPollRecords = 0, autoOffsetReset = "", readCommitted = false, groupProtocol = "" } = {}) {
     this.groupId = groupId;
     this.topics = topics;
     this.groupInstanceId = groupInstanceId;
@@ -794,6 +798,7 @@ export class GroupSubscribeRequest {
     this.maxPollRecords = maxPollRecords;
     this.autoOffsetReset = autoOffsetReset;
     this.readCommitted = readCommitted;
+    this.groupProtocol = groupProtocol;
     this.unknownFields = new Uint8Array(0);
   }
   static encode(msg) {
@@ -805,6 +810,7 @@ export class GroupSubscribeRequest {
     putVarintField(out, 5, BigInt(msg.maxPollRecords));
     putStringField(out, 6, msg.autoOffsetReset);
     putVarintField(out, 7, (msg.readCommitted ? 1n : 0n));
+    putStringField(out, 8, msg.groupProtocol);
     putRaw(out, msg.unknownFields);
     return new Uint8Array(out);
   }
@@ -822,6 +828,7 @@ export class GroupSubscribeRequest {
       case 5: msg.maxPollRecords = Number(BigInt.asIntN(32, value)); break;
       case 6: msg.autoOffsetReset = new TextDecoder().decode(value); break;
       case 7: msg.readCommitted = value !== 0n; break;
+      case 8: msg.groupProtocol = new TextDecoder().decode(value); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
@@ -1326,6 +1333,1415 @@ export class DeleteTopicsResponse {
       const [num, wire, value, raw] = f;
       switch (num) {
       case 1: msg.results.push(TopicError.decode(value)); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class ConfigEntry {
+  constructor({ name = "", value = "" } = {}) {
+    this.name = name;
+    this.value = value;
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    putStringField(out, 1, msg.name);
+    putStringField(out, 2, msg.value);
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new ConfigEntry();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.name = new TextDecoder().decode(value); break;
+      case 2: msg.value = new TextDecoder().decode(value); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class AlterConfigEntry {
+  constructor({ name = "", value = "", op = 0 } = {}) {
+    this.name = name;
+    this.value = value;
+    this.op = op;
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    putStringField(out, 1, msg.name);
+    putStringField(out, 2, msg.value);
+    putVarintField(out, 3, BigInt(msg.op));
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new AlterConfigEntry();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.name = new TextDecoder().decode(value); break;
+      case 2: msg.value = new TextDecoder().decode(value); break;
+      case 3: msg.op = Number(BigInt.asIntN(32, value)); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class DescribeConfigsRequest {
+  constructor({ resourceType = 0, resourceName = "", configKeys = [], includeSynonyms = false } = {}) {
+    this.resourceType = resourceType;
+    this.resourceName = resourceName;
+    this.configKeys = configKeys;
+    this.includeSynonyms = includeSynonyms;
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    putVarintField(out, 1, BigInt(msg.resourceType));
+    putStringField(out, 2, msg.resourceName);
+    if (msg.configKeys) for (const v of msg.configKeys) putBytesField(out, 3, new TextEncoder().encode(v));
+    putVarintField(out, 4, (msg.includeSynonyms ? 1n : 0n));
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new DescribeConfigsRequest();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.resourceType = Number(BigInt.asIntN(32, value)); break;
+      case 2: msg.resourceName = new TextDecoder().decode(value); break;
+      case 3: msg.configKeys.push(new TextDecoder().decode(value)); break;
+      case 4: msg.includeSynonyms = value !== 0n; break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class ConfigValue {
+  constructor({ name = "", value = "", readOnly = false, source = 0, isSensitive = false } = {}) {
+    this.name = name;
+    this.value = value;
+    this.readOnly = readOnly;
+    this.source = source;
+    this.isSensitive = isSensitive;
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    putStringField(out, 1, msg.name);
+    putStringField(out, 2, msg.value);
+    putVarintField(out, 3, (msg.readOnly ? 1n : 0n));
+    putVarintField(out, 4, BigInt(msg.source));
+    putVarintField(out, 5, (msg.isSensitive ? 1n : 0n));
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new ConfigValue();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.name = new TextDecoder().decode(value); break;
+      case 2: msg.value = new TextDecoder().decode(value); break;
+      case 3: msg.readOnly = value !== 0n; break;
+      case 4: msg.source = Number(BigInt.asIntN(32, value)); break;
+      case 5: msg.isSensitive = value !== 0n; break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class DescribeConfigsResponse {
+  constructor({ errorCode = 0, values = [] } = {}) {
+    this.errorCode = errorCode;
+    this.values = values;
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    putVarintField(out, 1, BigInt(msg.errorCode));
+    if (msg.values) for (const v of msg.values) putBytesField(out, 2, ConfigValue.encode(v));
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new DescribeConfigsResponse();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.errorCode = Number(BigInt.asIntN(32, value)); break;
+      case 2: msg.values.push(ConfigValue.decode(value)); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class AlterConfigsRequest {
+  constructor({ resourceType = 0, resourceName = "", entries = [], validateOnly = false } = {}) {
+    this.resourceType = resourceType;
+    this.resourceName = resourceName;
+    this.entries = entries;
+    this.validateOnly = validateOnly;
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    putVarintField(out, 1, BigInt(msg.resourceType));
+    putStringField(out, 2, msg.resourceName);
+    if (msg.entries) for (const v of msg.entries) putBytesField(out, 3, AlterConfigEntry.encode(v));
+    putVarintField(out, 4, (msg.validateOnly ? 1n : 0n));
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new AlterConfigsRequest();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.resourceType = Number(BigInt.asIntN(32, value)); break;
+      case 2: msg.resourceName = new TextDecoder().decode(value); break;
+      case 3: msg.entries.push(AlterConfigEntry.decode(value)); break;
+      case 4: msg.validateOnly = value !== 0n; break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class AlterConfigsResponse {
+  constructor({ errorCode = 0 } = {}) {
+    this.errorCode = errorCode;
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    putVarintField(out, 1, BigInt(msg.errorCode));
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new AlterConfigsResponse();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.errorCode = Number(BigInt.asIntN(32, value)); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class CreatePartitionsRequest {
+  constructor({ topic = "", totalCount = 0, validateOnly = false, timeoutMs = 0 } = {}) {
+    this.topic = topic;
+    this.totalCount = totalCount;
+    this.validateOnly = validateOnly;
+    this.timeoutMs = timeoutMs;
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    putStringField(out, 1, msg.topic);
+    putVarintField(out, 2, BigInt(msg.totalCount));
+    putVarintField(out, 3, (msg.validateOnly ? 1n : 0n));
+    putVarintField(out, 4, BigInt(msg.timeoutMs));
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new CreatePartitionsRequest();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.topic = new TextDecoder().decode(value); break;
+      case 2: msg.totalCount = Number(BigInt.asIntN(32, value)); break;
+      case 3: msg.validateOnly = value !== 0n; break;
+      case 4: msg.timeoutMs = Number(BigInt.asIntN(32, value)); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class CreatePartitionsResponse {
+  constructor({ errorCode = 0 } = {}) {
+    this.errorCode = errorCode;
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    putVarintField(out, 1, BigInt(msg.errorCode));
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new CreatePartitionsResponse();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.errorCode = Number(BigInt.asIntN(32, value)); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class DeleteRecordsRequest {
+  constructor({ topic = "", partition = 0, beforeOffset = 0n } = {}) {
+    this.topic = topic;
+    this.partition = partition;
+    this.beforeOffset = beforeOffset;
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    putStringField(out, 1, msg.topic);
+    putVarintField(out, 2, BigInt(msg.partition));
+    putVarintField(out, 3, BigInt(msg.beforeOffset));
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new DeleteRecordsRequest();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.topic = new TextDecoder().decode(value); break;
+      case 2: msg.partition = Number(BigInt.asIntN(32, value)); break;
+      case 3: msg.beforeOffset = BigInt.asIntN(64, value); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class DeleteRecordsResponse {
+  constructor({ lowWatermark = 0n, errorCode = 0 } = {}) {
+    this.lowWatermark = lowWatermark;
+    this.errorCode = errorCode;
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    putVarintField(out, 1, BigInt(msg.lowWatermark));
+    putVarintField(out, 2, BigInt(msg.errorCode));
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new DeleteRecordsResponse();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.lowWatermark = BigInt.asIntN(64, value); break;
+      case 2: msg.errorCode = Number(BigInt.asIntN(32, value)); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class ListGroupsRequest {
+  constructor({  } = {}) {
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new ListGroupsRequest();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class GroupListing {
+  constructor({ groupId = "", protocolType = "", groupState = "" } = {}) {
+    this.groupId = groupId;
+    this.protocolType = protocolType;
+    this.groupState = groupState;
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    putStringField(out, 1, msg.groupId);
+    putStringField(out, 2, msg.protocolType);
+    putStringField(out, 3, msg.groupState);
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new GroupListing();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.groupId = new TextDecoder().decode(value); break;
+      case 2: msg.protocolType = new TextDecoder().decode(value); break;
+      case 3: msg.groupState = new TextDecoder().decode(value); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class ListGroupsResponse {
+  constructor({ errorCode = 0, groups = [] } = {}) {
+    this.errorCode = errorCode;
+    this.groups = groups;
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    putVarintField(out, 1, BigInt(msg.errorCode));
+    if (msg.groups) for (const v of msg.groups) putBytesField(out, 2, GroupListing.encode(v));
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new ListGroupsResponse();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.errorCode = Number(BigInt.asIntN(32, value)); break;
+      case 2: msg.groups.push(GroupListing.decode(value)); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class DescribeGroupsRequest {
+  constructor({ groupIds = [] } = {}) {
+    this.groupIds = groupIds;
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    if (msg.groupIds) for (const v of msg.groupIds) putBytesField(out, 1, new TextEncoder().encode(v));
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new DescribeGroupsRequest();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.groupIds.push(new TextDecoder().decode(value)); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class GroupMember {
+  constructor({ memberId = "", clientId = "", clientHost = "", assignment = [] } = {}) {
+    this.memberId = memberId;
+    this.clientId = clientId;
+    this.clientHost = clientHost;
+    this.assignment = assignment;
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    putStringField(out, 1, msg.memberId);
+    putStringField(out, 2, msg.clientId);
+    putStringField(out, 3, msg.clientHost);
+    if (msg.assignment) for (const v of msg.assignment) putBytesField(out, 4, TopicPartition.encode(v));
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new GroupMember();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.memberId = new TextDecoder().decode(value); break;
+      case 2: msg.clientId = new TextDecoder().decode(value); break;
+      case 3: msg.clientHost = new TextDecoder().decode(value); break;
+      case 4: msg.assignment.push(TopicPartition.decode(value)); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class DescribedGroup {
+  constructor({ groupId = "", errorCode = 0, groupState = "", protocolType = "", protocol = "", members = [] } = {}) {
+    this.groupId = groupId;
+    this.errorCode = errorCode;
+    this.groupState = groupState;
+    this.protocolType = protocolType;
+    this.protocol = protocol;
+    this.members = members;
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    putStringField(out, 1, msg.groupId);
+    putVarintField(out, 2, BigInt(msg.errorCode));
+    putStringField(out, 3, msg.groupState);
+    putStringField(out, 4, msg.protocolType);
+    putStringField(out, 5, msg.protocol);
+    if (msg.members) for (const v of msg.members) putBytesField(out, 6, GroupMember.encode(v));
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new DescribedGroup();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.groupId = new TextDecoder().decode(value); break;
+      case 2: msg.errorCode = Number(BigInt.asIntN(32, value)); break;
+      case 3: msg.groupState = new TextDecoder().decode(value); break;
+      case 4: msg.protocolType = new TextDecoder().decode(value); break;
+      case 5: msg.protocol = new TextDecoder().decode(value); break;
+      case 6: msg.members.push(GroupMember.decode(value)); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class DescribeGroupsResponse {
+  constructor({ groups = [] } = {}) {
+    this.groups = groups;
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    if (msg.groups) for (const v of msg.groups) putBytesField(out, 1, DescribedGroup.encode(v));
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new DescribeGroupsResponse();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.groups.push(DescribedGroup.decode(value)); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class DeleteGroupsRequest {
+  constructor({ groupIds = [] } = {}) {
+    this.groupIds = groupIds;
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    if (msg.groupIds) for (const v of msg.groupIds) putBytesField(out, 1, new TextEncoder().encode(v));
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new DeleteGroupsRequest();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.groupIds.push(new TextDecoder().decode(value)); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class GroupErrorResult {
+  constructor({ groupId = "", errorCode = 0 } = {}) {
+    this.groupId = groupId;
+    this.errorCode = errorCode;
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    putStringField(out, 1, msg.groupId);
+    putVarintField(out, 2, BigInt(msg.errorCode));
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new GroupErrorResult();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.groupId = new TextDecoder().decode(value); break;
+      case 2: msg.errorCode = Number(BigInt.asIntN(32, value)); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class DeleteGroupsResponse {
+  constructor({ results = [] } = {}) {
+    this.results = results;
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    if (msg.results) for (const v of msg.results) putBytesField(out, 1, GroupErrorResult.encode(v));
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new DeleteGroupsResponse();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.results.push(GroupErrorResult.decode(value)); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class DeleteGroupOffsetsRequest {
+  constructor({ groupId = "", topic = "", partitions = [] } = {}) {
+    this.groupId = groupId;
+    this.topic = topic;
+    this.partitions = partitions;
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    putStringField(out, 1, msg.groupId);
+    putStringField(out, 2, msg.topic);
+    if (msg.partitions && msg.partitions.length) {
+      const payload = [];
+      for (const x of msg.partitions) payload.push(...varintBytes(BigInt(x)));
+      putBytesField(out, 3, payload);
+    }
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new DeleteGroupOffsetsRequest();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.groupId = new TextDecoder().decode(value); break;
+      case 2: msg.topic = new TextDecoder().decode(value); break;
+      case 3: if (wire === 2) { const r = new Reader(value); while (!r.done) msg.partitions.push(Number(BigInt.asIntN(32, r.varint()))); } else msg.partitions.push(Number(BigInt.asIntN(32, value))); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class DeleteGroupOffsetsResponse {
+  constructor({ errorCode = 0 } = {}) {
+    this.errorCode = errorCode;
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    putVarintField(out, 1, BigInt(msg.errorCode));
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new DeleteGroupOffsetsResponse();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.errorCode = Number(BigInt.asIntN(32, value)); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class Acl {
+  constructor({ resourceType = 0, resourceName = "", patternType = 0, principal = "", host = "", operation = 0, permissionType = 0 } = {}) {
+    this.resourceType = resourceType;
+    this.resourceName = resourceName;
+    this.patternType = patternType;
+    this.principal = principal;
+    this.host = host;
+    this.operation = operation;
+    this.permissionType = permissionType;
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    putVarintField(out, 1, BigInt(msg.resourceType));
+    putStringField(out, 2, msg.resourceName);
+    putVarintField(out, 3, BigInt(msg.patternType));
+    putStringField(out, 4, msg.principal);
+    putStringField(out, 5, msg.host);
+    putVarintField(out, 6, BigInt(msg.operation));
+    putVarintField(out, 7, BigInt(msg.permissionType));
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new Acl();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.resourceType = Number(BigInt.asIntN(32, value)); break;
+      case 2: msg.resourceName = new TextDecoder().decode(value); break;
+      case 3: msg.patternType = Number(BigInt.asIntN(32, value)); break;
+      case 4: msg.principal = new TextDecoder().decode(value); break;
+      case 5: msg.host = new TextDecoder().decode(value); break;
+      case 6: msg.operation = Number(BigInt.asIntN(32, value)); break;
+      case 7: msg.permissionType = Number(BigInt.asIntN(32, value)); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class DescribeAclsRequest {
+  constructor({ filter = undefined } = {}) {
+    this.filter = filter;
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    if (msg.filter) putBytesField(out, 1, Acl.encode(msg.filter));
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new DescribeAclsRequest();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.filter = Acl.decode(value); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class DescribeAclsResponse {
+  constructor({ errorCode = 0, acls = [] } = {}) {
+    this.errorCode = errorCode;
+    this.acls = acls;
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    putVarintField(out, 1, BigInt(msg.errorCode));
+    if (msg.acls) for (const v of msg.acls) putBytesField(out, 2, Acl.encode(v));
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new DescribeAclsResponse();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.errorCode = Number(BigInt.asIntN(32, value)); break;
+      case 2: msg.acls.push(Acl.decode(value)); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class CreateAclsRequest {
+  constructor({ acls = [] } = {}) {
+    this.acls = acls;
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    if (msg.acls) for (const v of msg.acls) putBytesField(out, 1, Acl.encode(v));
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new CreateAclsRequest();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.acls.push(Acl.decode(value)); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class CreateAclsResponse {
+  constructor({ errorCodes = [] } = {}) {
+    this.errorCodes = errorCodes;
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    if (msg.errorCodes && msg.errorCodes.length) {
+      const payload = [];
+      for (const x of msg.errorCodes) payload.push(...varintBytes(BigInt(x)));
+      putBytesField(out, 1, payload);
+    }
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new CreateAclsResponse();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: if (wire === 2) { const r = new Reader(value); while (!r.done) msg.errorCodes.push(Number(BigInt.asIntN(32, r.varint()))); } else msg.errorCodes.push(Number(BigInt.asIntN(32, value))); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class DeleteAclsRequest {
+  constructor({ filters = [] } = {}) {
+    this.filters = filters;
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    if (msg.filters) for (const v of msg.filters) putBytesField(out, 1, Acl.encode(v));
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new DeleteAclsRequest();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.filters.push(Acl.decode(value)); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class DeleteAclsResponse {
+  constructor({ errorCodes = [] } = {}) {
+    this.errorCodes = errorCodes;
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    if (msg.errorCodes && msg.errorCodes.length) {
+      const payload = [];
+      for (const x of msg.errorCodes) payload.push(...varintBytes(BigInt(x)));
+      putBytesField(out, 1, payload);
+    }
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new DeleteAclsResponse();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: if (wire === 2) { const r = new Reader(value); while (!r.done) msg.errorCodes.push(Number(BigInt.asIntN(32, r.varint()))); } else msg.errorCodes.push(Number(BigInt.asIntN(32, value))); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class ListTransactionsRequest {
+  constructor({  } = {}) {
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new ListTransactionsRequest();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class TransactionListing {
+  constructor({ transactionalId = "", producerId = 0n, transactionState = "" } = {}) {
+    this.transactionalId = transactionalId;
+    this.producerId = producerId;
+    this.transactionState = transactionState;
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    putStringField(out, 1, msg.transactionalId);
+    putVarintField(out, 2, BigInt(msg.producerId));
+    putStringField(out, 3, msg.transactionState);
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new TransactionListing();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.transactionalId = new TextDecoder().decode(value); break;
+      case 2: msg.producerId = BigInt.asIntN(64, value); break;
+      case 3: msg.transactionState = new TextDecoder().decode(value); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class ListTransactionsResponse {
+  constructor({ errorCode = 0, transactions = [] } = {}) {
+    this.errorCode = errorCode;
+    this.transactions = transactions;
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    putVarintField(out, 1, BigInt(msg.errorCode));
+    if (msg.transactions) for (const v of msg.transactions) putBytesField(out, 2, TransactionListing.encode(v));
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new ListTransactionsResponse();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.errorCode = Number(BigInt.asIntN(32, value)); break;
+      case 2: msg.transactions.push(TransactionListing.decode(value)); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class DescribeTransactionsRequest {
+  constructor({ transactionalIds = [] } = {}) {
+    this.transactionalIds = transactionalIds;
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    if (msg.transactionalIds) for (const v of msg.transactionalIds) putBytesField(out, 1, new TextEncoder().encode(v));
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new DescribeTransactionsRequest();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.transactionalIds.push(new TextDecoder().decode(value)); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class DescribedTransaction {
+  constructor({ transactionalId = "", errorCode = 0, producerId = 0n, producerEpoch = 0, transactionState = "", lastUpdateTimestampMs = 0n } = {}) {
+    this.transactionalId = transactionalId;
+    this.errorCode = errorCode;
+    this.producerId = producerId;
+    this.producerEpoch = producerEpoch;
+    this.transactionState = transactionState;
+    this.lastUpdateTimestampMs = lastUpdateTimestampMs;
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    putStringField(out, 1, msg.transactionalId);
+    putVarintField(out, 2, BigInt(msg.errorCode));
+    putVarintField(out, 3, BigInt(msg.producerId));
+    putVarintField(out, 4, BigInt(msg.producerEpoch));
+    putStringField(out, 5, msg.transactionState);
+    putVarintField(out, 6, BigInt(msg.lastUpdateTimestampMs));
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new DescribedTransaction();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.transactionalId = new TextDecoder().decode(value); break;
+      case 2: msg.errorCode = Number(BigInt.asIntN(32, value)); break;
+      case 3: msg.producerId = BigInt.asIntN(64, value); break;
+      case 4: msg.producerEpoch = Number(BigInt.asIntN(32, value)); break;
+      case 5: msg.transactionState = new TextDecoder().decode(value); break;
+      case 6: msg.lastUpdateTimestampMs = BigInt.asIntN(64, value); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class DescribeTransactionsResponse {
+  constructor({ transactions = [] } = {}) {
+    this.transactions = transactions;
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    if (msg.transactions) for (const v of msg.transactions) putBytesField(out, 1, DescribedTransaction.encode(v));
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new DescribeTransactionsResponse();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.transactions.push(DescribedTransaction.decode(value)); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class OpenShareGroupRequest {
+  constructor({ groupId = "", topics = [], groupInstanceId = "", sessionTimeoutMs = 0 } = {}) {
+    this.groupId = groupId;
+    this.topics = topics;
+    this.groupInstanceId = groupInstanceId;
+    this.sessionTimeoutMs = sessionTimeoutMs;
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    putStringField(out, 1, msg.groupId);
+    if (msg.topics) for (const v of msg.topics) putBytesField(out, 2, new TextEncoder().encode(v));
+    putStringField(out, 3, msg.groupInstanceId);
+    putVarintField(out, 4, BigInt(msg.sessionTimeoutMs));
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new OpenShareGroupRequest();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.groupId = new TextDecoder().decode(value); break;
+      case 2: msg.topics.push(new TextDecoder().decode(value)); break;
+      case 3: msg.groupInstanceId = new TextDecoder().decode(value); break;
+      case 4: msg.sessionTimeoutMs = Number(BigInt.asIntN(32, value)); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class OpenShareGroupResponse {
+  constructor({ sessionId = "", errorCode = 0, assignment = undefined } = {}) {
+    this.sessionId = sessionId;
+    this.errorCode = errorCode;
+    this.assignment = assignment;
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    putStringField(out, 1, msg.sessionId);
+    putVarintField(out, 2, BigInt(msg.errorCode));
+    if (msg.assignment) putBytesField(out, 3, Assignment.encode(msg.assignment));
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new OpenShareGroupResponse();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.sessionId = new TextDecoder().decode(value); break;
+      case 2: msg.errorCode = Number(BigInt.asIntN(32, value)); break;
+      case 3: msg.assignment = Assignment.decode(value); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class SharePollRequest {
+  constructor({ sessionId = "", maxRecords = 0, maxWaitMs = 0 } = {}) {
+    this.sessionId = sessionId;
+    this.maxRecords = maxRecords;
+    this.maxWaitMs = maxWaitMs;
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    putStringField(out, 1, msg.sessionId);
+    putVarintField(out, 2, BigInt(msg.maxRecords));
+    putVarintField(out, 3, BigInt(msg.maxWaitMs));
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new SharePollRequest();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.sessionId = new TextDecoder().decode(value); break;
+      case 2: msg.maxRecords = Number(BigInt.asIntN(32, value)); break;
+      case 3: msg.maxWaitMs = Number(BigInt.asIntN(32, value)); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class SharePollRecord {
+  constructor({ topic = "", partition = 0, offset = 0n, key = new Uint8Array(0), value = new Uint8Array(0), headers = [], timestampMs = 0n, deliveryCount = 0, nullKey = false } = {}) {
+    this.topic = topic;
+    this.partition = partition;
+    this.offset = offset;
+    this.key = key;
+    this.value = value;
+    this.headers = headers;
+    this.timestampMs = timestampMs;
+    this.deliveryCount = deliveryCount;
+    this.nullKey = nullKey;
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    putStringField(out, 1, msg.topic);
+    putVarintField(out, 2, BigInt(msg.partition));
+    putVarintField(out, 3, BigInt(msg.offset));
+    if (msg.key && msg.key.length) putBytesField(out, 4, msg.key);
+    if (msg.value && msg.value.length) putBytesField(out, 5, msg.value);
+    if (msg.headers) for (const v of msg.headers) putBytesField(out, 6, Header.encode(v));
+    putVarintField(out, 7, BigInt(msg.timestampMs));
+    putVarintField(out, 8, BigInt(msg.deliveryCount));
+    putVarintField(out, 9, (msg.nullKey ? 1n : 0n));
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new SharePollRecord();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.topic = new TextDecoder().decode(value); break;
+      case 2: msg.partition = Number(BigInt.asIntN(32, value)); break;
+      case 3: msg.offset = BigInt.asIntN(64, value); break;
+      case 4: msg.key = value; break;
+      case 5: msg.value = value; break;
+      case 6: msg.headers.push(Header.decode(value)); break;
+      case 7: msg.timestampMs = BigInt.asIntN(64, value); break;
+      case 8: msg.deliveryCount = Number(BigInt.asIntN(32, value)); break;
+      case 9: msg.nullKey = value !== 0n; break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class SharePollResponse {
+  constructor({ records = [], errorCode = 0 } = {}) {
+    this.records = records;
+    this.errorCode = errorCode;
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    if (msg.records) for (const v of msg.records) putBytesField(out, 1, SharePollRecord.encode(v));
+    putVarintField(out, 2, BigInt(msg.errorCode));
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new SharePollResponse();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.records.push(SharePollRecord.decode(value)); break;
+      case 2: msg.errorCode = Number(BigInt.asIntN(32, value)); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class ShareAckEntry {
+  constructor({ topic = "", partition = 0, offset = 0n, ackType = 0 } = {}) {
+    this.topic = topic;
+    this.partition = partition;
+    this.offset = offset;
+    this.ackType = ackType;
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    putStringField(out, 1, msg.topic);
+    putVarintField(out, 2, BigInt(msg.partition));
+    putVarintField(out, 3, BigInt(msg.offset));
+    putVarintField(out, 4, BigInt(msg.ackType));
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new ShareAckEntry();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.topic = new TextDecoder().decode(value); break;
+      case 2: msg.partition = Number(BigInt.asIntN(32, value)); break;
+      case 3: msg.offset = BigInt.asIntN(64, value); break;
+      case 4: msg.ackType = Number(BigInt.asIntN(32, value)); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class ShareAckRequest {
+  constructor({ sessionId = "", entries = [] } = {}) {
+    this.sessionId = sessionId;
+    this.entries = entries;
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    putStringField(out, 1, msg.sessionId);
+    if (msg.entries) for (const v of msg.entries) putBytesField(out, 2, ShareAckEntry.encode(v));
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new ShareAckRequest();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.sessionId = new TextDecoder().decode(value); break;
+      case 2: msg.entries.push(ShareAckEntry.decode(value)); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class ShareAckResponse {
+  constructor({ errorCode = 0 } = {}) {
+    this.errorCode = errorCode;
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    putVarintField(out, 1, BigInt(msg.errorCode));
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new ShareAckResponse();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.errorCode = Number(BigInt.asIntN(32, value)); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class CloseShareGroupRequest {
+  constructor({ sessionId = "" } = {}) {
+    this.sessionId = sessionId;
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    putStringField(out, 1, msg.sessionId);
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new CloseShareGroupRequest();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.sessionId = new TextDecoder().decode(value); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+}
+
+export class CloseShareGroupResponse {
+  constructor({ errorCode = 0 } = {}) {
+    this.errorCode = errorCode;
+    this.unknownFields = new Uint8Array(0);
+  }
+  static encode(msg) {
+    const out = [];
+    putVarintField(out, 1, BigInt(msg.errorCode));
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new CloseShareGroupResponse();
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.errorCode = Number(BigInt.asIntN(32, value)); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }

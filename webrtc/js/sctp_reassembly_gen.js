@@ -30,7 +30,16 @@ export class SctpReassembler {
   feed(tsn, stream, ssn, ppid, unordered, isBegin, isEnd, payload) {
     const entry = this.#entry(stream);
     let key = tsn;
-    if (!isBegin) {
+    // A retransmitted fragment belongs to the partial that
+    // already holds its TSN; keying a fresh partial for it
+    // splits one message across two partials, and neither
+    // can complete (an END-holding partial is merge-
+    // exempt), wedging ordered delivery while SACKs ack.
+    let owned = false;
+    for (const [k, p] of entry.partials) {
+      if (p.parts.has(tsn)) { key = k; owned = true; break; }
+    }
+    if (!owned && !isBegin) {
       for (const [k, p] of entry.partials) {
         if (p.lastTsn !== null) continue; // already ended: new partial
         if (p.maxTsn !== null && add32(p.maxTsn, 1) === tsn) {

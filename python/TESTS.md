@@ -30,6 +30,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`test_interop_oracle.py`](tests/test_interop_oracle.py) — Official-implementation oracle, via the proxy
 - [`test_interop_server_oracle.py`](tests/test_interop_server_oracle.py) — Official-implementation oracle, via the proxy
 - [`test_kafka_e2e.py`](tests/test_kafka_e2e.py) — Kafka end-to-end (broker legs env-gated)
+- [`test_kafka_native.py`](tests/test_kafka_native.py) — Kafka end-to-end (broker legs env-gated)
 - [`test_oracle.py`](tests/test_oracle.py) — Official-implementation oracle, via the proxy
 - [`test_otlp_tracer.py`](tests/test_otlp_tracer.py) — Tracing: traceparent propagation, span observers, nested calls
 - [`test_pb_messages.py`](tests/test_pb_messages.py) — Generated suite/example

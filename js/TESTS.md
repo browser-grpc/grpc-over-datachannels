@@ -16,6 +16,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`bdd_scenarios.generated.js`](test/bdd_scenarios.generated.js) — BDD scenario suite (generated)
 - [`bdd_schemas.generated.js`](test/bdd_schemas.generated.js) — BDD scenario suite (generated)
 - [`bdd_schemas.test.js`](test/bdd_schemas.test.js) — BDD scenario suite (generated)
+- [`chunking.test.js`](test/chunking.test.js) — Generated suite/example
 - [`deadline.test.js`](test/deadline.test.js) — Deadline propagation and enforcement
 - [`dynamic.test.js`](test/dynamic.test.js) — Generated suite/example
 - [`echo.test.js`](test/echo.test.js) — Echo: all four call shapes
@@ -28,12 +29,17 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`interop_server_oracle.test.js`](test/interop_server_oracle.test.js) — Official-implementation oracle, via the proxy
 - [`interop_service.js`](test/interop_service.js) — Cross-language interop
 - [`kafka.test.js`](test/kafka.test.js) — Kafka end-to-end (broker legs env-gated)
+- [`kafka_native.test.js`](test/kafka_native.test.js) — Kafka end-to-end (broker legs env-gated)
+- [`kafka_native_differential.test.js`](test/kafka_native_differential.test.js) — Kafka end-to-end (broker legs env-gated)
 - [`oracle.test.js`](test/oracle.test.js) — Official-implementation oracle, via the proxy
 - [`oracle_driver.generated.js`](test/oracle_driver.generated.js) — Official-implementation oracle, via the proxy
 - [`otlp_example.test.js`](test/otlp_example.test.js) — Generated suite/example
 - [`pb_messages.test.js`](test/pb_messages.test.js) — Generated suite/example
 - [`plugin_parity.test.js`](test/plugin_parity.test.js) — Generated suite/example
+- [`rendezvous.test.js`](test/rendezvous.test.js) — Generated suite/example
+- [`signaling.test.js`](test/signaling.test.js) — Generated suite/example
 - [`tracing.test.js`](test/tracing.test.js) — Tracing: traceparent propagation, span observers, nested calls
+- [`tracing_nested_demo.test.js`](test/tracing_nested_demo.test.js) — Tracing: traceparent propagation, span observers, nested calls
 - [`webrtc_direct.test.js`](test/webrtc_direct.test.js) — WebRTC-Direct example/test
 
 ## Examples
@@ -56,6 +62,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`test_pb.js`](examples/interop/test_pb.js) — Generated suite/example
 - [`otlp_tracer.js`](examples/otlp_tracer.js) — Tracing: traceparent propagation, span observers, nested calls
 - [`tracing_demo.js`](examples/tracing_demo.js) — Tracing: traceparent propagation, span observers, nested calls
+- [`tracing_nested_demo.mjs`](examples/tracing_nested_demo.mjs) — Tracing: traceparent propagation, span observers, nested calls
 
 ## Shared matrix coverage
 

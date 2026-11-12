@@ -10,9 +10,10 @@ public final class GroupSubscribeRequest implements grpcdc.Marshaler, grpcdc.Unm
     public int maxPollRecords = 0;
     public String autoOffsetReset = "";
     public boolean readCommitted = false;
+    public String groupProtocol = "";
     public byte[] unknownFields = new byte[0];
     public GroupSubscribeRequest() {}
-    public GroupSubscribeRequest(String groupId, java.util.List<String> topics, String groupInstanceId, int sessionTimeoutMs, int maxPollRecords, String autoOffsetReset, boolean readCommitted) {
+    public GroupSubscribeRequest(String groupId, java.util.List<String> topics, String groupInstanceId, int sessionTimeoutMs, int maxPollRecords, String autoOffsetReset, boolean readCommitted, String groupProtocol) {
         this.groupId = groupId;
         this.topics = topics;
         this.groupInstanceId = groupInstanceId;
@@ -20,6 +21,7 @@ public final class GroupSubscribeRequest implements grpcdc.Marshaler, grpcdc.Unm
         this.maxPollRecords = maxPollRecords;
         this.autoOffsetReset = autoOffsetReset;
         this.readCommitted = readCommitted;
+        this.groupProtocol = groupProtocol;
     }
 
     @Override
@@ -32,6 +34,7 @@ public final class GroupSubscribeRequest implements grpcdc.Marshaler, grpcdc.Unm
         if (maxPollRecords != 0) { w.tag(5, 0); w.varint(maxPollRecords); }
         w.stringField(6, autoOffsetReset);
         if (readCommitted) { w.tag(7, 0); w.varint((readCommitted ? 1 : 0)); }
+        w.stringField(8, groupProtocol);
         w.raw(unknownFields);
         return w.toBytes();
     }
@@ -46,6 +49,7 @@ public final class GroupSubscribeRequest implements grpcdc.Marshaler, grpcdc.Unm
         maxPollRecords = 0;
         autoOffsetReset = "";
         readCommitted = false;
+        groupProtocol = "";
         KafkaPb.Reader r = new KafkaPb.Reader(data);
         KafkaPb.Field field;
         while ((field = r.next()) != null) {
@@ -70,6 +74,9 @@ public final class GroupSubscribeRequest implements grpcdc.Marshaler, grpcdc.Unm
                 }
                 case 7 -> {
                     readCommitted = field.varintValue != 0;
+                }
+                case 8 -> {
+                    groupProtocol = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
             }

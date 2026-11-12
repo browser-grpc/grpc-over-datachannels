@@ -12,6 +12,7 @@
 // WasmGC/js-string builtins) land on window.__wasmError so the
 // test can probe-and-skip.
 import { compileStreaming } from "/browser-test/echo_dart_server_wasm.mjs";
+import { DcChunkReassembler, splitDcMessage } from "/js/index.js";
 
 try {
   const app = await compileStreaming(fetch("/browser-test/echo_dart_server_wasm.wasm"));
@@ -37,18 +38,22 @@ if (window.__wasmReady) {
       await new Promise((resolve) => dc.addEventListener("open", resolve, { once: true }));
     }
     dc.binaryType = "arraybuffer";
+    // DC chunk shim: frames over 64 KiB cross as chunks so
+    // multi-MB calls fit the browser's 256 KiB message cap.
+    const reassembler = new DcChunkReassembler();
     const transport = {
       _onMessage: null,
       send(data) {
-        dc.send(data);
+        for (const chunk of splitDcMessage(data)) dc.send(chunk);
       },
       setOnMessage(callback) {
         this._onMessage = callback;
       },
     };
     dc.addEventListener("message", (event) => {
-      if (transport._onMessage) {
-        transport._onMessage(new Uint8Array(event.data));
+      const whole = reassembler.push(new Uint8Array(event.data));
+      if (whole !== null && transport._onMessage) {
+        transport._onMessage(whole);
       }
     });
     window[window.__dartServerEntry || "runDartEchoServer"](transport);

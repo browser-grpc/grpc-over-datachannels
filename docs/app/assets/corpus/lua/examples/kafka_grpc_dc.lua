@@ -32,6 +32,40 @@ local CreateTopicsRequest = kafkaMessages.CreateTopicsRequest
 local CreateTopicsResponse = kafkaMessages.CreateTopicsResponse
 local DeleteTopicsRequest = kafkaMessages.DeleteTopicsRequest
 local DeleteTopicsResponse = kafkaMessages.DeleteTopicsResponse
+local DescribeConfigsRequest = kafkaMessages.DescribeConfigsRequest
+local DescribeConfigsResponse = kafkaMessages.DescribeConfigsResponse
+local AlterConfigsRequest = kafkaMessages.AlterConfigsRequest
+local AlterConfigsResponse = kafkaMessages.AlterConfigsResponse
+local CreatePartitionsRequest = kafkaMessages.CreatePartitionsRequest
+local CreatePartitionsResponse = kafkaMessages.CreatePartitionsResponse
+local DeleteRecordsRequest = kafkaMessages.DeleteRecordsRequest
+local DeleteRecordsResponse = kafkaMessages.DeleteRecordsResponse
+local ListGroupsRequest = kafkaMessages.ListGroupsRequest
+local ListGroupsResponse = kafkaMessages.ListGroupsResponse
+local DescribeGroupsRequest = kafkaMessages.DescribeGroupsRequest
+local DescribeGroupsResponse = kafkaMessages.DescribeGroupsResponse
+local DeleteGroupsRequest = kafkaMessages.DeleteGroupsRequest
+local DeleteGroupsResponse = kafkaMessages.DeleteGroupsResponse
+local DeleteGroupOffsetsRequest = kafkaMessages.DeleteGroupOffsetsRequest
+local DeleteGroupOffsetsResponse = kafkaMessages.DeleteGroupOffsetsResponse
+local DescribeAclsRequest = kafkaMessages.DescribeAclsRequest
+local DescribeAclsResponse = kafkaMessages.DescribeAclsResponse
+local CreateAclsRequest = kafkaMessages.CreateAclsRequest
+local CreateAclsResponse = kafkaMessages.CreateAclsResponse
+local DeleteAclsRequest = kafkaMessages.DeleteAclsRequest
+local DeleteAclsResponse = kafkaMessages.DeleteAclsResponse
+local ListTransactionsRequest = kafkaMessages.ListTransactionsRequest
+local ListTransactionsResponse = kafkaMessages.ListTransactionsResponse
+local DescribeTransactionsRequest = kafkaMessages.DescribeTransactionsRequest
+local DescribeTransactionsResponse = kafkaMessages.DescribeTransactionsResponse
+local OpenShareGroupRequest = kafkaMessages.OpenShareGroupRequest
+local OpenShareGroupResponse = kafkaMessages.OpenShareGroupResponse
+local SharePollRequest = kafkaMessages.SharePollRequest
+local SharePollResponse = kafkaMessages.SharePollResponse
+local ShareAckRequest = kafkaMessages.ShareAckRequest
+local ShareAckResponse = kafkaMessages.ShareAckResponse
+local CloseShareGroupRequest = kafkaMessages.CloseShareGroupRequest
+local CloseShareGroupResponse = kafkaMessages.CloseShareGroupResponse
 
 local Channel = channelModule.Channel
 local Server = serverModule.Server
@@ -226,6 +260,108 @@ function KafkaClient:deleteTopics(req, metadata, timeout)
   return resp
 end
 
+function KafkaClient:describeConfigs(req, metadata, timeout)
+  local resp = DescribeConfigsResponse.new()
+  self.channel:unary("/grpcdc.kafka.v1.Kafka/DescribeConfigs", req, resp, metadata, timeout)
+  return resp
+end
+
+function KafkaClient:alterConfigs(req, metadata, timeout)
+  local resp = AlterConfigsResponse.new()
+  self.channel:unary("/grpcdc.kafka.v1.Kafka/AlterConfigs", req, resp, metadata, timeout)
+  return resp
+end
+
+function KafkaClient:createPartitions(req, metadata, timeout)
+  local resp = CreatePartitionsResponse.new()
+  self.channel:unary("/grpcdc.kafka.v1.Kafka/CreatePartitions", req, resp, metadata, timeout)
+  return resp
+end
+
+function KafkaClient:deleteRecords(req, metadata, timeout)
+  local resp = DeleteRecordsResponse.new()
+  self.channel:unary("/grpcdc.kafka.v1.Kafka/DeleteRecords", req, resp, metadata, timeout)
+  return resp
+end
+
+function KafkaClient:listGroups(req, metadata, timeout)
+  local resp = ListGroupsResponse.new()
+  self.channel:unary("/grpcdc.kafka.v1.Kafka/ListGroups", req, resp, metadata, timeout)
+  return resp
+end
+
+function KafkaClient:describeGroups(req, metadata, timeout)
+  local resp = DescribeGroupsResponse.new()
+  self.channel:unary("/grpcdc.kafka.v1.Kafka/DescribeGroups", req, resp, metadata, timeout)
+  return resp
+end
+
+function KafkaClient:deleteGroups(req, metadata, timeout)
+  local resp = DeleteGroupsResponse.new()
+  self.channel:unary("/grpcdc.kafka.v1.Kafka/DeleteGroups", req, resp, metadata, timeout)
+  return resp
+end
+
+function KafkaClient:deleteGroupOffsets(req, metadata, timeout)
+  local resp = DeleteGroupOffsetsResponse.new()
+  self.channel:unary("/grpcdc.kafka.v1.Kafka/DeleteGroupOffsets", req, resp, metadata, timeout)
+  return resp
+end
+
+function KafkaClient:describeAcls(req, metadata, timeout)
+  local resp = DescribeAclsResponse.new()
+  self.channel:unary("/grpcdc.kafka.v1.Kafka/DescribeAcls", req, resp, metadata, timeout)
+  return resp
+end
+
+function KafkaClient:createAcls(req, metadata, timeout)
+  local resp = CreateAclsResponse.new()
+  self.channel:unary("/grpcdc.kafka.v1.Kafka/CreateAcls", req, resp, metadata, timeout)
+  return resp
+end
+
+function KafkaClient:deleteAcls(req, metadata, timeout)
+  local resp = DeleteAclsResponse.new()
+  self.channel:unary("/grpcdc.kafka.v1.Kafka/DeleteAcls", req, resp, metadata, timeout)
+  return resp
+end
+
+function KafkaClient:listTransactions(req, metadata, timeout)
+  local resp = ListTransactionsResponse.new()
+  self.channel:unary("/grpcdc.kafka.v1.Kafka/ListTransactions", req, resp, metadata, timeout)
+  return resp
+end
+
+function KafkaClient:describeTransactions(req, metadata, timeout)
+  local resp = DescribeTransactionsResponse.new()
+  self.channel:unary("/grpcdc.kafka.v1.Kafka/DescribeTransactions", req, resp, metadata, timeout)
+  return resp
+end
+
+function KafkaClient:openShareGroup(req, metadata, timeout)
+  local resp = OpenShareGroupResponse.new()
+  self.channel:unary("/grpcdc.kafka.v1.Kafka/OpenShareGroup", req, resp, metadata, timeout)
+  return resp
+end
+
+function KafkaClient:sharePoll(req, metadata, timeout)
+  local resp = SharePollResponse.new()
+  self.channel:unary("/grpcdc.kafka.v1.Kafka/SharePoll", req, resp, metadata, timeout)
+  return resp
+end
+
+function KafkaClient:shareAck(req, metadata, timeout)
+  local resp = ShareAckResponse.new()
+  self.channel:unary("/grpcdc.kafka.v1.Kafka/ShareAck", req, resp, metadata, timeout)
+  return resp
+end
+
+function KafkaClient:closeShareGroup(req, metadata, timeout)
+  local resp = CloseShareGroupResponse.new()
+  self.channel:unary("/grpcdc.kafka.v1.Kafka/CloseShareGroup", req, resp, metadata, timeout)
+  return resp
+end
+
 --- Coroutine receiving stream for Consume responses: a producer
 --- coroutine yields each response; next() returns nil at the
 --- end of the call and raises a Status on trailers errors.
@@ -410,6 +546,108 @@ function KafkaClientCoro:deleteTopics(req, metadata, timeout)
   return resp
 end
 
+function KafkaClientCoro:describeConfigs(req, metadata, timeout)
+  local resp = DescribeConfigsResponse.new()
+  self.channel:unary("/grpcdc.kafka.v1.Kafka/DescribeConfigs", req, resp, metadata, timeout)
+  return resp
+end
+
+function KafkaClientCoro:alterConfigs(req, metadata, timeout)
+  local resp = AlterConfigsResponse.new()
+  self.channel:unary("/grpcdc.kafka.v1.Kafka/AlterConfigs", req, resp, metadata, timeout)
+  return resp
+end
+
+function KafkaClientCoro:createPartitions(req, metadata, timeout)
+  local resp = CreatePartitionsResponse.new()
+  self.channel:unary("/grpcdc.kafka.v1.Kafka/CreatePartitions", req, resp, metadata, timeout)
+  return resp
+end
+
+function KafkaClientCoro:deleteRecords(req, metadata, timeout)
+  local resp = DeleteRecordsResponse.new()
+  self.channel:unary("/grpcdc.kafka.v1.Kafka/DeleteRecords", req, resp, metadata, timeout)
+  return resp
+end
+
+function KafkaClientCoro:listGroups(req, metadata, timeout)
+  local resp = ListGroupsResponse.new()
+  self.channel:unary("/grpcdc.kafka.v1.Kafka/ListGroups", req, resp, metadata, timeout)
+  return resp
+end
+
+function KafkaClientCoro:describeGroups(req, metadata, timeout)
+  local resp = DescribeGroupsResponse.new()
+  self.channel:unary("/grpcdc.kafka.v1.Kafka/DescribeGroups", req, resp, metadata, timeout)
+  return resp
+end
+
+function KafkaClientCoro:deleteGroups(req, metadata, timeout)
+  local resp = DeleteGroupsResponse.new()
+  self.channel:unary("/grpcdc.kafka.v1.Kafka/DeleteGroups", req, resp, metadata, timeout)
+  return resp
+end
+
+function KafkaClientCoro:deleteGroupOffsets(req, metadata, timeout)
+  local resp = DeleteGroupOffsetsResponse.new()
+  self.channel:unary("/grpcdc.kafka.v1.Kafka/DeleteGroupOffsets", req, resp, metadata, timeout)
+  return resp
+end
+
+function KafkaClientCoro:describeAcls(req, metadata, timeout)
+  local resp = DescribeAclsResponse.new()
+  self.channel:unary("/grpcdc.kafka.v1.Kafka/DescribeAcls", req, resp, metadata, timeout)
+  return resp
+end
+
+function KafkaClientCoro:createAcls(req, metadata, timeout)
+  local resp = CreateAclsResponse.new()
+  self.channel:unary("/grpcdc.kafka.v1.Kafka/CreateAcls", req, resp, metadata, timeout)
+  return resp
+end
+
+function KafkaClientCoro:deleteAcls(req, metadata, timeout)
+  local resp = DeleteAclsResponse.new()
+  self.channel:unary("/grpcdc.kafka.v1.Kafka/DeleteAcls", req, resp, metadata, timeout)
+  return resp
+end
+
+function KafkaClientCoro:listTransactions(req, metadata, timeout)
+  local resp = ListTransactionsResponse.new()
+  self.channel:unary("/grpcdc.kafka.v1.Kafka/ListTransactions", req, resp, metadata, timeout)
+  return resp
+end
+
+function KafkaClientCoro:describeTransactions(req, metadata, timeout)
+  local resp = DescribeTransactionsResponse.new()
+  self.channel:unary("/grpcdc.kafka.v1.Kafka/DescribeTransactions", req, resp, metadata, timeout)
+  return resp
+end
+
+function KafkaClientCoro:openShareGroup(req, metadata, timeout)
+  local resp = OpenShareGroupResponse.new()
+  self.channel:unary("/grpcdc.kafka.v1.Kafka/OpenShareGroup", req, resp, metadata, timeout)
+  return resp
+end
+
+function KafkaClientCoro:sharePoll(req, metadata, timeout)
+  local resp = SharePollResponse.new()
+  self.channel:unary("/grpcdc.kafka.v1.Kafka/SharePoll", req, resp, metadata, timeout)
+  return resp
+end
+
+function KafkaClientCoro:shareAck(req, metadata, timeout)
+  local resp = ShareAckResponse.new()
+  self.channel:unary("/grpcdc.kafka.v1.Kafka/ShareAck", req, resp, metadata, timeout)
+  return resp
+end
+
+function KafkaClientCoro:closeShareGroup(req, metadata, timeout)
+  local resp = CloseShareGroupResponse.new()
+  self.channel:unary("/grpcdc.kafka.v1.Kafka/CloseShareGroup", req, resp, metadata, timeout)
+  return resp
+end
+
 --- Register an implementation of grpcdc.kafka.v1.Kafka on a Server. The impl is
 --- a table with unary/serverStream/clientStream/bidi functions
 --- (duck-typed, mirroring the generated adapters below).
@@ -535,6 +773,176 @@ local function registerKafkaServer(server, impl)
           local req = DeleteTopicsRequest.new()
           reqs:recvInto(req)
           sink(impl:deleteTopics(ctx, req):marshalDc())
+        end,
+      },
+      {
+        name = "DescribeConfigs",
+        path = "/grpcdc.kafka.v1.Kafka/DescribeConfigs",
+        kind = Server.KIND_UNARY,
+        handler = function(ctx, reqs, sink)
+          local req = DescribeConfigsRequest.new()
+          reqs:recvInto(req)
+          sink(impl:describeConfigs(ctx, req):marshalDc())
+        end,
+      },
+      {
+        name = "AlterConfigs",
+        path = "/grpcdc.kafka.v1.Kafka/AlterConfigs",
+        kind = Server.KIND_UNARY,
+        handler = function(ctx, reqs, sink)
+          local req = AlterConfigsRequest.new()
+          reqs:recvInto(req)
+          sink(impl:alterConfigs(ctx, req):marshalDc())
+        end,
+      },
+      {
+        name = "CreatePartitions",
+        path = "/grpcdc.kafka.v1.Kafka/CreatePartitions",
+        kind = Server.KIND_UNARY,
+        handler = function(ctx, reqs, sink)
+          local req = CreatePartitionsRequest.new()
+          reqs:recvInto(req)
+          sink(impl:createPartitions(ctx, req):marshalDc())
+        end,
+      },
+      {
+        name = "DeleteRecords",
+        path = "/grpcdc.kafka.v1.Kafka/DeleteRecords",
+        kind = Server.KIND_UNARY,
+        handler = function(ctx, reqs, sink)
+          local req = DeleteRecordsRequest.new()
+          reqs:recvInto(req)
+          sink(impl:deleteRecords(ctx, req):marshalDc())
+        end,
+      },
+      {
+        name = "ListGroups",
+        path = "/grpcdc.kafka.v1.Kafka/ListGroups",
+        kind = Server.KIND_UNARY,
+        handler = function(ctx, reqs, sink)
+          local req = ListGroupsRequest.new()
+          reqs:recvInto(req)
+          sink(impl:listGroups(ctx, req):marshalDc())
+        end,
+      },
+      {
+        name = "DescribeGroups",
+        path = "/grpcdc.kafka.v1.Kafka/DescribeGroups",
+        kind = Server.KIND_UNARY,
+        handler = function(ctx, reqs, sink)
+          local req = DescribeGroupsRequest.new()
+          reqs:recvInto(req)
+          sink(impl:describeGroups(ctx, req):marshalDc())
+        end,
+      },
+      {
+        name = "DeleteGroups",
+        path = "/grpcdc.kafka.v1.Kafka/DeleteGroups",
+        kind = Server.KIND_UNARY,
+        handler = function(ctx, reqs, sink)
+          local req = DeleteGroupsRequest.new()
+          reqs:recvInto(req)
+          sink(impl:deleteGroups(ctx, req):marshalDc())
+        end,
+      },
+      {
+        name = "DeleteGroupOffsets",
+        path = "/grpcdc.kafka.v1.Kafka/DeleteGroupOffsets",
+        kind = Server.KIND_UNARY,
+        handler = function(ctx, reqs, sink)
+          local req = DeleteGroupOffsetsRequest.new()
+          reqs:recvInto(req)
+          sink(impl:deleteGroupOffsets(ctx, req):marshalDc())
+        end,
+      },
+      {
+        name = "DescribeAcls",
+        path = "/grpcdc.kafka.v1.Kafka/DescribeAcls",
+        kind = Server.KIND_UNARY,
+        handler = function(ctx, reqs, sink)
+          local req = DescribeAclsRequest.new()
+          reqs:recvInto(req)
+          sink(impl:describeAcls(ctx, req):marshalDc())
+        end,
+      },
+      {
+        name = "CreateAcls",
+        path = "/grpcdc.kafka.v1.Kafka/CreateAcls",
+        kind = Server.KIND_UNARY,
+        handler = function(ctx, reqs, sink)
+          local req = CreateAclsRequest.new()
+          reqs:recvInto(req)
+          sink(impl:createAcls(ctx, req):marshalDc())
+        end,
+      },
+      {
+        name = "DeleteAcls",
+        path = "/grpcdc.kafka.v1.Kafka/DeleteAcls",
+        kind = Server.KIND_UNARY,
+        handler = function(ctx, reqs, sink)
+          local req = DeleteAclsRequest.new()
+          reqs:recvInto(req)
+          sink(impl:deleteAcls(ctx, req):marshalDc())
+        end,
+      },
+      {
+        name = "ListTransactions",
+        path = "/grpcdc.kafka.v1.Kafka/ListTransactions",
+        kind = Server.KIND_UNARY,
+        handler = function(ctx, reqs, sink)
+          local req = ListTransactionsRequest.new()
+          reqs:recvInto(req)
+          sink(impl:listTransactions(ctx, req):marshalDc())
+        end,
+      },
+      {
+        name = "DescribeTransactions",
+        path = "/grpcdc.kafka.v1.Kafka/DescribeTransactions",
+        kind = Server.KIND_UNARY,
+        handler = function(ctx, reqs, sink)
+          local req = DescribeTransactionsRequest.new()
+          reqs:recvInto(req)
+          sink(impl:describeTransactions(ctx, req):marshalDc())
+        end,
+      },
+      {
+        name = "OpenShareGroup",
+        path = "/grpcdc.kafka.v1.Kafka/OpenShareGroup",
+        kind = Server.KIND_UNARY,
+        handler = function(ctx, reqs, sink)
+          local req = OpenShareGroupRequest.new()
+          reqs:recvInto(req)
+          sink(impl:openShareGroup(ctx, req):marshalDc())
+        end,
+      },
+      {
+        name = "SharePoll",
+        path = "/grpcdc.kafka.v1.Kafka/SharePoll",
+        kind = Server.KIND_UNARY,
+        handler = function(ctx, reqs, sink)
+          local req = SharePollRequest.new()
+          reqs:recvInto(req)
+          sink(impl:sharePoll(ctx, req):marshalDc())
+        end,
+      },
+      {
+        name = "ShareAck",
+        path = "/grpcdc.kafka.v1.Kafka/ShareAck",
+        kind = Server.KIND_UNARY,
+        handler = function(ctx, reqs, sink)
+          local req = ShareAckRequest.new()
+          reqs:recvInto(req)
+          sink(impl:shareAck(ctx, req):marshalDc())
+        end,
+      },
+      {
+        name = "CloseShareGroup",
+        path = "/grpcdc.kafka.v1.Kafka/CloseShareGroup",
+        kind = Server.KIND_UNARY,
+        handler = function(ctx, reqs, sink)
+          local req = CloseShareGroupRequest.new()
+          reqs:recvInto(req)
+          sink(impl:closeShareGroup(ctx, req):marshalDc())
         end,
       },
     },

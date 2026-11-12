@@ -45,6 +45,7 @@ export class Peer {
   #certificate;
   #remote = null;
   #dtlsRole = "server";
+  #chunkMessages = false;
   #requirePeerCertificate;
   #dtlsQueue = [];
   #dtlsWaiters = [];
@@ -75,7 +76,8 @@ export class Peer {
   #consentIntervalMs = 5000;
   #consentExpiryMs = 30000;
 
-  constructor(socket, agent, certificate, { requirePeerCertificate = true } = {}) {
+  constructor(socket, agent, certificate, { requirePeerCertificate = true, chunkMessages = false } = {}) {
+    this.#chunkMessages = chunkMessages;
     this.#socket = socket;
     this.#agent = agent;
     this.#certificate = certificate;
@@ -93,6 +95,7 @@ export class Peer {
     turnServers = [],
     consentIntervalMs = 5000,
     consentExpiryMs = 30000,
+    chunkMessages = false,
   } = {}) {
     const effectiveIps = localIps ?? defaultLocalIps();
     // A dual-stack udp6 socket serves IPv6 candidates (and IPv4
@@ -116,6 +119,7 @@ export class Peer {
       turnServers,
       consentIntervalMs,
       consentExpiryMs,
+      chunkMessages,
     });
   }
 
@@ -132,15 +136,24 @@ export class Peer {
       turnServers = [],
       consentIntervalMs = 5000,
       consentExpiryMs = 30000,
+      chunkMessages = false,
+      // Rendezvous mode: pre-published fixed local ICE
+      // credentials and DTLS certificate, so a browser can
+      // synthesize this peer's description without signaling.
+      iceUfrag = null,
+      icePwd = null,
+      certificate = null,
     } = {},
   ) {
     const effectiveIps = localIps ?? defaultLocalIps();
     const { port } = socket.address();
     const agent = new IceAgent(true);
+    if (iceUfrag) agent.localUfrag = iceUfrag;
+    if (icePwd) agent.localPwd = icePwd;
     agent.localCandidates = effectiveIps.map((ip, i) =>
       Candidate.host(ip, port, String(i + 1)),
     );
-    const peer = new Peer(socket, agent, Certificate.generate(), { requirePeerCertificate });
+    const peer = new Peer(socket, agent, certificate ?? Certificate.generate(), { requirePeerCertificate, chunkMessages });
     peer.#consentIntervalMs = consentIntervalMs;
     peer.#consentExpiryMs = consentExpiryMs;
     for (const server of stunServers) {
@@ -311,6 +324,29 @@ export class Peer {
     return this.#agent.localCandidates.map((c) => c.toSdp());
   }
 
+  // Local candidate objects (host, srflx, relay) as gathered.
+  localCandidates() {
+    return [...this.#agent.localCandidates];
+  }
+
+  // Adopt srflx candidates gathered by another peer on the
+  // same socket (a PeerMux gathers once for all its peers:
+  // the reflexive address depends only on the shared socket
+  // and the STUN server, not on the peer). Duplicates by
+  // address/port are skipped; adopted candidates trickle.
+  adoptSrflxCandidates(candidates) {
+    for (const cand of candidates ?? []) {
+      if (cand.type !== "srflx") continue;
+      const exists = this.#agent.localCandidates.some(
+        (c) => c.type === cand.type && c.address === cand.address && c.port === cand.port,
+      );
+      if (!exists) {
+        this.#agent.localCandidates.push(cand);
+        this.#emitLocalCandidate(cand);
+      }
+    }
+  }
+
   // Trickle one remote candidate in after the remote description
   // was applied (RFC 8445 trickle ICE). Accepts a full SDP line
   // ("a=candidate:..."), the bare candidate value ("candidate:...",
@@ -353,6 +389,16 @@ export class Peer {
   // This peer's local ICE ufrag (mux registration).
   get localUfrag() {
     return this.#agent.localUfrag;
+  }
+
+  // This peer's local ICE password (rendezvous descriptor).
+  get localPwd() {
+    return this.#agent.localPwd;
+  }
+
+  // SHA-256 fingerprint of this peer's DTLS certificate.
+  get certificateFingerprint() {
+    return this.#certificate.fingerprint();
   }
 
   #localDescription(setup) {
@@ -424,6 +470,24 @@ export class Peer {
     const remote = parse(answerSdp);
     this.#dtlsRole = remote.setup === "active" ? "server" : "client";
     this.#applyRemote(remote);
+  }
+
+  // Rendezvous answering: like handleOffer, but this peer
+  // takes the DTLS *server* role. The remote description is
+  // synthesized server-side from the dialer's first Binding
+  // request (fixed published credentials on this side; the
+  // dialer's ICE pwd and DTLS fingerprint are unknown and,
+  // with requirePeerCertificate off, unneeded). The dialer
+  // applied a synthesized description of us as ICE-lite, so
+  // it is the controlling agent and nominates; this peer's
+  // own checks may fail integrity at the dialer and are
+  // harmless. Returns the (never transmitted) answer SDP.
+  handleRendezvousOffer(offerSdp) {
+    const remote = parse(offerSdp);
+    this.#applyRemote(remote);
+    this.#agent.controlling = false;
+    this.#dtlsRole = "server";
+    return generate(this.#localDescription("passive"), false);
   }
 
   #applyRemote(remote) {
@@ -576,7 +640,13 @@ export class Peer {
     };
     const config = {
       certificate: this.#certificate,
-      expectedPeerFingerprint: this.#remote.fingerprint,
+      // With peer-certificate pinning off (rendezvous answering:
+      // the dialer's fingerprint is unknowable in advance), the
+      // remote fingerprint must not be checked at all — the
+      // synthesized remote description carries a placeholder.
+      expectedPeerFingerprint: this.#requirePeerCertificate
+        ? this.#remote.fingerprint
+        : null,
       requirePeerCertificate: this.#requirePeerCertificate,
     };
     // Single-socket mux endpoints allocate a connection id
@@ -594,7 +664,7 @@ export class Peer {
         ? await DtlsConnection.connect(io, config)
         : await DtlsConnection.accept(io, config);
     emitStackEvent("dtls.handshake", dtls.wasResumed?.() ? "resumed" : "full");
-    this.#endpoint = new DcEndpoint(dtls, this.#dtlsRole);
+    this.#endpoint = new DcEndpoint(dtls, this.#dtlsRole, { chunkMessages: this.#chunkMessages });
     emitStackEvent("endpoint.ready", this.#dtlsRole);
     this.#startConsentLoop();
     return this.#endpoint;

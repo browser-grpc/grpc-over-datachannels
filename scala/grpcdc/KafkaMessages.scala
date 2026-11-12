@@ -152,6 +152,20 @@ object Acks {
   final val ACKS_ALL: Int = 3
 }
 
+object ConfigResourceType {
+  final val CONFIG_RESOURCE_UNKNOWN: Int = 0
+  final val CONFIG_RESOURCE_TOPIC: Int = 2
+  final val CONFIG_RESOURCE_BROKER: Int = 4
+  final val CONFIG_RESOURCE_BROKER_LOGGER: Int = 8
+  final val CONFIG_RESOURCE_CLIENT_METRICS: Int = 16
+  final val CONFIG_RESOURCE_GROUP: Int = 32
+}
+
+object ConfigOp {
+  final val CONFIG_OP_SET: Int = 0
+  final val CONFIG_OP_DELETE: Int = 1
+}
+
 class Header(
     var key: String = "",
     var value: Array[Byte] = Array.empty[Byte]
@@ -1123,7 +1137,8 @@ class GroupSubscribeRequest(
     var sessionTimeoutMs: Int = 0,
     var maxPollRecords: Int = 0,
     var autoOffsetReset: String = "",
-    var readCommitted: Boolean = false
+    var readCommitted: Boolean = false,
+    var groupProtocol: String = ""
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
@@ -1146,6 +1161,7 @@ class GroupSubscribeRequest(
       w.tag(7, 0)
       w.varint((if (readCommitted) 1L else 0L))
     }
+    w.stringField(8, groupProtocol)
     w.raw(unknownFields)
     w.toBytes
   }
@@ -1159,6 +1175,7 @@ class GroupSubscribeRequest(
     maxPollRecords = 0
     autoOffsetReset = ""
     readCommitted = false
+    groupProtocol = ""
     val r = new KafkaPb.Reader(data)
     var field = r.next()
     while (field != null) {
@@ -1177,6 +1194,8 @@ class GroupSubscribeRequest(
           autoOffsetReset = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 7 =>
           readCommitted = (field.varintValue != 0L)
+        case 8 =>
+          groupProtocol = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case _ => unknownFields = unknownFields ++ field.rawValue
       }
       field = r.next()
@@ -1856,6 +1875,1849 @@ class DeleteTopicsResponse(
           val item = new TopicError()
           item.unmarshalDc(field.bytesValue)
           results = results :+ item
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class ConfigEntry(
+    var name: String = "",
+    var value: String = ""
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    w.stringField(1, name)
+    w.stringField(2, value)
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    name = ""
+    value = ""
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case 1 =>
+          name = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 2 =>
+          value = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class AlterConfigEntry(
+    var name: String = "",
+    var value: String = "",
+    var op: Int = 0
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    w.stringField(1, name)
+    w.stringField(2, value)
+    if (op != 0) {
+      w.tag(3, 0)
+      w.varint((op.toLong))
+    }
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    name = ""
+    value = ""
+    op = 0
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case 1 =>
+          name = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 2 =>
+          value = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 3 =>
+          op = field.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class DescribeConfigsRequest(
+    var resourceType: Int = 0,
+    var resourceName: String = "",
+    var configKeys: List[String] = List.empty,
+    var includeSynonyms: Boolean = false
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    if (resourceType != 0) {
+      w.tag(1, 0)
+      w.varint((resourceType.toLong))
+    }
+    w.stringField(2, resourceName)
+    for (x <- configKeys) {
+      w.bytesField(3, x.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+    }
+    if (includeSynonyms) {
+      w.tag(4, 0)
+      w.varint((if (includeSynonyms) 1L else 0L))
+    }
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    resourceType = 0
+    resourceName = ""
+    configKeys = List.empty
+    includeSynonyms = false
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case 1 =>
+          resourceType = field.varintValue.toInt
+        case 2 =>
+          resourceName = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 3 =>
+          configKeys = configKeys :+ new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 4 =>
+          includeSynonyms = (field.varintValue != 0L)
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class ConfigValue(
+    var name: String = "",
+    var value: String = "",
+    var readOnly: Boolean = false,
+    var source: Int = 0,
+    var isSensitive: Boolean = false
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    w.stringField(1, name)
+    w.stringField(2, value)
+    if (readOnly) {
+      w.tag(3, 0)
+      w.varint((if (readOnly) 1L else 0L))
+    }
+    if (source != 0) {
+      w.tag(4, 0)
+      w.varint((source.toLong))
+    }
+    if (isSensitive) {
+      w.tag(5, 0)
+      w.varint((if (isSensitive) 1L else 0L))
+    }
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    name = ""
+    value = ""
+    readOnly = false
+    source = 0
+    isSensitive = false
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case 1 =>
+          name = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 2 =>
+          value = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 3 =>
+          readOnly = (field.varintValue != 0L)
+        case 4 =>
+          source = field.varintValue.toInt
+        case 5 =>
+          isSensitive = (field.varintValue != 0L)
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class DescribeConfigsResponse(
+    var errorCode: Int = 0,
+    var values: List[ConfigValue] = List.empty
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    if (errorCode != 0) {
+      w.tag(1, 0)
+      w.varint((errorCode.toLong))
+    }
+    for (x <- values) {
+      w.bytesField(2, x.marshalDc())
+    }
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    errorCode = 0
+    values = List.empty
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case 1 =>
+          errorCode = field.varintValue.toInt
+        case 2 =>
+          val item = new ConfigValue()
+          item.unmarshalDc(field.bytesValue)
+          values = values :+ item
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class AlterConfigsRequest(
+    var resourceType: Int = 0,
+    var resourceName: String = "",
+    var entries: List[AlterConfigEntry] = List.empty,
+    var validateOnly: Boolean = false
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    if (resourceType != 0) {
+      w.tag(1, 0)
+      w.varint((resourceType.toLong))
+    }
+    w.stringField(2, resourceName)
+    for (x <- entries) {
+      w.bytesField(3, x.marshalDc())
+    }
+    if (validateOnly) {
+      w.tag(4, 0)
+      w.varint((if (validateOnly) 1L else 0L))
+    }
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    resourceType = 0
+    resourceName = ""
+    entries = List.empty
+    validateOnly = false
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case 1 =>
+          resourceType = field.varintValue.toInt
+        case 2 =>
+          resourceName = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 3 =>
+          val item = new AlterConfigEntry()
+          item.unmarshalDc(field.bytesValue)
+          entries = entries :+ item
+        case 4 =>
+          validateOnly = (field.varintValue != 0L)
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class AlterConfigsResponse(
+    var errorCode: Int = 0
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    if (errorCode != 0) {
+      w.tag(1, 0)
+      w.varint((errorCode.toLong))
+    }
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    errorCode = 0
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case 1 =>
+          errorCode = field.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class CreatePartitionsRequest(
+    var topic: String = "",
+    var totalCount: Int = 0,
+    var validateOnly: Boolean = false,
+    var timeoutMs: Int = 0
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    w.stringField(1, topic)
+    if (totalCount != 0) {
+      w.tag(2, 0)
+      w.varint((totalCount.toLong))
+    }
+    if (validateOnly) {
+      w.tag(3, 0)
+      w.varint((if (validateOnly) 1L else 0L))
+    }
+    if (timeoutMs != 0) {
+      w.tag(4, 0)
+      w.varint((timeoutMs.toLong))
+    }
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    topic = ""
+    totalCount = 0
+    validateOnly = false
+    timeoutMs = 0
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case 1 =>
+          topic = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 2 =>
+          totalCount = field.varintValue.toInt
+        case 3 =>
+          validateOnly = (field.varintValue != 0L)
+        case 4 =>
+          timeoutMs = field.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class CreatePartitionsResponse(
+    var errorCode: Int = 0
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    if (errorCode != 0) {
+      w.tag(1, 0)
+      w.varint((errorCode.toLong))
+    }
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    errorCode = 0
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case 1 =>
+          errorCode = field.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class DeleteRecordsRequest(
+    var topic: String = "",
+    var partition: Int = 0,
+    var beforeOffset: Long = 0L
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    w.stringField(1, topic)
+    if (partition != 0) {
+      w.tag(2, 0)
+      w.varint((partition.toLong))
+    }
+    if (beforeOffset != 0) {
+      w.tag(3, 0)
+      w.varint(beforeOffset.toLong)
+    }
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    topic = ""
+    partition = 0
+    beforeOffset = 0L
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case 1 =>
+          topic = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 2 =>
+          partition = field.varintValue.toInt
+        case 3 =>
+          beforeOffset = field.varintValue
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class DeleteRecordsResponse(
+    var lowWatermark: Long = 0L,
+    var errorCode: Int = 0
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    if (lowWatermark != 0) {
+      w.tag(1, 0)
+      w.varint(lowWatermark.toLong)
+    }
+    if (errorCode != 0) {
+      w.tag(2, 0)
+      w.varint((errorCode.toLong))
+    }
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    lowWatermark = 0L
+    errorCode = 0
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case 1 =>
+          lowWatermark = field.varintValue
+        case 2 =>
+          errorCode = field.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class ListGroupsRequest(
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class GroupListing(
+    var groupId: String = "",
+    var protocolType: String = "",
+    var groupState: String = ""
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    w.stringField(1, groupId)
+    w.stringField(2, protocolType)
+    w.stringField(3, groupState)
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    groupId = ""
+    protocolType = ""
+    groupState = ""
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case 1 =>
+          groupId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 2 =>
+          protocolType = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 3 =>
+          groupState = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class ListGroupsResponse(
+    var errorCode: Int = 0,
+    var groups: List[GroupListing] = List.empty
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    if (errorCode != 0) {
+      w.tag(1, 0)
+      w.varint((errorCode.toLong))
+    }
+    for (x <- groups) {
+      w.bytesField(2, x.marshalDc())
+    }
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    errorCode = 0
+    groups = List.empty
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case 1 =>
+          errorCode = field.varintValue.toInt
+        case 2 =>
+          val item = new GroupListing()
+          item.unmarshalDc(field.bytesValue)
+          groups = groups :+ item
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class DescribeGroupsRequest(
+    var groupIds: List[String] = List.empty
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    for (x <- groupIds) {
+      w.bytesField(1, x.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+    }
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    groupIds = List.empty
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case 1 =>
+          groupIds = groupIds :+ new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class GroupMember(
+    var memberId: String = "",
+    var clientId: String = "",
+    var clientHost: String = "",
+    var assignment: List[TopicPartition] = List.empty
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    w.stringField(1, memberId)
+    w.stringField(2, clientId)
+    w.stringField(3, clientHost)
+    for (x <- assignment) {
+      w.bytesField(4, x.marshalDc())
+    }
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    memberId = ""
+    clientId = ""
+    clientHost = ""
+    assignment = List.empty
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case 1 =>
+          memberId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 2 =>
+          clientId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 3 =>
+          clientHost = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 4 =>
+          val item = new TopicPartition()
+          item.unmarshalDc(field.bytesValue)
+          assignment = assignment :+ item
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class DescribedGroup(
+    var groupId: String = "",
+    var errorCode: Int = 0,
+    var groupState: String = "",
+    var protocolType: String = "",
+    var protocol: String = "",
+    var members: List[GroupMember] = List.empty
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    w.stringField(1, groupId)
+    if (errorCode != 0) {
+      w.tag(2, 0)
+      w.varint((errorCode.toLong))
+    }
+    w.stringField(3, groupState)
+    w.stringField(4, protocolType)
+    w.stringField(5, protocol)
+    for (x <- members) {
+      w.bytesField(6, x.marshalDc())
+    }
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    groupId = ""
+    errorCode = 0
+    groupState = ""
+    protocolType = ""
+    protocol = ""
+    members = List.empty
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case 1 =>
+          groupId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 2 =>
+          errorCode = field.varintValue.toInt
+        case 3 =>
+          groupState = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 4 =>
+          protocolType = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 5 =>
+          protocol = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 6 =>
+          val item = new GroupMember()
+          item.unmarshalDc(field.bytesValue)
+          members = members :+ item
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class DescribeGroupsResponse(
+    var groups: List[DescribedGroup] = List.empty
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    for (x <- groups) {
+      w.bytesField(1, x.marshalDc())
+    }
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    groups = List.empty
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case 1 =>
+          val item = new DescribedGroup()
+          item.unmarshalDc(field.bytesValue)
+          groups = groups :+ item
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class DeleteGroupsRequest(
+    var groupIds: List[String] = List.empty
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    for (x <- groupIds) {
+      w.bytesField(1, x.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+    }
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    groupIds = List.empty
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case 1 =>
+          groupIds = groupIds :+ new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class GroupErrorResult(
+    var groupId: String = "",
+    var errorCode: Int = 0
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    w.stringField(1, groupId)
+    if (errorCode != 0) {
+      w.tag(2, 0)
+      w.varint((errorCode.toLong))
+    }
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    groupId = ""
+    errorCode = 0
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case 1 =>
+          groupId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 2 =>
+          errorCode = field.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class DeleteGroupsResponse(
+    var results: List[GroupErrorResult] = List.empty
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    for (x <- results) {
+      w.bytesField(1, x.marshalDc())
+    }
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    results = List.empty
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case 1 =>
+          val item = new GroupErrorResult()
+          item.unmarshalDc(field.bytesValue)
+          results = results :+ item
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class DeleteGroupOffsetsRequest(
+    var groupId: String = "",
+    var topic: String = "",
+    var partitions: List[Int] = List.empty
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    w.stringField(1, groupId)
+    w.stringField(2, topic)
+    if (partitions.nonEmpty) {
+      val payload = new java.io.ByteArrayOutputStream()
+      for (x <- partitions) {
+        payload.write(KafkaPb.varintBytes((x.toLong)))
+      }
+      w.bytesField(3, payload.toByteArray)
+    }
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    groupId = ""
+    topic = ""
+    partitions = List.empty
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case 1 =>
+          groupId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 2 =>
+          topic = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 3 =>
+          if (field.wire == 2) {
+            val sub = new KafkaPb.Reader(field.bytesValue)
+            while (!sub.done) {
+              val raw = sub.varint()
+              partitions = partitions :+ raw.toInt
+            }
+          } else {
+            partitions = partitions :+ field.varintValue.toInt
+          }
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class DeleteGroupOffsetsResponse(
+    var errorCode: Int = 0
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    if (errorCode != 0) {
+      w.tag(1, 0)
+      w.varint((errorCode.toLong))
+    }
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    errorCode = 0
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case 1 =>
+          errorCode = field.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class Acl(
+    var resourceType: Int = 0,
+    var resourceName: String = "",
+    var patternType: Int = 0,
+    var principal: String = "",
+    var host: String = "",
+    var operation: Int = 0,
+    var permissionType: Int = 0
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    if (resourceType != 0) {
+      w.tag(1, 0)
+      w.varint((resourceType.toLong))
+    }
+    w.stringField(2, resourceName)
+    if (patternType != 0) {
+      w.tag(3, 0)
+      w.varint((patternType.toLong))
+    }
+    w.stringField(4, principal)
+    w.stringField(5, host)
+    if (operation != 0) {
+      w.tag(6, 0)
+      w.varint((operation.toLong))
+    }
+    if (permissionType != 0) {
+      w.tag(7, 0)
+      w.varint((permissionType.toLong))
+    }
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    resourceType = 0
+    resourceName = ""
+    patternType = 0
+    principal = ""
+    host = ""
+    operation = 0
+    permissionType = 0
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case 1 =>
+          resourceType = field.varintValue.toInt
+        case 2 =>
+          resourceName = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 3 =>
+          patternType = field.varintValue.toInt
+        case 4 =>
+          principal = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 5 =>
+          host = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 6 =>
+          operation = field.varintValue.toInt
+        case 7 =>
+          permissionType = field.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class DescribeAclsRequest(
+    var filter: Acl = null
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    if (filter != null) {
+      w.bytesField(1, filter.marshalDc())
+    }
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    filter = null
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case 1 =>
+          filter = new Acl()
+          filter.unmarshalDc(field.bytesValue)
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class DescribeAclsResponse(
+    var errorCode: Int = 0,
+    var acls: List[Acl] = List.empty
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    if (errorCode != 0) {
+      w.tag(1, 0)
+      w.varint((errorCode.toLong))
+    }
+    for (x <- acls) {
+      w.bytesField(2, x.marshalDc())
+    }
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    errorCode = 0
+    acls = List.empty
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case 1 =>
+          errorCode = field.varintValue.toInt
+        case 2 =>
+          val item = new Acl()
+          item.unmarshalDc(field.bytesValue)
+          acls = acls :+ item
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class CreateAclsRequest(
+    var acls: List[Acl] = List.empty
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    for (x <- acls) {
+      w.bytesField(1, x.marshalDc())
+    }
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    acls = List.empty
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case 1 =>
+          val item = new Acl()
+          item.unmarshalDc(field.bytesValue)
+          acls = acls :+ item
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class CreateAclsResponse(
+    var errorCodes: List[Int] = List.empty
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    if (errorCodes.nonEmpty) {
+      val payload = new java.io.ByteArrayOutputStream()
+      for (x <- errorCodes) {
+        payload.write(KafkaPb.varintBytes((x.toLong)))
+      }
+      w.bytesField(1, payload.toByteArray)
+    }
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    errorCodes = List.empty
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case 1 =>
+          if (field.wire == 2) {
+            val sub = new KafkaPb.Reader(field.bytesValue)
+            while (!sub.done) {
+              val raw = sub.varint()
+              errorCodes = errorCodes :+ raw.toInt
+            }
+          } else {
+            errorCodes = errorCodes :+ field.varintValue.toInt
+          }
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class DeleteAclsRequest(
+    var filters: List[Acl] = List.empty
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    for (x <- filters) {
+      w.bytesField(1, x.marshalDc())
+    }
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    filters = List.empty
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case 1 =>
+          val item = new Acl()
+          item.unmarshalDc(field.bytesValue)
+          filters = filters :+ item
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class DeleteAclsResponse(
+    var errorCodes: List[Int] = List.empty
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    if (errorCodes.nonEmpty) {
+      val payload = new java.io.ByteArrayOutputStream()
+      for (x <- errorCodes) {
+        payload.write(KafkaPb.varintBytes((x.toLong)))
+      }
+      w.bytesField(1, payload.toByteArray)
+    }
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    errorCodes = List.empty
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case 1 =>
+          if (field.wire == 2) {
+            val sub = new KafkaPb.Reader(field.bytesValue)
+            while (!sub.done) {
+              val raw = sub.varint()
+              errorCodes = errorCodes :+ raw.toInt
+            }
+          } else {
+            errorCodes = errorCodes :+ field.varintValue.toInt
+          }
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class ListTransactionsRequest(
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class TransactionListing(
+    var transactionalId: String = "",
+    var producerId: Long = 0L,
+    var transactionState: String = ""
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    w.stringField(1, transactionalId)
+    if (producerId != 0) {
+      w.tag(2, 0)
+      w.varint(producerId.toLong)
+    }
+    w.stringField(3, transactionState)
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    transactionalId = ""
+    producerId = 0L
+    transactionState = ""
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case 1 =>
+          transactionalId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 2 =>
+          producerId = field.varintValue
+        case 3 =>
+          transactionState = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class ListTransactionsResponse(
+    var errorCode: Int = 0,
+    var transactions: List[TransactionListing] = List.empty
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    if (errorCode != 0) {
+      w.tag(1, 0)
+      w.varint((errorCode.toLong))
+    }
+    for (x <- transactions) {
+      w.bytesField(2, x.marshalDc())
+    }
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    errorCode = 0
+    transactions = List.empty
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case 1 =>
+          errorCode = field.varintValue.toInt
+        case 2 =>
+          val item = new TransactionListing()
+          item.unmarshalDc(field.bytesValue)
+          transactions = transactions :+ item
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class DescribeTransactionsRequest(
+    var transactionalIds: List[String] = List.empty
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    for (x <- transactionalIds) {
+      w.bytesField(1, x.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+    }
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    transactionalIds = List.empty
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case 1 =>
+          transactionalIds = transactionalIds :+ new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class DescribedTransaction(
+    var transactionalId: String = "",
+    var errorCode: Int = 0,
+    var producerId: Long = 0L,
+    var producerEpoch: Int = 0,
+    var transactionState: String = "",
+    var lastUpdateTimestampMs: Long = 0L
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    w.stringField(1, transactionalId)
+    if (errorCode != 0) {
+      w.tag(2, 0)
+      w.varint((errorCode.toLong))
+    }
+    if (producerId != 0) {
+      w.tag(3, 0)
+      w.varint(producerId.toLong)
+    }
+    if (producerEpoch != 0) {
+      w.tag(4, 0)
+      w.varint((producerEpoch.toLong))
+    }
+    w.stringField(5, transactionState)
+    if (lastUpdateTimestampMs != 0) {
+      w.tag(6, 0)
+      w.varint(lastUpdateTimestampMs.toLong)
+    }
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    transactionalId = ""
+    errorCode = 0
+    producerId = 0L
+    producerEpoch = 0
+    transactionState = ""
+    lastUpdateTimestampMs = 0L
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case 1 =>
+          transactionalId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 2 =>
+          errorCode = field.varintValue.toInt
+        case 3 =>
+          producerId = field.varintValue
+        case 4 =>
+          producerEpoch = field.varintValue.toInt
+        case 5 =>
+          transactionState = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 6 =>
+          lastUpdateTimestampMs = field.varintValue
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class DescribeTransactionsResponse(
+    var transactions: List[DescribedTransaction] = List.empty
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    for (x <- transactions) {
+      w.bytesField(1, x.marshalDc())
+    }
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    transactions = List.empty
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case 1 =>
+          val item = new DescribedTransaction()
+          item.unmarshalDc(field.bytesValue)
+          transactions = transactions :+ item
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class OpenShareGroupRequest(
+    var groupId: String = "",
+    var topics: List[String] = List.empty,
+    var groupInstanceId: String = "",
+    var sessionTimeoutMs: Int = 0
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    w.stringField(1, groupId)
+    for (x <- topics) {
+      w.bytesField(2, x.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+    }
+    w.stringField(3, groupInstanceId)
+    if (sessionTimeoutMs != 0) {
+      w.tag(4, 0)
+      w.varint((sessionTimeoutMs.toLong))
+    }
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    groupId = ""
+    topics = List.empty
+    groupInstanceId = ""
+    sessionTimeoutMs = 0
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case 1 =>
+          groupId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 2 =>
+          topics = topics :+ new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 3 =>
+          groupInstanceId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 4 =>
+          sessionTimeoutMs = field.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class OpenShareGroupResponse(
+    var sessionId: String = "",
+    var errorCode: Int = 0,
+    var assignment: Assignment = null
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    w.stringField(1, sessionId)
+    if (errorCode != 0) {
+      w.tag(2, 0)
+      w.varint((errorCode.toLong))
+    }
+    if (assignment != null) {
+      w.bytesField(3, assignment.marshalDc())
+    }
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    sessionId = ""
+    errorCode = 0
+    assignment = null
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case 1 =>
+          sessionId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 2 =>
+          errorCode = field.varintValue.toInt
+        case 3 =>
+          assignment = new Assignment()
+          assignment.unmarshalDc(field.bytesValue)
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class SharePollRequest(
+    var sessionId: String = "",
+    var maxRecords: Int = 0,
+    var maxWaitMs: Int = 0
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    w.stringField(1, sessionId)
+    if (maxRecords != 0) {
+      w.tag(2, 0)
+      w.varint((maxRecords.toLong))
+    }
+    if (maxWaitMs != 0) {
+      w.tag(3, 0)
+      w.varint((maxWaitMs.toLong))
+    }
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    sessionId = ""
+    maxRecords = 0
+    maxWaitMs = 0
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case 1 =>
+          sessionId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 2 =>
+          maxRecords = field.varintValue.toInt
+        case 3 =>
+          maxWaitMs = field.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class SharePollRecord(
+    var topic: String = "",
+    var partition: Int = 0,
+    var offset: Long = 0L,
+    var key: Array[Byte] = Array.empty[Byte],
+    var value: Array[Byte] = Array.empty[Byte],
+    var headers: List[Header] = List.empty,
+    var timestampMs: Long = 0L,
+    var deliveryCount: Int = 0,
+    var nullKey: Boolean = false
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    w.stringField(1, topic)
+    if (partition != 0) {
+      w.tag(2, 0)
+      w.varint((partition.toLong))
+    }
+    if (offset != 0) {
+      w.tag(3, 0)
+      w.varint(offset.toLong)
+    }
+    if (key.nonEmpty) {
+      w.bytesField(4, key)
+    }
+    if (value.nonEmpty) {
+      w.bytesField(5, value)
+    }
+    for (x <- headers) {
+      w.bytesField(6, x.marshalDc())
+    }
+    if (timestampMs != 0) {
+      w.tag(7, 0)
+      w.varint(timestampMs.toLong)
+    }
+    if (deliveryCount != 0) {
+      w.tag(8, 0)
+      w.varint((deliveryCount.toLong))
+    }
+    if (nullKey) {
+      w.tag(9, 0)
+      w.varint((if (nullKey) 1L else 0L))
+    }
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    topic = ""
+    partition = 0
+    offset = 0L
+    key = Array.empty[Byte]
+    value = Array.empty[Byte]
+    headers = List.empty
+    timestampMs = 0L
+    deliveryCount = 0
+    nullKey = false
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case 1 =>
+          topic = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 2 =>
+          partition = field.varintValue.toInt
+        case 3 =>
+          offset = field.varintValue
+        case 4 =>
+          key = field.bytesValue
+        case 5 =>
+          value = field.bytesValue
+        case 6 =>
+          val item = new Header()
+          item.unmarshalDc(field.bytesValue)
+          headers = headers :+ item
+        case 7 =>
+          timestampMs = field.varintValue
+        case 8 =>
+          deliveryCount = field.varintValue.toInt
+        case 9 =>
+          nullKey = (field.varintValue != 0L)
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class SharePollResponse(
+    var records: List[SharePollRecord] = List.empty,
+    var errorCode: Int = 0
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    for (x <- records) {
+      w.bytesField(1, x.marshalDc())
+    }
+    if (errorCode != 0) {
+      w.tag(2, 0)
+      w.varint((errorCode.toLong))
+    }
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    records = List.empty
+    errorCode = 0
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case 1 =>
+          val item = new SharePollRecord()
+          item.unmarshalDc(field.bytesValue)
+          records = records :+ item
+        case 2 =>
+          errorCode = field.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class ShareAckEntry(
+    var topic: String = "",
+    var partition: Int = 0,
+    var offset: Long = 0L,
+    var ackType: Int = 0
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    w.stringField(1, topic)
+    if (partition != 0) {
+      w.tag(2, 0)
+      w.varint((partition.toLong))
+    }
+    if (offset != 0) {
+      w.tag(3, 0)
+      w.varint(offset.toLong)
+    }
+    if (ackType != 0) {
+      w.tag(4, 0)
+      w.varint((ackType.toLong))
+    }
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    topic = ""
+    partition = 0
+    offset = 0L
+    ackType = 0
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case 1 =>
+          topic = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 2 =>
+          partition = field.varintValue.toInt
+        case 3 =>
+          offset = field.varintValue
+        case 4 =>
+          ackType = field.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class ShareAckRequest(
+    var sessionId: String = "",
+    var entries: List[ShareAckEntry] = List.empty
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    w.stringField(1, sessionId)
+    for (x <- entries) {
+      w.bytesField(2, x.marshalDc())
+    }
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    sessionId = ""
+    entries = List.empty
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case 1 =>
+          sessionId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 2 =>
+          val item = new ShareAckEntry()
+          item.unmarshalDc(field.bytesValue)
+          entries = entries :+ item
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class ShareAckResponse(
+    var errorCode: Int = 0
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    if (errorCode != 0) {
+      w.tag(1, 0)
+      w.varint((errorCode.toLong))
+    }
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    errorCode = 0
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case 1 =>
+          errorCode = field.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class CloseShareGroupRequest(
+    var sessionId: String = ""
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    w.stringField(1, sessionId)
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    sessionId = ""
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case 1 =>
+          sessionId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case _ => unknownFields = unknownFields ++ field.rawValue
+      }
+      field = r.next()
+    }
+  }
+}
+
+class CloseShareGroupResponse(
+    var errorCode: Int = 0
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val w = new KafkaPb.Writer()
+    if (errorCode != 0) {
+      w.tag(1, 0)
+      w.varint((errorCode.toLong))
+    }
+    w.raw(unknownFields)
+    w.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    errorCode = 0
+    val r = new KafkaPb.Reader(data)
+    var field = r.next()
+    while (field != null) {
+      field.number match {
+        case 1 =>
+          errorCode = field.varintValue.toInt
         case _ => unknownFields = unknownFields ++ field.rawValue
       }
       field = r.next()

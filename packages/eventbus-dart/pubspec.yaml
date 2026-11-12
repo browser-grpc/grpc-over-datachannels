@@ -1,5 +1,5 @@
 name: eventbus_grpc
-version: 0.40.0
+version: 0.41.0
 description: "Event bus over gRPC for Dart and Flutter: generated grpcdc.events.v1 publish/subscribe clients speaking gRPC over WebRTC DataChannels, via the grpc_dc runtime."
 homepage: https://github.com/browser-grpc/grpc-over-datachannels
 repository: https://github.com/browser-grpc/grpc-over-datachannels
@@ -7,4 +7,4 @@ issue_tracker: https://github.com/browser-grpc/grpc-over-datachannels/issues
 environment:
   sdk: ">=3.0.0 <4.0.0"
 dependencies:
-  grpc_dc: ^0.40.0
+  grpc_dc: ^0.41.0

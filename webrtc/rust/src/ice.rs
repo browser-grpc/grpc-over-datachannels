@@ -499,6 +499,15 @@ impl IceAgent {
                 self.last_consent = Some(self.now_ms());
                 events.push(IceEvent::Nominated { remote: src });
             }
+            // An integrity-valid Binding request from the
+            // nominated pair is itself consent evidence
+            // (RFC 7675): peers that only ever send checks —
+            // ICE-lite dialers whose password we never learn,
+            // e.g. rendezvous browsers — keep the pair fresh
+            // without any Binding success reaching us.
+            if self.nominated == Some(src) {
+                self.last_consent = Some(self.now_ms());
+            }
         } else if msg.msg_type == crate::proto_gen::stun_msg::BINDING_SUCCESS {
             if !msg.check_integrity(raw, self.remote_pwd.as_bytes()) {
                 return (responses, events);

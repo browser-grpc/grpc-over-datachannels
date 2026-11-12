@@ -310,6 +310,91 @@ class KafkaClient
         return $this->channel->unary("/grpcdc.kafka.v1.Kafka/DeleteTopics", $req, new \KafkaPb\DeleteTopicsResponse(), $metadata, $timeout);
     }
 
+    public function DescribeConfigs(\KafkaPb\DescribeConfigsRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaPb\DescribeConfigsResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.v1.Kafka/DescribeConfigs", $req, new \KafkaPb\DescribeConfigsResponse(), $metadata, $timeout);
+    }
+
+    public function AlterConfigs(\KafkaPb\AlterConfigsRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaPb\AlterConfigsResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.v1.Kafka/AlterConfigs", $req, new \KafkaPb\AlterConfigsResponse(), $metadata, $timeout);
+    }
+
+    public function CreatePartitions(\KafkaPb\CreatePartitionsRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaPb\CreatePartitionsResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.v1.Kafka/CreatePartitions", $req, new \KafkaPb\CreatePartitionsResponse(), $metadata, $timeout);
+    }
+
+    public function DeleteRecords(\KafkaPb\DeleteRecordsRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaPb\DeleteRecordsResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.v1.Kafka/DeleteRecords", $req, new \KafkaPb\DeleteRecordsResponse(), $metadata, $timeout);
+    }
+
+    public function ListGroups(\KafkaPb\ListGroupsRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaPb\ListGroupsResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.v1.Kafka/ListGroups", $req, new \KafkaPb\ListGroupsResponse(), $metadata, $timeout);
+    }
+
+    public function DescribeGroups(\KafkaPb\DescribeGroupsRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaPb\DescribeGroupsResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.v1.Kafka/DescribeGroups", $req, new \KafkaPb\DescribeGroupsResponse(), $metadata, $timeout);
+    }
+
+    public function DeleteGroups(\KafkaPb\DeleteGroupsRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaPb\DeleteGroupsResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.v1.Kafka/DeleteGroups", $req, new \KafkaPb\DeleteGroupsResponse(), $metadata, $timeout);
+    }
+
+    public function DeleteGroupOffsets(\KafkaPb\DeleteGroupOffsetsRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaPb\DeleteGroupOffsetsResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.v1.Kafka/DeleteGroupOffsets", $req, new \KafkaPb\DeleteGroupOffsetsResponse(), $metadata, $timeout);
+    }
+
+    public function DescribeAcls(\KafkaPb\DescribeAclsRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaPb\DescribeAclsResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.v1.Kafka/DescribeAcls", $req, new \KafkaPb\DescribeAclsResponse(), $metadata, $timeout);
+    }
+
+    public function CreateAcls(\KafkaPb\CreateAclsRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaPb\CreateAclsResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.v1.Kafka/CreateAcls", $req, new \KafkaPb\CreateAclsResponse(), $metadata, $timeout);
+    }
+
+    public function DeleteAcls(\KafkaPb\DeleteAclsRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaPb\DeleteAclsResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.v1.Kafka/DeleteAcls", $req, new \KafkaPb\DeleteAclsResponse(), $metadata, $timeout);
+    }
+
+    public function ListTransactions(\KafkaPb\ListTransactionsRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaPb\ListTransactionsResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.v1.Kafka/ListTransactions", $req, new \KafkaPb\ListTransactionsResponse(), $metadata, $timeout);
+    }
+
+    public function DescribeTransactions(\KafkaPb\DescribeTransactionsRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaPb\DescribeTransactionsResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.v1.Kafka/DescribeTransactions", $req, new \KafkaPb\DescribeTransactionsResponse(), $metadata, $timeout);
+    }
+
+    public function OpenShareGroup(\KafkaPb\OpenShareGroupRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaPb\OpenShareGroupResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.v1.Kafka/OpenShareGroup", $req, new \KafkaPb\OpenShareGroupResponse(), $metadata, $timeout);
+    }
+
+    public function SharePoll(\KafkaPb\SharePollRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaPb\SharePollResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.v1.Kafka/SharePoll", $req, new \KafkaPb\SharePollResponse(), $metadata, $timeout);
+    }
+
+    public function ShareAck(\KafkaPb\ShareAckRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaPb\ShareAckResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.v1.Kafka/ShareAck", $req, new \KafkaPb\ShareAckResponse(), $metadata, $timeout);
+    }
+
+    public function CloseShareGroup(\KafkaPb\CloseShareGroupRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaPb\CloseShareGroupResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.v1.Kafka/CloseShareGroup", $req, new \KafkaPb\CloseShareGroupResponse(), $metadata, $timeout);
+    }
+
 }
 
 // Fiber client: wraps a Grpcdc\FiberChannel (a sync Channel is wrapped).
@@ -382,6 +467,91 @@ class KafkaClientFiber
     public function DeleteTopics(\KafkaPb\DeleteTopicsRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaPb\DeleteTopicsResponse
     {
         return $this->channel->unary("/grpcdc.kafka.v1.Kafka/DeleteTopics", $req, new \KafkaPb\DeleteTopicsResponse(), $metadata, $timeout);
+    }
+
+    public function DescribeConfigs(\KafkaPb\DescribeConfigsRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaPb\DescribeConfigsResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.v1.Kafka/DescribeConfigs", $req, new \KafkaPb\DescribeConfigsResponse(), $metadata, $timeout);
+    }
+
+    public function AlterConfigs(\KafkaPb\AlterConfigsRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaPb\AlterConfigsResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.v1.Kafka/AlterConfigs", $req, new \KafkaPb\AlterConfigsResponse(), $metadata, $timeout);
+    }
+
+    public function CreatePartitions(\KafkaPb\CreatePartitionsRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaPb\CreatePartitionsResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.v1.Kafka/CreatePartitions", $req, new \KafkaPb\CreatePartitionsResponse(), $metadata, $timeout);
+    }
+
+    public function DeleteRecords(\KafkaPb\DeleteRecordsRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaPb\DeleteRecordsResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.v1.Kafka/DeleteRecords", $req, new \KafkaPb\DeleteRecordsResponse(), $metadata, $timeout);
+    }
+
+    public function ListGroups(\KafkaPb\ListGroupsRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaPb\ListGroupsResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.v1.Kafka/ListGroups", $req, new \KafkaPb\ListGroupsResponse(), $metadata, $timeout);
+    }
+
+    public function DescribeGroups(\KafkaPb\DescribeGroupsRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaPb\DescribeGroupsResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.v1.Kafka/DescribeGroups", $req, new \KafkaPb\DescribeGroupsResponse(), $metadata, $timeout);
+    }
+
+    public function DeleteGroups(\KafkaPb\DeleteGroupsRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaPb\DeleteGroupsResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.v1.Kafka/DeleteGroups", $req, new \KafkaPb\DeleteGroupsResponse(), $metadata, $timeout);
+    }
+
+    public function DeleteGroupOffsets(\KafkaPb\DeleteGroupOffsetsRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaPb\DeleteGroupOffsetsResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.v1.Kafka/DeleteGroupOffsets", $req, new \KafkaPb\DeleteGroupOffsetsResponse(), $metadata, $timeout);
+    }
+
+    public function DescribeAcls(\KafkaPb\DescribeAclsRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaPb\DescribeAclsResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.v1.Kafka/DescribeAcls", $req, new \KafkaPb\DescribeAclsResponse(), $metadata, $timeout);
+    }
+
+    public function CreateAcls(\KafkaPb\CreateAclsRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaPb\CreateAclsResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.v1.Kafka/CreateAcls", $req, new \KafkaPb\CreateAclsResponse(), $metadata, $timeout);
+    }
+
+    public function DeleteAcls(\KafkaPb\DeleteAclsRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaPb\DeleteAclsResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.v1.Kafka/DeleteAcls", $req, new \KafkaPb\DeleteAclsResponse(), $metadata, $timeout);
+    }
+
+    public function ListTransactions(\KafkaPb\ListTransactionsRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaPb\ListTransactionsResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.v1.Kafka/ListTransactions", $req, new \KafkaPb\ListTransactionsResponse(), $metadata, $timeout);
+    }
+
+    public function DescribeTransactions(\KafkaPb\DescribeTransactionsRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaPb\DescribeTransactionsResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.v1.Kafka/DescribeTransactions", $req, new \KafkaPb\DescribeTransactionsResponse(), $metadata, $timeout);
+    }
+
+    public function OpenShareGroup(\KafkaPb\OpenShareGroupRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaPb\OpenShareGroupResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.v1.Kafka/OpenShareGroup", $req, new \KafkaPb\OpenShareGroupResponse(), $metadata, $timeout);
+    }
+
+    public function SharePoll(\KafkaPb\SharePollRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaPb\SharePollResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.v1.Kafka/SharePoll", $req, new \KafkaPb\SharePollResponse(), $metadata, $timeout);
+    }
+
+    public function ShareAck(\KafkaPb\ShareAckRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaPb\ShareAckResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.v1.Kafka/ShareAck", $req, new \KafkaPb\ShareAckResponse(), $metadata, $timeout);
+    }
+
+    public function CloseShareGroup(\KafkaPb\CloseShareGroupRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaPb\CloseShareGroupResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.v1.Kafka/CloseShareGroup", $req, new \KafkaPb\CloseShareGroupResponse(), $metadata, $timeout);
     }
 
 }
@@ -458,6 +628,108 @@ function registerKafkaServer(\Grpcdc\Server $server, object $impl): void
         $sink->send($resp->marshalDc());
     };
 
+    $describe_configsHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
+        $req = $reqs->recvInto(new \KafkaPb\DescribeConfigsRequest());
+        $resp = $impl->DescribeConfigs($ctx, $req);
+        $sink->send($resp->marshalDc());
+    };
+
+    $alter_configsHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
+        $req = $reqs->recvInto(new \KafkaPb\AlterConfigsRequest());
+        $resp = $impl->AlterConfigs($ctx, $req);
+        $sink->send($resp->marshalDc());
+    };
+
+    $create_partitionsHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
+        $req = $reqs->recvInto(new \KafkaPb\CreatePartitionsRequest());
+        $resp = $impl->CreatePartitions($ctx, $req);
+        $sink->send($resp->marshalDc());
+    };
+
+    $delete_recordsHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
+        $req = $reqs->recvInto(new \KafkaPb\DeleteRecordsRequest());
+        $resp = $impl->DeleteRecords($ctx, $req);
+        $sink->send($resp->marshalDc());
+    };
+
+    $list_groupsHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
+        $req = $reqs->recvInto(new \KafkaPb\ListGroupsRequest());
+        $resp = $impl->ListGroups($ctx, $req);
+        $sink->send($resp->marshalDc());
+    };
+
+    $describe_groupsHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
+        $req = $reqs->recvInto(new \KafkaPb\DescribeGroupsRequest());
+        $resp = $impl->DescribeGroups($ctx, $req);
+        $sink->send($resp->marshalDc());
+    };
+
+    $delete_groupsHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
+        $req = $reqs->recvInto(new \KafkaPb\DeleteGroupsRequest());
+        $resp = $impl->DeleteGroups($ctx, $req);
+        $sink->send($resp->marshalDc());
+    };
+
+    $delete_group_offsetsHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
+        $req = $reqs->recvInto(new \KafkaPb\DeleteGroupOffsetsRequest());
+        $resp = $impl->DeleteGroupOffsets($ctx, $req);
+        $sink->send($resp->marshalDc());
+    };
+
+    $describe_aclsHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
+        $req = $reqs->recvInto(new \KafkaPb\DescribeAclsRequest());
+        $resp = $impl->DescribeAcls($ctx, $req);
+        $sink->send($resp->marshalDc());
+    };
+
+    $create_aclsHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
+        $req = $reqs->recvInto(new \KafkaPb\CreateAclsRequest());
+        $resp = $impl->CreateAcls($ctx, $req);
+        $sink->send($resp->marshalDc());
+    };
+
+    $delete_aclsHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
+        $req = $reqs->recvInto(new \KafkaPb\DeleteAclsRequest());
+        $resp = $impl->DeleteAcls($ctx, $req);
+        $sink->send($resp->marshalDc());
+    };
+
+    $list_transactionsHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
+        $req = $reqs->recvInto(new \KafkaPb\ListTransactionsRequest());
+        $resp = $impl->ListTransactions($ctx, $req);
+        $sink->send($resp->marshalDc());
+    };
+
+    $describe_transactionsHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
+        $req = $reqs->recvInto(new \KafkaPb\DescribeTransactionsRequest());
+        $resp = $impl->DescribeTransactions($ctx, $req);
+        $sink->send($resp->marshalDc());
+    };
+
+    $open_share_groupHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
+        $req = $reqs->recvInto(new \KafkaPb\OpenShareGroupRequest());
+        $resp = $impl->OpenShareGroup($ctx, $req);
+        $sink->send($resp->marshalDc());
+    };
+
+    $share_pollHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
+        $req = $reqs->recvInto(new \KafkaPb\SharePollRequest());
+        $resp = $impl->SharePoll($ctx, $req);
+        $sink->send($resp->marshalDc());
+    };
+
+    $share_ackHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
+        $req = $reqs->recvInto(new \KafkaPb\ShareAckRequest());
+        $resp = $impl->ShareAck($ctx, $req);
+        $sink->send($resp->marshalDc());
+    };
+
+    $close_share_groupHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
+        $req = $reqs->recvInto(new \KafkaPb\CloseShareGroupRequest());
+        $resp = $impl->CloseShareGroup($ctx, $req);
+        $sink->send($resp->marshalDc());
+    };
+
     $server->registerService(new \Grpcdc\ServiceDesc(
         "grpcdc.kafka.v1.Kafka",
         [
@@ -473,6 +745,23 @@ function registerKafkaServer(\Grpcdc\Server $server, object $impl): void
             new \Grpcdc\Method("FetchOffset", "/grpcdc.kafka.v1.Kafka/FetchOffset", \Grpcdc\Server::KIND_UNARY, $fetch_offsetHandler),
             new \Grpcdc\Method("CreateTopics", "/grpcdc.kafka.v1.Kafka/CreateTopics", \Grpcdc\Server::KIND_UNARY, $create_topicsHandler),
             new \Grpcdc\Method("DeleteTopics", "/grpcdc.kafka.v1.Kafka/DeleteTopics", \Grpcdc\Server::KIND_UNARY, $delete_topicsHandler),
+            new \Grpcdc\Method("DescribeConfigs", "/grpcdc.kafka.v1.Kafka/DescribeConfigs", \Grpcdc\Server::KIND_UNARY, $describe_configsHandler),
+            new \Grpcdc\Method("AlterConfigs", "/grpcdc.kafka.v1.Kafka/AlterConfigs", \Grpcdc\Server::KIND_UNARY, $alter_configsHandler),
+            new \Grpcdc\Method("CreatePartitions", "/grpcdc.kafka.v1.Kafka/CreatePartitions", \Grpcdc\Server::KIND_UNARY, $create_partitionsHandler),
+            new \Grpcdc\Method("DeleteRecords", "/grpcdc.kafka.v1.Kafka/DeleteRecords", \Grpcdc\Server::KIND_UNARY, $delete_recordsHandler),
+            new \Grpcdc\Method("ListGroups", "/grpcdc.kafka.v1.Kafka/ListGroups", \Grpcdc\Server::KIND_UNARY, $list_groupsHandler),
+            new \Grpcdc\Method("DescribeGroups", "/grpcdc.kafka.v1.Kafka/DescribeGroups", \Grpcdc\Server::KIND_UNARY, $describe_groupsHandler),
+            new \Grpcdc\Method("DeleteGroups", "/grpcdc.kafka.v1.Kafka/DeleteGroups", \Grpcdc\Server::KIND_UNARY, $delete_groupsHandler),
+            new \Grpcdc\Method("DeleteGroupOffsets", "/grpcdc.kafka.v1.Kafka/DeleteGroupOffsets", \Grpcdc\Server::KIND_UNARY, $delete_group_offsetsHandler),
+            new \Grpcdc\Method("DescribeAcls", "/grpcdc.kafka.v1.Kafka/DescribeAcls", \Grpcdc\Server::KIND_UNARY, $describe_aclsHandler),
+            new \Grpcdc\Method("CreateAcls", "/grpcdc.kafka.v1.Kafka/CreateAcls", \Grpcdc\Server::KIND_UNARY, $create_aclsHandler),
+            new \Grpcdc\Method("DeleteAcls", "/grpcdc.kafka.v1.Kafka/DeleteAcls", \Grpcdc\Server::KIND_UNARY, $delete_aclsHandler),
+            new \Grpcdc\Method("ListTransactions", "/grpcdc.kafka.v1.Kafka/ListTransactions", \Grpcdc\Server::KIND_UNARY, $list_transactionsHandler),
+            new \Grpcdc\Method("DescribeTransactions", "/grpcdc.kafka.v1.Kafka/DescribeTransactions", \Grpcdc\Server::KIND_UNARY, $describe_transactionsHandler),
+            new \Grpcdc\Method("OpenShareGroup", "/grpcdc.kafka.v1.Kafka/OpenShareGroup", \Grpcdc\Server::KIND_UNARY, $open_share_groupHandler),
+            new \Grpcdc\Method("SharePoll", "/grpcdc.kafka.v1.Kafka/SharePoll", \Grpcdc\Server::KIND_UNARY, $share_pollHandler),
+            new \Grpcdc\Method("ShareAck", "/grpcdc.kafka.v1.Kafka/ShareAck", \Grpcdc\Server::KIND_UNARY, $share_ackHandler),
+            new \Grpcdc\Method("CloseShareGroup", "/grpcdc.kafka.v1.Kafka/CloseShareGroup", \Grpcdc\Server::KIND_UNARY, $close_share_groupHandler),
         ]
     ));
 }

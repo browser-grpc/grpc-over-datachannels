@@ -12,7 +12,7 @@ the gRPC wire protocol over WebRTC DataChannels.
 
 ## Use it in your project
 
-Zig package manager: `zig fetch --save git+https://github.com/browser-grpc/grpc-over-datachannels.git#v0.40.0` — the repository root is a Zig package (build.zig.zon) exposing modules `grpcdc` (the runtime) and `kafka_grpc` (the grpcdc.kafka.v1 stubs). Depend on it with `b.dependency("grpc_dc", .{})` and `dep.module("grpcdc")` / `dep.module("kafka_grpc")`. Or copy this directory; there are no dependencies.
+Zig package manager: `zig fetch --save git+https://github.com/browser-grpc/grpc-over-datachannels.git#v0.41.0` — the repository root is a Zig package (build.zig.zon) exposing modules `grpcdc` (the runtime) and `kafka_grpc` (the grpcdc.kafka.v1 stubs). Depend on it with `b.dependency("grpc_dc", .{})` and `dep.module("grpcdc")` / `dep.module("kafka_grpc")`. Or copy this directory; there are no dependencies.
 
 ## Regenerate stubs for your schema
 

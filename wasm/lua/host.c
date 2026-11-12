@@ -23,7 +23,7 @@ IMPORT("on_result") extern void on_result(const char *ptr, size_t len);
 IMPORT("on_error") extern void on_error(const char *ptr, size_t len);
 IMPORT("js_now_ms") extern double js_now_ms(void);
 
-#define MAX_MESSAGE (256 * 1024)
+#define MAX_MESSAGE (4 * 1024 * 1024) /* fits shim-reassembled frames */
 static char recv_buf[MAX_MESSAGE];
 
 static int l_host_now(lua_State *L) {

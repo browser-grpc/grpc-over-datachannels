@@ -34,7 +34,35 @@ export {
 export { Channel } from "./src/channel.js";
 export { Server } from "./src/server.js";
 export { memoryDataChannelPair } from "./src/loopback.js";
+export {
+  DC_CHUNK_MAGIC,
+  MAX_DC_CHUNK_PAYLOAD,
+  DcChunkReassembler,
+  chunkedDataChannel,
+  splitDcMessage,
+} from "./src/chunking.js";
 export { createGrpcDcBridge, createGrpcDcServerBridge } from "./src/wasm_bridge.js";
+export {
+  SIGNAL_PATH,
+  httpSignalingChannel,
+  signalCandidateViaHttp,
+  signalRestartViaHttp,
+  signalSessionViaHttp,
+  signalViaHttp,
+} from "./src/signaling.js";
+export {
+  fetchRendezvousDescriptor,
+  rendezvousChannel,
+  synthesizeRendezvousOffer,
+} from "./src/rendezvous.js";
+// The rendezvous server (src/rendezvous_server.js) is Node-only
+// (node:dgram via webrtc/js/rendezvous.js) and is not re-exported
+// here. Import it directly:
+//   import { serveRendezvous } from "grpc-dc/rendezvous_server";
+// The Node HTTP/POST signaling server (src/signaling_server.js)
+// is likewise Node-only (node:http + the Node WebRTC stack) and
+// is not re-exported here. Import it directly:
+//   import { serveHttpSignaling } from "grpc-dc/signaling_server";
 // Note: the Node WebRTC-Direct adapter (src/webrtc_direct.js)
 // is deliberately NOT re-exported here -- it imports Node-only
 // modules (node:dgram via webrtc/js/direct.js) and this index

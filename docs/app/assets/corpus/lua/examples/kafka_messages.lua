@@ -150,9 +150,59 @@ local TopicError
 local CreateTopicsResponse
 local DeleteTopicsRequest
 local DeleteTopicsResponse
+local ConfigEntry
+local AlterConfigEntry
+local DescribeConfigsRequest
+local ConfigValue
+local DescribeConfigsResponse
+local AlterConfigsRequest
+local AlterConfigsResponse
+local CreatePartitionsRequest
+local CreatePartitionsResponse
+local DeleteRecordsRequest
+local DeleteRecordsResponse
+local ListGroupsRequest
+local GroupListing
+local ListGroupsResponse
+local DescribeGroupsRequest
+local GroupMember
+local DescribedGroup
+local DescribeGroupsResponse
+local DeleteGroupsRequest
+local GroupErrorResult
+local DeleteGroupsResponse
+local DeleteGroupOffsetsRequest
+local DeleteGroupOffsetsResponse
+local Acl
+local DescribeAclsRequest
+local DescribeAclsResponse
+local CreateAclsRequest
+local CreateAclsResponse
+local DeleteAclsRequest
+local DeleteAclsResponse
+local ListTransactionsRequest
+local TransactionListing
+local ListTransactionsResponse
+local DescribeTransactionsRequest
+local DescribedTransaction
+local DescribeTransactionsResponse
+local OpenShareGroupRequest
+local OpenShareGroupResponse
+local SharePollRequest
+local SharePollRecord
+local SharePollResponse
+local ShareAckEntry
+local ShareAckRequest
+local ShareAckResponse
+local CloseShareGroupRequest
+local CloseShareGroupResponse
 local Compression = { COMPRESSION_NONE = 0, COMPRESSION_GZIP = 1, COMPRESSION_SNAPPY = 2, COMPRESSION_LZ4 = 3, COMPRESSION_ZSTD = 4 }
 
 local Acks = { ACKS_UNSPECIFIED = 0, ACKS_NONE = 1, ACKS_LEADER = 2, ACKS_ALL = 3 }
+
+local ConfigResourceType = { CONFIG_RESOURCE_UNKNOWN = 0, CONFIG_RESOURCE_TOPIC = 2, CONFIG_RESOURCE_BROKER = 4, CONFIG_RESOURCE_BROKER_LOGGER = 8, CONFIG_RESOURCE_CLIENT_METRICS = 16, CONFIG_RESOURCE_GROUP = 32 }
+
+local ConfigOp = { CONFIG_OP_SET = 0, CONFIG_OP_DELETE = 1 }
 
 Header = {}
 Header.__index = Header
@@ -973,8 +1023,8 @@ end
 GroupSubscribeRequest = {}
 GroupSubscribeRequest.__index = GroupSubscribeRequest
 
-function GroupSubscribeRequest.new(groupId, topics, groupInstanceId, sessionTimeoutMs, maxPollRecords, autoOffsetReset, readCommitted)
-  return setmetatable({ groupId = groupId or "", topics = topics or {}, groupInstanceId = groupInstanceId or "", sessionTimeoutMs = sessionTimeoutMs or 0, maxPollRecords = maxPollRecords or 0, autoOffsetReset = autoOffsetReset or "", readCommitted = readCommitted or false, unknownFields = "" }, GroupSubscribeRequest)
+function GroupSubscribeRequest.new(groupId, topics, groupInstanceId, sessionTimeoutMs, maxPollRecords, autoOffsetReset, readCommitted, groupProtocol)
+  return setmetatable({ groupId = groupId or "", topics = topics or {}, groupInstanceId = groupInstanceId or "", sessionTimeoutMs = sessionTimeoutMs or 0, maxPollRecords = maxPollRecords or 0, autoOffsetReset = autoOffsetReset or "", readCommitted = readCommitted or false, groupProtocol = groupProtocol or "", unknownFields = "" }, GroupSubscribeRequest)
 end
 
 function GroupSubscribeRequest:marshalDc()
@@ -986,6 +1036,7 @@ function GroupSubscribeRequest:marshalDc()
     if self.maxPollRecords ~= 0 then w:tag(5, 0) w:varint(self.maxPollRecords) end
     w:stringField(6, self.autoOffsetReset)
     if self.readCommitted then w:tag(7, 0) w:varint((self.readCommitted and 1 or 0)) end
+    w:stringField(8, self.groupProtocol)
   w:raw(self.unknownFields)
   return w:toBytes()
 end
@@ -999,6 +1050,7 @@ function GroupSubscribeRequest:unmarshalDc(data)
   self.maxPollRecords = 0
   self.autoOffsetReset = ""
   self.readCommitted = false
+  self.groupProtocol = ""
   local r = Reader.new(data)
   while true do
     local field = r:next()
@@ -1018,6 +1070,8 @@ function GroupSubscribeRequest:unmarshalDc(data)
       self.autoOffsetReset = field.bytesValue
     elseif field.number == 7 then
       self.readCommitted = (field.varintValue ~= 0)
+    elseif field.number == 8 then
+      self.groupProtocol = field.bytesValue
     else
       self.unknownFields = self.unknownFields .. field.rawValue
     end
@@ -1639,6 +1693,1722 @@ function DeleteTopicsResponse:unmarshalDc(data)
   end
 end
 
+ConfigEntry = {}
+ConfigEntry.__index = ConfigEntry
+
+function ConfigEntry.new(name, value)
+  return setmetatable({ name = name or "", value = value or "", unknownFields = "" }, ConfigEntry)
+end
+
+function ConfigEntry:marshalDc()
+  local w = Writer.new()
+    w:stringField(1, self.name)
+    w:stringField(2, self.value)
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function ConfigEntry:unmarshalDc(data)
+  self.unknownFields = ""
+  self.name = ""
+  self.value = ""
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      self.name = field.bytesValue
+    elseif field.number == 2 then
+      self.value = field.bytesValue
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+AlterConfigEntry = {}
+AlterConfigEntry.__index = AlterConfigEntry
+
+function AlterConfigEntry.new(name, value, op)
+  return setmetatable({ name = name or "", value = value or "", op = op or 0, unknownFields = "" }, AlterConfigEntry)
+end
+
+function AlterConfigEntry:marshalDc()
+  local w = Writer.new()
+    w:stringField(1, self.name)
+    w:stringField(2, self.value)
+    if self.op ~= 0 then w:tag(3, 0) w:varint(self.op) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function AlterConfigEntry:unmarshalDc(data)
+  self.unknownFields = ""
+  self.name = ""
+  self.value = ""
+  self.op = 0
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      self.name = field.bytesValue
+    elseif field.number == 2 then
+      self.value = field.bytesValue
+    elseif field.number == 3 then
+      self.op = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+DescribeConfigsRequest = {}
+DescribeConfigsRequest.__index = DescribeConfigsRequest
+
+function DescribeConfigsRequest.new(resourceType, resourceName, configKeys, includeSynonyms)
+  return setmetatable({ resourceType = resourceType or 0, resourceName = resourceName or "", configKeys = configKeys or {}, includeSynonyms = includeSynonyms or false, unknownFields = "" }, DescribeConfigsRequest)
+end
+
+function DescribeConfigsRequest:marshalDc()
+  local w = Writer.new()
+    if self.resourceType ~= 0 then w:tag(1, 0) w:varint(self.resourceType) end
+    w:stringField(2, self.resourceName)
+    for _, x in ipairs(self.configKeys) do w:bytesField(3, x) end
+    if self.includeSynonyms then w:tag(4, 0) w:varint((self.includeSynonyms and 1 or 0)) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function DescribeConfigsRequest:unmarshalDc(data)
+  self.unknownFields = ""
+  self.resourceType = 0
+  self.resourceName = ""
+  self.configKeys = {}
+  self.includeSynonyms = false
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      self.resourceType = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    elseif field.number == 2 then
+      self.resourceName = field.bytesValue
+    elseif field.number == 3 then
+      self.configKeys[#self.configKeys + 1] = field.bytesValue
+    elseif field.number == 4 then
+      self.includeSynonyms = (field.varintValue ~= 0)
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+ConfigValue = {}
+ConfigValue.__index = ConfigValue
+
+function ConfigValue.new(name, value, readOnly, source, isSensitive)
+  return setmetatable({ name = name or "", value = value or "", readOnly = readOnly or false, source = source or 0, isSensitive = isSensitive or false, unknownFields = "" }, ConfigValue)
+end
+
+function ConfigValue:marshalDc()
+  local w = Writer.new()
+    w:stringField(1, self.name)
+    w:stringField(2, self.value)
+    if self.readOnly then w:tag(3, 0) w:varint((self.readOnly and 1 or 0)) end
+    if self.source ~= 0 then w:tag(4, 0) w:varint(self.source) end
+    if self.isSensitive then w:tag(5, 0) w:varint((self.isSensitive and 1 or 0)) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function ConfigValue:unmarshalDc(data)
+  self.unknownFields = ""
+  self.name = ""
+  self.value = ""
+  self.readOnly = false
+  self.source = 0
+  self.isSensitive = false
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      self.name = field.bytesValue
+    elseif field.number == 2 then
+      self.value = field.bytesValue
+    elseif field.number == 3 then
+      self.readOnly = (field.varintValue ~= 0)
+    elseif field.number == 4 then
+      self.source = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    elseif field.number == 5 then
+      self.isSensitive = (field.varintValue ~= 0)
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+DescribeConfigsResponse = {}
+DescribeConfigsResponse.__index = DescribeConfigsResponse
+
+function DescribeConfigsResponse.new(errorCode, values)
+  return setmetatable({ errorCode = errorCode or 0, values = values or {}, unknownFields = "" }, DescribeConfigsResponse)
+end
+
+function DescribeConfigsResponse:marshalDc()
+  local w = Writer.new()
+    if self.errorCode ~= 0 then w:tag(1, 0) w:varint(self.errorCode) end
+    for _, x in ipairs(self.values) do w:bytesField(2, x:marshalDc()) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function DescribeConfigsResponse:unmarshalDc(data)
+  self.unknownFields = ""
+  self.errorCode = 0
+  self.values = {}
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      self.errorCode = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    elseif field.number == 2 then
+      local item = ConfigValue.new()
+      item:unmarshalDc(field.bytesValue)
+      self.values[#self.values + 1] = item
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+AlterConfigsRequest = {}
+AlterConfigsRequest.__index = AlterConfigsRequest
+
+function AlterConfigsRequest.new(resourceType, resourceName, entries, validateOnly)
+  return setmetatable({ resourceType = resourceType or 0, resourceName = resourceName or "", entries = entries or {}, validateOnly = validateOnly or false, unknownFields = "" }, AlterConfigsRequest)
+end
+
+function AlterConfigsRequest:marshalDc()
+  local w = Writer.new()
+    if self.resourceType ~= 0 then w:tag(1, 0) w:varint(self.resourceType) end
+    w:stringField(2, self.resourceName)
+    for _, x in ipairs(self.entries) do w:bytesField(3, x:marshalDc()) end
+    if self.validateOnly then w:tag(4, 0) w:varint((self.validateOnly and 1 or 0)) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function AlterConfigsRequest:unmarshalDc(data)
+  self.unknownFields = ""
+  self.resourceType = 0
+  self.resourceName = ""
+  self.entries = {}
+  self.validateOnly = false
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      self.resourceType = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    elseif field.number == 2 then
+      self.resourceName = field.bytesValue
+    elseif field.number == 3 then
+      local item = AlterConfigEntry.new()
+      item:unmarshalDc(field.bytesValue)
+      self.entries[#self.entries + 1] = item
+    elseif field.number == 4 then
+      self.validateOnly = (field.varintValue ~= 0)
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+AlterConfigsResponse = {}
+AlterConfigsResponse.__index = AlterConfigsResponse
+
+function AlterConfigsResponse.new(errorCode)
+  return setmetatable({ errorCode = errorCode or 0, unknownFields = "" }, AlterConfigsResponse)
+end
+
+function AlterConfigsResponse:marshalDc()
+  local w = Writer.new()
+    if self.errorCode ~= 0 then w:tag(1, 0) w:varint(self.errorCode) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function AlterConfigsResponse:unmarshalDc(data)
+  self.unknownFields = ""
+  self.errorCode = 0
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      self.errorCode = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+CreatePartitionsRequest = {}
+CreatePartitionsRequest.__index = CreatePartitionsRequest
+
+function CreatePartitionsRequest.new(topic, totalCount, validateOnly, timeoutMs)
+  return setmetatable({ topic = topic or "", totalCount = totalCount or 0, validateOnly = validateOnly or false, timeoutMs = timeoutMs or 0, unknownFields = "" }, CreatePartitionsRequest)
+end
+
+function CreatePartitionsRequest:marshalDc()
+  local w = Writer.new()
+    w:stringField(1, self.topic)
+    if self.totalCount ~= 0 then w:tag(2, 0) w:varint(self.totalCount) end
+    if self.validateOnly then w:tag(3, 0) w:varint((self.validateOnly and 1 or 0)) end
+    if self.timeoutMs ~= 0 then w:tag(4, 0) w:varint(self.timeoutMs) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function CreatePartitionsRequest:unmarshalDc(data)
+  self.unknownFields = ""
+  self.topic = ""
+  self.totalCount = 0
+  self.validateOnly = false
+  self.timeoutMs = 0
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      self.topic = field.bytesValue
+    elseif field.number == 2 then
+      self.totalCount = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    elseif field.number == 3 then
+      self.validateOnly = (field.varintValue ~= 0)
+    elseif field.number == 4 then
+      self.timeoutMs = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+CreatePartitionsResponse = {}
+CreatePartitionsResponse.__index = CreatePartitionsResponse
+
+function CreatePartitionsResponse.new(errorCode)
+  return setmetatable({ errorCode = errorCode or 0, unknownFields = "" }, CreatePartitionsResponse)
+end
+
+function CreatePartitionsResponse:marshalDc()
+  local w = Writer.new()
+    if self.errorCode ~= 0 then w:tag(1, 0) w:varint(self.errorCode) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function CreatePartitionsResponse:unmarshalDc(data)
+  self.unknownFields = ""
+  self.errorCode = 0
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      self.errorCode = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+DeleteRecordsRequest = {}
+DeleteRecordsRequest.__index = DeleteRecordsRequest
+
+function DeleteRecordsRequest.new(topic, partition, beforeOffset)
+  return setmetatable({ topic = topic or "", partition = partition or 0, beforeOffset = beforeOffset or 0, unknownFields = "" }, DeleteRecordsRequest)
+end
+
+function DeleteRecordsRequest:marshalDc()
+  local w = Writer.new()
+    w:stringField(1, self.topic)
+    if self.partition ~= 0 then w:tag(2, 0) w:varint(self.partition) end
+    if self.beforeOffset ~= 0 then w:tag(3, 0) w:varint(self.beforeOffset) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function DeleteRecordsRequest:unmarshalDc(data)
+  self.unknownFields = ""
+  self.topic = ""
+  self.partition = 0
+  self.beforeOffset = 0
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      self.topic = field.bytesValue
+    elseif field.number == 2 then
+      self.partition = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    elseif field.number == 3 then
+      self.beforeOffset = field.varintValue
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+DeleteRecordsResponse = {}
+DeleteRecordsResponse.__index = DeleteRecordsResponse
+
+function DeleteRecordsResponse.new(lowWatermark, errorCode)
+  return setmetatable({ lowWatermark = lowWatermark or 0, errorCode = errorCode or 0, unknownFields = "" }, DeleteRecordsResponse)
+end
+
+function DeleteRecordsResponse:marshalDc()
+  local w = Writer.new()
+    if self.lowWatermark ~= 0 then w:tag(1, 0) w:varint(self.lowWatermark) end
+    if self.errorCode ~= 0 then w:tag(2, 0) w:varint(self.errorCode) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function DeleteRecordsResponse:unmarshalDc(data)
+  self.unknownFields = ""
+  self.lowWatermark = 0
+  self.errorCode = 0
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      self.lowWatermark = field.varintValue
+    elseif field.number == 2 then
+      self.errorCode = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+ListGroupsRequest = {}
+ListGroupsRequest.__index = ListGroupsRequest
+
+function ListGroupsRequest.new()
+  return setmetatable({ unknownFields = "" }, ListGroupsRequest)
+end
+
+function ListGroupsRequest:marshalDc()
+  local w = Writer.new()
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function ListGroupsRequest:unmarshalDc(data)
+  self.unknownFields = ""
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+GroupListing = {}
+GroupListing.__index = GroupListing
+
+function GroupListing.new(groupId, protocolType, groupState)
+  return setmetatable({ groupId = groupId or "", protocolType = protocolType or "", groupState = groupState or "", unknownFields = "" }, GroupListing)
+end
+
+function GroupListing:marshalDc()
+  local w = Writer.new()
+    w:stringField(1, self.groupId)
+    w:stringField(2, self.protocolType)
+    w:stringField(3, self.groupState)
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function GroupListing:unmarshalDc(data)
+  self.unknownFields = ""
+  self.groupId = ""
+  self.protocolType = ""
+  self.groupState = ""
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      self.groupId = field.bytesValue
+    elseif field.number == 2 then
+      self.protocolType = field.bytesValue
+    elseif field.number == 3 then
+      self.groupState = field.bytesValue
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+ListGroupsResponse = {}
+ListGroupsResponse.__index = ListGroupsResponse
+
+function ListGroupsResponse.new(errorCode, groups)
+  return setmetatable({ errorCode = errorCode or 0, groups = groups or {}, unknownFields = "" }, ListGroupsResponse)
+end
+
+function ListGroupsResponse:marshalDc()
+  local w = Writer.new()
+    if self.errorCode ~= 0 then w:tag(1, 0) w:varint(self.errorCode) end
+    for _, x in ipairs(self.groups) do w:bytesField(2, x:marshalDc()) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function ListGroupsResponse:unmarshalDc(data)
+  self.unknownFields = ""
+  self.errorCode = 0
+  self.groups = {}
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      self.errorCode = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    elseif field.number == 2 then
+      local item = GroupListing.new()
+      item:unmarshalDc(field.bytesValue)
+      self.groups[#self.groups + 1] = item
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+DescribeGroupsRequest = {}
+DescribeGroupsRequest.__index = DescribeGroupsRequest
+
+function DescribeGroupsRequest.new(groupIds)
+  return setmetatable({ groupIds = groupIds or {}, unknownFields = "" }, DescribeGroupsRequest)
+end
+
+function DescribeGroupsRequest:marshalDc()
+  local w = Writer.new()
+    for _, x in ipairs(self.groupIds) do w:bytesField(1, x) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function DescribeGroupsRequest:unmarshalDc(data)
+  self.unknownFields = ""
+  self.groupIds = {}
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      self.groupIds[#self.groupIds + 1] = field.bytesValue
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+GroupMember = {}
+GroupMember.__index = GroupMember
+
+function GroupMember.new(memberId, clientId, clientHost, assignment)
+  return setmetatable({ memberId = memberId or "", clientId = clientId or "", clientHost = clientHost or "", assignment = assignment or {}, unknownFields = "" }, GroupMember)
+end
+
+function GroupMember:marshalDc()
+  local w = Writer.new()
+    w:stringField(1, self.memberId)
+    w:stringField(2, self.clientId)
+    w:stringField(3, self.clientHost)
+    for _, x in ipairs(self.assignment) do w:bytesField(4, x:marshalDc()) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function GroupMember:unmarshalDc(data)
+  self.unknownFields = ""
+  self.memberId = ""
+  self.clientId = ""
+  self.clientHost = ""
+  self.assignment = {}
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      self.memberId = field.bytesValue
+    elseif field.number == 2 then
+      self.clientId = field.bytesValue
+    elseif field.number == 3 then
+      self.clientHost = field.bytesValue
+    elseif field.number == 4 then
+      local item = TopicPartition.new()
+      item:unmarshalDc(field.bytesValue)
+      self.assignment[#self.assignment + 1] = item
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+DescribedGroup = {}
+DescribedGroup.__index = DescribedGroup
+
+function DescribedGroup.new(groupId, errorCode, groupState, protocolType, protocol, members)
+  return setmetatable({ groupId = groupId or "", errorCode = errorCode or 0, groupState = groupState or "", protocolType = protocolType or "", protocol = protocol or "", members = members or {}, unknownFields = "" }, DescribedGroup)
+end
+
+function DescribedGroup:marshalDc()
+  local w = Writer.new()
+    w:stringField(1, self.groupId)
+    if self.errorCode ~= 0 then w:tag(2, 0) w:varint(self.errorCode) end
+    w:stringField(3, self.groupState)
+    w:stringField(4, self.protocolType)
+    w:stringField(5, self.protocol)
+    for _, x in ipairs(self.members) do w:bytesField(6, x:marshalDc()) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function DescribedGroup:unmarshalDc(data)
+  self.unknownFields = ""
+  self.groupId = ""
+  self.errorCode = 0
+  self.groupState = ""
+  self.protocolType = ""
+  self.protocol = ""
+  self.members = {}
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      self.groupId = field.bytesValue
+    elseif field.number == 2 then
+      self.errorCode = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    elseif field.number == 3 then
+      self.groupState = field.bytesValue
+    elseif field.number == 4 then
+      self.protocolType = field.bytesValue
+    elseif field.number == 5 then
+      self.protocol = field.bytesValue
+    elseif field.number == 6 then
+      local item = GroupMember.new()
+      item:unmarshalDc(field.bytesValue)
+      self.members[#self.members + 1] = item
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+DescribeGroupsResponse = {}
+DescribeGroupsResponse.__index = DescribeGroupsResponse
+
+function DescribeGroupsResponse.new(groups)
+  return setmetatable({ groups = groups or {}, unknownFields = "" }, DescribeGroupsResponse)
+end
+
+function DescribeGroupsResponse:marshalDc()
+  local w = Writer.new()
+    for _, x in ipairs(self.groups) do w:bytesField(1, x:marshalDc()) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function DescribeGroupsResponse:unmarshalDc(data)
+  self.unknownFields = ""
+  self.groups = {}
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      local item = DescribedGroup.new()
+      item:unmarshalDc(field.bytesValue)
+      self.groups[#self.groups + 1] = item
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+DeleteGroupsRequest = {}
+DeleteGroupsRequest.__index = DeleteGroupsRequest
+
+function DeleteGroupsRequest.new(groupIds)
+  return setmetatable({ groupIds = groupIds or {}, unknownFields = "" }, DeleteGroupsRequest)
+end
+
+function DeleteGroupsRequest:marshalDc()
+  local w = Writer.new()
+    for _, x in ipairs(self.groupIds) do w:bytesField(1, x) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function DeleteGroupsRequest:unmarshalDc(data)
+  self.unknownFields = ""
+  self.groupIds = {}
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      self.groupIds[#self.groupIds + 1] = field.bytesValue
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+GroupErrorResult = {}
+GroupErrorResult.__index = GroupErrorResult
+
+function GroupErrorResult.new(groupId, errorCode)
+  return setmetatable({ groupId = groupId or "", errorCode = errorCode or 0, unknownFields = "" }, GroupErrorResult)
+end
+
+function GroupErrorResult:marshalDc()
+  local w = Writer.new()
+    w:stringField(1, self.groupId)
+    if self.errorCode ~= 0 then w:tag(2, 0) w:varint(self.errorCode) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function GroupErrorResult:unmarshalDc(data)
+  self.unknownFields = ""
+  self.groupId = ""
+  self.errorCode = 0
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      self.groupId = field.bytesValue
+    elseif field.number == 2 then
+      self.errorCode = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+DeleteGroupsResponse = {}
+DeleteGroupsResponse.__index = DeleteGroupsResponse
+
+function DeleteGroupsResponse.new(results)
+  return setmetatable({ results = results or {}, unknownFields = "" }, DeleteGroupsResponse)
+end
+
+function DeleteGroupsResponse:marshalDc()
+  local w = Writer.new()
+    for _, x in ipairs(self.results) do w:bytesField(1, x:marshalDc()) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function DeleteGroupsResponse:unmarshalDc(data)
+  self.unknownFields = ""
+  self.results = {}
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      local item = GroupErrorResult.new()
+      item:unmarshalDc(field.bytesValue)
+      self.results[#self.results + 1] = item
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+DeleteGroupOffsetsRequest = {}
+DeleteGroupOffsetsRequest.__index = DeleteGroupOffsetsRequest
+
+function DeleteGroupOffsetsRequest.new(groupId, topic, partitions)
+  return setmetatable({ groupId = groupId or "", topic = topic or "", partitions = partitions or {}, unknownFields = "" }, DeleteGroupOffsetsRequest)
+end
+
+function DeleteGroupOffsetsRequest:marshalDc()
+  local w = Writer.new()
+    w:stringField(1, self.groupId)
+    w:stringField(2, self.topic)
+    if #self.partitions > 0 then
+      local payload = {}
+      for _, x in ipairs(self.partitions) do payload[#payload + 1] = varintBytes(x) end
+      w:bytesField(3, table.concat(payload))
+    end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function DeleteGroupOffsetsRequest:unmarshalDc(data)
+  self.unknownFields = ""
+  self.groupId = ""
+  self.topic = ""
+  self.partitions = {}
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      self.groupId = field.bytesValue
+    elseif field.number == 2 then
+      self.topic = field.bytesValue
+    elseif field.number == 3 then
+      if field.wire == 2 then
+        local sub = Reader.new(field.bytesValue)
+        while not sub:done() do
+          local raw = sub:varint()
+          self.partitions[#self.partitions + 1] = ((raw & 0xffffffff) >= 0x80000000 and (raw & 0xffffffff) - 0x100000000 or (raw & 0xffffffff))
+        end
+      else
+        self.partitions[#self.partitions + 1] = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+      end
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+DeleteGroupOffsetsResponse = {}
+DeleteGroupOffsetsResponse.__index = DeleteGroupOffsetsResponse
+
+function DeleteGroupOffsetsResponse.new(errorCode)
+  return setmetatable({ errorCode = errorCode or 0, unknownFields = "" }, DeleteGroupOffsetsResponse)
+end
+
+function DeleteGroupOffsetsResponse:marshalDc()
+  local w = Writer.new()
+    if self.errorCode ~= 0 then w:tag(1, 0) w:varint(self.errorCode) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function DeleteGroupOffsetsResponse:unmarshalDc(data)
+  self.unknownFields = ""
+  self.errorCode = 0
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      self.errorCode = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+Acl = {}
+Acl.__index = Acl
+
+function Acl.new(resourceType, resourceName, patternType, principal, host, operation, permissionType)
+  return setmetatable({ resourceType = resourceType or 0, resourceName = resourceName or "", patternType = patternType or 0, principal = principal or "", host = host or "", operation = operation or 0, permissionType = permissionType or 0, unknownFields = "" }, Acl)
+end
+
+function Acl:marshalDc()
+  local w = Writer.new()
+    if self.resourceType ~= 0 then w:tag(1, 0) w:varint(self.resourceType) end
+    w:stringField(2, self.resourceName)
+    if self.patternType ~= 0 then w:tag(3, 0) w:varint(self.patternType) end
+    w:stringField(4, self.principal)
+    w:stringField(5, self.host)
+    if self.operation ~= 0 then w:tag(6, 0) w:varint(self.operation) end
+    if self.permissionType ~= 0 then w:tag(7, 0) w:varint(self.permissionType) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function Acl:unmarshalDc(data)
+  self.unknownFields = ""
+  self.resourceType = 0
+  self.resourceName = ""
+  self.patternType = 0
+  self.principal = ""
+  self.host = ""
+  self.operation = 0
+  self.permissionType = 0
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      self.resourceType = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    elseif field.number == 2 then
+      self.resourceName = field.bytesValue
+    elseif field.number == 3 then
+      self.patternType = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    elseif field.number == 4 then
+      self.principal = field.bytesValue
+    elseif field.number == 5 then
+      self.host = field.bytesValue
+    elseif field.number == 6 then
+      self.operation = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    elseif field.number == 7 then
+      self.permissionType = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+DescribeAclsRequest = {}
+DescribeAclsRequest.__index = DescribeAclsRequest
+
+function DescribeAclsRequest.new(filter)
+  return setmetatable({ filter = filter or nil, unknownFields = "" }, DescribeAclsRequest)
+end
+
+function DescribeAclsRequest:marshalDc()
+  local w = Writer.new()
+    if self.filter ~= nil then w:bytesField(1, self.filter:marshalDc()) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function DescribeAclsRequest:unmarshalDc(data)
+  self.unknownFields = ""
+  self.filter = nil
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      self.filter = Acl.new()
+      self.filter:unmarshalDc(field.bytesValue)
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+DescribeAclsResponse = {}
+DescribeAclsResponse.__index = DescribeAclsResponse
+
+function DescribeAclsResponse.new(errorCode, acls)
+  return setmetatable({ errorCode = errorCode or 0, acls = acls or {}, unknownFields = "" }, DescribeAclsResponse)
+end
+
+function DescribeAclsResponse:marshalDc()
+  local w = Writer.new()
+    if self.errorCode ~= 0 then w:tag(1, 0) w:varint(self.errorCode) end
+    for _, x in ipairs(self.acls) do w:bytesField(2, x:marshalDc()) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function DescribeAclsResponse:unmarshalDc(data)
+  self.unknownFields = ""
+  self.errorCode = 0
+  self.acls = {}
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      self.errorCode = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    elseif field.number == 2 then
+      local item = Acl.new()
+      item:unmarshalDc(field.bytesValue)
+      self.acls[#self.acls + 1] = item
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+CreateAclsRequest = {}
+CreateAclsRequest.__index = CreateAclsRequest
+
+function CreateAclsRequest.new(acls)
+  return setmetatable({ acls = acls or {}, unknownFields = "" }, CreateAclsRequest)
+end
+
+function CreateAclsRequest:marshalDc()
+  local w = Writer.new()
+    for _, x in ipairs(self.acls) do w:bytesField(1, x:marshalDc()) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function CreateAclsRequest:unmarshalDc(data)
+  self.unknownFields = ""
+  self.acls = {}
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      local item = Acl.new()
+      item:unmarshalDc(field.bytesValue)
+      self.acls[#self.acls + 1] = item
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+CreateAclsResponse = {}
+CreateAclsResponse.__index = CreateAclsResponse
+
+function CreateAclsResponse.new(errorCodes)
+  return setmetatable({ errorCodes = errorCodes or {}, unknownFields = "" }, CreateAclsResponse)
+end
+
+function CreateAclsResponse:marshalDc()
+  local w = Writer.new()
+    if #self.errorCodes > 0 then
+      local payload = {}
+      for _, x in ipairs(self.errorCodes) do payload[#payload + 1] = varintBytes(x) end
+      w:bytesField(1, table.concat(payload))
+    end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function CreateAclsResponse:unmarshalDc(data)
+  self.unknownFields = ""
+  self.errorCodes = {}
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      if field.wire == 2 then
+        local sub = Reader.new(field.bytesValue)
+        while not sub:done() do
+          local raw = sub:varint()
+          self.errorCodes[#self.errorCodes + 1] = ((raw & 0xffffffff) >= 0x80000000 and (raw & 0xffffffff) - 0x100000000 or (raw & 0xffffffff))
+        end
+      else
+        self.errorCodes[#self.errorCodes + 1] = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+      end
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+DeleteAclsRequest = {}
+DeleteAclsRequest.__index = DeleteAclsRequest
+
+function DeleteAclsRequest.new(filters)
+  return setmetatable({ filters = filters or {}, unknownFields = "" }, DeleteAclsRequest)
+end
+
+function DeleteAclsRequest:marshalDc()
+  local w = Writer.new()
+    for _, x in ipairs(self.filters) do w:bytesField(1, x:marshalDc()) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function DeleteAclsRequest:unmarshalDc(data)
+  self.unknownFields = ""
+  self.filters = {}
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      local item = Acl.new()
+      item:unmarshalDc(field.bytesValue)
+      self.filters[#self.filters + 1] = item
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+DeleteAclsResponse = {}
+DeleteAclsResponse.__index = DeleteAclsResponse
+
+function DeleteAclsResponse.new(errorCodes)
+  return setmetatable({ errorCodes = errorCodes or {}, unknownFields = "" }, DeleteAclsResponse)
+end
+
+function DeleteAclsResponse:marshalDc()
+  local w = Writer.new()
+    if #self.errorCodes > 0 then
+      local payload = {}
+      for _, x in ipairs(self.errorCodes) do payload[#payload + 1] = varintBytes(x) end
+      w:bytesField(1, table.concat(payload))
+    end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function DeleteAclsResponse:unmarshalDc(data)
+  self.unknownFields = ""
+  self.errorCodes = {}
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      if field.wire == 2 then
+        local sub = Reader.new(field.bytesValue)
+        while not sub:done() do
+          local raw = sub:varint()
+          self.errorCodes[#self.errorCodes + 1] = ((raw & 0xffffffff) >= 0x80000000 and (raw & 0xffffffff) - 0x100000000 or (raw & 0xffffffff))
+        end
+      else
+        self.errorCodes[#self.errorCodes + 1] = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+      end
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+ListTransactionsRequest = {}
+ListTransactionsRequest.__index = ListTransactionsRequest
+
+function ListTransactionsRequest.new()
+  return setmetatable({ unknownFields = "" }, ListTransactionsRequest)
+end
+
+function ListTransactionsRequest:marshalDc()
+  local w = Writer.new()
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function ListTransactionsRequest:unmarshalDc(data)
+  self.unknownFields = ""
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+TransactionListing = {}
+TransactionListing.__index = TransactionListing
+
+function TransactionListing.new(transactionalId, producerId, transactionState)
+  return setmetatable({ transactionalId = transactionalId or "", producerId = producerId or 0, transactionState = transactionState or "", unknownFields = "" }, TransactionListing)
+end
+
+function TransactionListing:marshalDc()
+  local w = Writer.new()
+    w:stringField(1, self.transactionalId)
+    if self.producerId ~= 0 then w:tag(2, 0) w:varint(self.producerId) end
+    w:stringField(3, self.transactionState)
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function TransactionListing:unmarshalDc(data)
+  self.unknownFields = ""
+  self.transactionalId = ""
+  self.producerId = 0
+  self.transactionState = ""
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      self.transactionalId = field.bytesValue
+    elseif field.number == 2 then
+      self.producerId = field.varintValue
+    elseif field.number == 3 then
+      self.transactionState = field.bytesValue
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+ListTransactionsResponse = {}
+ListTransactionsResponse.__index = ListTransactionsResponse
+
+function ListTransactionsResponse.new(errorCode, transactions)
+  return setmetatable({ errorCode = errorCode or 0, transactions = transactions or {}, unknownFields = "" }, ListTransactionsResponse)
+end
+
+function ListTransactionsResponse:marshalDc()
+  local w = Writer.new()
+    if self.errorCode ~= 0 then w:tag(1, 0) w:varint(self.errorCode) end
+    for _, x in ipairs(self.transactions) do w:bytesField(2, x:marshalDc()) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function ListTransactionsResponse:unmarshalDc(data)
+  self.unknownFields = ""
+  self.errorCode = 0
+  self.transactions = {}
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      self.errorCode = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    elseif field.number == 2 then
+      local item = TransactionListing.new()
+      item:unmarshalDc(field.bytesValue)
+      self.transactions[#self.transactions + 1] = item
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+DescribeTransactionsRequest = {}
+DescribeTransactionsRequest.__index = DescribeTransactionsRequest
+
+function DescribeTransactionsRequest.new(transactionalIds)
+  return setmetatable({ transactionalIds = transactionalIds or {}, unknownFields = "" }, DescribeTransactionsRequest)
+end
+
+function DescribeTransactionsRequest:marshalDc()
+  local w = Writer.new()
+    for _, x in ipairs(self.transactionalIds) do w:bytesField(1, x) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function DescribeTransactionsRequest:unmarshalDc(data)
+  self.unknownFields = ""
+  self.transactionalIds = {}
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      self.transactionalIds[#self.transactionalIds + 1] = field.bytesValue
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+DescribedTransaction = {}
+DescribedTransaction.__index = DescribedTransaction
+
+function DescribedTransaction.new(transactionalId, errorCode, producerId, producerEpoch, transactionState, lastUpdateTimestampMs)
+  return setmetatable({ transactionalId = transactionalId or "", errorCode = errorCode or 0, producerId = producerId or 0, producerEpoch = producerEpoch or 0, transactionState = transactionState or "", lastUpdateTimestampMs = lastUpdateTimestampMs or 0, unknownFields = "" }, DescribedTransaction)
+end
+
+function DescribedTransaction:marshalDc()
+  local w = Writer.new()
+    w:stringField(1, self.transactionalId)
+    if self.errorCode ~= 0 then w:tag(2, 0) w:varint(self.errorCode) end
+    if self.producerId ~= 0 then w:tag(3, 0) w:varint(self.producerId) end
+    if self.producerEpoch ~= 0 then w:tag(4, 0) w:varint(self.producerEpoch) end
+    w:stringField(5, self.transactionState)
+    if self.lastUpdateTimestampMs ~= 0 then w:tag(6, 0) w:varint(self.lastUpdateTimestampMs) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function DescribedTransaction:unmarshalDc(data)
+  self.unknownFields = ""
+  self.transactionalId = ""
+  self.errorCode = 0
+  self.producerId = 0
+  self.producerEpoch = 0
+  self.transactionState = ""
+  self.lastUpdateTimestampMs = 0
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      self.transactionalId = field.bytesValue
+    elseif field.number == 2 then
+      self.errorCode = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    elseif field.number == 3 then
+      self.producerId = field.varintValue
+    elseif field.number == 4 then
+      self.producerEpoch = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    elseif field.number == 5 then
+      self.transactionState = field.bytesValue
+    elseif field.number == 6 then
+      self.lastUpdateTimestampMs = field.varintValue
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+DescribeTransactionsResponse = {}
+DescribeTransactionsResponse.__index = DescribeTransactionsResponse
+
+function DescribeTransactionsResponse.new(transactions)
+  return setmetatable({ transactions = transactions or {}, unknownFields = "" }, DescribeTransactionsResponse)
+end
+
+function DescribeTransactionsResponse:marshalDc()
+  local w = Writer.new()
+    for _, x in ipairs(self.transactions) do w:bytesField(1, x:marshalDc()) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function DescribeTransactionsResponse:unmarshalDc(data)
+  self.unknownFields = ""
+  self.transactions = {}
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      local item = DescribedTransaction.new()
+      item:unmarshalDc(field.bytesValue)
+      self.transactions[#self.transactions + 1] = item
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+OpenShareGroupRequest = {}
+OpenShareGroupRequest.__index = OpenShareGroupRequest
+
+function OpenShareGroupRequest.new(groupId, topics, groupInstanceId, sessionTimeoutMs)
+  return setmetatable({ groupId = groupId or "", topics = topics or {}, groupInstanceId = groupInstanceId or "", sessionTimeoutMs = sessionTimeoutMs or 0, unknownFields = "" }, OpenShareGroupRequest)
+end
+
+function OpenShareGroupRequest:marshalDc()
+  local w = Writer.new()
+    w:stringField(1, self.groupId)
+    for _, x in ipairs(self.topics) do w:bytesField(2, x) end
+    w:stringField(3, self.groupInstanceId)
+    if self.sessionTimeoutMs ~= 0 then w:tag(4, 0) w:varint(self.sessionTimeoutMs) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function OpenShareGroupRequest:unmarshalDc(data)
+  self.unknownFields = ""
+  self.groupId = ""
+  self.topics = {}
+  self.groupInstanceId = ""
+  self.sessionTimeoutMs = 0
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      self.groupId = field.bytesValue
+    elseif field.number == 2 then
+      self.topics[#self.topics + 1] = field.bytesValue
+    elseif field.number == 3 then
+      self.groupInstanceId = field.bytesValue
+    elseif field.number == 4 then
+      self.sessionTimeoutMs = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+OpenShareGroupResponse = {}
+OpenShareGroupResponse.__index = OpenShareGroupResponse
+
+function OpenShareGroupResponse.new(sessionId, errorCode, assignment)
+  return setmetatable({ sessionId = sessionId or "", errorCode = errorCode or 0, assignment = assignment or nil, unknownFields = "" }, OpenShareGroupResponse)
+end
+
+function OpenShareGroupResponse:marshalDc()
+  local w = Writer.new()
+    w:stringField(1, self.sessionId)
+    if self.errorCode ~= 0 then w:tag(2, 0) w:varint(self.errorCode) end
+    if self.assignment ~= nil then w:bytesField(3, self.assignment:marshalDc()) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function OpenShareGroupResponse:unmarshalDc(data)
+  self.unknownFields = ""
+  self.sessionId = ""
+  self.errorCode = 0
+  self.assignment = nil
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      self.sessionId = field.bytesValue
+    elseif field.number == 2 then
+      self.errorCode = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    elseif field.number == 3 then
+      self.assignment = Assignment.new()
+      self.assignment:unmarshalDc(field.bytesValue)
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+SharePollRequest = {}
+SharePollRequest.__index = SharePollRequest
+
+function SharePollRequest.new(sessionId, maxRecords, maxWaitMs)
+  return setmetatable({ sessionId = sessionId or "", maxRecords = maxRecords or 0, maxWaitMs = maxWaitMs or 0, unknownFields = "" }, SharePollRequest)
+end
+
+function SharePollRequest:marshalDc()
+  local w = Writer.new()
+    w:stringField(1, self.sessionId)
+    if self.maxRecords ~= 0 then w:tag(2, 0) w:varint(self.maxRecords) end
+    if self.maxWaitMs ~= 0 then w:tag(3, 0) w:varint(self.maxWaitMs) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function SharePollRequest:unmarshalDc(data)
+  self.unknownFields = ""
+  self.sessionId = ""
+  self.maxRecords = 0
+  self.maxWaitMs = 0
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      self.sessionId = field.bytesValue
+    elseif field.number == 2 then
+      self.maxRecords = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    elseif field.number == 3 then
+      self.maxWaitMs = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+SharePollRecord = {}
+SharePollRecord.__index = SharePollRecord
+
+function SharePollRecord.new(topic, partition, offset, key, value, headers, timestampMs, deliveryCount, nullKey)
+  return setmetatable({ topic = topic or "", partition = partition or 0, offset = offset or 0, key = key or "", value = value or "", headers = headers or {}, timestampMs = timestampMs or 0, deliveryCount = deliveryCount or 0, nullKey = nullKey or false, unknownFields = "" }, SharePollRecord)
+end
+
+function SharePollRecord:marshalDc()
+  local w = Writer.new()
+    w:stringField(1, self.topic)
+    if self.partition ~= 0 then w:tag(2, 0) w:varint(self.partition) end
+    if self.offset ~= 0 then w:tag(3, 0) w:varint(self.offset) end
+    if #self.key > 0 then w:bytesField(4, self.key) end
+    if #self.value > 0 then w:bytesField(5, self.value) end
+    for _, x in ipairs(self.headers) do w:bytesField(6, x:marshalDc()) end
+    if self.timestampMs ~= 0 then w:tag(7, 0) w:varint(self.timestampMs) end
+    if self.deliveryCount ~= 0 then w:tag(8, 0) w:varint(self.deliveryCount) end
+    if self.nullKey then w:tag(9, 0) w:varint((self.nullKey and 1 or 0)) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function SharePollRecord:unmarshalDc(data)
+  self.unknownFields = ""
+  self.topic = ""
+  self.partition = 0
+  self.offset = 0
+  self.key = ""
+  self.value = ""
+  self.headers = {}
+  self.timestampMs = 0
+  self.deliveryCount = 0
+  self.nullKey = false
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      self.topic = field.bytesValue
+    elseif field.number == 2 then
+      self.partition = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    elseif field.number == 3 then
+      self.offset = field.varintValue
+    elseif field.number == 4 then
+      self.key = field.bytesValue
+    elseif field.number == 5 then
+      self.value = field.bytesValue
+    elseif field.number == 6 then
+      local item = Header.new()
+      item:unmarshalDc(field.bytesValue)
+      self.headers[#self.headers + 1] = item
+    elseif field.number == 7 then
+      self.timestampMs = field.varintValue
+    elseif field.number == 8 then
+      self.deliveryCount = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    elseif field.number == 9 then
+      self.nullKey = (field.varintValue ~= 0)
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+SharePollResponse = {}
+SharePollResponse.__index = SharePollResponse
+
+function SharePollResponse.new(records, errorCode)
+  return setmetatable({ records = records or {}, errorCode = errorCode or 0, unknownFields = "" }, SharePollResponse)
+end
+
+function SharePollResponse:marshalDc()
+  local w = Writer.new()
+    for _, x in ipairs(self.records) do w:bytesField(1, x:marshalDc()) end
+    if self.errorCode ~= 0 then w:tag(2, 0) w:varint(self.errorCode) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function SharePollResponse:unmarshalDc(data)
+  self.unknownFields = ""
+  self.records = {}
+  self.errorCode = 0
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      local item = SharePollRecord.new()
+      item:unmarshalDc(field.bytesValue)
+      self.records[#self.records + 1] = item
+    elseif field.number == 2 then
+      self.errorCode = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+ShareAckEntry = {}
+ShareAckEntry.__index = ShareAckEntry
+
+function ShareAckEntry.new(topic, partition, offset, ackType)
+  return setmetatable({ topic = topic or "", partition = partition or 0, offset = offset or 0, ackType = ackType or 0, unknownFields = "" }, ShareAckEntry)
+end
+
+function ShareAckEntry:marshalDc()
+  local w = Writer.new()
+    w:stringField(1, self.topic)
+    if self.partition ~= 0 then w:tag(2, 0) w:varint(self.partition) end
+    if self.offset ~= 0 then w:tag(3, 0) w:varint(self.offset) end
+    if self.ackType ~= 0 then w:tag(4, 0) w:varint(self.ackType) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function ShareAckEntry:unmarshalDc(data)
+  self.unknownFields = ""
+  self.topic = ""
+  self.partition = 0
+  self.offset = 0
+  self.ackType = 0
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      self.topic = field.bytesValue
+    elseif field.number == 2 then
+      self.partition = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    elseif field.number == 3 then
+      self.offset = field.varintValue
+    elseif field.number == 4 then
+      self.ackType = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+ShareAckRequest = {}
+ShareAckRequest.__index = ShareAckRequest
+
+function ShareAckRequest.new(sessionId, entries)
+  return setmetatable({ sessionId = sessionId or "", entries = entries or {}, unknownFields = "" }, ShareAckRequest)
+end
+
+function ShareAckRequest:marshalDc()
+  local w = Writer.new()
+    w:stringField(1, self.sessionId)
+    for _, x in ipairs(self.entries) do w:bytesField(2, x:marshalDc()) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function ShareAckRequest:unmarshalDc(data)
+  self.unknownFields = ""
+  self.sessionId = ""
+  self.entries = {}
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      self.sessionId = field.bytesValue
+    elseif field.number == 2 then
+      local item = ShareAckEntry.new()
+      item:unmarshalDc(field.bytesValue)
+      self.entries[#self.entries + 1] = item
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+ShareAckResponse = {}
+ShareAckResponse.__index = ShareAckResponse
+
+function ShareAckResponse.new(errorCode)
+  return setmetatable({ errorCode = errorCode or 0, unknownFields = "" }, ShareAckResponse)
+end
+
+function ShareAckResponse:marshalDc()
+  local w = Writer.new()
+    if self.errorCode ~= 0 then w:tag(1, 0) w:varint(self.errorCode) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function ShareAckResponse:unmarshalDc(data)
+  self.unknownFields = ""
+  self.errorCode = 0
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      self.errorCode = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+CloseShareGroupRequest = {}
+CloseShareGroupRequest.__index = CloseShareGroupRequest
+
+function CloseShareGroupRequest.new(sessionId)
+  return setmetatable({ sessionId = sessionId or "", unknownFields = "" }, CloseShareGroupRequest)
+end
+
+function CloseShareGroupRequest:marshalDc()
+  local w = Writer.new()
+    w:stringField(1, self.sessionId)
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function CloseShareGroupRequest:unmarshalDc(data)
+  self.unknownFields = ""
+  self.sessionId = ""
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      self.sessionId = field.bytesValue
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+CloseShareGroupResponse = {}
+CloseShareGroupResponse.__index = CloseShareGroupResponse
+
+function CloseShareGroupResponse.new(errorCode)
+  return setmetatable({ errorCode = errorCode or 0, unknownFields = "" }, CloseShareGroupResponse)
+end
+
+function CloseShareGroupResponse:marshalDc()
+  local w = Writer.new()
+    if self.errorCode ~= 0 then w:tag(1, 0) w:varint(self.errorCode) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function CloseShareGroupResponse:unmarshalDc(data)
+  self.unknownFields = ""
+  self.errorCode = 0
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      self.errorCode = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
 return {
   Header = Header,
   Record = Record,
@@ -1676,6 +3446,54 @@ return {
   CreateTopicsResponse = CreateTopicsResponse,
   DeleteTopicsRequest = DeleteTopicsRequest,
   DeleteTopicsResponse = DeleteTopicsResponse,
+  ConfigEntry = ConfigEntry,
+  AlterConfigEntry = AlterConfigEntry,
+  DescribeConfigsRequest = DescribeConfigsRequest,
+  ConfigValue = ConfigValue,
+  DescribeConfigsResponse = DescribeConfigsResponse,
+  AlterConfigsRequest = AlterConfigsRequest,
+  AlterConfigsResponse = AlterConfigsResponse,
+  CreatePartitionsRequest = CreatePartitionsRequest,
+  CreatePartitionsResponse = CreatePartitionsResponse,
+  DeleteRecordsRequest = DeleteRecordsRequest,
+  DeleteRecordsResponse = DeleteRecordsResponse,
+  ListGroupsRequest = ListGroupsRequest,
+  GroupListing = GroupListing,
+  ListGroupsResponse = ListGroupsResponse,
+  DescribeGroupsRequest = DescribeGroupsRequest,
+  GroupMember = GroupMember,
+  DescribedGroup = DescribedGroup,
+  DescribeGroupsResponse = DescribeGroupsResponse,
+  DeleteGroupsRequest = DeleteGroupsRequest,
+  GroupErrorResult = GroupErrorResult,
+  DeleteGroupsResponse = DeleteGroupsResponse,
+  DeleteGroupOffsetsRequest = DeleteGroupOffsetsRequest,
+  DeleteGroupOffsetsResponse = DeleteGroupOffsetsResponse,
+  Acl = Acl,
+  DescribeAclsRequest = DescribeAclsRequest,
+  DescribeAclsResponse = DescribeAclsResponse,
+  CreateAclsRequest = CreateAclsRequest,
+  CreateAclsResponse = CreateAclsResponse,
+  DeleteAclsRequest = DeleteAclsRequest,
+  DeleteAclsResponse = DeleteAclsResponse,
+  ListTransactionsRequest = ListTransactionsRequest,
+  TransactionListing = TransactionListing,
+  ListTransactionsResponse = ListTransactionsResponse,
+  DescribeTransactionsRequest = DescribeTransactionsRequest,
+  DescribedTransaction = DescribedTransaction,
+  DescribeTransactionsResponse = DescribeTransactionsResponse,
+  OpenShareGroupRequest = OpenShareGroupRequest,
+  OpenShareGroupResponse = OpenShareGroupResponse,
+  SharePollRequest = SharePollRequest,
+  SharePollRecord = SharePollRecord,
+  SharePollResponse = SharePollResponse,
+  ShareAckEntry = ShareAckEntry,
+  ShareAckRequest = ShareAckRequest,
+  ShareAckResponse = ShareAckResponse,
+  CloseShareGroupRequest = CloseShareGroupRequest,
+  CloseShareGroupResponse = CloseShareGroupResponse,
   Compression = Compression,
   Acks = Acks,
+  ConfigResourceType = ConfigResourceType,
+  ConfigOp = ConfigOp,
 }

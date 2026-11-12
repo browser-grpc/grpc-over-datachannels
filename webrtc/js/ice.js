@@ -329,6 +329,18 @@ export class IceAgent {
         this.lastConsentMs = Date.now();
         events.push({ type: "nominated", remote: src });
       }
+      // An integrity-valid Binding request from the nominated
+      // pair is itself consent evidence (RFC 7675): peers that
+      // only ever send checks — ICE-lite dialers whose password
+      // we never learn, e.g. rendezvous browsers — keep the
+      // pair fresh without any Binding success reaching us.
+      if (
+        this.nominated &&
+        this.nominated.address === src.address &&
+        this.nominated.port === src.port
+      ) {
+        this.lastConsentMs = Date.now();
+      }
     } else if (msg.type === StunMessageType.BINDING_SUCCESS) {
       if (!msg.checkIntegrity(raw, Buffer.from(this.remotePwd))) {
         return { responses, events };

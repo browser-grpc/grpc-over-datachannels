@@ -48,6 +48,20 @@ pub struct CallCtx {
 }
 
 impl CallCtx {
+    /// Context for a handler invoked in-process with no
+    /// transport (embedded library use). Detached contexts
+    /// have stream id 0 and no deadline.
+    pub fn detached(path: impl Into<String>) -> Self {
+        Self {
+            path: path.into(),
+            metadata: Metadata::default(),
+            trace_context: None,
+            stream_id: 0,
+            deadline: None,
+            response_meta: Arc::new(std::sync::Mutex::new(ResponseMeta::default())),
+        }
+    }
+
     /// Time left before the deadline, or None when unbounded.
     pub fn time_remaining(&self) -> Option<std::time::Duration> {
         self.deadline
@@ -163,6 +177,20 @@ impl ResponseSink {
         self.flush_headers().await?;
         self.ep.send_frame(crate::codec::Frame::data(self.stream_id, payload)).await
     }
+
+    /// Resolves once the endpoint has forgotten this stream
+    /// (peer RST or transport loss), so a response pump can
+    /// stop even while the handler's stream is idle: racing
+    /// `send` alone only notices on the next produced item.
+    pub fn cancelled(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
+        let ep = self.ep.clone();
+        let stream_id = self.stream_id;
+        Box::pin(async move {
+            while ep.has_stream(stream_id) {
+                crate::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        })
+    }
 }
 
 /// One incoming call, pre-decoding. Adapters (below) wrap this.
@@ -258,8 +286,19 @@ where
                     }
                 };
                 let mut responses = f(req, ctx).await?;
-                while let Some(item) = responses.next().await {
-                    sink.send(item?.encode()).await?;
+                // Race each response poll against cancellation:
+                // a send-side failure alone only fires when the
+                // next item is produced, so an idle producer
+                // would never notice a peer RST. Returning drops
+                // `responses`, which stops the handler's stream.
+                loop {
+                    match futures_util::future::select(responses.next(), sink.cancelled()).await {
+                        futures_util::future::Either::Left((Some(item), _)) => {
+                            sink.send(item?.encode()).await?;
+                        }
+                        futures_util::future::Either::Left((None, _)) => break,
+                        futures_util::future::Either::Right(((), _)) => return Ok(()),
+                    }
                 }
                 Ok(())
             })
@@ -307,8 +346,17 @@ where
                 let ServerCall { ctx, requests, sink } = call;
                 let stream = RequestStream::<Req>::from_bytes(requests);
                 let mut responses = f(stream, ctx).await?;
-                while let Some(item) = responses.next().await {
-                    sink.send(item?.encode()).await?;
+                // Same cancellation race as server-streaming:
+                // stop when the peer RSTs, even if the
+                // handler's stream is idle.
+                loop {
+                    match futures_util::future::select(responses.next(), sink.cancelled()).await {
+                        futures_util::future::Either::Left((Some(item), _)) => {
+                            sink.send(item?.encode()).await?;
+                        }
+                        futures_util::future::Either::Left((None, _)) => break,
+                        futures_util::future::Either::Right(((), _)) => return Ok(()),
+                    }
                 }
                 Ok(())
             })

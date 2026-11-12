@@ -22,6 +22,68 @@ pub enum EndpointEvent {
     ChannelClosed { stream: u16 },
 }
 
+/// DC message chunking (mirrors js/src/chunking.js and the
+/// JS/Go stacks): browsers cap one RTCDataChannel message at
+/// the negotiated max-message-size (262144 in Chromium), so
+/// endpoints with chunking enabled split binary messages over
+/// 64 KiB into [0xF0, flags]-headed chunks and reassemble on
+/// receipt. 0xF0 is an unknown grpc-dc frame type, so a peer
+/// without chunking ignores chunks per the forward-compat
+/// rule instead of misdecoding them.
+pub const DC_CHUNK_MAGIC: u8 = 0xF0;
+pub const DC_CHUNK_FINAL: u8 = 0x01;
+pub const MAX_DC_CHUNK_PAYLOAD: usize = 65536;
+
+pub fn split_dc_message(data: &[u8]) -> Vec<Vec<u8>> {
+    if data.len() <= MAX_DC_CHUNK_PAYLOAD {
+        return vec![data.to_vec()];
+    }
+    let mut out = Vec::new();
+    let mut off = 0;
+    while off < data.len() {
+        let n = MAX_DC_CHUNK_PAYLOAD.min(data.len() - off);
+        let last = off + n >= data.len();
+        let mut chunk = Vec::with_capacity(2 + n);
+        chunk.push(DC_CHUNK_MAGIC);
+        chunk.push(if last { DC_CHUNK_FINAL } else { 0 });
+        chunk.extend_from_slice(&data[off..off + n]);
+        out.push(chunk);
+        off += n;
+    }
+    out
+}
+
+#[derive(Default)]
+pub struct DcChunkReassembler {
+    parts: Option<Vec<Vec<u8>>>,
+}
+
+impl DcChunkReassembler {
+    /// Push one wire message; Some(whole) when a message is
+    /// complete (non-chunk messages pass through untouched).
+    pub fn push(&mut self, data: &[u8]) -> Option<Vec<u8>> {
+        if self.parts.is_none() && (data.len() < 2 || data[0] != DC_CHUNK_MAGIC) {
+            return Some(data.to_vec());
+        }
+        if data.len() < 2 || data[0] != DC_CHUNK_MAGIC {
+            self.parts = None;
+            return Some(data.to_vec());
+        }
+        let final_chunk = data[1] & DC_CHUNK_FINAL != 0;
+        self.parts.get_or_insert_with(Vec::new).push(data[2..].to_vec());
+        if !final_chunk {
+            return None;
+        }
+        let parts = self.parts.take().unwrap_or_default();
+        let total: usize = parts.iter().map(|p| p.len()).sum();
+        let mut out = Vec::with_capacity(total);
+        for part in parts {
+            out.extend_from_slice(&part);
+        }
+        Some(out)
+    }
+}
+
 enum Cmd {
     Open {
         params: ChannelParams,
@@ -31,6 +93,9 @@ enum Cmd {
         stream: u16,
         text: bool,
         data: Vec<u8>,
+    },
+    SetChunking {
+        enabled: bool,
     },
     CloseChannel {
         stream: u16,
@@ -151,6 +216,14 @@ impl DcEndpoint {
     pub fn shutdown_handle(&self) -> ShutdownHandle {
         ShutdownHandle { cmd_tx: self.cmd_tx.clone() }
     }
+
+    /// Enable DC message chunking for large binary messages
+    /// (see split_dc_message). Enable on both ends of a link
+    /// that must carry messages over the peer's RTCDataChannel
+    /// max-message-size (browsers: 256 KiB).
+    pub fn set_chunk_messages(&self, enabled: bool) {
+        let _ = self.cmd_tx.send(Cmd::SetChunking { enabled });
+    }
 }
 
 #[derive(Clone)]
@@ -197,6 +270,8 @@ fn run_loop<I: DtlsIo>(
     };
     let mut channels: HashMap<u16, ChannelState> = HashMap::new();
     let mut sctp_connected = false;
+    let mut chunking = false;
+    let mut reassemblers: HashMap<u16, DcChunkReassembler> = HashMap::new();
 
     loop {
         // 1) Inbound SCTP packets from DTLS. The pump is a single
@@ -231,6 +306,8 @@ fn run_loop<I: DtlsIo>(
                             &cmd_tx,
                             &event_tx,
                             &mut sctp_connected,
+                            chunking,
+                            &mut reassemblers,
                             now(start),
                         );
                     }
@@ -254,6 +331,8 @@ fn run_loop<I: DtlsIo>(
                 &cmd_tx,
                 &event_tx,
                 &mut sctp_connected,
+                chunking,
+                &mut reassemblers,
                 now(start),
             );
         }
@@ -277,9 +356,20 @@ fn run_loop<I: DtlsIo>(
                     }
                     let _ = respond.send(handle);
                 }
+                Ok(Cmd::SetChunking { enabled }) => {
+                    chunking = enabled;
+                }
                 Ok(Cmd::SendData { stream, text, data }) => {
                     if let Some(state) = channels.get(&stream) {
                         let opts = state.params.send_options();
+                        if chunking && !text && data.len() > MAX_DC_CHUNK_PAYLOAD {
+                            for chunk in split_dc_message(&data) {
+                                for p in assoc.send_data(stream, PPID_BINARY, &chunk, opts, now(start)) {
+                                    let _ = dtls.send_app(&p);
+                                }
+                            }
+                            continue;
+                        }
                         let ppid = match (text, data.is_empty()) {
                             (true, false) => PPID_STRING,
                             (true, true) => PPID_STRING_EMPTY,
@@ -321,6 +411,8 @@ fn handle_sctp_event<I: DtlsIo>(
     cmd_tx: &Sender<Cmd>,
     event_tx: &Sender<EndpointEvent>,
     sctp_connected: &mut bool,
+    chunking: bool,
+    reassemblers: &mut HashMap<u16, DcChunkReassembler>,
     now_ms: u64,
 ) {
     match event {
@@ -351,12 +443,20 @@ fn handle_sctp_event<I: DtlsIo>(
                 let _ = event_tx.send(EndpointEvent::Message { stream, text: true, data: payload });
             }
             PPID_BINARY | PPID_BINARY_EMPTY => {
-                let _ = event_tx.send(EndpointEvent::Message { stream, text: false, data: payload });
+                if chunking {
+                    let whole = reassemblers.entry(stream).or_default().push(&payload);
+                    if let Some(data) = whole {
+                        let _ = event_tx.send(EndpointEvent::Message { stream, text: false, data });
+                    }
+                } else {
+                    let _ = event_tx.send(EndpointEvent::Message { stream, text: false, data: payload });
+                }
             }
             _ => {}
         },
         SctpEvent::StreamReset { stream } => {
             channels.remove(&stream);
+            reassemblers.remove(&stream);
             let _ = event_tx.send(EndpointEvent::ChannelClosed { stream });
         }
         SctpEvent::Closed => {}

@@ -100,6 +100,125 @@ class KafkaClient {
     return resp;
   }
 
+  Future<DescribeConfigsResponse> describeConfigs(DescribeConfigsRequest req,
+      {Map<String, String>? metadata, Duration? timeout}) async {
+    final resp = DescribeConfigsResponse();
+    await _channel.unary("/grpcdc.kafka.v1.Kafka/DescribeConfigs", req, resp, metadata: metadata, timeout: timeout);
+    return resp;
+  }
+
+  Future<AlterConfigsResponse> alterConfigs(AlterConfigsRequest req,
+      {Map<String, String>? metadata, Duration? timeout}) async {
+    final resp = AlterConfigsResponse();
+    await _channel.unary("/grpcdc.kafka.v1.Kafka/AlterConfigs", req, resp, metadata: metadata, timeout: timeout);
+    return resp;
+  }
+
+  Future<CreatePartitionsResponse> createPartitions(CreatePartitionsRequest req,
+      {Map<String, String>? metadata, Duration? timeout}) async {
+    final resp = CreatePartitionsResponse();
+    await _channel.unary("/grpcdc.kafka.v1.Kafka/CreatePartitions", req, resp, metadata: metadata, timeout: timeout);
+    return resp;
+  }
+
+  Future<DeleteRecordsResponse> deleteRecords(DeleteRecordsRequest req,
+      {Map<String, String>? metadata, Duration? timeout}) async {
+    final resp = DeleteRecordsResponse();
+    await _channel.unary("/grpcdc.kafka.v1.Kafka/DeleteRecords", req, resp, metadata: metadata, timeout: timeout);
+    return resp;
+  }
+
+  Future<ListGroupsResponse> listGroups(ListGroupsRequest req,
+      {Map<String, String>? metadata, Duration? timeout}) async {
+    final resp = ListGroupsResponse();
+    await _channel.unary("/grpcdc.kafka.v1.Kafka/ListGroups", req, resp, metadata: metadata, timeout: timeout);
+    return resp;
+  }
+
+  Future<DescribeGroupsResponse> describeGroups(DescribeGroupsRequest req,
+      {Map<String, String>? metadata, Duration? timeout}) async {
+    final resp = DescribeGroupsResponse();
+    await _channel.unary("/grpcdc.kafka.v1.Kafka/DescribeGroups", req, resp, metadata: metadata, timeout: timeout);
+    return resp;
+  }
+
+  Future<DeleteGroupsResponse> deleteGroups(DeleteGroupsRequest req,
+      {Map<String, String>? metadata, Duration? timeout}) async {
+    final resp = DeleteGroupsResponse();
+    await _channel.unary("/grpcdc.kafka.v1.Kafka/DeleteGroups", req, resp, metadata: metadata, timeout: timeout);
+    return resp;
+  }
+
+  Future<DeleteGroupOffsetsResponse> deleteGroupOffsets(DeleteGroupOffsetsRequest req,
+      {Map<String, String>? metadata, Duration? timeout}) async {
+    final resp = DeleteGroupOffsetsResponse();
+    await _channel.unary("/grpcdc.kafka.v1.Kafka/DeleteGroupOffsets", req, resp, metadata: metadata, timeout: timeout);
+    return resp;
+  }
+
+  Future<DescribeAclsResponse> describeAcls(DescribeAclsRequest req,
+      {Map<String, String>? metadata, Duration? timeout}) async {
+    final resp = DescribeAclsResponse();
+    await _channel.unary("/grpcdc.kafka.v1.Kafka/DescribeAcls", req, resp, metadata: metadata, timeout: timeout);
+    return resp;
+  }
+
+  Future<CreateAclsResponse> createAcls(CreateAclsRequest req,
+      {Map<String, String>? metadata, Duration? timeout}) async {
+    final resp = CreateAclsResponse();
+    await _channel.unary("/grpcdc.kafka.v1.Kafka/CreateAcls", req, resp, metadata: metadata, timeout: timeout);
+    return resp;
+  }
+
+  Future<DeleteAclsResponse> deleteAcls(DeleteAclsRequest req,
+      {Map<String, String>? metadata, Duration? timeout}) async {
+    final resp = DeleteAclsResponse();
+    await _channel.unary("/grpcdc.kafka.v1.Kafka/DeleteAcls", req, resp, metadata: metadata, timeout: timeout);
+    return resp;
+  }
+
+  Future<ListTransactionsResponse> listTransactions(ListTransactionsRequest req,
+      {Map<String, String>? metadata, Duration? timeout}) async {
+    final resp = ListTransactionsResponse();
+    await _channel.unary("/grpcdc.kafka.v1.Kafka/ListTransactions", req, resp, metadata: metadata, timeout: timeout);
+    return resp;
+  }
+
+  Future<DescribeTransactionsResponse> describeTransactions(DescribeTransactionsRequest req,
+      {Map<String, String>? metadata, Duration? timeout}) async {
+    final resp = DescribeTransactionsResponse();
+    await _channel.unary("/grpcdc.kafka.v1.Kafka/DescribeTransactions", req, resp, metadata: metadata, timeout: timeout);
+    return resp;
+  }
+
+  Future<OpenShareGroupResponse> openShareGroup(OpenShareGroupRequest req,
+      {Map<String, String>? metadata, Duration? timeout}) async {
+    final resp = OpenShareGroupResponse();
+    await _channel.unary("/grpcdc.kafka.v1.Kafka/OpenShareGroup", req, resp, metadata: metadata, timeout: timeout);
+    return resp;
+  }
+
+  Future<SharePollResponse> sharePoll(SharePollRequest req,
+      {Map<String, String>? metadata, Duration? timeout}) async {
+    final resp = SharePollResponse();
+    await _channel.unary("/grpcdc.kafka.v1.Kafka/SharePoll", req, resp, metadata: metadata, timeout: timeout);
+    return resp;
+  }
+
+  Future<ShareAckResponse> shareAck(ShareAckRequest req,
+      {Map<String, String>? metadata, Duration? timeout}) async {
+    final resp = ShareAckResponse();
+    await _channel.unary("/grpcdc.kafka.v1.Kafka/ShareAck", req, resp, metadata: metadata, timeout: timeout);
+    return resp;
+  }
+
+  Future<CloseShareGroupResponse> closeShareGroup(CloseShareGroupRequest req,
+      {Map<String, String>? metadata, Duration? timeout}) async {
+    final resp = CloseShareGroupResponse();
+    await _channel.unary("/grpcdc.kafka.v1.Kafka/CloseShareGroup", req, resp, metadata: metadata, timeout: timeout);
+    return resp;
+  }
+
 }
 
 /// Receiving stream for Kafka/Consume responses.
@@ -240,6 +359,23 @@ abstract class KafkaServer {
   Future<FetchOffsetResponse> fetchOffset(CallContext ctx, FetchOffsetRequest req);
   Future<CreateTopicsResponse> createTopics(CallContext ctx, CreateTopicsRequest req);
   Future<DeleteTopicsResponse> deleteTopics(CallContext ctx, DeleteTopicsRequest req);
+  Future<DescribeConfigsResponse> describeConfigs(CallContext ctx, DescribeConfigsRequest req);
+  Future<AlterConfigsResponse> alterConfigs(CallContext ctx, AlterConfigsRequest req);
+  Future<CreatePartitionsResponse> createPartitions(CallContext ctx, CreatePartitionsRequest req);
+  Future<DeleteRecordsResponse> deleteRecords(CallContext ctx, DeleteRecordsRequest req);
+  Future<ListGroupsResponse> listGroups(CallContext ctx, ListGroupsRequest req);
+  Future<DescribeGroupsResponse> describeGroups(CallContext ctx, DescribeGroupsRequest req);
+  Future<DeleteGroupsResponse> deleteGroups(CallContext ctx, DeleteGroupsRequest req);
+  Future<DeleteGroupOffsetsResponse> deleteGroupOffsets(CallContext ctx, DeleteGroupOffsetsRequest req);
+  Future<DescribeAclsResponse> describeAcls(CallContext ctx, DescribeAclsRequest req);
+  Future<CreateAclsResponse> createAcls(CallContext ctx, CreateAclsRequest req);
+  Future<DeleteAclsResponse> deleteAcls(CallContext ctx, DeleteAclsRequest req);
+  Future<ListTransactionsResponse> listTransactions(CallContext ctx, ListTransactionsRequest req);
+  Future<DescribeTransactionsResponse> describeTransactions(CallContext ctx, DescribeTransactionsRequest req);
+  Future<OpenShareGroupResponse> openShareGroup(CallContext ctx, OpenShareGroupRequest req);
+  Future<SharePollResponse> sharePoll(CallContext ctx, SharePollRequest req);
+  Future<ShareAckResponse> shareAck(CallContext ctx, ShareAckRequest req);
+  Future<CloseShareGroupResponse> closeShareGroup(CallContext ctx, CloseShareGroupRequest req);
 }
 
 class _KafkaConsumeServerImpl implements KafkaConsumeServer {
@@ -344,6 +480,108 @@ class KafkaGrpcDc {
         final req = DeleteTopicsRequest();
         await reqs.recvInto(req);
         sink((await impl.deleteTopics(ctx, req)).marshalDc());
+      }),
+      Method("DescribeConfigs", "/grpcdc.kafka.v1.Kafka/DescribeConfigs", Server.kindUnary,
+          (ctx, reqs, sink) async {
+        final req = DescribeConfigsRequest();
+        await reqs.recvInto(req);
+        sink((await impl.describeConfigs(ctx, req)).marshalDc());
+      }),
+      Method("AlterConfigs", "/grpcdc.kafka.v1.Kafka/AlterConfigs", Server.kindUnary,
+          (ctx, reqs, sink) async {
+        final req = AlterConfigsRequest();
+        await reqs.recvInto(req);
+        sink((await impl.alterConfigs(ctx, req)).marshalDc());
+      }),
+      Method("CreatePartitions", "/grpcdc.kafka.v1.Kafka/CreatePartitions", Server.kindUnary,
+          (ctx, reqs, sink) async {
+        final req = CreatePartitionsRequest();
+        await reqs.recvInto(req);
+        sink((await impl.createPartitions(ctx, req)).marshalDc());
+      }),
+      Method("DeleteRecords", "/grpcdc.kafka.v1.Kafka/DeleteRecords", Server.kindUnary,
+          (ctx, reqs, sink) async {
+        final req = DeleteRecordsRequest();
+        await reqs.recvInto(req);
+        sink((await impl.deleteRecords(ctx, req)).marshalDc());
+      }),
+      Method("ListGroups", "/grpcdc.kafka.v1.Kafka/ListGroups", Server.kindUnary,
+          (ctx, reqs, sink) async {
+        final req = ListGroupsRequest();
+        await reqs.recvInto(req);
+        sink((await impl.listGroups(ctx, req)).marshalDc());
+      }),
+      Method("DescribeGroups", "/grpcdc.kafka.v1.Kafka/DescribeGroups", Server.kindUnary,
+          (ctx, reqs, sink) async {
+        final req = DescribeGroupsRequest();
+        await reqs.recvInto(req);
+        sink((await impl.describeGroups(ctx, req)).marshalDc());
+      }),
+      Method("DeleteGroups", "/grpcdc.kafka.v1.Kafka/DeleteGroups", Server.kindUnary,
+          (ctx, reqs, sink) async {
+        final req = DeleteGroupsRequest();
+        await reqs.recvInto(req);
+        sink((await impl.deleteGroups(ctx, req)).marshalDc());
+      }),
+      Method("DeleteGroupOffsets", "/grpcdc.kafka.v1.Kafka/DeleteGroupOffsets", Server.kindUnary,
+          (ctx, reqs, sink) async {
+        final req = DeleteGroupOffsetsRequest();
+        await reqs.recvInto(req);
+        sink((await impl.deleteGroupOffsets(ctx, req)).marshalDc());
+      }),
+      Method("DescribeAcls", "/grpcdc.kafka.v1.Kafka/DescribeAcls", Server.kindUnary,
+          (ctx, reqs, sink) async {
+        final req = DescribeAclsRequest();
+        await reqs.recvInto(req);
+        sink((await impl.describeAcls(ctx, req)).marshalDc());
+      }),
+      Method("CreateAcls", "/grpcdc.kafka.v1.Kafka/CreateAcls", Server.kindUnary,
+          (ctx, reqs, sink) async {
+        final req = CreateAclsRequest();
+        await reqs.recvInto(req);
+        sink((await impl.createAcls(ctx, req)).marshalDc());
+      }),
+      Method("DeleteAcls", "/grpcdc.kafka.v1.Kafka/DeleteAcls", Server.kindUnary,
+          (ctx, reqs, sink) async {
+        final req = DeleteAclsRequest();
+        await reqs.recvInto(req);
+        sink((await impl.deleteAcls(ctx, req)).marshalDc());
+      }),
+      Method("ListTransactions", "/grpcdc.kafka.v1.Kafka/ListTransactions", Server.kindUnary,
+          (ctx, reqs, sink) async {
+        final req = ListTransactionsRequest();
+        await reqs.recvInto(req);
+        sink((await impl.listTransactions(ctx, req)).marshalDc());
+      }),
+      Method("DescribeTransactions", "/grpcdc.kafka.v1.Kafka/DescribeTransactions", Server.kindUnary,
+          (ctx, reqs, sink) async {
+        final req = DescribeTransactionsRequest();
+        await reqs.recvInto(req);
+        sink((await impl.describeTransactions(ctx, req)).marshalDc());
+      }),
+      Method("OpenShareGroup", "/grpcdc.kafka.v1.Kafka/OpenShareGroup", Server.kindUnary,
+          (ctx, reqs, sink) async {
+        final req = OpenShareGroupRequest();
+        await reqs.recvInto(req);
+        sink((await impl.openShareGroup(ctx, req)).marshalDc());
+      }),
+      Method("SharePoll", "/grpcdc.kafka.v1.Kafka/SharePoll", Server.kindUnary,
+          (ctx, reqs, sink) async {
+        final req = SharePollRequest();
+        await reqs.recvInto(req);
+        sink((await impl.sharePoll(ctx, req)).marshalDc());
+      }),
+      Method("ShareAck", "/grpcdc.kafka.v1.Kafka/ShareAck", Server.kindUnary,
+          (ctx, reqs, sink) async {
+        final req = ShareAckRequest();
+        await reqs.recvInto(req);
+        sink((await impl.shareAck(ctx, req)).marshalDc());
+      }),
+      Method("CloseShareGroup", "/grpcdc.kafka.v1.Kafka/CloseShareGroup", Server.kindUnary,
+          (ctx, reqs, sink) async {
+        final req = CloseShareGroupRequest();
+        await reqs.recvInto(req);
+        sink((await impl.closeShareGroup(ctx, req)).marshalDc());
       }),
     ]));
   }

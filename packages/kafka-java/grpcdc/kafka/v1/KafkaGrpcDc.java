@@ -211,6 +211,278 @@ public final class KafkaGrpcDc {
             channel.unary("/grpcdc.kafka.v1.Kafka/DeleteTopics", req, resp, metadata, timeout);
             return resp;
         }
+        public DescribeConfigsResponse DescribeConfigs(DescribeConfigsRequest req, Map<String, String> metadata) throws Exception {
+            DescribeConfigsResponse resp = new DescribeConfigsResponse();
+            channel.unary("/grpcdc.kafka.v1.Kafka/DescribeConfigs", req, resp, metadata);
+            return resp;
+        }
+
+        public DescribeConfigsResponse DescribeConfigs(DescribeConfigsRequest req) throws Exception {
+            return DescribeConfigs(req, null);
+        }
+
+        /** Deadline variant: timeout propagates as grpc-timeout; expiry raises DEADLINE_EXCEEDED. */
+        public DescribeConfigsResponse DescribeConfigs(DescribeConfigsRequest req, Map<String, String> metadata, java.time.Duration timeout) throws Exception {
+            DescribeConfigsResponse resp = new DescribeConfigsResponse();
+            channel.unary("/grpcdc.kafka.v1.Kafka/DescribeConfigs", req, resp, metadata, timeout);
+            return resp;
+        }
+        public AlterConfigsResponse AlterConfigs(AlterConfigsRequest req, Map<String, String> metadata) throws Exception {
+            AlterConfigsResponse resp = new AlterConfigsResponse();
+            channel.unary("/grpcdc.kafka.v1.Kafka/AlterConfigs", req, resp, metadata);
+            return resp;
+        }
+
+        public AlterConfigsResponse AlterConfigs(AlterConfigsRequest req) throws Exception {
+            return AlterConfigs(req, null);
+        }
+
+        /** Deadline variant: timeout propagates as grpc-timeout; expiry raises DEADLINE_EXCEEDED. */
+        public AlterConfigsResponse AlterConfigs(AlterConfigsRequest req, Map<String, String> metadata, java.time.Duration timeout) throws Exception {
+            AlterConfigsResponse resp = new AlterConfigsResponse();
+            channel.unary("/grpcdc.kafka.v1.Kafka/AlterConfigs", req, resp, metadata, timeout);
+            return resp;
+        }
+        public CreatePartitionsResponse CreatePartitions(CreatePartitionsRequest req, Map<String, String> metadata) throws Exception {
+            CreatePartitionsResponse resp = new CreatePartitionsResponse();
+            channel.unary("/grpcdc.kafka.v1.Kafka/CreatePartitions", req, resp, metadata);
+            return resp;
+        }
+
+        public CreatePartitionsResponse CreatePartitions(CreatePartitionsRequest req) throws Exception {
+            return CreatePartitions(req, null);
+        }
+
+        /** Deadline variant: timeout propagates as grpc-timeout; expiry raises DEADLINE_EXCEEDED. */
+        public CreatePartitionsResponse CreatePartitions(CreatePartitionsRequest req, Map<String, String> metadata, java.time.Duration timeout) throws Exception {
+            CreatePartitionsResponse resp = new CreatePartitionsResponse();
+            channel.unary("/grpcdc.kafka.v1.Kafka/CreatePartitions", req, resp, metadata, timeout);
+            return resp;
+        }
+        public DeleteRecordsResponse DeleteRecords(DeleteRecordsRequest req, Map<String, String> metadata) throws Exception {
+            DeleteRecordsResponse resp = new DeleteRecordsResponse();
+            channel.unary("/grpcdc.kafka.v1.Kafka/DeleteRecords", req, resp, metadata);
+            return resp;
+        }
+
+        public DeleteRecordsResponse DeleteRecords(DeleteRecordsRequest req) throws Exception {
+            return DeleteRecords(req, null);
+        }
+
+        /** Deadline variant: timeout propagates as grpc-timeout; expiry raises DEADLINE_EXCEEDED. */
+        public DeleteRecordsResponse DeleteRecords(DeleteRecordsRequest req, Map<String, String> metadata, java.time.Duration timeout) throws Exception {
+            DeleteRecordsResponse resp = new DeleteRecordsResponse();
+            channel.unary("/grpcdc.kafka.v1.Kafka/DeleteRecords", req, resp, metadata, timeout);
+            return resp;
+        }
+        public ListGroupsResponse ListGroups(ListGroupsRequest req, Map<String, String> metadata) throws Exception {
+            ListGroupsResponse resp = new ListGroupsResponse();
+            channel.unary("/grpcdc.kafka.v1.Kafka/ListGroups", req, resp, metadata);
+            return resp;
+        }
+
+        public ListGroupsResponse ListGroups(ListGroupsRequest req) throws Exception {
+            return ListGroups(req, null);
+        }
+
+        /** Deadline variant: timeout propagates as grpc-timeout; expiry raises DEADLINE_EXCEEDED. */
+        public ListGroupsResponse ListGroups(ListGroupsRequest req, Map<String, String> metadata, java.time.Duration timeout) throws Exception {
+            ListGroupsResponse resp = new ListGroupsResponse();
+            channel.unary("/grpcdc.kafka.v1.Kafka/ListGroups", req, resp, metadata, timeout);
+            return resp;
+        }
+        public DescribeGroupsResponse DescribeGroups(DescribeGroupsRequest req, Map<String, String> metadata) throws Exception {
+            DescribeGroupsResponse resp = new DescribeGroupsResponse();
+            channel.unary("/grpcdc.kafka.v1.Kafka/DescribeGroups", req, resp, metadata);
+            return resp;
+        }
+
+        public DescribeGroupsResponse DescribeGroups(DescribeGroupsRequest req) throws Exception {
+            return DescribeGroups(req, null);
+        }
+
+        /** Deadline variant: timeout propagates as grpc-timeout; expiry raises DEADLINE_EXCEEDED. */
+        public DescribeGroupsResponse DescribeGroups(DescribeGroupsRequest req, Map<String, String> metadata, java.time.Duration timeout) throws Exception {
+            DescribeGroupsResponse resp = new DescribeGroupsResponse();
+            channel.unary("/grpcdc.kafka.v1.Kafka/DescribeGroups", req, resp, metadata, timeout);
+            return resp;
+        }
+        public DeleteGroupsResponse DeleteGroups(DeleteGroupsRequest req, Map<String, String> metadata) throws Exception {
+            DeleteGroupsResponse resp = new DeleteGroupsResponse();
+            channel.unary("/grpcdc.kafka.v1.Kafka/DeleteGroups", req, resp, metadata);
+            return resp;
+        }
+
+        public DeleteGroupsResponse DeleteGroups(DeleteGroupsRequest req) throws Exception {
+            return DeleteGroups(req, null);
+        }
+
+        /** Deadline variant: timeout propagates as grpc-timeout; expiry raises DEADLINE_EXCEEDED. */
+        public DeleteGroupsResponse DeleteGroups(DeleteGroupsRequest req, Map<String, String> metadata, java.time.Duration timeout) throws Exception {
+            DeleteGroupsResponse resp = new DeleteGroupsResponse();
+            channel.unary("/grpcdc.kafka.v1.Kafka/DeleteGroups", req, resp, metadata, timeout);
+            return resp;
+        }
+        public DeleteGroupOffsetsResponse DeleteGroupOffsets(DeleteGroupOffsetsRequest req, Map<String, String> metadata) throws Exception {
+            DeleteGroupOffsetsResponse resp = new DeleteGroupOffsetsResponse();
+            channel.unary("/grpcdc.kafka.v1.Kafka/DeleteGroupOffsets", req, resp, metadata);
+            return resp;
+        }
+
+        public DeleteGroupOffsetsResponse DeleteGroupOffsets(DeleteGroupOffsetsRequest req) throws Exception {
+            return DeleteGroupOffsets(req, null);
+        }
+
+        /** Deadline variant: timeout propagates as grpc-timeout; expiry raises DEADLINE_EXCEEDED. */
+        public DeleteGroupOffsetsResponse DeleteGroupOffsets(DeleteGroupOffsetsRequest req, Map<String, String> metadata, java.time.Duration timeout) throws Exception {
+            DeleteGroupOffsetsResponse resp = new DeleteGroupOffsetsResponse();
+            channel.unary("/grpcdc.kafka.v1.Kafka/DeleteGroupOffsets", req, resp, metadata, timeout);
+            return resp;
+        }
+        public DescribeAclsResponse DescribeAcls(DescribeAclsRequest req, Map<String, String> metadata) throws Exception {
+            DescribeAclsResponse resp = new DescribeAclsResponse();
+            channel.unary("/grpcdc.kafka.v1.Kafka/DescribeAcls", req, resp, metadata);
+            return resp;
+        }
+
+        public DescribeAclsResponse DescribeAcls(DescribeAclsRequest req) throws Exception {
+            return DescribeAcls(req, null);
+        }
+
+        /** Deadline variant: timeout propagates as grpc-timeout; expiry raises DEADLINE_EXCEEDED. */
+        public DescribeAclsResponse DescribeAcls(DescribeAclsRequest req, Map<String, String> metadata, java.time.Duration timeout) throws Exception {
+            DescribeAclsResponse resp = new DescribeAclsResponse();
+            channel.unary("/grpcdc.kafka.v1.Kafka/DescribeAcls", req, resp, metadata, timeout);
+            return resp;
+        }
+        public CreateAclsResponse CreateAcls(CreateAclsRequest req, Map<String, String> metadata) throws Exception {
+            CreateAclsResponse resp = new CreateAclsResponse();
+            channel.unary("/grpcdc.kafka.v1.Kafka/CreateAcls", req, resp, metadata);
+            return resp;
+        }
+
+        public CreateAclsResponse CreateAcls(CreateAclsRequest req) throws Exception {
+            return CreateAcls(req, null);
+        }
+
+        /** Deadline variant: timeout propagates as grpc-timeout; expiry raises DEADLINE_EXCEEDED. */
+        public CreateAclsResponse CreateAcls(CreateAclsRequest req, Map<String, String> metadata, java.time.Duration timeout) throws Exception {
+            CreateAclsResponse resp = new CreateAclsResponse();
+            channel.unary("/grpcdc.kafka.v1.Kafka/CreateAcls", req, resp, metadata, timeout);
+            return resp;
+        }
+        public DeleteAclsResponse DeleteAcls(DeleteAclsRequest req, Map<String, String> metadata) throws Exception {
+            DeleteAclsResponse resp = new DeleteAclsResponse();
+            channel.unary("/grpcdc.kafka.v1.Kafka/DeleteAcls", req, resp, metadata);
+            return resp;
+        }
+
+        public DeleteAclsResponse DeleteAcls(DeleteAclsRequest req) throws Exception {
+            return DeleteAcls(req, null);
+        }
+
+        /** Deadline variant: timeout propagates as grpc-timeout; expiry raises DEADLINE_EXCEEDED. */
+        public DeleteAclsResponse DeleteAcls(DeleteAclsRequest req, Map<String, String> metadata, java.time.Duration timeout) throws Exception {
+            DeleteAclsResponse resp = new DeleteAclsResponse();
+            channel.unary("/grpcdc.kafka.v1.Kafka/DeleteAcls", req, resp, metadata, timeout);
+            return resp;
+        }
+        public ListTransactionsResponse ListTransactions(ListTransactionsRequest req, Map<String, String> metadata) throws Exception {
+            ListTransactionsResponse resp = new ListTransactionsResponse();
+            channel.unary("/grpcdc.kafka.v1.Kafka/ListTransactions", req, resp, metadata);
+            return resp;
+        }
+
+        public ListTransactionsResponse ListTransactions(ListTransactionsRequest req) throws Exception {
+            return ListTransactions(req, null);
+        }
+
+        /** Deadline variant: timeout propagates as grpc-timeout; expiry raises DEADLINE_EXCEEDED. */
+        public ListTransactionsResponse ListTransactions(ListTransactionsRequest req, Map<String, String> metadata, java.time.Duration timeout) throws Exception {
+            ListTransactionsResponse resp = new ListTransactionsResponse();
+            channel.unary("/grpcdc.kafka.v1.Kafka/ListTransactions", req, resp, metadata, timeout);
+            return resp;
+        }
+        public DescribeTransactionsResponse DescribeTransactions(DescribeTransactionsRequest req, Map<String, String> metadata) throws Exception {
+            DescribeTransactionsResponse resp = new DescribeTransactionsResponse();
+            channel.unary("/grpcdc.kafka.v1.Kafka/DescribeTransactions", req, resp, metadata);
+            return resp;
+        }
+
+        public DescribeTransactionsResponse DescribeTransactions(DescribeTransactionsRequest req) throws Exception {
+            return DescribeTransactions(req, null);
+        }
+
+        /** Deadline variant: timeout propagates as grpc-timeout; expiry raises DEADLINE_EXCEEDED. */
+        public DescribeTransactionsResponse DescribeTransactions(DescribeTransactionsRequest req, Map<String, String> metadata, java.time.Duration timeout) throws Exception {
+            DescribeTransactionsResponse resp = new DescribeTransactionsResponse();
+            channel.unary("/grpcdc.kafka.v1.Kafka/DescribeTransactions", req, resp, metadata, timeout);
+            return resp;
+        }
+        public OpenShareGroupResponse OpenShareGroup(OpenShareGroupRequest req, Map<String, String> metadata) throws Exception {
+            OpenShareGroupResponse resp = new OpenShareGroupResponse();
+            channel.unary("/grpcdc.kafka.v1.Kafka/OpenShareGroup", req, resp, metadata);
+            return resp;
+        }
+
+        public OpenShareGroupResponse OpenShareGroup(OpenShareGroupRequest req) throws Exception {
+            return OpenShareGroup(req, null);
+        }
+
+        /** Deadline variant: timeout propagates as grpc-timeout; expiry raises DEADLINE_EXCEEDED. */
+        public OpenShareGroupResponse OpenShareGroup(OpenShareGroupRequest req, Map<String, String> metadata, java.time.Duration timeout) throws Exception {
+            OpenShareGroupResponse resp = new OpenShareGroupResponse();
+            channel.unary("/grpcdc.kafka.v1.Kafka/OpenShareGroup", req, resp, metadata, timeout);
+            return resp;
+        }
+        public SharePollResponse SharePoll(SharePollRequest req, Map<String, String> metadata) throws Exception {
+            SharePollResponse resp = new SharePollResponse();
+            channel.unary("/grpcdc.kafka.v1.Kafka/SharePoll", req, resp, metadata);
+            return resp;
+        }
+
+        public SharePollResponse SharePoll(SharePollRequest req) throws Exception {
+            return SharePoll(req, null);
+        }
+
+        /** Deadline variant: timeout propagates as grpc-timeout; expiry raises DEADLINE_EXCEEDED. */
+        public SharePollResponse SharePoll(SharePollRequest req, Map<String, String> metadata, java.time.Duration timeout) throws Exception {
+            SharePollResponse resp = new SharePollResponse();
+            channel.unary("/grpcdc.kafka.v1.Kafka/SharePoll", req, resp, metadata, timeout);
+            return resp;
+        }
+        public ShareAckResponse ShareAck(ShareAckRequest req, Map<String, String> metadata) throws Exception {
+            ShareAckResponse resp = new ShareAckResponse();
+            channel.unary("/grpcdc.kafka.v1.Kafka/ShareAck", req, resp, metadata);
+            return resp;
+        }
+
+        public ShareAckResponse ShareAck(ShareAckRequest req) throws Exception {
+            return ShareAck(req, null);
+        }
+
+        /** Deadline variant: timeout propagates as grpc-timeout; expiry raises DEADLINE_EXCEEDED. */
+        public ShareAckResponse ShareAck(ShareAckRequest req, Map<String, String> metadata, java.time.Duration timeout) throws Exception {
+            ShareAckResponse resp = new ShareAckResponse();
+            channel.unary("/grpcdc.kafka.v1.Kafka/ShareAck", req, resp, metadata, timeout);
+            return resp;
+        }
+        public CloseShareGroupResponse CloseShareGroup(CloseShareGroupRequest req, Map<String, String> metadata) throws Exception {
+            CloseShareGroupResponse resp = new CloseShareGroupResponse();
+            channel.unary("/grpcdc.kafka.v1.Kafka/CloseShareGroup", req, resp, metadata);
+            return resp;
+        }
+
+        public CloseShareGroupResponse CloseShareGroup(CloseShareGroupRequest req) throws Exception {
+            return CloseShareGroup(req, null);
+        }
+
+        /** Deadline variant: timeout propagates as grpc-timeout; expiry raises DEADLINE_EXCEEDED. */
+        public CloseShareGroupResponse CloseShareGroup(CloseShareGroupRequest req, Map<String, String> metadata, java.time.Duration timeout) throws Exception {
+            CloseShareGroupResponse resp = new CloseShareGroupResponse();
+            channel.unary("/grpcdc.kafka.v1.Kafka/CloseShareGroup", req, resp, metadata, timeout);
+            return resp;
+        }
         public CompletableFuture<MetadataResponse> MetadataAsync(MetadataRequest req, Map<String, String> metadata) {
             return CompletableFuture.supplyAsync(() -> {
                 try {
@@ -385,6 +657,227 @@ public final class KafkaGrpcDc {
         public CompletableFuture<DeleteTopicsResponse> DeleteTopicsAsync(DeleteTopicsRequest req) {
             return DeleteTopicsAsync(req, null);
         }
+        public CompletableFuture<DescribeConfigsResponse> DescribeConfigsAsync(DescribeConfigsRequest req, Map<String, String> metadata) {
+            return CompletableFuture.supplyAsync(() -> {
+                try {
+                    return DescribeConfigs(req, metadata);
+                } catch (Exception e) {
+                    throw new CompletionException(e);
+                }
+            });
+        }
+
+        public CompletableFuture<DescribeConfigsResponse> DescribeConfigsAsync(DescribeConfigsRequest req) {
+            return DescribeConfigsAsync(req, null);
+        }
+        public CompletableFuture<AlterConfigsResponse> AlterConfigsAsync(AlterConfigsRequest req, Map<String, String> metadata) {
+            return CompletableFuture.supplyAsync(() -> {
+                try {
+                    return AlterConfigs(req, metadata);
+                } catch (Exception e) {
+                    throw new CompletionException(e);
+                }
+            });
+        }
+
+        public CompletableFuture<AlterConfigsResponse> AlterConfigsAsync(AlterConfigsRequest req) {
+            return AlterConfigsAsync(req, null);
+        }
+        public CompletableFuture<CreatePartitionsResponse> CreatePartitionsAsync(CreatePartitionsRequest req, Map<String, String> metadata) {
+            return CompletableFuture.supplyAsync(() -> {
+                try {
+                    return CreatePartitions(req, metadata);
+                } catch (Exception e) {
+                    throw new CompletionException(e);
+                }
+            });
+        }
+
+        public CompletableFuture<CreatePartitionsResponse> CreatePartitionsAsync(CreatePartitionsRequest req) {
+            return CreatePartitionsAsync(req, null);
+        }
+        public CompletableFuture<DeleteRecordsResponse> DeleteRecordsAsync(DeleteRecordsRequest req, Map<String, String> metadata) {
+            return CompletableFuture.supplyAsync(() -> {
+                try {
+                    return DeleteRecords(req, metadata);
+                } catch (Exception e) {
+                    throw new CompletionException(e);
+                }
+            });
+        }
+
+        public CompletableFuture<DeleteRecordsResponse> DeleteRecordsAsync(DeleteRecordsRequest req) {
+            return DeleteRecordsAsync(req, null);
+        }
+        public CompletableFuture<ListGroupsResponse> ListGroupsAsync(ListGroupsRequest req, Map<String, String> metadata) {
+            return CompletableFuture.supplyAsync(() -> {
+                try {
+                    return ListGroups(req, metadata);
+                } catch (Exception e) {
+                    throw new CompletionException(e);
+                }
+            });
+        }
+
+        public CompletableFuture<ListGroupsResponse> ListGroupsAsync(ListGroupsRequest req) {
+            return ListGroupsAsync(req, null);
+        }
+        public CompletableFuture<DescribeGroupsResponse> DescribeGroupsAsync(DescribeGroupsRequest req, Map<String, String> metadata) {
+            return CompletableFuture.supplyAsync(() -> {
+                try {
+                    return DescribeGroups(req, metadata);
+                } catch (Exception e) {
+                    throw new CompletionException(e);
+                }
+            });
+        }
+
+        public CompletableFuture<DescribeGroupsResponse> DescribeGroupsAsync(DescribeGroupsRequest req) {
+            return DescribeGroupsAsync(req, null);
+        }
+        public CompletableFuture<DeleteGroupsResponse> DeleteGroupsAsync(DeleteGroupsRequest req, Map<String, String> metadata) {
+            return CompletableFuture.supplyAsync(() -> {
+                try {
+                    return DeleteGroups(req, metadata);
+                } catch (Exception e) {
+                    throw new CompletionException(e);
+                }
+            });
+        }
+
+        public CompletableFuture<DeleteGroupsResponse> DeleteGroupsAsync(DeleteGroupsRequest req) {
+            return DeleteGroupsAsync(req, null);
+        }
+        public CompletableFuture<DeleteGroupOffsetsResponse> DeleteGroupOffsetsAsync(DeleteGroupOffsetsRequest req, Map<String, String> metadata) {
+            return CompletableFuture.supplyAsync(() -> {
+                try {
+                    return DeleteGroupOffsets(req, metadata);
+                } catch (Exception e) {
+                    throw new CompletionException(e);
+                }
+            });
+        }
+
+        public CompletableFuture<DeleteGroupOffsetsResponse> DeleteGroupOffsetsAsync(DeleteGroupOffsetsRequest req) {
+            return DeleteGroupOffsetsAsync(req, null);
+        }
+        public CompletableFuture<DescribeAclsResponse> DescribeAclsAsync(DescribeAclsRequest req, Map<String, String> metadata) {
+            return CompletableFuture.supplyAsync(() -> {
+                try {
+                    return DescribeAcls(req, metadata);
+                } catch (Exception e) {
+                    throw new CompletionException(e);
+                }
+            });
+        }
+
+        public CompletableFuture<DescribeAclsResponse> DescribeAclsAsync(DescribeAclsRequest req) {
+            return DescribeAclsAsync(req, null);
+        }
+        public CompletableFuture<CreateAclsResponse> CreateAclsAsync(CreateAclsRequest req, Map<String, String> metadata) {
+            return CompletableFuture.supplyAsync(() -> {
+                try {
+                    return CreateAcls(req, metadata);
+                } catch (Exception e) {
+                    throw new CompletionException(e);
+                }
+            });
+        }
+
+        public CompletableFuture<CreateAclsResponse> CreateAclsAsync(CreateAclsRequest req) {
+            return CreateAclsAsync(req, null);
+        }
+        public CompletableFuture<DeleteAclsResponse> DeleteAclsAsync(DeleteAclsRequest req, Map<String, String> metadata) {
+            return CompletableFuture.supplyAsync(() -> {
+                try {
+                    return DeleteAcls(req, metadata);
+                } catch (Exception e) {
+                    throw new CompletionException(e);
+                }
+            });
+        }
+
+        public CompletableFuture<DeleteAclsResponse> DeleteAclsAsync(DeleteAclsRequest req) {
+            return DeleteAclsAsync(req, null);
+        }
+        public CompletableFuture<ListTransactionsResponse> ListTransactionsAsync(ListTransactionsRequest req, Map<String, String> metadata) {
+            return CompletableFuture.supplyAsync(() -> {
+                try {
+                    return ListTransactions(req, metadata);
+                } catch (Exception e) {
+                    throw new CompletionException(e);
+                }
+            });
+        }
+
+        public CompletableFuture<ListTransactionsResponse> ListTransactionsAsync(ListTransactionsRequest req) {
+            return ListTransactionsAsync(req, null);
+        }
+        public CompletableFuture<DescribeTransactionsResponse> DescribeTransactionsAsync(DescribeTransactionsRequest req, Map<String, String> metadata) {
+            return CompletableFuture.supplyAsync(() -> {
+                try {
+                    return DescribeTransactions(req, metadata);
+                } catch (Exception e) {
+                    throw new CompletionException(e);
+                }
+            });
+        }
+
+        public CompletableFuture<DescribeTransactionsResponse> DescribeTransactionsAsync(DescribeTransactionsRequest req) {
+            return DescribeTransactionsAsync(req, null);
+        }
+        public CompletableFuture<OpenShareGroupResponse> OpenShareGroupAsync(OpenShareGroupRequest req, Map<String, String> metadata) {
+            return CompletableFuture.supplyAsync(() -> {
+                try {
+                    return OpenShareGroup(req, metadata);
+                } catch (Exception e) {
+                    throw new CompletionException(e);
+                }
+            });
+        }
+
+        public CompletableFuture<OpenShareGroupResponse> OpenShareGroupAsync(OpenShareGroupRequest req) {
+            return OpenShareGroupAsync(req, null);
+        }
+        public CompletableFuture<SharePollResponse> SharePollAsync(SharePollRequest req, Map<String, String> metadata) {
+            return CompletableFuture.supplyAsync(() -> {
+                try {
+                    return SharePoll(req, metadata);
+                } catch (Exception e) {
+                    throw new CompletionException(e);
+                }
+            });
+        }
+
+        public CompletableFuture<SharePollResponse> SharePollAsync(SharePollRequest req) {
+            return SharePollAsync(req, null);
+        }
+        public CompletableFuture<ShareAckResponse> ShareAckAsync(ShareAckRequest req, Map<String, String> metadata) {
+            return CompletableFuture.supplyAsync(() -> {
+                try {
+                    return ShareAck(req, metadata);
+                } catch (Exception e) {
+                    throw new CompletionException(e);
+                }
+            });
+        }
+
+        public CompletableFuture<ShareAckResponse> ShareAckAsync(ShareAckRequest req) {
+            return ShareAckAsync(req, null);
+        }
+        public CompletableFuture<CloseShareGroupResponse> CloseShareGroupAsync(CloseShareGroupRequest req, Map<String, String> metadata) {
+            return CompletableFuture.supplyAsync(() -> {
+                try {
+                    return CloseShareGroup(req, metadata);
+                } catch (Exception e) {
+                    throw new CompletionException(e);
+                }
+            });
+        }
+
+        public CompletableFuture<CloseShareGroupResponse> CloseShareGroupAsync(CloseShareGroupRequest req) {
+            return CloseShareGroupAsync(req, null);
+        }
     }
 
     /** Receiving stream for Kafka.Consume: recv() throws EOFException at end. Close to abandon early (RST). */
@@ -473,6 +966,23 @@ public final class KafkaGrpcDc {
         FetchOffsetResponse FetchOffset(Endpoint.CallContext ctx, FetchOffsetRequest req) throws Exception;
         CreateTopicsResponse CreateTopics(Endpoint.CallContext ctx, CreateTopicsRequest req) throws Exception;
         DeleteTopicsResponse DeleteTopics(Endpoint.CallContext ctx, DeleteTopicsRequest req) throws Exception;
+        DescribeConfigsResponse DescribeConfigs(Endpoint.CallContext ctx, DescribeConfigsRequest req) throws Exception;
+        AlterConfigsResponse AlterConfigs(Endpoint.CallContext ctx, AlterConfigsRequest req) throws Exception;
+        CreatePartitionsResponse CreatePartitions(Endpoint.CallContext ctx, CreatePartitionsRequest req) throws Exception;
+        DeleteRecordsResponse DeleteRecords(Endpoint.CallContext ctx, DeleteRecordsRequest req) throws Exception;
+        ListGroupsResponse ListGroups(Endpoint.CallContext ctx, ListGroupsRequest req) throws Exception;
+        DescribeGroupsResponse DescribeGroups(Endpoint.CallContext ctx, DescribeGroupsRequest req) throws Exception;
+        DeleteGroupsResponse DeleteGroups(Endpoint.CallContext ctx, DeleteGroupsRequest req) throws Exception;
+        DeleteGroupOffsetsResponse DeleteGroupOffsets(Endpoint.CallContext ctx, DeleteGroupOffsetsRequest req) throws Exception;
+        DescribeAclsResponse DescribeAcls(Endpoint.CallContext ctx, DescribeAclsRequest req) throws Exception;
+        CreateAclsResponse CreateAcls(Endpoint.CallContext ctx, CreateAclsRequest req) throws Exception;
+        DeleteAclsResponse DeleteAcls(Endpoint.CallContext ctx, DeleteAclsRequest req) throws Exception;
+        ListTransactionsResponse ListTransactions(Endpoint.CallContext ctx, ListTransactionsRequest req) throws Exception;
+        DescribeTransactionsResponse DescribeTransactions(Endpoint.CallContext ctx, DescribeTransactionsRequest req) throws Exception;
+        OpenShareGroupResponse OpenShareGroup(Endpoint.CallContext ctx, OpenShareGroupRequest req) throws Exception;
+        SharePollResponse SharePoll(Endpoint.CallContext ctx, SharePollRequest req) throws Exception;
+        ShareAckResponse ShareAck(Endpoint.CallContext ctx, ShareAckRequest req) throws Exception;
+        CloseShareGroupResponse CloseShareGroup(Endpoint.CallContext ctx, CloseShareGroupRequest req) throws Exception;
     }
 
     /** Server-streaming sink passed to service implementations. */
@@ -537,6 +1047,23 @@ public final class KafkaGrpcDc {
         CompletableFuture<FetchOffsetResponse> FetchOffsetAsync(Endpoint.CallContext ctx, FetchOffsetRequest req);
         CompletableFuture<CreateTopicsResponse> CreateTopicsAsync(Endpoint.CallContext ctx, CreateTopicsRequest req);
         CompletableFuture<DeleteTopicsResponse> DeleteTopicsAsync(Endpoint.CallContext ctx, DeleteTopicsRequest req);
+        CompletableFuture<DescribeConfigsResponse> DescribeConfigsAsync(Endpoint.CallContext ctx, DescribeConfigsRequest req);
+        CompletableFuture<AlterConfigsResponse> AlterConfigsAsync(Endpoint.CallContext ctx, AlterConfigsRequest req);
+        CompletableFuture<CreatePartitionsResponse> CreatePartitionsAsync(Endpoint.CallContext ctx, CreatePartitionsRequest req);
+        CompletableFuture<DeleteRecordsResponse> DeleteRecordsAsync(Endpoint.CallContext ctx, DeleteRecordsRequest req);
+        CompletableFuture<ListGroupsResponse> ListGroupsAsync(Endpoint.CallContext ctx, ListGroupsRequest req);
+        CompletableFuture<DescribeGroupsResponse> DescribeGroupsAsync(Endpoint.CallContext ctx, DescribeGroupsRequest req);
+        CompletableFuture<DeleteGroupsResponse> DeleteGroupsAsync(Endpoint.CallContext ctx, DeleteGroupsRequest req);
+        CompletableFuture<DeleteGroupOffsetsResponse> DeleteGroupOffsetsAsync(Endpoint.CallContext ctx, DeleteGroupOffsetsRequest req);
+        CompletableFuture<DescribeAclsResponse> DescribeAclsAsync(Endpoint.CallContext ctx, DescribeAclsRequest req);
+        CompletableFuture<CreateAclsResponse> CreateAclsAsync(Endpoint.CallContext ctx, CreateAclsRequest req);
+        CompletableFuture<DeleteAclsResponse> DeleteAclsAsync(Endpoint.CallContext ctx, DeleteAclsRequest req);
+        CompletableFuture<ListTransactionsResponse> ListTransactionsAsync(Endpoint.CallContext ctx, ListTransactionsRequest req);
+        CompletableFuture<DescribeTransactionsResponse> DescribeTransactionsAsync(Endpoint.CallContext ctx, DescribeTransactionsRequest req);
+        CompletableFuture<OpenShareGroupResponse> OpenShareGroupAsync(Endpoint.CallContext ctx, OpenShareGroupRequest req);
+        CompletableFuture<SharePollResponse> SharePollAsync(Endpoint.CallContext ctx, SharePollRequest req);
+        CompletableFuture<ShareAckResponse> ShareAckAsync(Endpoint.CallContext ctx, ShareAckRequest req);
+        CompletableFuture<CloseShareGroupResponse> CloseShareGroupAsync(Endpoint.CallContext ctx, CloseShareGroupRequest req);
     }
 
     private static final class KafkaServerAsyncAdapter implements KafkaServer {
@@ -666,6 +1193,176 @@ public final class KafkaGrpcDc {
             }
         }
 
+        public DescribeConfigsResponse DescribeConfigs(Endpoint.CallContext ctx, DescribeConfigsRequest req) throws Exception {
+            try {
+                return impl.DescribeConfigsAsync(ctx, req).join();
+            } catch (CompletionException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof Exception ex) throw ex;
+                throw e;
+            }
+        }
+
+        public AlterConfigsResponse AlterConfigs(Endpoint.CallContext ctx, AlterConfigsRequest req) throws Exception {
+            try {
+                return impl.AlterConfigsAsync(ctx, req).join();
+            } catch (CompletionException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof Exception ex) throw ex;
+                throw e;
+            }
+        }
+
+        public CreatePartitionsResponse CreatePartitions(Endpoint.CallContext ctx, CreatePartitionsRequest req) throws Exception {
+            try {
+                return impl.CreatePartitionsAsync(ctx, req).join();
+            } catch (CompletionException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof Exception ex) throw ex;
+                throw e;
+            }
+        }
+
+        public DeleteRecordsResponse DeleteRecords(Endpoint.CallContext ctx, DeleteRecordsRequest req) throws Exception {
+            try {
+                return impl.DeleteRecordsAsync(ctx, req).join();
+            } catch (CompletionException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof Exception ex) throw ex;
+                throw e;
+            }
+        }
+
+        public ListGroupsResponse ListGroups(Endpoint.CallContext ctx, ListGroupsRequest req) throws Exception {
+            try {
+                return impl.ListGroupsAsync(ctx, req).join();
+            } catch (CompletionException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof Exception ex) throw ex;
+                throw e;
+            }
+        }
+
+        public DescribeGroupsResponse DescribeGroups(Endpoint.CallContext ctx, DescribeGroupsRequest req) throws Exception {
+            try {
+                return impl.DescribeGroupsAsync(ctx, req).join();
+            } catch (CompletionException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof Exception ex) throw ex;
+                throw e;
+            }
+        }
+
+        public DeleteGroupsResponse DeleteGroups(Endpoint.CallContext ctx, DeleteGroupsRequest req) throws Exception {
+            try {
+                return impl.DeleteGroupsAsync(ctx, req).join();
+            } catch (CompletionException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof Exception ex) throw ex;
+                throw e;
+            }
+        }
+
+        public DeleteGroupOffsetsResponse DeleteGroupOffsets(Endpoint.CallContext ctx, DeleteGroupOffsetsRequest req) throws Exception {
+            try {
+                return impl.DeleteGroupOffsetsAsync(ctx, req).join();
+            } catch (CompletionException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof Exception ex) throw ex;
+                throw e;
+            }
+        }
+
+        public DescribeAclsResponse DescribeAcls(Endpoint.CallContext ctx, DescribeAclsRequest req) throws Exception {
+            try {
+                return impl.DescribeAclsAsync(ctx, req).join();
+            } catch (CompletionException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof Exception ex) throw ex;
+                throw e;
+            }
+        }
+
+        public CreateAclsResponse CreateAcls(Endpoint.CallContext ctx, CreateAclsRequest req) throws Exception {
+            try {
+                return impl.CreateAclsAsync(ctx, req).join();
+            } catch (CompletionException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof Exception ex) throw ex;
+                throw e;
+            }
+        }
+
+        public DeleteAclsResponse DeleteAcls(Endpoint.CallContext ctx, DeleteAclsRequest req) throws Exception {
+            try {
+                return impl.DeleteAclsAsync(ctx, req).join();
+            } catch (CompletionException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof Exception ex) throw ex;
+                throw e;
+            }
+        }
+
+        public ListTransactionsResponse ListTransactions(Endpoint.CallContext ctx, ListTransactionsRequest req) throws Exception {
+            try {
+                return impl.ListTransactionsAsync(ctx, req).join();
+            } catch (CompletionException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof Exception ex) throw ex;
+                throw e;
+            }
+        }
+
+        public DescribeTransactionsResponse DescribeTransactions(Endpoint.CallContext ctx, DescribeTransactionsRequest req) throws Exception {
+            try {
+                return impl.DescribeTransactionsAsync(ctx, req).join();
+            } catch (CompletionException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof Exception ex) throw ex;
+                throw e;
+            }
+        }
+
+        public OpenShareGroupResponse OpenShareGroup(Endpoint.CallContext ctx, OpenShareGroupRequest req) throws Exception {
+            try {
+                return impl.OpenShareGroupAsync(ctx, req).join();
+            } catch (CompletionException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof Exception ex) throw ex;
+                throw e;
+            }
+        }
+
+        public SharePollResponse SharePoll(Endpoint.CallContext ctx, SharePollRequest req) throws Exception {
+            try {
+                return impl.SharePollAsync(ctx, req).join();
+            } catch (CompletionException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof Exception ex) throw ex;
+                throw e;
+            }
+        }
+
+        public ShareAckResponse ShareAck(Endpoint.CallContext ctx, ShareAckRequest req) throws Exception {
+            try {
+                return impl.ShareAckAsync(ctx, req).join();
+            } catch (CompletionException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof Exception ex) throw ex;
+                throw e;
+            }
+        }
+
+        public CloseShareGroupResponse CloseShareGroup(Endpoint.CallContext ctx, CloseShareGroupRequest req) throws Exception {
+            try {
+                return impl.CloseShareGroupAsync(ctx, req).join();
+            } catch (CompletionException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof Exception ex) throw ex;
+                throw e;
+            }
+        }
+
     }
 
     /** Register an implementation of grpcdc.kafka.v1.Kafka on a Server. */
@@ -732,6 +1429,91 @@ public final class KafkaGrpcDc {
                         DeleteTopicsRequest req = new DeleteTopicsRequest();
                         reqs.recvInto(req);
                         sink.send(impl.DeleteTopics(ctx, req).marshalDc());
+                    }),
+                    new Server.Method("DescribeConfigs", "/grpcdc.kafka.v1.Kafka/DescribeConfigs", Server.KIND_UNARY, (ctx, reqs, sink) -> {
+                        DescribeConfigsRequest req = new DescribeConfigsRequest();
+                        reqs.recvInto(req);
+                        sink.send(impl.DescribeConfigs(ctx, req).marshalDc());
+                    }),
+                    new Server.Method("AlterConfigs", "/grpcdc.kafka.v1.Kafka/AlterConfigs", Server.KIND_UNARY, (ctx, reqs, sink) -> {
+                        AlterConfigsRequest req = new AlterConfigsRequest();
+                        reqs.recvInto(req);
+                        sink.send(impl.AlterConfigs(ctx, req).marshalDc());
+                    }),
+                    new Server.Method("CreatePartitions", "/grpcdc.kafka.v1.Kafka/CreatePartitions", Server.KIND_UNARY, (ctx, reqs, sink) -> {
+                        CreatePartitionsRequest req = new CreatePartitionsRequest();
+                        reqs.recvInto(req);
+                        sink.send(impl.CreatePartitions(ctx, req).marshalDc());
+                    }),
+                    new Server.Method("DeleteRecords", "/grpcdc.kafka.v1.Kafka/DeleteRecords", Server.KIND_UNARY, (ctx, reqs, sink) -> {
+                        DeleteRecordsRequest req = new DeleteRecordsRequest();
+                        reqs.recvInto(req);
+                        sink.send(impl.DeleteRecords(ctx, req).marshalDc());
+                    }),
+                    new Server.Method("ListGroups", "/grpcdc.kafka.v1.Kafka/ListGroups", Server.KIND_UNARY, (ctx, reqs, sink) -> {
+                        ListGroupsRequest req = new ListGroupsRequest();
+                        reqs.recvInto(req);
+                        sink.send(impl.ListGroups(ctx, req).marshalDc());
+                    }),
+                    new Server.Method("DescribeGroups", "/grpcdc.kafka.v1.Kafka/DescribeGroups", Server.KIND_UNARY, (ctx, reqs, sink) -> {
+                        DescribeGroupsRequest req = new DescribeGroupsRequest();
+                        reqs.recvInto(req);
+                        sink.send(impl.DescribeGroups(ctx, req).marshalDc());
+                    }),
+                    new Server.Method("DeleteGroups", "/grpcdc.kafka.v1.Kafka/DeleteGroups", Server.KIND_UNARY, (ctx, reqs, sink) -> {
+                        DeleteGroupsRequest req = new DeleteGroupsRequest();
+                        reqs.recvInto(req);
+                        sink.send(impl.DeleteGroups(ctx, req).marshalDc());
+                    }),
+                    new Server.Method("DeleteGroupOffsets", "/grpcdc.kafka.v1.Kafka/DeleteGroupOffsets", Server.KIND_UNARY, (ctx, reqs, sink) -> {
+                        DeleteGroupOffsetsRequest req = new DeleteGroupOffsetsRequest();
+                        reqs.recvInto(req);
+                        sink.send(impl.DeleteGroupOffsets(ctx, req).marshalDc());
+                    }),
+                    new Server.Method("DescribeAcls", "/grpcdc.kafka.v1.Kafka/DescribeAcls", Server.KIND_UNARY, (ctx, reqs, sink) -> {
+                        DescribeAclsRequest req = new DescribeAclsRequest();
+                        reqs.recvInto(req);
+                        sink.send(impl.DescribeAcls(ctx, req).marshalDc());
+                    }),
+                    new Server.Method("CreateAcls", "/grpcdc.kafka.v1.Kafka/CreateAcls", Server.KIND_UNARY, (ctx, reqs, sink) -> {
+                        CreateAclsRequest req = new CreateAclsRequest();
+                        reqs.recvInto(req);
+                        sink.send(impl.CreateAcls(ctx, req).marshalDc());
+                    }),
+                    new Server.Method("DeleteAcls", "/grpcdc.kafka.v1.Kafka/DeleteAcls", Server.KIND_UNARY, (ctx, reqs, sink) -> {
+                        DeleteAclsRequest req = new DeleteAclsRequest();
+                        reqs.recvInto(req);
+                        sink.send(impl.DeleteAcls(ctx, req).marshalDc());
+                    }),
+                    new Server.Method("ListTransactions", "/grpcdc.kafka.v1.Kafka/ListTransactions", Server.KIND_UNARY, (ctx, reqs, sink) -> {
+                        ListTransactionsRequest req = new ListTransactionsRequest();
+                        reqs.recvInto(req);
+                        sink.send(impl.ListTransactions(ctx, req).marshalDc());
+                    }),
+                    new Server.Method("DescribeTransactions", "/grpcdc.kafka.v1.Kafka/DescribeTransactions", Server.KIND_UNARY, (ctx, reqs, sink) -> {
+                        DescribeTransactionsRequest req = new DescribeTransactionsRequest();
+                        reqs.recvInto(req);
+                        sink.send(impl.DescribeTransactions(ctx, req).marshalDc());
+                    }),
+                    new Server.Method("OpenShareGroup", "/grpcdc.kafka.v1.Kafka/OpenShareGroup", Server.KIND_UNARY, (ctx, reqs, sink) -> {
+                        OpenShareGroupRequest req = new OpenShareGroupRequest();
+                        reqs.recvInto(req);
+                        sink.send(impl.OpenShareGroup(ctx, req).marshalDc());
+                    }),
+                    new Server.Method("SharePoll", "/grpcdc.kafka.v1.Kafka/SharePoll", Server.KIND_UNARY, (ctx, reqs, sink) -> {
+                        SharePollRequest req = new SharePollRequest();
+                        reqs.recvInto(req);
+                        sink.send(impl.SharePoll(ctx, req).marshalDc());
+                    }),
+                    new Server.Method("ShareAck", "/grpcdc.kafka.v1.Kafka/ShareAck", Server.KIND_UNARY, (ctx, reqs, sink) -> {
+                        ShareAckRequest req = new ShareAckRequest();
+                        reqs.recvInto(req);
+                        sink.send(impl.ShareAck(ctx, req).marshalDc());
+                    }),
+                    new Server.Method("CloseShareGroup", "/grpcdc.kafka.v1.Kafka/CloseShareGroup", Server.KIND_UNARY, (ctx, reqs, sink) -> {
+                        CloseShareGroupRequest req = new CloseShareGroupRequest();
+                        reqs.recvInto(req);
+                        sink.send(impl.CloseShareGroup(ctx, req).marshalDc());
                     })
                 )));
     }

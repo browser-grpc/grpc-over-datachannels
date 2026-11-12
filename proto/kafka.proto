@@ -173,6 +173,10 @@ message GroupSubscribeRequest {
   int32 max_poll_records = 5;
   string auto_offset_reset = 6; // "earliest" | "latest"
   bool read_committed = 7; // only committed transactional records
+  // Group protocol: "" (auto: KIP-848 when the broker offers
+  // it, classic otherwise), "consumer" (require KIP-848), or
+  // "classic" (require JoinGroup/SyncGroup).
+  string group_protocol = 8;
 }
 
 message GroupSubscribeResponse {
@@ -273,7 +277,285 @@ message DeleteTopicsResponse {
   repeated TopicError results = 1;
 }
 
+// --- Admin: configuration --------------------------------------
+
+enum ConfigResourceType {
+  CONFIG_RESOURCE_UNKNOWN = 0;
+  CONFIG_RESOURCE_TOPIC = 2;
+  CONFIG_RESOURCE_BROKER = 4;
+  CONFIG_RESOURCE_BROKER_LOGGER = 8;
+  CONFIG_RESOURCE_CLIENT_METRICS = 16;
+  CONFIG_RESOURCE_GROUP = 32;
+}
+
+message ConfigEntry {
+  string name = 1;
+  string value = 2; // empty with op DELETE deletes the key
+}
+
+enum ConfigOp {
+  CONFIG_OP_SET = 0;
+  CONFIG_OP_DELETE = 1;
+}
+
+message AlterConfigEntry {
+  string name = 1;
+  string value = 2;
+  ConfigOp op = 3;
+}
+
+message DescribeConfigsRequest {
+  ConfigResourceType resource_type = 1;
+  string resource_name = 2; // broker: node id as string, "" = default
+  repeated string config_keys = 3; // empty = all keys
+  bool include_synonyms = 4;
+}
+
+message ConfigValue {
+  string name = 1;
+  string value = 2;
+  bool read_only = 3;
+  int32 source = 4; // Kafka ConfigSource code
+  bool is_sensitive = 5;
+}
+
+message DescribeConfigsResponse {
+  int32 error_code = 1;
+  repeated ConfigValue values = 2;
+}
+
+message AlterConfigsRequest {
+  ConfigResourceType resource_type = 1;
+  string resource_name = 2;
+  repeated AlterConfigEntry entries = 3;
+  bool validate_only = 4;
+}
+
+message AlterConfigsResponse {
+  int32 error_code = 1;
+}
+
+// --- Admin: partitions / records --------------------------------
+
+message CreatePartitionsRequest {
+  string topic = 1;
+  int32 total_count = 2;
+  bool validate_only = 3;
+  int32 timeout_ms = 4;
+}
+
+message CreatePartitionsResponse {
+  int32 error_code = 1;
+}
+
+message DeleteRecordsRequest {
+  string topic = 1;
+  int32 partition = 2;
+  int64 before_offset = 3; // -1 = up to the high watermark
+}
+
+message DeleteRecordsResponse {
+  int64 low_watermark = 1;
+  int32 error_code = 2;
+}
+
+// --- Admin: groups ----------------------------------------------
+
+message ListGroupsRequest {}
+
+message GroupListing {
+  string group_id = 1;
+  string protocol_type = 2;
+  string group_state = 3;
+}
+
+message ListGroupsResponse {
+  int32 error_code = 1;
+  repeated GroupListing groups = 2;
+}
+
+message DescribeGroupsRequest {
+  repeated string group_ids = 1;
+}
+
+message GroupMember {
+  string member_id = 1;
+  string client_id = 2;
+  string client_host = 3;
+  repeated TopicPartition assignment = 4;
+}
+
+message DescribedGroup {
+  string group_id = 1;
+  int32 error_code = 2;
+  string group_state = 3;
+  string protocol_type = 4;
+  string protocol = 5;
+  repeated GroupMember members = 6;
+}
+
+message DescribeGroupsResponse {
+  repeated DescribedGroup groups = 1;
+}
+
+message DeleteGroupsRequest {
+  repeated string group_ids = 1;
+}
+
+message GroupErrorResult {
+  string group_id = 1;
+  int32 error_code = 2;
+}
+
+message DeleteGroupsResponse {
+  repeated GroupErrorResult results = 1;
+}
+
+message DeleteGroupOffsetsRequest {
+  string group_id = 1;
+  string topic = 2;
+  repeated int32 partitions = 3;
+}
+
+message DeleteGroupOffsetsResponse {
+  int32 error_code = 1;
+}
+
+// --- Admin: ACLs --------------------------------------------------
+
+message Acl {
+  int32 resource_type = 1; // Kafka ResourceType code
+  string resource_name = 2;
+  int32 pattern_type = 3; // Kafka ResourcePatternType code
+  string principal = 4; // e.g. "User:alice"; "" = any (describe)
+  string host = 5; // "" or "*" = any (describe)
+  int32 operation = 6; // Kafka AclOperation code
+  int32 permission_type = 7; // Kafka AclPermissionType: 0 UNKNOWN, 1 ANY, 2 DENY, 3 ALLOW
+}
+
+message DescribeAclsRequest {
+  Acl filter = 1; // Kafka match semantics; empty fields match any
+}
+
+message DescribeAclsResponse {
+  int32 error_code = 1;
+  repeated Acl acls = 2;
+}
+
+message CreateAclsRequest {
+  repeated Acl acls = 1;
+}
+
+message CreateAclsResponse {
+  repeated int32 error_codes = 1; // aligned with the request list
+}
+
+message DeleteAclsRequest {
+  repeated Acl filters = 1; // each filter deletes its matches
+}
+
+message DeleteAclsResponse {
+  repeated int32 error_codes = 1; // aligned with the filter list
+}
+
+// --- Admin: transactions ------------------------------------------
+
+message ListTransactionsRequest {}
+
+message TransactionListing {
+  string transactional_id = 1;
+  int64 producer_id = 2;
+  string transaction_state = 3; // Kafka state name, e.g. "Ongoing"
+}
+
+message ListTransactionsResponse {
+  int32 error_code = 1;
+  repeated TransactionListing transactions = 2;
+}
+
+message DescribeTransactionsRequest {
+  repeated string transactional_ids = 1;
+}
+
+message DescribedTransaction {
+  string transactional_id = 1;
+  int32 error_code = 2;
+  int64 producer_id = 3;
+  int32 producer_epoch = 4;
+  string transaction_state = 5; // Kafka state name, e.g. "Ongoing"
+  int64 last_update_timestamp_ms = 6;
+}
+
+message DescribeTransactionsResponse {
+  repeated DescribedTransaction transactions = 1;
+}
+
 // --- Service ------------------------------------------------------
+
+
+// --- Share groups (KIP-932) ----------------------------------
+
+message OpenShareGroupRequest {
+  string group_id = 1;
+  repeated string topics = 2;
+  string group_instance_id = 3; // optional static membership
+  int32 session_timeout_ms = 4;
+}
+
+message OpenShareGroupResponse {
+  string session_id = 1;
+  int32 error_code = 2;
+  Assignment assignment = 3;
+}
+
+message SharePollRequest {
+  string session_id = 1;
+  int32 max_records = 2;
+  int32 max_wait_ms = 3;
+}
+
+message SharePollRecord {
+  string topic = 1;
+  int32 partition = 2;
+  int64 offset = 3;
+  bytes key = 4;
+  bytes value = 5;
+  repeated Header headers = 6;
+  int64 timestamp_ms = 7;
+  int32 delivery_count = 8; // 1 = first delivery
+  bool null_key = 9;
+}
+
+message SharePollResponse {
+  repeated SharePollRecord records = 1;
+  int32 error_code = 2;
+}
+
+message ShareAckEntry {
+  string topic = 1;
+  int32 partition = 2;
+  int64 offset = 3;
+  // 1 = ACCEPT (done), 2 = RELEASE (redeliver soon),
+  // 3 = REJECT (redeliver later / dead-letter path).
+  int32 ack_type = 4;
+}
+
+message ShareAckRequest {
+  string session_id = 1;
+  repeated ShareAckEntry entries = 2;
+}
+
+message ShareAckResponse {
+  int32 error_code = 1;
+}
+
+message CloseShareGroupRequest {
+  string session_id = 1;
+}
+
+message CloseShareGroupResponse {
+  int32 error_code = 1;
+}
 
 service Kafka {
   rpc Metadata(MetadataRequest) returns (MetadataResponse);
@@ -288,4 +570,24 @@ service Kafka {
   rpc FetchOffset(FetchOffsetRequest) returns (FetchOffsetResponse);
   rpc CreateTopics(CreateTopicsRequest) returns (CreateTopicsResponse);
   rpc DeleteTopics(DeleteTopicsRequest) returns (DeleteTopicsResponse);
+  rpc DescribeConfigs(DescribeConfigsRequest) returns (DescribeConfigsResponse);
+  rpc AlterConfigs(AlterConfigsRequest) returns (AlterConfigsResponse);
+  rpc CreatePartitions(CreatePartitionsRequest) returns (CreatePartitionsResponse);
+  rpc DeleteRecords(DeleteRecordsRequest) returns (DeleteRecordsResponse);
+  rpc ListGroups(ListGroupsRequest) returns (ListGroupsResponse);
+  rpc DescribeGroups(DescribeGroupsRequest) returns (DescribeGroupsResponse);
+  rpc DeleteGroups(DeleteGroupsRequest) returns (DeleteGroupsResponse);
+  rpc DeleteGroupOffsets(DeleteGroupOffsetsRequest) returns (DeleteGroupOffsetsResponse);
+  rpc DescribeAcls(DescribeAclsRequest) returns (DescribeAclsResponse);
+  rpc CreateAcls(CreateAclsRequest) returns (CreateAclsResponse);
+  rpc DeleteAcls(DeleteAclsRequest) returns (DeleteAclsResponse);
+  rpc ListTransactions(ListTransactionsRequest) returns (ListTransactionsResponse);
+  rpc DescribeTransactions(DescribeTransactionsRequest) returns (DescribeTransactionsResponse);
+  // KIP-932 share groups (queue consume): session-based like
+  // producer sessions, since acknowledgements must flow back
+  // from the client — something a server-stream cannot carry.
+  rpc OpenShareGroup(OpenShareGroupRequest) returns (OpenShareGroupResponse);
+  rpc SharePoll(SharePollRequest) returns (SharePollResponse);
+  rpc ShareAck(ShareAckRequest) returns (ShareAckResponse);
+  rpc CloseShareGroup(CloseShareGroupRequest) returns (CloseShareGroupResponse);
 }

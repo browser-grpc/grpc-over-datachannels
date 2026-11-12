@@ -129,6 +129,142 @@ static inline grpcdc_status KafkaClient_delete_topics(KafkaClient *c, const Dele
     return st;
 }
 
+static inline grpcdc_status KafkaClient_describe_configs(KafkaClient *c, const DescribeConfigsRequest *req, DescribeConfigsResponse *resp, const grpcdc_kv *md, size_t md_count, int64_t deadline_ms) {
+    KafkaPbBytes rb = DescribeConfigsRequest_marshal(req);
+    grpcdc_bytes out; grpcdc_status st = grpcdc_channel_unary(c->channel, "/grpcdc.kafka.v1.Kafka/DescribeConfigs", rb.data, rb.len, md, md_count, deadline_ms, &out);
+    free(rb.data);
+    if (st.code == 0) { memset(resp, 0, sizeof(*resp)); DescribeConfigsResponse_unmarshal(resp, out.data, out.len); grpcdc_bytes_free(&out); }
+    return st;
+}
+
+static inline grpcdc_status KafkaClient_alter_configs(KafkaClient *c, const AlterConfigsRequest *req, AlterConfigsResponse *resp, const grpcdc_kv *md, size_t md_count, int64_t deadline_ms) {
+    KafkaPbBytes rb = AlterConfigsRequest_marshal(req);
+    grpcdc_bytes out; grpcdc_status st = grpcdc_channel_unary(c->channel, "/grpcdc.kafka.v1.Kafka/AlterConfigs", rb.data, rb.len, md, md_count, deadline_ms, &out);
+    free(rb.data);
+    if (st.code == 0) { memset(resp, 0, sizeof(*resp)); AlterConfigsResponse_unmarshal(resp, out.data, out.len); grpcdc_bytes_free(&out); }
+    return st;
+}
+
+static inline grpcdc_status KafkaClient_create_partitions(KafkaClient *c, const CreatePartitionsRequest *req, CreatePartitionsResponse *resp, const grpcdc_kv *md, size_t md_count, int64_t deadline_ms) {
+    KafkaPbBytes rb = CreatePartitionsRequest_marshal(req);
+    grpcdc_bytes out; grpcdc_status st = grpcdc_channel_unary(c->channel, "/grpcdc.kafka.v1.Kafka/CreatePartitions", rb.data, rb.len, md, md_count, deadline_ms, &out);
+    free(rb.data);
+    if (st.code == 0) { memset(resp, 0, sizeof(*resp)); CreatePartitionsResponse_unmarshal(resp, out.data, out.len); grpcdc_bytes_free(&out); }
+    return st;
+}
+
+static inline grpcdc_status KafkaClient_delete_records(KafkaClient *c, const DeleteRecordsRequest *req, DeleteRecordsResponse *resp, const grpcdc_kv *md, size_t md_count, int64_t deadline_ms) {
+    KafkaPbBytes rb = DeleteRecordsRequest_marshal(req);
+    grpcdc_bytes out; grpcdc_status st = grpcdc_channel_unary(c->channel, "/grpcdc.kafka.v1.Kafka/DeleteRecords", rb.data, rb.len, md, md_count, deadline_ms, &out);
+    free(rb.data);
+    if (st.code == 0) { memset(resp, 0, sizeof(*resp)); DeleteRecordsResponse_unmarshal(resp, out.data, out.len); grpcdc_bytes_free(&out); }
+    return st;
+}
+
+static inline grpcdc_status KafkaClient_list_groups(KafkaClient *c, const ListGroupsRequest *req, ListGroupsResponse *resp, const grpcdc_kv *md, size_t md_count, int64_t deadline_ms) {
+    KafkaPbBytes rb = ListGroupsRequest_marshal(req);
+    grpcdc_bytes out; grpcdc_status st = grpcdc_channel_unary(c->channel, "/grpcdc.kafka.v1.Kafka/ListGroups", rb.data, rb.len, md, md_count, deadline_ms, &out);
+    free(rb.data);
+    if (st.code == 0) { memset(resp, 0, sizeof(*resp)); ListGroupsResponse_unmarshal(resp, out.data, out.len); grpcdc_bytes_free(&out); }
+    return st;
+}
+
+static inline grpcdc_status KafkaClient_describe_groups(KafkaClient *c, const DescribeGroupsRequest *req, DescribeGroupsResponse *resp, const grpcdc_kv *md, size_t md_count, int64_t deadline_ms) {
+    KafkaPbBytes rb = DescribeGroupsRequest_marshal(req);
+    grpcdc_bytes out; grpcdc_status st = grpcdc_channel_unary(c->channel, "/grpcdc.kafka.v1.Kafka/DescribeGroups", rb.data, rb.len, md, md_count, deadline_ms, &out);
+    free(rb.data);
+    if (st.code == 0) { memset(resp, 0, sizeof(*resp)); DescribeGroupsResponse_unmarshal(resp, out.data, out.len); grpcdc_bytes_free(&out); }
+    return st;
+}
+
+static inline grpcdc_status KafkaClient_delete_groups(KafkaClient *c, const DeleteGroupsRequest *req, DeleteGroupsResponse *resp, const grpcdc_kv *md, size_t md_count, int64_t deadline_ms) {
+    KafkaPbBytes rb = DeleteGroupsRequest_marshal(req);
+    grpcdc_bytes out; grpcdc_status st = grpcdc_channel_unary(c->channel, "/grpcdc.kafka.v1.Kafka/DeleteGroups", rb.data, rb.len, md, md_count, deadline_ms, &out);
+    free(rb.data);
+    if (st.code == 0) { memset(resp, 0, sizeof(*resp)); DeleteGroupsResponse_unmarshal(resp, out.data, out.len); grpcdc_bytes_free(&out); }
+    return st;
+}
+
+static inline grpcdc_status KafkaClient_delete_group_offsets(KafkaClient *c, const DeleteGroupOffsetsRequest *req, DeleteGroupOffsetsResponse *resp, const grpcdc_kv *md, size_t md_count, int64_t deadline_ms) {
+    KafkaPbBytes rb = DeleteGroupOffsetsRequest_marshal(req);
+    grpcdc_bytes out; grpcdc_status st = grpcdc_channel_unary(c->channel, "/grpcdc.kafka.v1.Kafka/DeleteGroupOffsets", rb.data, rb.len, md, md_count, deadline_ms, &out);
+    free(rb.data);
+    if (st.code == 0) { memset(resp, 0, sizeof(*resp)); DeleteGroupOffsetsResponse_unmarshal(resp, out.data, out.len); grpcdc_bytes_free(&out); }
+    return st;
+}
+
+static inline grpcdc_status KafkaClient_describe_acls(KafkaClient *c, const DescribeAclsRequest *req, DescribeAclsResponse *resp, const grpcdc_kv *md, size_t md_count, int64_t deadline_ms) {
+    KafkaPbBytes rb = DescribeAclsRequest_marshal(req);
+    grpcdc_bytes out; grpcdc_status st = grpcdc_channel_unary(c->channel, "/grpcdc.kafka.v1.Kafka/DescribeAcls", rb.data, rb.len, md, md_count, deadline_ms, &out);
+    free(rb.data);
+    if (st.code == 0) { memset(resp, 0, sizeof(*resp)); DescribeAclsResponse_unmarshal(resp, out.data, out.len); grpcdc_bytes_free(&out); }
+    return st;
+}
+
+static inline grpcdc_status KafkaClient_create_acls(KafkaClient *c, const CreateAclsRequest *req, CreateAclsResponse *resp, const grpcdc_kv *md, size_t md_count, int64_t deadline_ms) {
+    KafkaPbBytes rb = CreateAclsRequest_marshal(req);
+    grpcdc_bytes out; grpcdc_status st = grpcdc_channel_unary(c->channel, "/grpcdc.kafka.v1.Kafka/CreateAcls", rb.data, rb.len, md, md_count, deadline_ms, &out);
+    free(rb.data);
+    if (st.code == 0) { memset(resp, 0, sizeof(*resp)); CreateAclsResponse_unmarshal(resp, out.data, out.len); grpcdc_bytes_free(&out); }
+    return st;
+}
+
+static inline grpcdc_status KafkaClient_delete_acls(KafkaClient *c, const DeleteAclsRequest *req, DeleteAclsResponse *resp, const grpcdc_kv *md, size_t md_count, int64_t deadline_ms) {
+    KafkaPbBytes rb = DeleteAclsRequest_marshal(req);
+    grpcdc_bytes out; grpcdc_status st = grpcdc_channel_unary(c->channel, "/grpcdc.kafka.v1.Kafka/DeleteAcls", rb.data, rb.len, md, md_count, deadline_ms, &out);
+    free(rb.data);
+    if (st.code == 0) { memset(resp, 0, sizeof(*resp)); DeleteAclsResponse_unmarshal(resp, out.data, out.len); grpcdc_bytes_free(&out); }
+    return st;
+}
+
+static inline grpcdc_status KafkaClient_list_transactions(KafkaClient *c, const ListTransactionsRequest *req, ListTransactionsResponse *resp, const grpcdc_kv *md, size_t md_count, int64_t deadline_ms) {
+    KafkaPbBytes rb = ListTransactionsRequest_marshal(req);
+    grpcdc_bytes out; grpcdc_status st = grpcdc_channel_unary(c->channel, "/grpcdc.kafka.v1.Kafka/ListTransactions", rb.data, rb.len, md, md_count, deadline_ms, &out);
+    free(rb.data);
+    if (st.code == 0) { memset(resp, 0, sizeof(*resp)); ListTransactionsResponse_unmarshal(resp, out.data, out.len); grpcdc_bytes_free(&out); }
+    return st;
+}
+
+static inline grpcdc_status KafkaClient_describe_transactions(KafkaClient *c, const DescribeTransactionsRequest *req, DescribeTransactionsResponse *resp, const grpcdc_kv *md, size_t md_count, int64_t deadline_ms) {
+    KafkaPbBytes rb = DescribeTransactionsRequest_marshal(req);
+    grpcdc_bytes out; grpcdc_status st = grpcdc_channel_unary(c->channel, "/grpcdc.kafka.v1.Kafka/DescribeTransactions", rb.data, rb.len, md, md_count, deadline_ms, &out);
+    free(rb.data);
+    if (st.code == 0) { memset(resp, 0, sizeof(*resp)); DescribeTransactionsResponse_unmarshal(resp, out.data, out.len); grpcdc_bytes_free(&out); }
+    return st;
+}
+
+static inline grpcdc_status KafkaClient_open_share_group(KafkaClient *c, const OpenShareGroupRequest *req, OpenShareGroupResponse *resp, const grpcdc_kv *md, size_t md_count, int64_t deadline_ms) {
+    KafkaPbBytes rb = OpenShareGroupRequest_marshal(req);
+    grpcdc_bytes out; grpcdc_status st = grpcdc_channel_unary(c->channel, "/grpcdc.kafka.v1.Kafka/OpenShareGroup", rb.data, rb.len, md, md_count, deadline_ms, &out);
+    free(rb.data);
+    if (st.code == 0) { memset(resp, 0, sizeof(*resp)); OpenShareGroupResponse_unmarshal(resp, out.data, out.len); grpcdc_bytes_free(&out); }
+    return st;
+}
+
+static inline grpcdc_status KafkaClient_share_poll(KafkaClient *c, const SharePollRequest *req, SharePollResponse *resp, const grpcdc_kv *md, size_t md_count, int64_t deadline_ms) {
+    KafkaPbBytes rb = SharePollRequest_marshal(req);
+    grpcdc_bytes out; grpcdc_status st = grpcdc_channel_unary(c->channel, "/grpcdc.kafka.v1.Kafka/SharePoll", rb.data, rb.len, md, md_count, deadline_ms, &out);
+    free(rb.data);
+    if (st.code == 0) { memset(resp, 0, sizeof(*resp)); SharePollResponse_unmarshal(resp, out.data, out.len); grpcdc_bytes_free(&out); }
+    return st;
+}
+
+static inline grpcdc_status KafkaClient_share_ack(KafkaClient *c, const ShareAckRequest *req, ShareAckResponse *resp, const grpcdc_kv *md, size_t md_count, int64_t deadline_ms) {
+    KafkaPbBytes rb = ShareAckRequest_marshal(req);
+    grpcdc_bytes out; grpcdc_status st = grpcdc_channel_unary(c->channel, "/grpcdc.kafka.v1.Kafka/ShareAck", rb.data, rb.len, md, md_count, deadline_ms, &out);
+    free(rb.data);
+    if (st.code == 0) { memset(resp, 0, sizeof(*resp)); ShareAckResponse_unmarshal(resp, out.data, out.len); grpcdc_bytes_free(&out); }
+    return st;
+}
+
+static inline grpcdc_status KafkaClient_close_share_group(KafkaClient *c, const CloseShareGroupRequest *req, CloseShareGroupResponse *resp, const grpcdc_kv *md, size_t md_count, int64_t deadline_ms) {
+    KafkaPbBytes rb = CloseShareGroupRequest_marshal(req);
+    grpcdc_bytes out; grpcdc_status st = grpcdc_channel_unary(c->channel, "/grpcdc.kafka.v1.Kafka/CloseShareGroup", rb.data, rb.len, md, md_count, deadline_ms, &out);
+    free(rb.data);
+    if (st.code == 0) { memset(resp, 0, sizeof(*resp)); CloseShareGroupResponse_unmarshal(resp, out.data, out.len); grpcdc_bytes_free(&out); }
+    return st;
+}
+
 typedef struct { grpcdc_server_stream *raw; } KafkaConsumeStream;
 static inline grpcdc_status KafkaConsumeStream_send(KafkaConsumeStream *s, const ConsumeResponse *resp) { KafkaPbBytes rb = ConsumeResponse_marshal(resp); grpcdc_status st = grpcdc_server_stream_send(s->raw, rb.data, rb.len); free(rb.data); return st; }
 
@@ -149,6 +285,23 @@ typedef struct {
     grpcdc_status (*fetch_offset)(void *ctx, const grpcdc_kv *md, size_t md_count, const FetchOffsetRequest *req, FetchOffsetResponse *resp);
     grpcdc_status (*create_topics)(void *ctx, const grpcdc_kv *md, size_t md_count, const CreateTopicsRequest *req, CreateTopicsResponse *resp);
     grpcdc_status (*delete_topics)(void *ctx, const grpcdc_kv *md, size_t md_count, const DeleteTopicsRequest *req, DeleteTopicsResponse *resp);
+    grpcdc_status (*describe_configs)(void *ctx, const grpcdc_kv *md, size_t md_count, const DescribeConfigsRequest *req, DescribeConfigsResponse *resp);
+    grpcdc_status (*alter_configs)(void *ctx, const grpcdc_kv *md, size_t md_count, const AlterConfigsRequest *req, AlterConfigsResponse *resp);
+    grpcdc_status (*create_partitions)(void *ctx, const grpcdc_kv *md, size_t md_count, const CreatePartitionsRequest *req, CreatePartitionsResponse *resp);
+    grpcdc_status (*delete_records)(void *ctx, const grpcdc_kv *md, size_t md_count, const DeleteRecordsRequest *req, DeleteRecordsResponse *resp);
+    grpcdc_status (*list_groups)(void *ctx, const grpcdc_kv *md, size_t md_count, const ListGroupsRequest *req, ListGroupsResponse *resp);
+    grpcdc_status (*describe_groups)(void *ctx, const grpcdc_kv *md, size_t md_count, const DescribeGroupsRequest *req, DescribeGroupsResponse *resp);
+    grpcdc_status (*delete_groups)(void *ctx, const grpcdc_kv *md, size_t md_count, const DeleteGroupsRequest *req, DeleteGroupsResponse *resp);
+    grpcdc_status (*delete_group_offsets)(void *ctx, const grpcdc_kv *md, size_t md_count, const DeleteGroupOffsetsRequest *req, DeleteGroupOffsetsResponse *resp);
+    grpcdc_status (*describe_acls)(void *ctx, const grpcdc_kv *md, size_t md_count, const DescribeAclsRequest *req, DescribeAclsResponse *resp);
+    grpcdc_status (*create_acls)(void *ctx, const grpcdc_kv *md, size_t md_count, const CreateAclsRequest *req, CreateAclsResponse *resp);
+    grpcdc_status (*delete_acls)(void *ctx, const grpcdc_kv *md, size_t md_count, const DeleteAclsRequest *req, DeleteAclsResponse *resp);
+    grpcdc_status (*list_transactions)(void *ctx, const grpcdc_kv *md, size_t md_count, const ListTransactionsRequest *req, ListTransactionsResponse *resp);
+    grpcdc_status (*describe_transactions)(void *ctx, const grpcdc_kv *md, size_t md_count, const DescribeTransactionsRequest *req, DescribeTransactionsResponse *resp);
+    grpcdc_status (*open_share_group)(void *ctx, const grpcdc_kv *md, size_t md_count, const OpenShareGroupRequest *req, OpenShareGroupResponse *resp);
+    grpcdc_status (*share_poll)(void *ctx, const grpcdc_kv *md, size_t md_count, const SharePollRequest *req, SharePollResponse *resp);
+    grpcdc_status (*share_ack)(void *ctx, const grpcdc_kv *md, size_t md_count, const ShareAckRequest *req, ShareAckResponse *resp);
+    grpcdc_status (*close_share_group)(void *ctx, const grpcdc_kv *md, size_t md_count, const CloseShareGroupRequest *req, CloseShareGroupResponse *resp);
 } KafkaServerImpl;
 
 static grpcdc_status Kafka_metadata_unary_adapter(void *impl, const grpcdc_kv *md, size_t md_count, grpcdc_bytes reqb, grpcdc_bytes *respb) {
@@ -255,6 +408,159 @@ static grpcdc_status Kafka_delete_topics_unary_adapter(void *impl, const grpcdc_
     return st;
 }
 
+static grpcdc_status Kafka_describe_configs_unary_adapter(void *impl, const grpcdc_kv *md, size_t md_count, grpcdc_bytes reqb, grpcdc_bytes *respb) {
+    KafkaServerImpl *impl_ = (KafkaServerImpl *)impl;
+    DescribeConfigsRequest req; memset(&req, 0, sizeof(req)); DescribeConfigsRequest_unmarshal(&req, reqb.data, reqb.len);
+    DescribeConfigsResponse resp; memset(&resp, 0, sizeof(resp));
+    grpcdc_status st = impl_->describe_configs(impl_->ctx, md, md_count, &req, &resp);
+    if (st.code == 0) { KafkaPbBytes rb = DescribeConfigsResponse_marshal(&resp); respb->data = rb.data; respb->len = rb.len; }
+    return st;
+}
+
+static grpcdc_status Kafka_alter_configs_unary_adapter(void *impl, const grpcdc_kv *md, size_t md_count, grpcdc_bytes reqb, grpcdc_bytes *respb) {
+    KafkaServerImpl *impl_ = (KafkaServerImpl *)impl;
+    AlterConfigsRequest req; memset(&req, 0, sizeof(req)); AlterConfigsRequest_unmarshal(&req, reqb.data, reqb.len);
+    AlterConfigsResponse resp; memset(&resp, 0, sizeof(resp));
+    grpcdc_status st = impl_->alter_configs(impl_->ctx, md, md_count, &req, &resp);
+    if (st.code == 0) { KafkaPbBytes rb = AlterConfigsResponse_marshal(&resp); respb->data = rb.data; respb->len = rb.len; }
+    return st;
+}
+
+static grpcdc_status Kafka_create_partitions_unary_adapter(void *impl, const grpcdc_kv *md, size_t md_count, grpcdc_bytes reqb, grpcdc_bytes *respb) {
+    KafkaServerImpl *impl_ = (KafkaServerImpl *)impl;
+    CreatePartitionsRequest req; memset(&req, 0, sizeof(req)); CreatePartitionsRequest_unmarshal(&req, reqb.data, reqb.len);
+    CreatePartitionsResponse resp; memset(&resp, 0, sizeof(resp));
+    grpcdc_status st = impl_->create_partitions(impl_->ctx, md, md_count, &req, &resp);
+    if (st.code == 0) { KafkaPbBytes rb = CreatePartitionsResponse_marshal(&resp); respb->data = rb.data; respb->len = rb.len; }
+    return st;
+}
+
+static grpcdc_status Kafka_delete_records_unary_adapter(void *impl, const grpcdc_kv *md, size_t md_count, grpcdc_bytes reqb, grpcdc_bytes *respb) {
+    KafkaServerImpl *impl_ = (KafkaServerImpl *)impl;
+    DeleteRecordsRequest req; memset(&req, 0, sizeof(req)); DeleteRecordsRequest_unmarshal(&req, reqb.data, reqb.len);
+    DeleteRecordsResponse resp; memset(&resp, 0, sizeof(resp));
+    grpcdc_status st = impl_->delete_records(impl_->ctx, md, md_count, &req, &resp);
+    if (st.code == 0) { KafkaPbBytes rb = DeleteRecordsResponse_marshal(&resp); respb->data = rb.data; respb->len = rb.len; }
+    return st;
+}
+
+static grpcdc_status Kafka_list_groups_unary_adapter(void *impl, const grpcdc_kv *md, size_t md_count, grpcdc_bytes reqb, grpcdc_bytes *respb) {
+    KafkaServerImpl *impl_ = (KafkaServerImpl *)impl;
+    ListGroupsRequest req; memset(&req, 0, sizeof(req)); ListGroupsRequest_unmarshal(&req, reqb.data, reqb.len);
+    ListGroupsResponse resp; memset(&resp, 0, sizeof(resp));
+    grpcdc_status st = impl_->list_groups(impl_->ctx, md, md_count, &req, &resp);
+    if (st.code == 0) { KafkaPbBytes rb = ListGroupsResponse_marshal(&resp); respb->data = rb.data; respb->len = rb.len; }
+    return st;
+}
+
+static grpcdc_status Kafka_describe_groups_unary_adapter(void *impl, const grpcdc_kv *md, size_t md_count, grpcdc_bytes reqb, grpcdc_bytes *respb) {
+    KafkaServerImpl *impl_ = (KafkaServerImpl *)impl;
+    DescribeGroupsRequest req; memset(&req, 0, sizeof(req)); DescribeGroupsRequest_unmarshal(&req, reqb.data, reqb.len);
+    DescribeGroupsResponse resp; memset(&resp, 0, sizeof(resp));
+    grpcdc_status st = impl_->describe_groups(impl_->ctx, md, md_count, &req, &resp);
+    if (st.code == 0) { KafkaPbBytes rb = DescribeGroupsResponse_marshal(&resp); respb->data = rb.data; respb->len = rb.len; }
+    return st;
+}
+
+static grpcdc_status Kafka_delete_groups_unary_adapter(void *impl, const grpcdc_kv *md, size_t md_count, grpcdc_bytes reqb, grpcdc_bytes *respb) {
+    KafkaServerImpl *impl_ = (KafkaServerImpl *)impl;
+    DeleteGroupsRequest req; memset(&req, 0, sizeof(req)); DeleteGroupsRequest_unmarshal(&req, reqb.data, reqb.len);
+    DeleteGroupsResponse resp; memset(&resp, 0, sizeof(resp));
+    grpcdc_status st = impl_->delete_groups(impl_->ctx, md, md_count, &req, &resp);
+    if (st.code == 0) { KafkaPbBytes rb = DeleteGroupsResponse_marshal(&resp); respb->data = rb.data; respb->len = rb.len; }
+    return st;
+}
+
+static grpcdc_status Kafka_delete_group_offsets_unary_adapter(void *impl, const grpcdc_kv *md, size_t md_count, grpcdc_bytes reqb, grpcdc_bytes *respb) {
+    KafkaServerImpl *impl_ = (KafkaServerImpl *)impl;
+    DeleteGroupOffsetsRequest req; memset(&req, 0, sizeof(req)); DeleteGroupOffsetsRequest_unmarshal(&req, reqb.data, reqb.len);
+    DeleteGroupOffsetsResponse resp; memset(&resp, 0, sizeof(resp));
+    grpcdc_status st = impl_->delete_group_offsets(impl_->ctx, md, md_count, &req, &resp);
+    if (st.code == 0) { KafkaPbBytes rb = DeleteGroupOffsetsResponse_marshal(&resp); respb->data = rb.data; respb->len = rb.len; }
+    return st;
+}
+
+static grpcdc_status Kafka_describe_acls_unary_adapter(void *impl, const grpcdc_kv *md, size_t md_count, grpcdc_bytes reqb, grpcdc_bytes *respb) {
+    KafkaServerImpl *impl_ = (KafkaServerImpl *)impl;
+    DescribeAclsRequest req; memset(&req, 0, sizeof(req)); DescribeAclsRequest_unmarshal(&req, reqb.data, reqb.len);
+    DescribeAclsResponse resp; memset(&resp, 0, sizeof(resp));
+    grpcdc_status st = impl_->describe_acls(impl_->ctx, md, md_count, &req, &resp);
+    if (st.code == 0) { KafkaPbBytes rb = DescribeAclsResponse_marshal(&resp); respb->data = rb.data; respb->len = rb.len; }
+    return st;
+}
+
+static grpcdc_status Kafka_create_acls_unary_adapter(void *impl, const grpcdc_kv *md, size_t md_count, grpcdc_bytes reqb, grpcdc_bytes *respb) {
+    KafkaServerImpl *impl_ = (KafkaServerImpl *)impl;
+    CreateAclsRequest req; memset(&req, 0, sizeof(req)); CreateAclsRequest_unmarshal(&req, reqb.data, reqb.len);
+    CreateAclsResponse resp; memset(&resp, 0, sizeof(resp));
+    grpcdc_status st = impl_->create_acls(impl_->ctx, md, md_count, &req, &resp);
+    if (st.code == 0) { KafkaPbBytes rb = CreateAclsResponse_marshal(&resp); respb->data = rb.data; respb->len = rb.len; }
+    return st;
+}
+
+static grpcdc_status Kafka_delete_acls_unary_adapter(void *impl, const grpcdc_kv *md, size_t md_count, grpcdc_bytes reqb, grpcdc_bytes *respb) {
+    KafkaServerImpl *impl_ = (KafkaServerImpl *)impl;
+    DeleteAclsRequest req; memset(&req, 0, sizeof(req)); DeleteAclsRequest_unmarshal(&req, reqb.data, reqb.len);
+    DeleteAclsResponse resp; memset(&resp, 0, sizeof(resp));
+    grpcdc_status st = impl_->delete_acls(impl_->ctx, md, md_count, &req, &resp);
+    if (st.code == 0) { KafkaPbBytes rb = DeleteAclsResponse_marshal(&resp); respb->data = rb.data; respb->len = rb.len; }
+    return st;
+}
+
+static grpcdc_status Kafka_list_transactions_unary_adapter(void *impl, const grpcdc_kv *md, size_t md_count, grpcdc_bytes reqb, grpcdc_bytes *respb) {
+    KafkaServerImpl *impl_ = (KafkaServerImpl *)impl;
+    ListTransactionsRequest req; memset(&req, 0, sizeof(req)); ListTransactionsRequest_unmarshal(&req, reqb.data, reqb.len);
+    ListTransactionsResponse resp; memset(&resp, 0, sizeof(resp));
+    grpcdc_status st = impl_->list_transactions(impl_->ctx, md, md_count, &req, &resp);
+    if (st.code == 0) { KafkaPbBytes rb = ListTransactionsResponse_marshal(&resp); respb->data = rb.data; respb->len = rb.len; }
+    return st;
+}
+
+static grpcdc_status Kafka_describe_transactions_unary_adapter(void *impl, const grpcdc_kv *md, size_t md_count, grpcdc_bytes reqb, grpcdc_bytes *respb) {
+    KafkaServerImpl *impl_ = (KafkaServerImpl *)impl;
+    DescribeTransactionsRequest req; memset(&req, 0, sizeof(req)); DescribeTransactionsRequest_unmarshal(&req, reqb.data, reqb.len);
+    DescribeTransactionsResponse resp; memset(&resp, 0, sizeof(resp));
+    grpcdc_status st = impl_->describe_transactions(impl_->ctx, md, md_count, &req, &resp);
+    if (st.code == 0) { KafkaPbBytes rb = DescribeTransactionsResponse_marshal(&resp); respb->data = rb.data; respb->len = rb.len; }
+    return st;
+}
+
+static grpcdc_status Kafka_open_share_group_unary_adapter(void *impl, const grpcdc_kv *md, size_t md_count, grpcdc_bytes reqb, grpcdc_bytes *respb) {
+    KafkaServerImpl *impl_ = (KafkaServerImpl *)impl;
+    OpenShareGroupRequest req; memset(&req, 0, sizeof(req)); OpenShareGroupRequest_unmarshal(&req, reqb.data, reqb.len);
+    OpenShareGroupResponse resp; memset(&resp, 0, sizeof(resp));
+    grpcdc_status st = impl_->open_share_group(impl_->ctx, md, md_count, &req, &resp);
+    if (st.code == 0) { KafkaPbBytes rb = OpenShareGroupResponse_marshal(&resp); respb->data = rb.data; respb->len = rb.len; }
+    return st;
+}
+
+static grpcdc_status Kafka_share_poll_unary_adapter(void *impl, const grpcdc_kv *md, size_t md_count, grpcdc_bytes reqb, grpcdc_bytes *respb) {
+    KafkaServerImpl *impl_ = (KafkaServerImpl *)impl;
+    SharePollRequest req; memset(&req, 0, sizeof(req)); SharePollRequest_unmarshal(&req, reqb.data, reqb.len);
+    SharePollResponse resp; memset(&resp, 0, sizeof(resp));
+    grpcdc_status st = impl_->share_poll(impl_->ctx, md, md_count, &req, &resp);
+    if (st.code == 0) { KafkaPbBytes rb = SharePollResponse_marshal(&resp); respb->data = rb.data; respb->len = rb.len; }
+    return st;
+}
+
+static grpcdc_status Kafka_share_ack_unary_adapter(void *impl, const grpcdc_kv *md, size_t md_count, grpcdc_bytes reqb, grpcdc_bytes *respb) {
+    KafkaServerImpl *impl_ = (KafkaServerImpl *)impl;
+    ShareAckRequest req; memset(&req, 0, sizeof(req)); ShareAckRequest_unmarshal(&req, reqb.data, reqb.len);
+    ShareAckResponse resp; memset(&resp, 0, sizeof(resp));
+    grpcdc_status st = impl_->share_ack(impl_->ctx, md, md_count, &req, &resp);
+    if (st.code == 0) { KafkaPbBytes rb = ShareAckResponse_marshal(&resp); respb->data = rb.data; respb->len = rb.len; }
+    return st;
+}
+
+static grpcdc_status Kafka_close_share_group_unary_adapter(void *impl, const grpcdc_kv *md, size_t md_count, grpcdc_bytes reqb, grpcdc_bytes *respb) {
+    KafkaServerImpl *impl_ = (KafkaServerImpl *)impl;
+    CloseShareGroupRequest req; memset(&req, 0, sizeof(req)); CloseShareGroupRequest_unmarshal(&req, reqb.data, reqb.len);
+    CloseShareGroupResponse resp; memset(&resp, 0, sizeof(resp));
+    grpcdc_status st = impl_->close_share_group(impl_->ctx, md, md_count, &req, &resp);
+    if (st.code == 0) { KafkaPbBytes rb = CloseShareGroupResponse_marshal(&resp); respb->data = rb.data; respb->len = rb.len; }
+    return st;
+}
+
 static inline void KafkaServer_register(grpcdc_server *srv, KafkaServerImpl *impl) {
     static const grpcdc_method_desc methods[] = {
         { "Metadata", 0, Kafka_metadata_unary_adapter, 0, 0, 0 },
@@ -269,6 +575,23 @@ static inline void KafkaServer_register(grpcdc_server *srv, KafkaServerImpl *imp
         { "FetchOffset", 0, Kafka_fetch_offset_unary_adapter, 0, 0, 0 },
         { "CreateTopics", 0, Kafka_create_topics_unary_adapter, 0, 0, 0 },
         { "DeleteTopics", 0, Kafka_delete_topics_unary_adapter, 0, 0, 0 },
+        { "DescribeConfigs", 0, Kafka_describe_configs_unary_adapter, 0, 0, 0 },
+        { "AlterConfigs", 0, Kafka_alter_configs_unary_adapter, 0, 0, 0 },
+        { "CreatePartitions", 0, Kafka_create_partitions_unary_adapter, 0, 0, 0 },
+        { "DeleteRecords", 0, Kafka_delete_records_unary_adapter, 0, 0, 0 },
+        { "ListGroups", 0, Kafka_list_groups_unary_adapter, 0, 0, 0 },
+        { "DescribeGroups", 0, Kafka_describe_groups_unary_adapter, 0, 0, 0 },
+        { "DeleteGroups", 0, Kafka_delete_groups_unary_adapter, 0, 0, 0 },
+        { "DeleteGroupOffsets", 0, Kafka_delete_group_offsets_unary_adapter, 0, 0, 0 },
+        { "DescribeAcls", 0, Kafka_describe_acls_unary_adapter, 0, 0, 0 },
+        { "CreateAcls", 0, Kafka_create_acls_unary_adapter, 0, 0, 0 },
+        { "DeleteAcls", 0, Kafka_delete_acls_unary_adapter, 0, 0, 0 },
+        { "ListTransactions", 0, Kafka_list_transactions_unary_adapter, 0, 0, 0 },
+        { "DescribeTransactions", 0, Kafka_describe_transactions_unary_adapter, 0, 0, 0 },
+        { "OpenShareGroup", 0, Kafka_open_share_group_unary_adapter, 0, 0, 0 },
+        { "SharePoll", 0, Kafka_share_poll_unary_adapter, 0, 0, 0 },
+        { "ShareAck", 0, Kafka_share_ack_unary_adapter, 0, 0, 0 },
+        { "CloseShareGroup", 0, Kafka_close_share_group_unary_adapter, 0, 0, 0 },
     };
     grpcdc_server_add_service(srv, "grpcdc.kafka.v1.Kafka", methods, sizeof(methods) / sizeof(methods[0]), impl);
 }

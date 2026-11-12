@@ -54,6 +54,10 @@ struct MuxInner {
     by_cid: Mutex<HashMap<Vec<u8>, Weak<MuxEndpoint>>>,
     probes: Mutex<Vec<Weak<MuxEndpoint>>>,
     next_cid: std::sync::atomic::AtomicU64,
+    // srflx candidates gathered once per STUN-server list and
+    // adopted by every later peer (same shared socket and STUN
+    // servers => same reflexive address for every peer).
+    srflx_by_servers: Mutex<HashMap<String, Vec<crate::ice::Candidate>>>,
 }
 
 /// One peer's view of the shared socket: sends go straight to
@@ -329,6 +333,7 @@ impl PeerMux {
             by_cid: Mutex::new(HashMap::new()),
             probes: Mutex::new(Vec::new()),
             next_cid: std::sync::atomic::AtomicU64::new(1),
+            srflx_by_servers: Mutex::new(HashMap::new()),
         });
         let reader_inner = inner.clone();
         socket.set_read_timeout(Some(Duration::from_millis(200)))?;
@@ -367,7 +372,7 @@ impl PeerMux {
     /// (embedded/RTOS clock + entropy).
     pub fn new_peer_with_platform(
         &self,
-        config: PeerConfig,
+        mut config: PeerConfig,
         platform: crate::platform::Platform,
     ) -> io::Result<Peer> {
         let (tx, rx) = channel();
@@ -386,7 +391,33 @@ impl PeerMux {
             cid,
         });
         *endpoint.me.lock().unwrap() = Some(Arc::downgrade(&endpoint));
-        let peer = Peer::new_with_io(config, platform, endpoint.clone(), self.inner.addr.port())?;
+        // Gather srflx once per STUN-server list: the reflexive
+        // address depends only on this shared socket and those
+        // servers, so later peers adopt the first peer's result
+        // instead of re-querying per connection.
+        let srflx_key = config.stun_servers.join("\n");
+        let cached_srflx = if srflx_key.is_empty() {
+            None
+        } else {
+            self.inner.srflx_by_servers.lock().unwrap().get(&srflx_key).cloned()
+        };
+        if cached_srflx.is_some() {
+            config.stun_servers.clear();
+        }
+        let mut peer = Peer::new_with_io(config, platform, endpoint.clone(), self.inner.addr.port())?;
+        if let Some(cached) = cached_srflx {
+            peer.adopt_srflx_candidates(&cached);
+        } else if !srflx_key.is_empty() {
+            peer.gather_from_config_once();
+            let gathered: Vec<crate::ice::Candidate> = peer
+                .local_candidates()
+                .into_iter()
+                .filter(|c| c.is_srflx())
+                .collect();
+            if !gathered.is_empty() {
+                self.inner.srflx_by_servers.lock().unwrap().insert(srflx_key, gathered);
+            }
+        }
         self.inner
             .by_ufrag
             .lock()

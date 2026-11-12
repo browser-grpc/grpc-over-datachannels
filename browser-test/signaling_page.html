@@ -1,0 +1,27 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>grpc-dc HTTP/POST signaling browser test</title>
+<script type="module">
+import { httpSignalingChannel } from "/js/index.js";
+import { EchoRequest } from "/js/examples/echo_pb.js";
+import { EchoClient } from "/js/examples/echo_grpc_dc.js";
+
+// Browser side: the generated httpSignalingChannel performs the
+// whole non-trickle POST exchange against the same-origin
+// /grpc-dc/signal endpoint, then runs gRPC over the DataChannel.
+window.__runSignaling = async () => {
+  const channel = await httpSignalingChannel("/grpc-dc/signal");
+  try {
+    const client = new EchoClient(channel);
+    const req = (message, count = 0) => new EchoRequest({ message, count });
+    const unary = await client.unary(req("hello"));
+    const ticks = [];
+    for await (const resp of await client.serverStream(req("tick", 3))) {
+      ticks.push(resp.index);
+    }
+    return { unary: unary.message, ticks };
+  } finally {
+    channel.closeSignaling();
+  }
+};
+</script>

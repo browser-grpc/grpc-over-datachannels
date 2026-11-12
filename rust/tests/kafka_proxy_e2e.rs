@@ -7,34 +7,11 @@
 //! or Redpanda). Without it the test is a no-op so plain
 //! `cargo test` stays green on machines without a broker.
 
-#[path = "../gen/kafka_pb.rs"]
-mod pb;
-
-#[path = "../examples/kafka_proxy/pb_message_impl.rs"]
-mod pb_message_impl;
-
-#[path = "../gen/kafka_grpc_dc.rs"]
-mod stub;
-
-#[path = "../examples/kafka_proxy/wire.rs"]
-mod wire;
-
-#[path = "../examples/kafka_proxy/codecs.rs"]
-mod codecs;
-
-#[path = "../examples/kafka_proxy/crypto.rs"]
-mod crypto;
-
-#[path = "../examples/kafka_proxy/client.rs"]
-mod client;
-
-#[path = "../examples/kafka_proxy/service.rs"]
-mod service;
-
-use client::KafkaConfig;
+use kafka_native::client::KafkaConfig;
+use kafka_native::{pb, stub};
 use futures_util::StreamExt;
 use grpc_dc::{loopback_pair, Channel, DcTransport, Server};
-use service::KafkaService;
+use kafka_native::service::KafkaService;
 use std::sync::Arc;
 use stub::{kafka_service, KafkaClient};
 
@@ -525,6 +502,10 @@ async fn kafka_proxy_group_static_membership() {
 
     let mut req = subscribe_req(&group, &topic);
     req.group_instance_id = "static-member-1".to_string();
+    // This test pins the classic static-membership contract
+    // (instance-derived member ids); KIP-848 static membership
+    // has its own contract test in kafka_kip848_e2e.rs.
+    req.group_protocol = "classic".to_string();
     let mut s1 = client.subscribe(req.clone()).await.expect("subscribe static 1");
     let (a1, m1, _) = collect_group(&mut s1, 1, 0, std::time::Duration::from_secs(30)).await;
     assert_eq!(a1, vec![vec![0]]);
@@ -546,6 +527,7 @@ async fn kafka_proxy_group_static_membership() {
     // id fences the first member; its stream must error or end.
     let mut req3 = subscribe_req(&group, &topic);
     req3.group_instance_id = "static-member-1".to_string();
+    req3.group_protocol = "classic".to_string();
     let mut s3 = client.subscribe(req3).await.expect("subscribe static 3");
     let (a3, _, _) = collect_group(&mut s3, 1, 0, std::time::Duration::from_secs(30)).await;
     assert_eq!(a3, vec![vec![0]]);
@@ -1200,6 +1182,30 @@ async fn kafka_proxy_compression() {
         assert_eq!(produced.error_code, 0, "{name} produce failed: {produced:?}");
         let values = consume_values(&client, &topic, 3).await;
         assert_eq!(values, vec!["one", "two", "three"], "{name} roundtrip");
+    }
+}
+
+/// Regression: dropping a Consume stream while the proxy has
+/// a long-poll Fetch in flight must not corrupt the pooled
+/// broker connection. The next CreateTopics on that connection
+/// must succeed (not read the stale Fetch response and then
+/// fail with a correlation mismatch / TOPIC_ALREADY_EXISTS).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn kafka_proxy_drop_consume_then_create_topics() {
+    let Some(broker) = broker_or_skip() else { return };
+    let client = setup(&broker).await;
+    for round in 0..5 {
+        let topic = unique_topic("grpc-dc-e2e-drop-consume");
+        make_topic(&client, &topic, 1).await;
+        produce_one(&client, &topic, "x").await;
+        let values = consume_values(&client, &topic, 1).await;
+        assert_eq!(values, vec!["x"], "round {round} consume");
+        // consume_values dropped the stream. Give the proxy
+        // time to enter its next long-poll Fetch (max_wait
+        // 2000ms) on the shared conn, then create a topic.
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        let next = unique_topic("grpc-dc-e2e-after-drop");
+        make_topic(&client, &next, 1).await;
     }
 }
 

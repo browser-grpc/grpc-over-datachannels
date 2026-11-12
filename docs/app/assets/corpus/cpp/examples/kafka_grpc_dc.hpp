@@ -154,6 +154,125 @@ struct KafkaGrpcDc {
       return resp;
     }
 
+    DescribeConfigsResponse DescribeConfigs(DescribeConfigsRequest req,
+                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      DescribeConfigsResponse resp;
+      channel_->Unary("/grpcdc.kafka.v1.Kafka/DescribeConfigs", req, resp, metadata, timeout);
+      return resp;
+    }
+
+    AlterConfigsResponse AlterConfigs(AlterConfigsRequest req,
+                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      AlterConfigsResponse resp;
+      channel_->Unary("/grpcdc.kafka.v1.Kafka/AlterConfigs", req, resp, metadata, timeout);
+      return resp;
+    }
+
+    CreatePartitionsResponse CreatePartitions(CreatePartitionsRequest req,
+                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      CreatePartitionsResponse resp;
+      channel_->Unary("/grpcdc.kafka.v1.Kafka/CreatePartitions", req, resp, metadata, timeout);
+      return resp;
+    }
+
+    DeleteRecordsResponse DeleteRecords(DeleteRecordsRequest req,
+                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      DeleteRecordsResponse resp;
+      channel_->Unary("/grpcdc.kafka.v1.Kafka/DeleteRecords", req, resp, metadata, timeout);
+      return resp;
+    }
+
+    ListGroupsResponse ListGroups(ListGroupsRequest req,
+                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      ListGroupsResponse resp;
+      channel_->Unary("/grpcdc.kafka.v1.Kafka/ListGroups", req, resp, metadata, timeout);
+      return resp;
+    }
+
+    DescribeGroupsResponse DescribeGroups(DescribeGroupsRequest req,
+                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      DescribeGroupsResponse resp;
+      channel_->Unary("/grpcdc.kafka.v1.Kafka/DescribeGroups", req, resp, metadata, timeout);
+      return resp;
+    }
+
+    DeleteGroupsResponse DeleteGroups(DeleteGroupsRequest req,
+                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      DeleteGroupsResponse resp;
+      channel_->Unary("/grpcdc.kafka.v1.Kafka/DeleteGroups", req, resp, metadata, timeout);
+      return resp;
+    }
+
+    DeleteGroupOffsetsResponse DeleteGroupOffsets(DeleteGroupOffsetsRequest req,
+                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      DeleteGroupOffsetsResponse resp;
+      channel_->Unary("/grpcdc.kafka.v1.Kafka/DeleteGroupOffsets", req, resp, metadata, timeout);
+      return resp;
+    }
+
+    DescribeAclsResponse DescribeAcls(DescribeAclsRequest req,
+                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      DescribeAclsResponse resp;
+      channel_->Unary("/grpcdc.kafka.v1.Kafka/DescribeAcls", req, resp, metadata, timeout);
+      return resp;
+    }
+
+    CreateAclsResponse CreateAcls(CreateAclsRequest req,
+                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      CreateAclsResponse resp;
+      channel_->Unary("/grpcdc.kafka.v1.Kafka/CreateAcls", req, resp, metadata, timeout);
+      return resp;
+    }
+
+    DeleteAclsResponse DeleteAcls(DeleteAclsRequest req,
+                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      DeleteAclsResponse resp;
+      channel_->Unary("/grpcdc.kafka.v1.Kafka/DeleteAcls", req, resp, metadata, timeout);
+      return resp;
+    }
+
+    ListTransactionsResponse ListTransactions(ListTransactionsRequest req,
+                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      ListTransactionsResponse resp;
+      channel_->Unary("/grpcdc.kafka.v1.Kafka/ListTransactions", req, resp, metadata, timeout);
+      return resp;
+    }
+
+    DescribeTransactionsResponse DescribeTransactions(DescribeTransactionsRequest req,
+                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      DescribeTransactionsResponse resp;
+      channel_->Unary("/grpcdc.kafka.v1.Kafka/DescribeTransactions", req, resp, metadata, timeout);
+      return resp;
+    }
+
+    OpenShareGroupResponse OpenShareGroup(OpenShareGroupRequest req,
+                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      OpenShareGroupResponse resp;
+      channel_->Unary("/grpcdc.kafka.v1.Kafka/OpenShareGroup", req, resp, metadata, timeout);
+      return resp;
+    }
+
+    SharePollResponse SharePoll(SharePollRequest req,
+                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      SharePollResponse resp;
+      channel_->Unary("/grpcdc.kafka.v1.Kafka/SharePoll", req, resp, metadata, timeout);
+      return resp;
+    }
+
+    ShareAckResponse ShareAck(ShareAckRequest req,
+                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      ShareAckResponse resp;
+      channel_->Unary("/grpcdc.kafka.v1.Kafka/ShareAck", req, resp, metadata, timeout);
+      return resp;
+    }
+
+    CloseShareGroupResponse CloseShareGroup(CloseShareGroupRequest req,
+                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      CloseShareGroupResponse resp;
+      channel_->Unary("/grpcdc.kafka.v1.Kafka/CloseShareGroup", req, resp, metadata, timeout);
+      return resp;
+    }
+
     // -- async (std::future) surface -------------------------------------
 
     std::future<MetadataResponse> MetadataAsync(
@@ -246,6 +365,108 @@ struct KafkaGrpcDc {
         DeleteTopicsRequest req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
       return std::async(std::launch::async,
                         [this, req, metadata, timeout] { return DeleteTopics(req, metadata, timeout); });
+    }
+
+    std::future<DescribeConfigsResponse> DescribeConfigsAsync(
+        DescribeConfigsRequest req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      return std::async(std::launch::async,
+                        [this, req, metadata, timeout] { return DescribeConfigs(req, metadata, timeout); });
+    }
+
+    std::future<AlterConfigsResponse> AlterConfigsAsync(
+        AlterConfigsRequest req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      return std::async(std::launch::async,
+                        [this, req, metadata, timeout] { return AlterConfigs(req, metadata, timeout); });
+    }
+
+    std::future<CreatePartitionsResponse> CreatePartitionsAsync(
+        CreatePartitionsRequest req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      return std::async(std::launch::async,
+                        [this, req, metadata, timeout] { return CreatePartitions(req, metadata, timeout); });
+    }
+
+    std::future<DeleteRecordsResponse> DeleteRecordsAsync(
+        DeleteRecordsRequest req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      return std::async(std::launch::async,
+                        [this, req, metadata, timeout] { return DeleteRecords(req, metadata, timeout); });
+    }
+
+    std::future<ListGroupsResponse> ListGroupsAsync(
+        ListGroupsRequest req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      return std::async(std::launch::async,
+                        [this, req, metadata, timeout] { return ListGroups(req, metadata, timeout); });
+    }
+
+    std::future<DescribeGroupsResponse> DescribeGroupsAsync(
+        DescribeGroupsRequest req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      return std::async(std::launch::async,
+                        [this, req, metadata, timeout] { return DescribeGroups(req, metadata, timeout); });
+    }
+
+    std::future<DeleteGroupsResponse> DeleteGroupsAsync(
+        DeleteGroupsRequest req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      return std::async(std::launch::async,
+                        [this, req, metadata, timeout] { return DeleteGroups(req, metadata, timeout); });
+    }
+
+    std::future<DeleteGroupOffsetsResponse> DeleteGroupOffsetsAsync(
+        DeleteGroupOffsetsRequest req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      return std::async(std::launch::async,
+                        [this, req, metadata, timeout] { return DeleteGroupOffsets(req, metadata, timeout); });
+    }
+
+    std::future<DescribeAclsResponse> DescribeAclsAsync(
+        DescribeAclsRequest req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      return std::async(std::launch::async,
+                        [this, req, metadata, timeout] { return DescribeAcls(req, metadata, timeout); });
+    }
+
+    std::future<CreateAclsResponse> CreateAclsAsync(
+        CreateAclsRequest req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      return std::async(std::launch::async,
+                        [this, req, metadata, timeout] { return CreateAcls(req, metadata, timeout); });
+    }
+
+    std::future<DeleteAclsResponse> DeleteAclsAsync(
+        DeleteAclsRequest req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      return std::async(std::launch::async,
+                        [this, req, metadata, timeout] { return DeleteAcls(req, metadata, timeout); });
+    }
+
+    std::future<ListTransactionsResponse> ListTransactionsAsync(
+        ListTransactionsRequest req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      return std::async(std::launch::async,
+                        [this, req, metadata, timeout] { return ListTransactions(req, metadata, timeout); });
+    }
+
+    std::future<DescribeTransactionsResponse> DescribeTransactionsAsync(
+        DescribeTransactionsRequest req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      return std::async(std::launch::async,
+                        [this, req, metadata, timeout] { return DescribeTransactions(req, metadata, timeout); });
+    }
+
+    std::future<OpenShareGroupResponse> OpenShareGroupAsync(
+        OpenShareGroupRequest req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      return std::async(std::launch::async,
+                        [this, req, metadata, timeout] { return OpenShareGroup(req, metadata, timeout); });
+    }
+
+    std::future<SharePollResponse> SharePollAsync(
+        SharePollRequest req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      return std::async(std::launch::async,
+                        [this, req, metadata, timeout] { return SharePoll(req, metadata, timeout); });
+    }
+
+    std::future<ShareAckResponse> ShareAckAsync(
+        ShareAckRequest req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      return std::async(std::launch::async,
+                        [this, req, metadata, timeout] { return ShareAck(req, metadata, timeout); });
+    }
+
+    std::future<CloseShareGroupResponse> CloseShareGroupAsync(
+        CloseShareGroupRequest req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      return std::async(std::launch::async,
+                        [this, req, metadata, timeout] { return CloseShareGroup(req, metadata, timeout); });
     }
 
    private:
@@ -383,6 +604,125 @@ struct KafkaGrpcDc {
       co_return resp;
     }
 
+    grpcdc::Task<DescribeConfigsResponse> DescribeConfigs(DescribeConfigsRequest req,
+                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      DescribeConfigsResponse resp;
+      co_await channel_->Unary("/grpcdc.kafka.v1.Kafka/DescribeConfigs", req, resp, metadata, timeout);
+      co_return resp;
+    }
+
+    grpcdc::Task<AlterConfigsResponse> AlterConfigs(AlterConfigsRequest req,
+                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      AlterConfigsResponse resp;
+      co_await channel_->Unary("/grpcdc.kafka.v1.Kafka/AlterConfigs", req, resp, metadata, timeout);
+      co_return resp;
+    }
+
+    grpcdc::Task<CreatePartitionsResponse> CreatePartitions(CreatePartitionsRequest req,
+                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      CreatePartitionsResponse resp;
+      co_await channel_->Unary("/grpcdc.kafka.v1.Kafka/CreatePartitions", req, resp, metadata, timeout);
+      co_return resp;
+    }
+
+    grpcdc::Task<DeleteRecordsResponse> DeleteRecords(DeleteRecordsRequest req,
+                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      DeleteRecordsResponse resp;
+      co_await channel_->Unary("/grpcdc.kafka.v1.Kafka/DeleteRecords", req, resp, metadata, timeout);
+      co_return resp;
+    }
+
+    grpcdc::Task<ListGroupsResponse> ListGroups(ListGroupsRequest req,
+                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      ListGroupsResponse resp;
+      co_await channel_->Unary("/grpcdc.kafka.v1.Kafka/ListGroups", req, resp, metadata, timeout);
+      co_return resp;
+    }
+
+    grpcdc::Task<DescribeGroupsResponse> DescribeGroups(DescribeGroupsRequest req,
+                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      DescribeGroupsResponse resp;
+      co_await channel_->Unary("/grpcdc.kafka.v1.Kafka/DescribeGroups", req, resp, metadata, timeout);
+      co_return resp;
+    }
+
+    grpcdc::Task<DeleteGroupsResponse> DeleteGroups(DeleteGroupsRequest req,
+                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      DeleteGroupsResponse resp;
+      co_await channel_->Unary("/grpcdc.kafka.v1.Kafka/DeleteGroups", req, resp, metadata, timeout);
+      co_return resp;
+    }
+
+    grpcdc::Task<DeleteGroupOffsetsResponse> DeleteGroupOffsets(DeleteGroupOffsetsRequest req,
+                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      DeleteGroupOffsetsResponse resp;
+      co_await channel_->Unary("/grpcdc.kafka.v1.Kafka/DeleteGroupOffsets", req, resp, metadata, timeout);
+      co_return resp;
+    }
+
+    grpcdc::Task<DescribeAclsResponse> DescribeAcls(DescribeAclsRequest req,
+                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      DescribeAclsResponse resp;
+      co_await channel_->Unary("/grpcdc.kafka.v1.Kafka/DescribeAcls", req, resp, metadata, timeout);
+      co_return resp;
+    }
+
+    grpcdc::Task<CreateAclsResponse> CreateAcls(CreateAclsRequest req,
+                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      CreateAclsResponse resp;
+      co_await channel_->Unary("/grpcdc.kafka.v1.Kafka/CreateAcls", req, resp, metadata, timeout);
+      co_return resp;
+    }
+
+    grpcdc::Task<DeleteAclsResponse> DeleteAcls(DeleteAclsRequest req,
+                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      DeleteAclsResponse resp;
+      co_await channel_->Unary("/grpcdc.kafka.v1.Kafka/DeleteAcls", req, resp, metadata, timeout);
+      co_return resp;
+    }
+
+    grpcdc::Task<ListTransactionsResponse> ListTransactions(ListTransactionsRequest req,
+                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      ListTransactionsResponse resp;
+      co_await channel_->Unary("/grpcdc.kafka.v1.Kafka/ListTransactions", req, resp, metadata, timeout);
+      co_return resp;
+    }
+
+    grpcdc::Task<DescribeTransactionsResponse> DescribeTransactions(DescribeTransactionsRequest req,
+                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      DescribeTransactionsResponse resp;
+      co_await channel_->Unary("/grpcdc.kafka.v1.Kafka/DescribeTransactions", req, resp, metadata, timeout);
+      co_return resp;
+    }
+
+    grpcdc::Task<OpenShareGroupResponse> OpenShareGroup(OpenShareGroupRequest req,
+                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      OpenShareGroupResponse resp;
+      co_await channel_->Unary("/grpcdc.kafka.v1.Kafka/OpenShareGroup", req, resp, metadata, timeout);
+      co_return resp;
+    }
+
+    grpcdc::Task<SharePollResponse> SharePoll(SharePollRequest req,
+                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      SharePollResponse resp;
+      co_await channel_->Unary("/grpcdc.kafka.v1.Kafka/SharePoll", req, resp, metadata, timeout);
+      co_return resp;
+    }
+
+    grpcdc::Task<ShareAckResponse> ShareAck(ShareAckRequest req,
+                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      ShareAckResponse resp;
+      co_await channel_->Unary("/grpcdc.kafka.v1.Kafka/ShareAck", req, resp, metadata, timeout);
+      co_return resp;
+    }
+
+    grpcdc::Task<CloseShareGroupResponse> CloseShareGroup(CloseShareGroupRequest req,
+                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      CloseShareGroupResponse resp;
+      co_await channel_->Unary("/grpcdc.kafka.v1.Kafka/CloseShareGroup", req, resp, metadata, timeout);
+      co_return resp;
+    }
+
    private:
     std::shared_ptr<grpcdc::AsyncChannel> channel_;
   };
@@ -429,6 +769,40 @@ struct KafkaGrpcDc {
                                CreateTopicsRequest& req) = 0;
     virtual DeleteTopicsResponse DeleteTopics(grpcdc::Endpoint::CallContext& ctx,
                                DeleteTopicsRequest& req) = 0;
+    virtual DescribeConfigsResponse DescribeConfigs(grpcdc::Endpoint::CallContext& ctx,
+                               DescribeConfigsRequest& req) = 0;
+    virtual AlterConfigsResponse AlterConfigs(grpcdc::Endpoint::CallContext& ctx,
+                               AlterConfigsRequest& req) = 0;
+    virtual CreatePartitionsResponse CreatePartitions(grpcdc::Endpoint::CallContext& ctx,
+                               CreatePartitionsRequest& req) = 0;
+    virtual DeleteRecordsResponse DeleteRecords(grpcdc::Endpoint::CallContext& ctx,
+                               DeleteRecordsRequest& req) = 0;
+    virtual ListGroupsResponse ListGroups(grpcdc::Endpoint::CallContext& ctx,
+                               ListGroupsRequest& req) = 0;
+    virtual DescribeGroupsResponse DescribeGroups(grpcdc::Endpoint::CallContext& ctx,
+                               DescribeGroupsRequest& req) = 0;
+    virtual DeleteGroupsResponse DeleteGroups(grpcdc::Endpoint::CallContext& ctx,
+                               DeleteGroupsRequest& req) = 0;
+    virtual DeleteGroupOffsetsResponse DeleteGroupOffsets(grpcdc::Endpoint::CallContext& ctx,
+                               DeleteGroupOffsetsRequest& req) = 0;
+    virtual DescribeAclsResponse DescribeAcls(grpcdc::Endpoint::CallContext& ctx,
+                               DescribeAclsRequest& req) = 0;
+    virtual CreateAclsResponse CreateAcls(grpcdc::Endpoint::CallContext& ctx,
+                               CreateAclsRequest& req) = 0;
+    virtual DeleteAclsResponse DeleteAcls(grpcdc::Endpoint::CallContext& ctx,
+                               DeleteAclsRequest& req) = 0;
+    virtual ListTransactionsResponse ListTransactions(grpcdc::Endpoint::CallContext& ctx,
+                               ListTransactionsRequest& req) = 0;
+    virtual DescribeTransactionsResponse DescribeTransactions(grpcdc::Endpoint::CallContext& ctx,
+                               DescribeTransactionsRequest& req) = 0;
+    virtual OpenShareGroupResponse OpenShareGroup(grpcdc::Endpoint::CallContext& ctx,
+                               OpenShareGroupRequest& req) = 0;
+    virtual SharePollResponse SharePoll(grpcdc::Endpoint::CallContext& ctx,
+                               SharePollRequest& req) = 0;
+    virtual ShareAckResponse ShareAck(grpcdc::Endpoint::CallContext& ctx,
+                               ShareAckRequest& req) = 0;
+    virtual CloseShareGroupResponse CloseShareGroup(grpcdc::Endpoint::CallContext& ctx,
+                               CloseShareGroupRequest& req) = 0;
   };
 
   /// Async service implementation interface for grpcdc.kafka.v1.Kafka.
@@ -458,6 +832,40 @@ struct KafkaGrpcDc {
         grpcdc::Endpoint::CallContext& ctx, CreateTopicsRequest& req) = 0;
     virtual std::future<DeleteTopicsResponse> DeleteTopicsAsync(
         grpcdc::Endpoint::CallContext& ctx, DeleteTopicsRequest& req) = 0;
+    virtual std::future<DescribeConfigsResponse> DescribeConfigsAsync(
+        grpcdc::Endpoint::CallContext& ctx, DescribeConfigsRequest& req) = 0;
+    virtual std::future<AlterConfigsResponse> AlterConfigsAsync(
+        grpcdc::Endpoint::CallContext& ctx, AlterConfigsRequest& req) = 0;
+    virtual std::future<CreatePartitionsResponse> CreatePartitionsAsync(
+        grpcdc::Endpoint::CallContext& ctx, CreatePartitionsRequest& req) = 0;
+    virtual std::future<DeleteRecordsResponse> DeleteRecordsAsync(
+        grpcdc::Endpoint::CallContext& ctx, DeleteRecordsRequest& req) = 0;
+    virtual std::future<ListGroupsResponse> ListGroupsAsync(
+        grpcdc::Endpoint::CallContext& ctx, ListGroupsRequest& req) = 0;
+    virtual std::future<DescribeGroupsResponse> DescribeGroupsAsync(
+        grpcdc::Endpoint::CallContext& ctx, DescribeGroupsRequest& req) = 0;
+    virtual std::future<DeleteGroupsResponse> DeleteGroupsAsync(
+        grpcdc::Endpoint::CallContext& ctx, DeleteGroupsRequest& req) = 0;
+    virtual std::future<DeleteGroupOffsetsResponse> DeleteGroupOffsetsAsync(
+        grpcdc::Endpoint::CallContext& ctx, DeleteGroupOffsetsRequest& req) = 0;
+    virtual std::future<DescribeAclsResponse> DescribeAclsAsync(
+        grpcdc::Endpoint::CallContext& ctx, DescribeAclsRequest& req) = 0;
+    virtual std::future<CreateAclsResponse> CreateAclsAsync(
+        grpcdc::Endpoint::CallContext& ctx, CreateAclsRequest& req) = 0;
+    virtual std::future<DeleteAclsResponse> DeleteAclsAsync(
+        grpcdc::Endpoint::CallContext& ctx, DeleteAclsRequest& req) = 0;
+    virtual std::future<ListTransactionsResponse> ListTransactionsAsync(
+        grpcdc::Endpoint::CallContext& ctx, ListTransactionsRequest& req) = 0;
+    virtual std::future<DescribeTransactionsResponse> DescribeTransactionsAsync(
+        grpcdc::Endpoint::CallContext& ctx, DescribeTransactionsRequest& req) = 0;
+    virtual std::future<OpenShareGroupResponse> OpenShareGroupAsync(
+        grpcdc::Endpoint::CallContext& ctx, OpenShareGroupRequest& req) = 0;
+    virtual std::future<SharePollResponse> SharePollAsync(
+        grpcdc::Endpoint::CallContext& ctx, SharePollRequest& req) = 0;
+    virtual std::future<ShareAckResponse> ShareAckAsync(
+        grpcdc::Endpoint::CallContext& ctx, ShareAckRequest& req) = 0;
+    virtual std::future<CloseShareGroupResponse> CloseShareGroupAsync(
+        grpcdc::Endpoint::CallContext& ctx, CloseShareGroupRequest& req) = 0;
   };
 
  private:
@@ -537,6 +945,74 @@ struct KafkaGrpcDc {
     DeleteTopicsResponse DeleteTopics(grpcdc::Endpoint::CallContext& ctx,
                        DeleteTopicsRequest& req) override {
       return impl_->DeleteTopicsAsync(ctx, req).get();
+    }
+    DescribeConfigsResponse DescribeConfigs(grpcdc::Endpoint::CallContext& ctx,
+                       DescribeConfigsRequest& req) override {
+      return impl_->DescribeConfigsAsync(ctx, req).get();
+    }
+    AlterConfigsResponse AlterConfigs(grpcdc::Endpoint::CallContext& ctx,
+                       AlterConfigsRequest& req) override {
+      return impl_->AlterConfigsAsync(ctx, req).get();
+    }
+    CreatePartitionsResponse CreatePartitions(grpcdc::Endpoint::CallContext& ctx,
+                       CreatePartitionsRequest& req) override {
+      return impl_->CreatePartitionsAsync(ctx, req).get();
+    }
+    DeleteRecordsResponse DeleteRecords(grpcdc::Endpoint::CallContext& ctx,
+                       DeleteRecordsRequest& req) override {
+      return impl_->DeleteRecordsAsync(ctx, req).get();
+    }
+    ListGroupsResponse ListGroups(grpcdc::Endpoint::CallContext& ctx,
+                       ListGroupsRequest& req) override {
+      return impl_->ListGroupsAsync(ctx, req).get();
+    }
+    DescribeGroupsResponse DescribeGroups(grpcdc::Endpoint::CallContext& ctx,
+                       DescribeGroupsRequest& req) override {
+      return impl_->DescribeGroupsAsync(ctx, req).get();
+    }
+    DeleteGroupsResponse DeleteGroups(grpcdc::Endpoint::CallContext& ctx,
+                       DeleteGroupsRequest& req) override {
+      return impl_->DeleteGroupsAsync(ctx, req).get();
+    }
+    DeleteGroupOffsetsResponse DeleteGroupOffsets(grpcdc::Endpoint::CallContext& ctx,
+                       DeleteGroupOffsetsRequest& req) override {
+      return impl_->DeleteGroupOffsetsAsync(ctx, req).get();
+    }
+    DescribeAclsResponse DescribeAcls(grpcdc::Endpoint::CallContext& ctx,
+                       DescribeAclsRequest& req) override {
+      return impl_->DescribeAclsAsync(ctx, req).get();
+    }
+    CreateAclsResponse CreateAcls(grpcdc::Endpoint::CallContext& ctx,
+                       CreateAclsRequest& req) override {
+      return impl_->CreateAclsAsync(ctx, req).get();
+    }
+    DeleteAclsResponse DeleteAcls(grpcdc::Endpoint::CallContext& ctx,
+                       DeleteAclsRequest& req) override {
+      return impl_->DeleteAclsAsync(ctx, req).get();
+    }
+    ListTransactionsResponse ListTransactions(grpcdc::Endpoint::CallContext& ctx,
+                       ListTransactionsRequest& req) override {
+      return impl_->ListTransactionsAsync(ctx, req).get();
+    }
+    DescribeTransactionsResponse DescribeTransactions(grpcdc::Endpoint::CallContext& ctx,
+                       DescribeTransactionsRequest& req) override {
+      return impl_->DescribeTransactionsAsync(ctx, req).get();
+    }
+    OpenShareGroupResponse OpenShareGroup(grpcdc::Endpoint::CallContext& ctx,
+                       OpenShareGroupRequest& req) override {
+      return impl_->OpenShareGroupAsync(ctx, req).get();
+    }
+    SharePollResponse SharePoll(grpcdc::Endpoint::CallContext& ctx,
+                       SharePollRequest& req) override {
+      return impl_->SharePollAsync(ctx, req).get();
+    }
+    ShareAckResponse ShareAck(grpcdc::Endpoint::CallContext& ctx,
+                       ShareAckRequest& req) override {
+      return impl_->ShareAckAsync(ctx, req).get();
+    }
+    CloseShareGroupResponse CloseShareGroup(grpcdc::Endpoint::CallContext& ctx,
+                       CloseShareGroupRequest& req) override {
+      return impl_->CloseShareGroupAsync(ctx, req).get();
     }
 
    private:
@@ -669,6 +1145,176 @@ struct KafkaGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                DeleteTopicsResponse resp = impl.DeleteTopics(mutable_ctx, req);
+               sink(resp.MarshalDc());
+             }},
+            {"DescribeConfigs", "/grpcdc.kafka.v1.Kafka/DescribeConfigs", grpcdc::Server::kKindUnary,
+             [&impl](const grpcdc::Endpoint::CallContext& ctx,
+                     grpcdc::Server::RequestStream& reqs,
+                     grpcdc::Server::ServerSink& sink) {
+               DescribeConfigsRequest req;
+               reqs.RecvInto(req);
+               auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
+               DescribeConfigsResponse resp = impl.DescribeConfigs(mutable_ctx, req);
+               sink(resp.MarshalDc());
+             }},
+            {"AlterConfigs", "/grpcdc.kafka.v1.Kafka/AlterConfigs", grpcdc::Server::kKindUnary,
+             [&impl](const grpcdc::Endpoint::CallContext& ctx,
+                     grpcdc::Server::RequestStream& reqs,
+                     grpcdc::Server::ServerSink& sink) {
+               AlterConfigsRequest req;
+               reqs.RecvInto(req);
+               auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
+               AlterConfigsResponse resp = impl.AlterConfigs(mutable_ctx, req);
+               sink(resp.MarshalDc());
+             }},
+            {"CreatePartitions", "/grpcdc.kafka.v1.Kafka/CreatePartitions", grpcdc::Server::kKindUnary,
+             [&impl](const grpcdc::Endpoint::CallContext& ctx,
+                     grpcdc::Server::RequestStream& reqs,
+                     grpcdc::Server::ServerSink& sink) {
+               CreatePartitionsRequest req;
+               reqs.RecvInto(req);
+               auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
+               CreatePartitionsResponse resp = impl.CreatePartitions(mutable_ctx, req);
+               sink(resp.MarshalDc());
+             }},
+            {"DeleteRecords", "/grpcdc.kafka.v1.Kafka/DeleteRecords", grpcdc::Server::kKindUnary,
+             [&impl](const grpcdc::Endpoint::CallContext& ctx,
+                     grpcdc::Server::RequestStream& reqs,
+                     grpcdc::Server::ServerSink& sink) {
+               DeleteRecordsRequest req;
+               reqs.RecvInto(req);
+               auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
+               DeleteRecordsResponse resp = impl.DeleteRecords(mutable_ctx, req);
+               sink(resp.MarshalDc());
+             }},
+            {"ListGroups", "/grpcdc.kafka.v1.Kafka/ListGroups", grpcdc::Server::kKindUnary,
+             [&impl](const grpcdc::Endpoint::CallContext& ctx,
+                     grpcdc::Server::RequestStream& reqs,
+                     grpcdc::Server::ServerSink& sink) {
+               ListGroupsRequest req;
+               reqs.RecvInto(req);
+               auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
+               ListGroupsResponse resp = impl.ListGroups(mutable_ctx, req);
+               sink(resp.MarshalDc());
+             }},
+            {"DescribeGroups", "/grpcdc.kafka.v1.Kafka/DescribeGroups", grpcdc::Server::kKindUnary,
+             [&impl](const grpcdc::Endpoint::CallContext& ctx,
+                     grpcdc::Server::RequestStream& reqs,
+                     grpcdc::Server::ServerSink& sink) {
+               DescribeGroupsRequest req;
+               reqs.RecvInto(req);
+               auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
+               DescribeGroupsResponse resp = impl.DescribeGroups(mutable_ctx, req);
+               sink(resp.MarshalDc());
+             }},
+            {"DeleteGroups", "/grpcdc.kafka.v1.Kafka/DeleteGroups", grpcdc::Server::kKindUnary,
+             [&impl](const grpcdc::Endpoint::CallContext& ctx,
+                     grpcdc::Server::RequestStream& reqs,
+                     grpcdc::Server::ServerSink& sink) {
+               DeleteGroupsRequest req;
+               reqs.RecvInto(req);
+               auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
+               DeleteGroupsResponse resp = impl.DeleteGroups(mutable_ctx, req);
+               sink(resp.MarshalDc());
+             }},
+            {"DeleteGroupOffsets", "/grpcdc.kafka.v1.Kafka/DeleteGroupOffsets", grpcdc::Server::kKindUnary,
+             [&impl](const grpcdc::Endpoint::CallContext& ctx,
+                     grpcdc::Server::RequestStream& reqs,
+                     grpcdc::Server::ServerSink& sink) {
+               DeleteGroupOffsetsRequest req;
+               reqs.RecvInto(req);
+               auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
+               DeleteGroupOffsetsResponse resp = impl.DeleteGroupOffsets(mutable_ctx, req);
+               sink(resp.MarshalDc());
+             }},
+            {"DescribeAcls", "/grpcdc.kafka.v1.Kafka/DescribeAcls", grpcdc::Server::kKindUnary,
+             [&impl](const grpcdc::Endpoint::CallContext& ctx,
+                     grpcdc::Server::RequestStream& reqs,
+                     grpcdc::Server::ServerSink& sink) {
+               DescribeAclsRequest req;
+               reqs.RecvInto(req);
+               auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
+               DescribeAclsResponse resp = impl.DescribeAcls(mutable_ctx, req);
+               sink(resp.MarshalDc());
+             }},
+            {"CreateAcls", "/grpcdc.kafka.v1.Kafka/CreateAcls", grpcdc::Server::kKindUnary,
+             [&impl](const grpcdc::Endpoint::CallContext& ctx,
+                     grpcdc::Server::RequestStream& reqs,
+                     grpcdc::Server::ServerSink& sink) {
+               CreateAclsRequest req;
+               reqs.RecvInto(req);
+               auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
+               CreateAclsResponse resp = impl.CreateAcls(mutable_ctx, req);
+               sink(resp.MarshalDc());
+             }},
+            {"DeleteAcls", "/grpcdc.kafka.v1.Kafka/DeleteAcls", grpcdc::Server::kKindUnary,
+             [&impl](const grpcdc::Endpoint::CallContext& ctx,
+                     grpcdc::Server::RequestStream& reqs,
+                     grpcdc::Server::ServerSink& sink) {
+               DeleteAclsRequest req;
+               reqs.RecvInto(req);
+               auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
+               DeleteAclsResponse resp = impl.DeleteAcls(mutable_ctx, req);
+               sink(resp.MarshalDc());
+             }},
+            {"ListTransactions", "/grpcdc.kafka.v1.Kafka/ListTransactions", grpcdc::Server::kKindUnary,
+             [&impl](const grpcdc::Endpoint::CallContext& ctx,
+                     grpcdc::Server::RequestStream& reqs,
+                     grpcdc::Server::ServerSink& sink) {
+               ListTransactionsRequest req;
+               reqs.RecvInto(req);
+               auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
+               ListTransactionsResponse resp = impl.ListTransactions(mutable_ctx, req);
+               sink(resp.MarshalDc());
+             }},
+            {"DescribeTransactions", "/grpcdc.kafka.v1.Kafka/DescribeTransactions", grpcdc::Server::kKindUnary,
+             [&impl](const grpcdc::Endpoint::CallContext& ctx,
+                     grpcdc::Server::RequestStream& reqs,
+                     grpcdc::Server::ServerSink& sink) {
+               DescribeTransactionsRequest req;
+               reqs.RecvInto(req);
+               auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
+               DescribeTransactionsResponse resp = impl.DescribeTransactions(mutable_ctx, req);
+               sink(resp.MarshalDc());
+             }},
+            {"OpenShareGroup", "/grpcdc.kafka.v1.Kafka/OpenShareGroup", grpcdc::Server::kKindUnary,
+             [&impl](const grpcdc::Endpoint::CallContext& ctx,
+                     grpcdc::Server::RequestStream& reqs,
+                     grpcdc::Server::ServerSink& sink) {
+               OpenShareGroupRequest req;
+               reqs.RecvInto(req);
+               auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
+               OpenShareGroupResponse resp = impl.OpenShareGroup(mutable_ctx, req);
+               sink(resp.MarshalDc());
+             }},
+            {"SharePoll", "/grpcdc.kafka.v1.Kafka/SharePoll", grpcdc::Server::kKindUnary,
+             [&impl](const grpcdc::Endpoint::CallContext& ctx,
+                     grpcdc::Server::RequestStream& reqs,
+                     grpcdc::Server::ServerSink& sink) {
+               SharePollRequest req;
+               reqs.RecvInto(req);
+               auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
+               SharePollResponse resp = impl.SharePoll(mutable_ctx, req);
+               sink(resp.MarshalDc());
+             }},
+            {"ShareAck", "/grpcdc.kafka.v1.Kafka/ShareAck", grpcdc::Server::kKindUnary,
+             [&impl](const grpcdc::Endpoint::CallContext& ctx,
+                     grpcdc::Server::RequestStream& reqs,
+                     grpcdc::Server::ServerSink& sink) {
+               ShareAckRequest req;
+               reqs.RecvInto(req);
+               auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
+               ShareAckResponse resp = impl.ShareAck(mutable_ctx, req);
+               sink(resp.MarshalDc());
+             }},
+            {"CloseShareGroup", "/grpcdc.kafka.v1.Kafka/CloseShareGroup", grpcdc::Server::kKindUnary,
+             [&impl](const grpcdc::Endpoint::CallContext& ctx,
+                     grpcdc::Server::RequestStream& reqs,
+                     grpcdc::Server::ServerSink& sink) {
+               CloseShareGroupRequest req;
+               reqs.RecvInto(req);
+               auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
+               CloseShareGroupResponse resp = impl.CloseShareGroup(mutable_ctx, req);
                sink(resp.MarshalDc());
              }},
         }});

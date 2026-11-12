@@ -22,11 +22,18 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`eth_framing.rs`](tests/eth_framing.rs) — Generated suite/example
 - [`eventbus.rs`](tests/eventbus.rs) — Event bus end-to-end
 - [`http2_robustness.rs`](tests/http2_robustness.rs) — HTTP/2 transport
+- [`http_signaling.rs`](tests/http_signaling.rs) — Generated suite/example
 - [`interop_oracle.rs`](tests/interop_oracle.rs) — Official-implementation oracle, via the proxy
+- [`kafka_admin_e2e.rs`](tests/kafka_admin_e2e.rs) — Kafka end-to-end (broker legs env-gated)
+- [`kafka_direct_e2e.rs`](tests/kafka_direct_e2e.rs) — Kafka end-to-end (broker legs env-gated)
+- [`kafka_kip848_e2e.rs`](tests/kafka_kip848_e2e.rs) — Kafka end-to-end (broker legs env-gated)
+- [`kafka_native_ffi_e2e.rs`](tests/kafka_native_ffi_e2e.rs) — Kafka end-to-end (broker legs env-gated)
 - [`kafka_proxy_e2e.rs`](tests/kafka_proxy_e2e.rs) — Kafka end-to-end (broker legs env-gated)
+- [`kafka_share_e2e.rs`](tests/kafka_share_e2e.rs) — Kafka end-to-end (broker legs env-gated)
 - [`oracle.rs`](tests/oracle.rs) — Official-implementation oracle, via the proxy
 - [`mod.rs`](tests/oracle_scenarios/mod.rs) — Generated suite/example
 - [`pb_messages.rs`](tests/pb_messages.rs) — Generated suite/example
+- [`rendezvous.rs`](tests/rendezvous.rs) — Generated suite/example
 - [`tracing.rs`](tests/tracing.rs) — Tracing: traceparent propagation, span observers, nested calls
 - [`webrtc_direct_grpc.rs`](tests/webrtc_direct_grpc.rs) — WebRTC-Direct example/test
 - [`webrtc_grpc.rs`](tests/webrtc_grpc.rs) — WebRTC transport
@@ -45,13 +52,8 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`grpc_dc_proxy.rs`](examples/grpc_dc_proxy.rs) — Generated suite/example
 - [`main.rs`](examples/interop_server_stdio/main.rs) — Generated suite/example
 - [`pb_glue.rs`](examples/interop_server_stdio/pb_glue.rs) — Generated suite/example
-- [`client.rs`](examples/kafka_proxy/client.rs) — Generated suite/example
-- [`codecs.rs`](examples/kafka_proxy/codecs.rs) — Wire codec vectors
-- [`crypto.rs`](examples/kafka_proxy/crypto.rs) — Generated suite/example
 - [`main.rs`](examples/kafka_proxy/main.rs) — Generated suite/example
-- [`pb_message_impl.rs`](examples/kafka_proxy/pb_message_impl.rs) — Generated suite/example
-- [`service.rs`](examples/kafka_proxy/service.rs) — Generated suite/example
-- [`wire.rs`](examples/kafka_proxy/wire.rs) — Generated suite/example
+- [`rendezvous_echo.rs`](examples/rendezvous_echo.rs) — Echo: all four call shapes
 
 ## Shared matrix coverage
 

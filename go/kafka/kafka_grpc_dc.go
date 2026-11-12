@@ -122,6 +122,125 @@ func (c *KafkaClient) DeleteTopics(ctx context.Context, req *DeleteTopicsRequest
 	}
 	return resp, nil
 }
+func (c *KafkaClient) DescribeConfigs(ctx context.Context, req *DescribeConfigsRequest) (*DescribeConfigsResponse, error) {
+	resp := new(DescribeConfigsResponse)
+	if err := c.Channel.Unary(ctx, "/grpcdc.kafka.v1.Kafka/DescribeConfigs", req, resp); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+func (c *KafkaClient) AlterConfigs(ctx context.Context, req *AlterConfigsRequest) (*AlterConfigsResponse, error) {
+	resp := new(AlterConfigsResponse)
+	if err := c.Channel.Unary(ctx, "/grpcdc.kafka.v1.Kafka/AlterConfigs", req, resp); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+func (c *KafkaClient) CreatePartitions(ctx context.Context, req *CreatePartitionsRequest) (*CreatePartitionsResponse, error) {
+	resp := new(CreatePartitionsResponse)
+	if err := c.Channel.Unary(ctx, "/grpcdc.kafka.v1.Kafka/CreatePartitions", req, resp); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+func (c *KafkaClient) DeleteRecords(ctx context.Context, req *DeleteRecordsRequest) (*DeleteRecordsResponse, error) {
+	resp := new(DeleteRecordsResponse)
+	if err := c.Channel.Unary(ctx, "/grpcdc.kafka.v1.Kafka/DeleteRecords", req, resp); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+func (c *KafkaClient) ListGroups(ctx context.Context, req *ListGroupsRequest) (*ListGroupsResponse, error) {
+	resp := new(ListGroupsResponse)
+	if err := c.Channel.Unary(ctx, "/grpcdc.kafka.v1.Kafka/ListGroups", req, resp); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+func (c *KafkaClient) DescribeGroups(ctx context.Context, req *DescribeGroupsRequest) (*DescribeGroupsResponse, error) {
+	resp := new(DescribeGroupsResponse)
+	if err := c.Channel.Unary(ctx, "/grpcdc.kafka.v1.Kafka/DescribeGroups", req, resp); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+func (c *KafkaClient) DeleteGroups(ctx context.Context, req *DeleteGroupsRequest) (*DeleteGroupsResponse, error) {
+	resp := new(DeleteGroupsResponse)
+	if err := c.Channel.Unary(ctx, "/grpcdc.kafka.v1.Kafka/DeleteGroups", req, resp); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+func (c *KafkaClient) DeleteGroupOffsets(ctx context.Context, req *DeleteGroupOffsetsRequest) (*DeleteGroupOffsetsResponse, error) {
+	resp := new(DeleteGroupOffsetsResponse)
+	if err := c.Channel.Unary(ctx, "/grpcdc.kafka.v1.Kafka/DeleteGroupOffsets", req, resp); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+func (c *KafkaClient) DescribeAcls(ctx context.Context, req *DescribeAclsRequest) (*DescribeAclsResponse, error) {
+	resp := new(DescribeAclsResponse)
+	if err := c.Channel.Unary(ctx, "/grpcdc.kafka.v1.Kafka/DescribeAcls", req, resp); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+func (c *KafkaClient) CreateAcls(ctx context.Context, req *CreateAclsRequest) (*CreateAclsResponse, error) {
+	resp := new(CreateAclsResponse)
+	if err := c.Channel.Unary(ctx, "/grpcdc.kafka.v1.Kafka/CreateAcls", req, resp); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+func (c *KafkaClient) DeleteAcls(ctx context.Context, req *DeleteAclsRequest) (*DeleteAclsResponse, error) {
+	resp := new(DeleteAclsResponse)
+	if err := c.Channel.Unary(ctx, "/grpcdc.kafka.v1.Kafka/DeleteAcls", req, resp); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+func (c *KafkaClient) ListTransactions(ctx context.Context, req *ListTransactionsRequest) (*ListTransactionsResponse, error) {
+	resp := new(ListTransactionsResponse)
+	if err := c.Channel.Unary(ctx, "/grpcdc.kafka.v1.Kafka/ListTransactions", req, resp); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+func (c *KafkaClient) DescribeTransactions(ctx context.Context, req *DescribeTransactionsRequest) (*DescribeTransactionsResponse, error) {
+	resp := new(DescribeTransactionsResponse)
+	if err := c.Channel.Unary(ctx, "/grpcdc.kafka.v1.Kafka/DescribeTransactions", req, resp); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+func (c *KafkaClient) OpenShareGroup(ctx context.Context, req *OpenShareGroupRequest) (*OpenShareGroupResponse, error) {
+	resp := new(OpenShareGroupResponse)
+	if err := c.Channel.Unary(ctx, "/grpcdc.kafka.v1.Kafka/OpenShareGroup", req, resp); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+func (c *KafkaClient) SharePoll(ctx context.Context, req *SharePollRequest) (*SharePollResponse, error) {
+	resp := new(SharePollResponse)
+	if err := c.Channel.Unary(ctx, "/grpcdc.kafka.v1.Kafka/SharePoll", req, resp); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+func (c *KafkaClient) ShareAck(ctx context.Context, req *ShareAckRequest) (*ShareAckResponse, error) {
+	resp := new(ShareAckResponse)
+	if err := c.Channel.Unary(ctx, "/grpcdc.kafka.v1.Kafka/ShareAck", req, resp); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+func (c *KafkaClient) CloseShareGroup(ctx context.Context, req *CloseShareGroupRequest) (*CloseShareGroupResponse, error) {
+	resp := new(CloseShareGroupResponse)
+	if err := c.Channel.Unary(ctx, "/grpcdc.kafka.v1.Kafka/CloseShareGroup", req, resp); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
 
 type KafkaServer interface {
 	Metadata(context.Context, *MetadataRequest) (*MetadataResponse, error)
@@ -136,6 +255,23 @@ type KafkaServer interface {
 	FetchOffset(context.Context, *FetchOffsetRequest) (*FetchOffsetResponse, error)
 	CreateTopics(context.Context, *CreateTopicsRequest) (*CreateTopicsResponse, error)
 	DeleteTopics(context.Context, *DeleteTopicsRequest) (*DeleteTopicsResponse, error)
+	DescribeConfigs(context.Context, *DescribeConfigsRequest) (*DescribeConfigsResponse, error)
+	AlterConfigs(context.Context, *AlterConfigsRequest) (*AlterConfigsResponse, error)
+	CreatePartitions(context.Context, *CreatePartitionsRequest) (*CreatePartitionsResponse, error)
+	DeleteRecords(context.Context, *DeleteRecordsRequest) (*DeleteRecordsResponse, error)
+	ListGroups(context.Context, *ListGroupsRequest) (*ListGroupsResponse, error)
+	DescribeGroups(context.Context, *DescribeGroupsRequest) (*DescribeGroupsResponse, error)
+	DeleteGroups(context.Context, *DeleteGroupsRequest) (*DeleteGroupsResponse, error)
+	DeleteGroupOffsets(context.Context, *DeleteGroupOffsetsRequest) (*DeleteGroupOffsetsResponse, error)
+	DescribeAcls(context.Context, *DescribeAclsRequest) (*DescribeAclsResponse, error)
+	CreateAcls(context.Context, *CreateAclsRequest) (*CreateAclsResponse, error)
+	DeleteAcls(context.Context, *DeleteAclsRequest) (*DeleteAclsResponse, error)
+	ListTransactions(context.Context, *ListTransactionsRequest) (*ListTransactionsResponse, error)
+	DescribeTransactions(context.Context, *DescribeTransactionsRequest) (*DescribeTransactionsResponse, error)
+	OpenShareGroup(context.Context, *OpenShareGroupRequest) (*OpenShareGroupResponse, error)
+	SharePoll(context.Context, *SharePollRequest) (*SharePollResponse, error)
+	ShareAck(context.Context, *ShareAckRequest) (*ShareAckResponse, error)
+	CloseShareGroup(context.Context, *CloseShareGroupRequest) (*CloseShareGroupResponse, error)
 }
 
 type KafkaConsumeServer interface {
@@ -291,6 +427,193 @@ func RegisterKafkaServer(s *grpcdc.Server, srv KafkaServer) {
 					return err
 				}
 				resp, err := srv.DeleteTopics(ctx, req)
+				if err != nil {
+					return err
+				}
+				return sink.Send(resp.MarshalDC())
+			}},
+			{Name: "DescribeConfigs", Path: "/grpcdc.kafka.v1.Kafka/DescribeConfigs", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
+				req := new(DescribeConfigsRequest)
+				if err := reqs.RecvInto(req); err != nil {
+					return err
+				}
+				resp, err := srv.DescribeConfigs(ctx, req)
+				if err != nil {
+					return err
+				}
+				return sink.Send(resp.MarshalDC())
+			}},
+			{Name: "AlterConfigs", Path: "/grpcdc.kafka.v1.Kafka/AlterConfigs", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
+				req := new(AlterConfigsRequest)
+				if err := reqs.RecvInto(req); err != nil {
+					return err
+				}
+				resp, err := srv.AlterConfigs(ctx, req)
+				if err != nil {
+					return err
+				}
+				return sink.Send(resp.MarshalDC())
+			}},
+			{Name: "CreatePartitions", Path: "/grpcdc.kafka.v1.Kafka/CreatePartitions", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
+				req := new(CreatePartitionsRequest)
+				if err := reqs.RecvInto(req); err != nil {
+					return err
+				}
+				resp, err := srv.CreatePartitions(ctx, req)
+				if err != nil {
+					return err
+				}
+				return sink.Send(resp.MarshalDC())
+			}},
+			{Name: "DeleteRecords", Path: "/grpcdc.kafka.v1.Kafka/DeleteRecords", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
+				req := new(DeleteRecordsRequest)
+				if err := reqs.RecvInto(req); err != nil {
+					return err
+				}
+				resp, err := srv.DeleteRecords(ctx, req)
+				if err != nil {
+					return err
+				}
+				return sink.Send(resp.MarshalDC())
+			}},
+			{Name: "ListGroups", Path: "/grpcdc.kafka.v1.Kafka/ListGroups", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
+				req := new(ListGroupsRequest)
+				if err := reqs.RecvInto(req); err != nil {
+					return err
+				}
+				resp, err := srv.ListGroups(ctx, req)
+				if err != nil {
+					return err
+				}
+				return sink.Send(resp.MarshalDC())
+			}},
+			{Name: "DescribeGroups", Path: "/grpcdc.kafka.v1.Kafka/DescribeGroups", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
+				req := new(DescribeGroupsRequest)
+				if err := reqs.RecvInto(req); err != nil {
+					return err
+				}
+				resp, err := srv.DescribeGroups(ctx, req)
+				if err != nil {
+					return err
+				}
+				return sink.Send(resp.MarshalDC())
+			}},
+			{Name: "DeleteGroups", Path: "/grpcdc.kafka.v1.Kafka/DeleteGroups", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
+				req := new(DeleteGroupsRequest)
+				if err := reqs.RecvInto(req); err != nil {
+					return err
+				}
+				resp, err := srv.DeleteGroups(ctx, req)
+				if err != nil {
+					return err
+				}
+				return sink.Send(resp.MarshalDC())
+			}},
+			{Name: "DeleteGroupOffsets", Path: "/grpcdc.kafka.v1.Kafka/DeleteGroupOffsets", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
+				req := new(DeleteGroupOffsetsRequest)
+				if err := reqs.RecvInto(req); err != nil {
+					return err
+				}
+				resp, err := srv.DeleteGroupOffsets(ctx, req)
+				if err != nil {
+					return err
+				}
+				return sink.Send(resp.MarshalDC())
+			}},
+			{Name: "DescribeAcls", Path: "/grpcdc.kafka.v1.Kafka/DescribeAcls", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
+				req := new(DescribeAclsRequest)
+				if err := reqs.RecvInto(req); err != nil {
+					return err
+				}
+				resp, err := srv.DescribeAcls(ctx, req)
+				if err != nil {
+					return err
+				}
+				return sink.Send(resp.MarshalDC())
+			}},
+			{Name: "CreateAcls", Path: "/grpcdc.kafka.v1.Kafka/CreateAcls", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
+				req := new(CreateAclsRequest)
+				if err := reqs.RecvInto(req); err != nil {
+					return err
+				}
+				resp, err := srv.CreateAcls(ctx, req)
+				if err != nil {
+					return err
+				}
+				return sink.Send(resp.MarshalDC())
+			}},
+			{Name: "DeleteAcls", Path: "/grpcdc.kafka.v1.Kafka/DeleteAcls", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
+				req := new(DeleteAclsRequest)
+				if err := reqs.RecvInto(req); err != nil {
+					return err
+				}
+				resp, err := srv.DeleteAcls(ctx, req)
+				if err != nil {
+					return err
+				}
+				return sink.Send(resp.MarshalDC())
+			}},
+			{Name: "ListTransactions", Path: "/grpcdc.kafka.v1.Kafka/ListTransactions", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
+				req := new(ListTransactionsRequest)
+				if err := reqs.RecvInto(req); err != nil {
+					return err
+				}
+				resp, err := srv.ListTransactions(ctx, req)
+				if err != nil {
+					return err
+				}
+				return sink.Send(resp.MarshalDC())
+			}},
+			{Name: "DescribeTransactions", Path: "/grpcdc.kafka.v1.Kafka/DescribeTransactions", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
+				req := new(DescribeTransactionsRequest)
+				if err := reqs.RecvInto(req); err != nil {
+					return err
+				}
+				resp, err := srv.DescribeTransactions(ctx, req)
+				if err != nil {
+					return err
+				}
+				return sink.Send(resp.MarshalDC())
+			}},
+			{Name: "OpenShareGroup", Path: "/grpcdc.kafka.v1.Kafka/OpenShareGroup", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
+				req := new(OpenShareGroupRequest)
+				if err := reqs.RecvInto(req); err != nil {
+					return err
+				}
+				resp, err := srv.OpenShareGroup(ctx, req)
+				if err != nil {
+					return err
+				}
+				return sink.Send(resp.MarshalDC())
+			}},
+			{Name: "SharePoll", Path: "/grpcdc.kafka.v1.Kafka/SharePoll", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
+				req := new(SharePollRequest)
+				if err := reqs.RecvInto(req); err != nil {
+					return err
+				}
+				resp, err := srv.SharePoll(ctx, req)
+				if err != nil {
+					return err
+				}
+				return sink.Send(resp.MarshalDC())
+			}},
+			{Name: "ShareAck", Path: "/grpcdc.kafka.v1.Kafka/ShareAck", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
+				req := new(ShareAckRequest)
+				if err := reqs.RecvInto(req); err != nil {
+					return err
+				}
+				resp, err := srv.ShareAck(ctx, req)
+				if err != nil {
+					return err
+				}
+				return sink.Send(resp.MarshalDC())
+			}},
+			{Name: "CloseShareGroup", Path: "/grpcdc.kafka.v1.Kafka/CloseShareGroup", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
+				req := new(CloseShareGroupRequest)
+				if err := reqs.RecvInto(req); err != nil {
+					return err
+				}
+				resp, err := srv.CloseShareGroup(ctx, req)
 				if err != nil {
 					return err
 				}

@@ -3,6 +3,43 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.41.0 — 2026-11-12
+
+- New public repo and packages: `browser-grpc/kafka-native` —
+  the in-process Kafka protocol client (extracted from the
+  kafka-proxy sidecar's crate) published as the `kafka-native`
+  Rust crate (crates.io) and Python wheel (PyPI), both via
+  Trusted Publishing from the repo's own workflows.
+- kafka-native wrappers in every native language over one C
+  ABI (`kafka_native_new_v2` with SASL PLAIN/SCRAM-SHA-256/512
+  and TLS): Python, Ruby (Fiddle), Dart (dart:ffi), C# (P/Invoke),
+  Java (JNI shim), PHP (stdlib FFI), JavaScript (pure N-API
+  addon, async promises), Go (cgo behind the `kafka_native`
+  build tag); C++ and Swift consume the header directly.
+  Generated proxies/clients (`kafka-grpc`) and the in-process
+  form factor cross-check each other record-for-record in a
+  differential gate leg (all compression codecs, consumer
+  groups, offsets).
+- kafka-native crate is publishable standalone: the
+  release export internalizes the generated pb/stub
+  modules into the crate and stamps a versioned grpc-dc
+  dependency (crates.io first publish stays a manual,
+  token-based step; OIDC takes over once the crate's
+  Trusted Publisher is registered).
+- KIP-932 share groups in kafka-native: session-based
+  `OpenShareGroup`/`SharePoll`/`ShareAck`/`CloseShareGroup`
+  RPCs (client-generated member ids, share-session epoch
+  handling incl. ack epoch consumption, delivery counts,
+  ACCEPT/RELEASE acknowledgement semantics).
+- KIP-848 next-generation consumer protocol in kafka-native:
+  ConsumerGroupHeartbeat membership with server-side
+  assignment, epoch fencing, ConsumerGroupDescribe admin, and
+  OffsetCommit v9; classic group protocol as automatic
+  fallback; `group_protocol` pins the protocol per
+  subscription, and static membership is supported on both
+  (the service supersedes a duplicate static member itself
+  under KIP-848).
+
 ## v0.40.0 — 2026-11-09 (published to GitHub/GHCR/NuGet/GitHub Maven/pub.dev/crates.io/LuaRocks/JSR)
 
 - Distributed tracing (beta) across every generated runtime:

@@ -16,6 +16,64 @@ type pendingMessage struct {
 }
 
 // DataChannel is one DCEP channel.
+
+// DC message chunking (mirrors js/src/chunking.js and the
+// Rust/JS stacks): browsers cap one RTCDataChannel message at
+// the negotiated max-message-size (262144 in Chromium), so
+// endpoints with chunking enabled split binary messages over
+// 64 KiB into [0xF0, flags]-headed chunks and reassemble on
+// receipt. 0xF0 is an unknown grpc-dc frame type, so a peer
+// without chunking ignores chunks per the forward-compat rule
+// instead of misdecoding them.
+const dcChunkMagic = 0xF0
+const dcChunkFinal = 0x01
+const maxDcChunkPayload = 65536
+
+func splitDcMessage(data []byte) [][]byte {
+	if len(data) <= maxDcChunkPayload {
+		return [][]byte{data}
+	}
+	var out [][]byte
+	for off := 0; off < len(data); off += maxDcChunkPayload {
+		n := maxDcChunkPayload
+		if off+n > len(data) {
+			n = len(data) - off
+		}
+		chunk := make([]byte, 2+n)
+		chunk[0] = dcChunkMagic
+		if off+n >= len(data) {
+			chunk[1] = dcChunkFinal
+		}
+		copy(chunk[2:], data[off:off+n])
+		out = append(out, chunk)
+	}
+	return out
+}
+
+type dcChunkReassembler struct {
+	parts [][]byte
+}
+
+func (r *dcChunkReassembler) push(data []byte) ([]byte, bool) {
+	if r.parts == nil && (len(data) < 2 || data[0] != dcChunkMagic) {
+		return data, true
+	}
+	if len(data) < 2 || data[0] != dcChunkMagic {
+		r.parts = nil
+		return data, true
+	}
+	r.parts = append(r.parts, data[2:])
+	if data[1]&dcChunkFinal == 0 {
+		return nil, false
+	}
+	var whole []byte
+	for _, part := range r.parts {
+		whole = append(whole, part...)
+	}
+	r.parts = nil
+	return whole, true
+}
+
 type DataChannel struct {
 	ID         uint16
 	Label      string
@@ -34,6 +92,8 @@ type DataChannel struct {
 
 	closeHandler func()
 	pendingClose bool
+
+	reasm dcChunkReassembler
 }
 
 // OnMessage registers the message handler; queued messages flush.
@@ -138,8 +198,17 @@ type DcEndpoint struct {
 	// association is a single-threaded state machine, but the
 	// pump goroutine (HandlePacket/Tick) races application
 	// goroutines (SendData/CloseStream/Close) without it.
-	assocMu sync.Mutex
-	done    chan struct{}
+	assocMu  sync.Mutex
+	done     chan struct{}
+	chunking atomic.Bool
+}
+
+// SetChunkMessages enables DC message chunking for large
+// binary messages (see splitDcMessage). Enable on both ends
+// of a link that must carry messages over the peer's
+// RTCDataChannel max-message-size (browsers: 256 KiB).
+func (e *DcEndpoint) SetChunkMessages(enabled bool) {
+	e.chunking.Store(enabled)
 }
 
 // NewDcEndpoint wraps an established DTLS connection. Role "client"
@@ -231,6 +300,12 @@ func (e *DcEndpoint) sendPackets(packets [][]byte) {
 }
 
 func (e *DcEndpoint) sendData(channel *DataChannel, data []byte, isText bool) {
+	if e.chunking.Load() && !isText && len(data) > maxDcChunkPayload {
+		for _, chunk := range splitDcMessage(data) {
+			e.sendPackets(e.assocSendData(channel.ID, PpidBinary, chunk, channel.Params.SendOptions()))
+		}
+		return
+	}
 	var ppid uint32
 	switch {
 	case isText && len(data) == 0:
@@ -325,6 +400,14 @@ func (e *DcEndpoint) onSctpEvent(event SctpEvent) {
 		return
 	}
 	isText := event.Ppid == PpidString || event.Ppid == PpidStringEmpty
+	if e.chunking.Load() && !isText {
+		whole, complete := channel.reasm.push(event.Payload)
+		if !complete {
+			return
+		}
+		channel.emitMessage(whole, false)
+		return
+	}
 	channel.emitMessage(event.Payload, isText)
 }
 

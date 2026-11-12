@@ -3398,8 +3398,19 @@ function swpCamel(s) {
   return parts[0] + parts.slice(1).map((p) => (p ? p[0].toUpperCase() + p.slice(1) : '')).join('');
 }
 
+const SWP_KEYWORDS = new Set([
+  'associatedtype', 'class', 'deinit', 'enum', 'extension', 'fileprivate',
+  'func', 'import', 'init', 'inout', 'internal', 'let', 'open', 'operator',
+  'private', 'precedencegroup', 'protocol', 'public', 'rethrows', 'static',
+  'struct', 'subscript', 'typealias', 'var', 'actor', 'async', 'await',
+  'break', 'case', 'catch', 'continue', 'default', 'defer', 'do', 'else',
+  'fallthrough', 'for', 'guard', 'if', 'in', 'return', 'throw', 'switch',
+  'where', 'while', 'false', 'nil', 'true', 'self', 'Self', 'super',
+]);
+
 function swpFieldName(f) {
-  return f.jsonName ? f.jsonName : swpCamel(f.name);
+  const n = f.jsonName ? f.jsonName : swpCamel(f.name);
+  return SWP_KEYWORDS.has(n) ? '`' + n + '`' : n;
 }
 
 function swpResolve(model, typeName) {

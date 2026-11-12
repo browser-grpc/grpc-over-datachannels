@@ -7,6 +7,7 @@ Stack suites run via `make test-webrtc-go`, `make test-webrtc-js`, `make test-we
 ## Tests and sources
 
 - [`TESTS.md`](TESTS.md) — Generated suite/example
+- [`chunking_test.go`](go/chunking_test.go) — Generated suite/example
 - [`cid_test.go`](go/cid_test.go) — Generated suite/example
 - [`consent_test.go`](go/consent_test.go) — Generated suite/example
 - [`cross_test.go`](go/cross_test.go) — Generated suite/example
@@ -18,6 +19,7 @@ Stack suites run via `make test-webrtc-go`, `make test-webrtc-js`, `make test-we
 - [`mux_test.go`](go/mux_test.go) — Generated suite/example
 - [`nomination_test.go`](go/nomination_test.go) — Generated suite/example
 - [`peer_test.go`](go/peer_test.go) — Generated suite/example
+- [`rendezvous_test.go`](go/rendezvous_test.go) — Generated suite/example
 - [`restart_test.go`](go/restart_test.go) — Generated suite/example
 - [`sctp_reassembly_test.go`](go/sctp_reassembly_test.go) — Generated suite/example
 - [`sctp_rwnd_test.go`](go/sctp_rwnd_test.go) — Generated suite/example
@@ -30,6 +32,7 @@ Stack suites run via `make test-webrtc-go`, `make test-webrtc-js`, `make test-we
 - [`turn_mux_test.go`](go/turn_mux_test.go) — Generated suite/example
 - [`turn_tcp_test.go`](go/turn_tcp_test.go) — Generated suite/example
 - [`turn_test.go`](go/turn_test.go) — Generated suite/example
+- [`chunking.test.js`](js/test/chunking.test.js) — Generated suite/example
 - [`cid.test.js`](js/test/cid.test.js) — Generated suite/example
 - [`consent.test.js`](js/test/consent.test.js) — Generated suite/example
 - [`dc.test.js`](js/test/dc.test.js) — Generated suite/example
@@ -48,6 +51,7 @@ Stack suites run via `make test-webrtc-go`, `make test-webrtc-js`, `make test-we
 - [`peer.test.js`](js/test/peer.test.js) — Generated suite/example
 - [`restart.test.js`](js/test/restart.test.js) — Generated suite/example
 - [`sctp.test.js`](js/test/sctp.test.js) — Generated suite/example
+- [`sctp_blast.test.js`](js/test/sctp_blast.test.js) — Generated suite/example
 - [`sctp_sack_vectors.test.js`](js/test/sctp_sack_vectors.test.js) — Generated suite/example
 - [`sctp_vectors.test.js`](js/test/sctp_vectors.test.js) — Generated suite/example
 - [`srflx.test.js`](js/test/srflx.test.js) — Generated suite/example
@@ -58,6 +62,7 @@ Stack suites run via `make test-webrtc-go`, `make test-webrtc-js`, `make test-we
 - [`turn_mux.test.js`](js/test/turn_mux.test.js) — Generated suite/example
 - [`turn_tcp.test.js`](js/test/turn_tcp.test.js) — Generated suite/example
 - [`blast.rs`](rust/tests/blast.rs) — Generated suite/example
+- [`chunking.rs`](rust/tests/chunking.rs) — Generated suite/example
 - [`cid_test.rs`](rust/tests/cid_test.rs) — Generated suite/example
 - [`consent.rs`](rust/tests/consent.rs) — Generated suite/example
 - [`datachannel.rs`](rust/tests/datachannel.rs) — Generated suite/example
@@ -73,6 +78,7 @@ Stack suites run via `make test-webrtc-go`, `make test-webrtc-js`, `make test-we
 - [`peer_resumption.rs`](rust/tests/peer_resumption.rs) — Generated suite/example
 - [`peer_trace.rs`](rust/tests/peer_trace.rs) — Tracing: traceparent propagation, span observers, nested calls
 - [`platform_harness.rs`](rust/tests/platform_harness.rs) — Generated suite/example
+- [`rendezvous.rs`](rust/tests/rendezvous.rs) — Generated suite/example
 - [`restart.rs`](rust/tests/restart.rs) — Generated suite/example
 - [`sctp.rs`](rust/tests/sctp.rs) — Generated suite/example
 - [`sctp_sack_vectors.rs`](rust/tests/sctp_sack_vectors.rs) — Generated suite/example

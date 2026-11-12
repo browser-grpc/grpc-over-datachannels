@@ -1,0 +1,78 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>grpc-dc rendezvous browser test</title>
+<script type="module">
+import { rendezvousChannel } from "/js/index.js";
+import { EchoRequest } from "/js/examples/echo_pb.js";
+import { EchoClient } from "/js/examples/echo_grpc_dc.js";
+
+// Browser side: fetch the pre-published rendezvous descriptor
+// (in production it could be hardcoded — here the test server
+// hands it out as static JSON), then dial with
+// rendezvousChannel. No signaling request of any kind is made
+// after this fetch; ICE/DTLS/SCTP run straight at the fixed
+// endpoint. Two sequential dials prove per-ufrag session
+// demux on the shared listener socket.
+window.__runRendezvous = async () => {
+  const descriptor = await (await fetch("/rendezvous.json")).json();
+  const out = {};
+  for (const name of ["first", "second"]) {
+    const channel = await rendezvousChannel(descriptor);
+    try {
+      const client = new EchoClient(channel);
+      const req = (message, count = 0) => new EchoRequest({ message, count });
+      const unary = await client.unary(req(`hello-${name}`));
+      const ticks = [];
+      for await (const resp of await client.serverStream(req("tick", 3))) {
+        ticks.push(resp.index);
+      }
+      out[name] = { unary: unary.message, ticks };
+    } finally {
+      channel.closeRendezvous();
+    }
+  }
+  return out;
+};
+
+// Stress: N concurrent dials from this one page, each with a
+// unique message; the listener must keep the ufrag sessions
+// apart (no cross-talk) on its single socket.
+window.__runRendezvousStress = async (count = 8) => {
+  const descriptor = await (await fetch("/rendezvous.json")).json();
+  const dials = [];
+  for (let i = 0; i < count; i++) {
+    dials.push(
+      (async () => {
+        const channel = await rendezvousChannel(descriptor);
+        try {
+          const client = new EchoClient(channel);
+          const resp = await client.unary(new EchoRequest({ message: `stress-${i}`, count: 0 }));
+          return resp.message;
+        } finally {
+          channel.closeRendezvous();
+        }
+      })(),
+    );
+  }
+  return Promise.all(dials);
+};
+
+// Long-lived: one dial, a call, a wait longer than the
+// server's consent-expiry window, then another call on the
+// same channel. Survives only if the dialer's own Binding
+// requests keep server-side consent fresh.
+window.__runRendezvousLongLived = async (waitMs) => {
+  const descriptor = await (await fetch("/rendezvous.json")).json();
+  const channel = await rendezvousChannel(descriptor);
+  try {
+    const client = new EchoClient(channel);
+    const req = (message) => new EchoRequest({ message, count: 0 });
+    const before = await client.unary(req("before"));
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+    const after = await client.unary(req("after"));
+    return { before: before.message, after: after.message };
+  } finally {
+    channel.closeRendezvous();
+  }
+};
+</script>

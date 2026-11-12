@@ -171,6 +171,108 @@ object KafkaGrpcDc {
             resp
         }
 
+        def DescribeConfigs(req: DescribeConfigsRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): DescribeConfigsResponse = {
+            val resp = new DescribeConfigsResponse()
+            channel.unary("/grpcdc.kafka.v1.Kafka/DescribeConfigs", req, resp, metadata, timeout)
+            resp
+        }
+
+        def AlterConfigs(req: AlterConfigsRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): AlterConfigsResponse = {
+            val resp = new AlterConfigsResponse()
+            channel.unary("/grpcdc.kafka.v1.Kafka/AlterConfigs", req, resp, metadata, timeout)
+            resp
+        }
+
+        def CreatePartitions(req: CreatePartitionsRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): CreatePartitionsResponse = {
+            val resp = new CreatePartitionsResponse()
+            channel.unary("/grpcdc.kafka.v1.Kafka/CreatePartitions", req, resp, metadata, timeout)
+            resp
+        }
+
+        def DeleteRecords(req: DeleteRecordsRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): DeleteRecordsResponse = {
+            val resp = new DeleteRecordsResponse()
+            channel.unary("/grpcdc.kafka.v1.Kafka/DeleteRecords", req, resp, metadata, timeout)
+            resp
+        }
+
+        def ListGroups(req: ListGroupsRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): ListGroupsResponse = {
+            val resp = new ListGroupsResponse()
+            channel.unary("/grpcdc.kafka.v1.Kafka/ListGroups", req, resp, metadata, timeout)
+            resp
+        }
+
+        def DescribeGroups(req: DescribeGroupsRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): DescribeGroupsResponse = {
+            val resp = new DescribeGroupsResponse()
+            channel.unary("/grpcdc.kafka.v1.Kafka/DescribeGroups", req, resp, metadata, timeout)
+            resp
+        }
+
+        def DeleteGroups(req: DeleteGroupsRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): DeleteGroupsResponse = {
+            val resp = new DeleteGroupsResponse()
+            channel.unary("/grpcdc.kafka.v1.Kafka/DeleteGroups", req, resp, metadata, timeout)
+            resp
+        }
+
+        def DeleteGroupOffsets(req: DeleteGroupOffsetsRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): DeleteGroupOffsetsResponse = {
+            val resp = new DeleteGroupOffsetsResponse()
+            channel.unary("/grpcdc.kafka.v1.Kafka/DeleteGroupOffsets", req, resp, metadata, timeout)
+            resp
+        }
+
+        def DescribeAcls(req: DescribeAclsRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): DescribeAclsResponse = {
+            val resp = new DescribeAclsResponse()
+            channel.unary("/grpcdc.kafka.v1.Kafka/DescribeAcls", req, resp, metadata, timeout)
+            resp
+        }
+
+        def CreateAcls(req: CreateAclsRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): CreateAclsResponse = {
+            val resp = new CreateAclsResponse()
+            channel.unary("/grpcdc.kafka.v1.Kafka/CreateAcls", req, resp, metadata, timeout)
+            resp
+        }
+
+        def DeleteAcls(req: DeleteAclsRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): DeleteAclsResponse = {
+            val resp = new DeleteAclsResponse()
+            channel.unary("/grpcdc.kafka.v1.Kafka/DeleteAcls", req, resp, metadata, timeout)
+            resp
+        }
+
+        def ListTransactions(req: ListTransactionsRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): ListTransactionsResponse = {
+            val resp = new ListTransactionsResponse()
+            channel.unary("/grpcdc.kafka.v1.Kafka/ListTransactions", req, resp, metadata, timeout)
+            resp
+        }
+
+        def DescribeTransactions(req: DescribeTransactionsRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): DescribeTransactionsResponse = {
+            val resp = new DescribeTransactionsResponse()
+            channel.unary("/grpcdc.kafka.v1.Kafka/DescribeTransactions", req, resp, metadata, timeout)
+            resp
+        }
+
+        def OpenShareGroup(req: OpenShareGroupRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): OpenShareGroupResponse = {
+            val resp = new OpenShareGroupResponse()
+            channel.unary("/grpcdc.kafka.v1.Kafka/OpenShareGroup", req, resp, metadata, timeout)
+            resp
+        }
+
+        def SharePoll(req: SharePollRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): SharePollResponse = {
+            val resp = new SharePollResponse()
+            channel.unary("/grpcdc.kafka.v1.Kafka/SharePoll", req, resp, metadata, timeout)
+            resp
+        }
+
+        def ShareAck(req: ShareAckRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): ShareAckResponse = {
+            val resp = new ShareAckResponse()
+            channel.unary("/grpcdc.kafka.v1.Kafka/ShareAck", req, resp, metadata, timeout)
+            resp
+        }
+
+        def CloseShareGroup(req: CloseShareGroupRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): CloseShareGroupResponse = {
+            val resp = new CloseShareGroupResponse()
+            channel.unary("/grpcdc.kafka.v1.Kafka/CloseShareGroup", req, resp, metadata, timeout)
+            resp
+        }
+
         // -- async (scala.concurrent.Future) surface ---------------
 
         def MetadataFuture(req: MetadataRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): scala.concurrent.Future[MetadataResponse] = {
@@ -253,6 +355,74 @@ object KafkaGrpcDc {
             grpcdc.Futures { DeleteTopics(req, metadata, timeout) }
         }
 
+        def DescribeConfigsFuture(req: DescribeConfigsRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): scala.concurrent.Future[DescribeConfigsResponse] = {
+            grpcdc.Futures { DescribeConfigs(req, metadata, timeout) }
+        }
+
+        def AlterConfigsFuture(req: AlterConfigsRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): scala.concurrent.Future[AlterConfigsResponse] = {
+            grpcdc.Futures { AlterConfigs(req, metadata, timeout) }
+        }
+
+        def CreatePartitionsFuture(req: CreatePartitionsRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): scala.concurrent.Future[CreatePartitionsResponse] = {
+            grpcdc.Futures { CreatePartitions(req, metadata, timeout) }
+        }
+
+        def DeleteRecordsFuture(req: DeleteRecordsRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): scala.concurrent.Future[DeleteRecordsResponse] = {
+            grpcdc.Futures { DeleteRecords(req, metadata, timeout) }
+        }
+
+        def ListGroupsFuture(req: ListGroupsRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): scala.concurrent.Future[ListGroupsResponse] = {
+            grpcdc.Futures { ListGroups(req, metadata, timeout) }
+        }
+
+        def DescribeGroupsFuture(req: DescribeGroupsRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): scala.concurrent.Future[DescribeGroupsResponse] = {
+            grpcdc.Futures { DescribeGroups(req, metadata, timeout) }
+        }
+
+        def DeleteGroupsFuture(req: DeleteGroupsRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): scala.concurrent.Future[DeleteGroupsResponse] = {
+            grpcdc.Futures { DeleteGroups(req, metadata, timeout) }
+        }
+
+        def DeleteGroupOffsetsFuture(req: DeleteGroupOffsetsRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): scala.concurrent.Future[DeleteGroupOffsetsResponse] = {
+            grpcdc.Futures { DeleteGroupOffsets(req, metadata, timeout) }
+        }
+
+        def DescribeAclsFuture(req: DescribeAclsRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): scala.concurrent.Future[DescribeAclsResponse] = {
+            grpcdc.Futures { DescribeAcls(req, metadata, timeout) }
+        }
+
+        def CreateAclsFuture(req: CreateAclsRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): scala.concurrent.Future[CreateAclsResponse] = {
+            grpcdc.Futures { CreateAcls(req, metadata, timeout) }
+        }
+
+        def DeleteAclsFuture(req: DeleteAclsRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): scala.concurrent.Future[DeleteAclsResponse] = {
+            grpcdc.Futures { DeleteAcls(req, metadata, timeout) }
+        }
+
+        def ListTransactionsFuture(req: ListTransactionsRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): scala.concurrent.Future[ListTransactionsResponse] = {
+            grpcdc.Futures { ListTransactions(req, metadata, timeout) }
+        }
+
+        def DescribeTransactionsFuture(req: DescribeTransactionsRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): scala.concurrent.Future[DescribeTransactionsResponse] = {
+            grpcdc.Futures { DescribeTransactions(req, metadata, timeout) }
+        }
+
+        def OpenShareGroupFuture(req: OpenShareGroupRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): scala.concurrent.Future[OpenShareGroupResponse] = {
+            grpcdc.Futures { OpenShareGroup(req, metadata, timeout) }
+        }
+
+        def SharePollFuture(req: SharePollRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): scala.concurrent.Future[SharePollResponse] = {
+            grpcdc.Futures { SharePoll(req, metadata, timeout) }
+        }
+
+        def ShareAckFuture(req: ShareAckRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): scala.concurrent.Future[ShareAckResponse] = {
+            grpcdc.Futures { ShareAck(req, metadata, timeout) }
+        }
+
+        def CloseShareGroupFuture(req: CloseShareGroupRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): scala.concurrent.Future[CloseShareGroupResponse] = {
+            grpcdc.Futures { CloseShareGroup(req, metadata, timeout) }
+        }
+
     }
 
     /** Server-streaming sink passed to service implementations. */
@@ -295,6 +465,23 @@ object KafkaGrpcDc {
         def FetchOffset(ctx: grpcdc.Endpoint#CallContext, req: FetchOffsetRequest): FetchOffsetResponse
         def CreateTopics(ctx: grpcdc.Endpoint#CallContext, req: CreateTopicsRequest): CreateTopicsResponse
         def DeleteTopics(ctx: grpcdc.Endpoint#CallContext, req: DeleteTopicsRequest): DeleteTopicsResponse
+        def DescribeConfigs(ctx: grpcdc.Endpoint#CallContext, req: DescribeConfigsRequest): DescribeConfigsResponse
+        def AlterConfigs(ctx: grpcdc.Endpoint#CallContext, req: AlterConfigsRequest): AlterConfigsResponse
+        def CreatePartitions(ctx: grpcdc.Endpoint#CallContext, req: CreatePartitionsRequest): CreatePartitionsResponse
+        def DeleteRecords(ctx: grpcdc.Endpoint#CallContext, req: DeleteRecordsRequest): DeleteRecordsResponse
+        def ListGroups(ctx: grpcdc.Endpoint#CallContext, req: ListGroupsRequest): ListGroupsResponse
+        def DescribeGroups(ctx: grpcdc.Endpoint#CallContext, req: DescribeGroupsRequest): DescribeGroupsResponse
+        def DeleteGroups(ctx: grpcdc.Endpoint#CallContext, req: DeleteGroupsRequest): DeleteGroupsResponse
+        def DeleteGroupOffsets(ctx: grpcdc.Endpoint#CallContext, req: DeleteGroupOffsetsRequest): DeleteGroupOffsetsResponse
+        def DescribeAcls(ctx: grpcdc.Endpoint#CallContext, req: DescribeAclsRequest): DescribeAclsResponse
+        def CreateAcls(ctx: grpcdc.Endpoint#CallContext, req: CreateAclsRequest): CreateAclsResponse
+        def DeleteAcls(ctx: grpcdc.Endpoint#CallContext, req: DeleteAclsRequest): DeleteAclsResponse
+        def ListTransactions(ctx: grpcdc.Endpoint#CallContext, req: ListTransactionsRequest): ListTransactionsResponse
+        def DescribeTransactions(ctx: grpcdc.Endpoint#CallContext, req: DescribeTransactionsRequest): DescribeTransactionsResponse
+        def OpenShareGroup(ctx: grpcdc.Endpoint#CallContext, req: OpenShareGroupRequest): OpenShareGroupResponse
+        def SharePoll(ctx: grpcdc.Endpoint#CallContext, req: SharePollRequest): SharePollResponse
+        def ShareAck(ctx: grpcdc.Endpoint#CallContext, req: ShareAckRequest): ShareAckResponse
+        def CloseShareGroup(ctx: grpcdc.Endpoint#CallContext, req: CloseShareGroupRequest): CloseShareGroupResponse
     }
 
     /** Register an implementation of grpcdc.kafka.v1.Kafka on a Server. */
@@ -376,6 +563,108 @@ object KafkaGrpcDc {
                 val resp = impl.DeleteTopics(ctx, req)
                 sink.send(resp.marshalDc())
             }),
+            grpcdc.Server.Method("DescribeConfigs", "/grpcdc.kafka.v1.Kafka/DescribeConfigs", grpcdc.Server.KIND_UNARY, (ctx, reqs, sink) => {
+                val req = new DescribeConfigsRequest()
+                reqs.recvInto(req)
+                val resp = impl.DescribeConfigs(ctx, req)
+                sink.send(resp.marshalDc())
+            }),
+            grpcdc.Server.Method("AlterConfigs", "/grpcdc.kafka.v1.Kafka/AlterConfigs", grpcdc.Server.KIND_UNARY, (ctx, reqs, sink) => {
+                val req = new AlterConfigsRequest()
+                reqs.recvInto(req)
+                val resp = impl.AlterConfigs(ctx, req)
+                sink.send(resp.marshalDc())
+            }),
+            grpcdc.Server.Method("CreatePartitions", "/grpcdc.kafka.v1.Kafka/CreatePartitions", grpcdc.Server.KIND_UNARY, (ctx, reqs, sink) => {
+                val req = new CreatePartitionsRequest()
+                reqs.recvInto(req)
+                val resp = impl.CreatePartitions(ctx, req)
+                sink.send(resp.marshalDc())
+            }),
+            grpcdc.Server.Method("DeleteRecords", "/grpcdc.kafka.v1.Kafka/DeleteRecords", grpcdc.Server.KIND_UNARY, (ctx, reqs, sink) => {
+                val req = new DeleteRecordsRequest()
+                reqs.recvInto(req)
+                val resp = impl.DeleteRecords(ctx, req)
+                sink.send(resp.marshalDc())
+            }),
+            grpcdc.Server.Method("ListGroups", "/grpcdc.kafka.v1.Kafka/ListGroups", grpcdc.Server.KIND_UNARY, (ctx, reqs, sink) => {
+                val req = new ListGroupsRequest()
+                reqs.recvInto(req)
+                val resp = impl.ListGroups(ctx, req)
+                sink.send(resp.marshalDc())
+            }),
+            grpcdc.Server.Method("DescribeGroups", "/grpcdc.kafka.v1.Kafka/DescribeGroups", grpcdc.Server.KIND_UNARY, (ctx, reqs, sink) => {
+                val req = new DescribeGroupsRequest()
+                reqs.recvInto(req)
+                val resp = impl.DescribeGroups(ctx, req)
+                sink.send(resp.marshalDc())
+            }),
+            grpcdc.Server.Method("DeleteGroups", "/grpcdc.kafka.v1.Kafka/DeleteGroups", grpcdc.Server.KIND_UNARY, (ctx, reqs, sink) => {
+                val req = new DeleteGroupsRequest()
+                reqs.recvInto(req)
+                val resp = impl.DeleteGroups(ctx, req)
+                sink.send(resp.marshalDc())
+            }),
+            grpcdc.Server.Method("DeleteGroupOffsets", "/grpcdc.kafka.v1.Kafka/DeleteGroupOffsets", grpcdc.Server.KIND_UNARY, (ctx, reqs, sink) => {
+                val req = new DeleteGroupOffsetsRequest()
+                reqs.recvInto(req)
+                val resp = impl.DeleteGroupOffsets(ctx, req)
+                sink.send(resp.marshalDc())
+            }),
+            grpcdc.Server.Method("DescribeAcls", "/grpcdc.kafka.v1.Kafka/DescribeAcls", grpcdc.Server.KIND_UNARY, (ctx, reqs, sink) => {
+                val req = new DescribeAclsRequest()
+                reqs.recvInto(req)
+                val resp = impl.DescribeAcls(ctx, req)
+                sink.send(resp.marshalDc())
+            }),
+            grpcdc.Server.Method("CreateAcls", "/grpcdc.kafka.v1.Kafka/CreateAcls", grpcdc.Server.KIND_UNARY, (ctx, reqs, sink) => {
+                val req = new CreateAclsRequest()
+                reqs.recvInto(req)
+                val resp = impl.CreateAcls(ctx, req)
+                sink.send(resp.marshalDc())
+            }),
+            grpcdc.Server.Method("DeleteAcls", "/grpcdc.kafka.v1.Kafka/DeleteAcls", grpcdc.Server.KIND_UNARY, (ctx, reqs, sink) => {
+                val req = new DeleteAclsRequest()
+                reqs.recvInto(req)
+                val resp = impl.DeleteAcls(ctx, req)
+                sink.send(resp.marshalDc())
+            }),
+            grpcdc.Server.Method("ListTransactions", "/grpcdc.kafka.v1.Kafka/ListTransactions", grpcdc.Server.KIND_UNARY, (ctx, reqs, sink) => {
+                val req = new ListTransactionsRequest()
+                reqs.recvInto(req)
+                val resp = impl.ListTransactions(ctx, req)
+                sink.send(resp.marshalDc())
+            }),
+            grpcdc.Server.Method("DescribeTransactions", "/grpcdc.kafka.v1.Kafka/DescribeTransactions", grpcdc.Server.KIND_UNARY, (ctx, reqs, sink) => {
+                val req = new DescribeTransactionsRequest()
+                reqs.recvInto(req)
+                val resp = impl.DescribeTransactions(ctx, req)
+                sink.send(resp.marshalDc())
+            }),
+            grpcdc.Server.Method("OpenShareGroup", "/grpcdc.kafka.v1.Kafka/OpenShareGroup", grpcdc.Server.KIND_UNARY, (ctx, reqs, sink) => {
+                val req = new OpenShareGroupRequest()
+                reqs.recvInto(req)
+                val resp = impl.OpenShareGroup(ctx, req)
+                sink.send(resp.marshalDc())
+            }),
+            grpcdc.Server.Method("SharePoll", "/grpcdc.kafka.v1.Kafka/SharePoll", grpcdc.Server.KIND_UNARY, (ctx, reqs, sink) => {
+                val req = new SharePollRequest()
+                reqs.recvInto(req)
+                val resp = impl.SharePoll(ctx, req)
+                sink.send(resp.marshalDc())
+            }),
+            grpcdc.Server.Method("ShareAck", "/grpcdc.kafka.v1.Kafka/ShareAck", grpcdc.Server.KIND_UNARY, (ctx, reqs, sink) => {
+                val req = new ShareAckRequest()
+                reqs.recvInto(req)
+                val resp = impl.ShareAck(ctx, req)
+                sink.send(resp.marshalDc())
+            }),
+            grpcdc.Server.Method("CloseShareGroup", "/grpcdc.kafka.v1.Kafka/CloseShareGroup", grpcdc.Server.KIND_UNARY, (ctx, reqs, sink) => {
+                val req = new CloseShareGroupRequest()
+                reqs.recvInto(req)
+                val resp = impl.CloseShareGroup(ctx, req)
+                sink.send(resp.marshalDc())
+            }),
         )))
     }
 
@@ -393,6 +682,23 @@ object KafkaGrpcDc {
         def FetchOffsetAsync(ctx: grpcdc.Endpoint#CallContext, req: FetchOffsetRequest): scala.concurrent.Future[FetchOffsetResponse]
         def CreateTopicsAsync(ctx: grpcdc.Endpoint#CallContext, req: CreateTopicsRequest): scala.concurrent.Future[CreateTopicsResponse]
         def DeleteTopicsAsync(ctx: grpcdc.Endpoint#CallContext, req: DeleteTopicsRequest): scala.concurrent.Future[DeleteTopicsResponse]
+        def DescribeConfigsAsync(ctx: grpcdc.Endpoint#CallContext, req: DescribeConfigsRequest): scala.concurrent.Future[DescribeConfigsResponse]
+        def AlterConfigsAsync(ctx: grpcdc.Endpoint#CallContext, req: AlterConfigsRequest): scala.concurrent.Future[AlterConfigsResponse]
+        def CreatePartitionsAsync(ctx: grpcdc.Endpoint#CallContext, req: CreatePartitionsRequest): scala.concurrent.Future[CreatePartitionsResponse]
+        def DeleteRecordsAsync(ctx: grpcdc.Endpoint#CallContext, req: DeleteRecordsRequest): scala.concurrent.Future[DeleteRecordsResponse]
+        def ListGroupsAsync(ctx: grpcdc.Endpoint#CallContext, req: ListGroupsRequest): scala.concurrent.Future[ListGroupsResponse]
+        def DescribeGroupsAsync(ctx: grpcdc.Endpoint#CallContext, req: DescribeGroupsRequest): scala.concurrent.Future[DescribeGroupsResponse]
+        def DeleteGroupsAsync(ctx: grpcdc.Endpoint#CallContext, req: DeleteGroupsRequest): scala.concurrent.Future[DeleteGroupsResponse]
+        def DeleteGroupOffsetsAsync(ctx: grpcdc.Endpoint#CallContext, req: DeleteGroupOffsetsRequest): scala.concurrent.Future[DeleteGroupOffsetsResponse]
+        def DescribeAclsAsync(ctx: grpcdc.Endpoint#CallContext, req: DescribeAclsRequest): scala.concurrent.Future[DescribeAclsResponse]
+        def CreateAclsAsync(ctx: grpcdc.Endpoint#CallContext, req: CreateAclsRequest): scala.concurrent.Future[CreateAclsResponse]
+        def DeleteAclsAsync(ctx: grpcdc.Endpoint#CallContext, req: DeleteAclsRequest): scala.concurrent.Future[DeleteAclsResponse]
+        def ListTransactionsAsync(ctx: grpcdc.Endpoint#CallContext, req: ListTransactionsRequest): scala.concurrent.Future[ListTransactionsResponse]
+        def DescribeTransactionsAsync(ctx: grpcdc.Endpoint#CallContext, req: DescribeTransactionsRequest): scala.concurrent.Future[DescribeTransactionsResponse]
+        def OpenShareGroupAsync(ctx: grpcdc.Endpoint#CallContext, req: OpenShareGroupRequest): scala.concurrent.Future[OpenShareGroupResponse]
+        def SharePollAsync(ctx: grpcdc.Endpoint#CallContext, req: SharePollRequest): scala.concurrent.Future[SharePollResponse]
+        def ShareAckAsync(ctx: grpcdc.Endpoint#CallContext, req: ShareAckRequest): scala.concurrent.Future[ShareAckResponse]
+        def CloseShareGroupAsync(ctx: grpcdc.Endpoint#CallContext, req: CloseShareGroupRequest): scala.concurrent.Future[CloseShareGroupResponse]
     }
 
     /** Register a Future-based implementation (adapts to the sync trait). */
@@ -433,6 +739,57 @@ object KafkaGrpcDc {
             }
             def DeleteTopics(ctx: grpcdc.Endpoint#CallContext, req: DeleteTopicsRequest): DeleteTopicsResponse = {
                 scala.concurrent.Await.result(impl.DeleteTopicsAsync(ctx, req), scala.concurrent.duration.Duration.Inf)
+            }
+            def DescribeConfigs(ctx: grpcdc.Endpoint#CallContext, req: DescribeConfigsRequest): DescribeConfigsResponse = {
+                scala.concurrent.Await.result(impl.DescribeConfigsAsync(ctx, req), scala.concurrent.duration.Duration.Inf)
+            }
+            def AlterConfigs(ctx: grpcdc.Endpoint#CallContext, req: AlterConfigsRequest): AlterConfigsResponse = {
+                scala.concurrent.Await.result(impl.AlterConfigsAsync(ctx, req), scala.concurrent.duration.Duration.Inf)
+            }
+            def CreatePartitions(ctx: grpcdc.Endpoint#CallContext, req: CreatePartitionsRequest): CreatePartitionsResponse = {
+                scala.concurrent.Await.result(impl.CreatePartitionsAsync(ctx, req), scala.concurrent.duration.Duration.Inf)
+            }
+            def DeleteRecords(ctx: grpcdc.Endpoint#CallContext, req: DeleteRecordsRequest): DeleteRecordsResponse = {
+                scala.concurrent.Await.result(impl.DeleteRecordsAsync(ctx, req), scala.concurrent.duration.Duration.Inf)
+            }
+            def ListGroups(ctx: grpcdc.Endpoint#CallContext, req: ListGroupsRequest): ListGroupsResponse = {
+                scala.concurrent.Await.result(impl.ListGroupsAsync(ctx, req), scala.concurrent.duration.Duration.Inf)
+            }
+            def DescribeGroups(ctx: grpcdc.Endpoint#CallContext, req: DescribeGroupsRequest): DescribeGroupsResponse = {
+                scala.concurrent.Await.result(impl.DescribeGroupsAsync(ctx, req), scala.concurrent.duration.Duration.Inf)
+            }
+            def DeleteGroups(ctx: grpcdc.Endpoint#CallContext, req: DeleteGroupsRequest): DeleteGroupsResponse = {
+                scala.concurrent.Await.result(impl.DeleteGroupsAsync(ctx, req), scala.concurrent.duration.Duration.Inf)
+            }
+            def DeleteGroupOffsets(ctx: grpcdc.Endpoint#CallContext, req: DeleteGroupOffsetsRequest): DeleteGroupOffsetsResponse = {
+                scala.concurrent.Await.result(impl.DeleteGroupOffsetsAsync(ctx, req), scala.concurrent.duration.Duration.Inf)
+            }
+            def DescribeAcls(ctx: grpcdc.Endpoint#CallContext, req: DescribeAclsRequest): DescribeAclsResponse = {
+                scala.concurrent.Await.result(impl.DescribeAclsAsync(ctx, req), scala.concurrent.duration.Duration.Inf)
+            }
+            def CreateAcls(ctx: grpcdc.Endpoint#CallContext, req: CreateAclsRequest): CreateAclsResponse = {
+                scala.concurrent.Await.result(impl.CreateAclsAsync(ctx, req), scala.concurrent.duration.Duration.Inf)
+            }
+            def DeleteAcls(ctx: grpcdc.Endpoint#CallContext, req: DeleteAclsRequest): DeleteAclsResponse = {
+                scala.concurrent.Await.result(impl.DeleteAclsAsync(ctx, req), scala.concurrent.duration.Duration.Inf)
+            }
+            def ListTransactions(ctx: grpcdc.Endpoint#CallContext, req: ListTransactionsRequest): ListTransactionsResponse = {
+                scala.concurrent.Await.result(impl.ListTransactionsAsync(ctx, req), scala.concurrent.duration.Duration.Inf)
+            }
+            def DescribeTransactions(ctx: grpcdc.Endpoint#CallContext, req: DescribeTransactionsRequest): DescribeTransactionsResponse = {
+                scala.concurrent.Await.result(impl.DescribeTransactionsAsync(ctx, req), scala.concurrent.duration.Duration.Inf)
+            }
+            def OpenShareGroup(ctx: grpcdc.Endpoint#CallContext, req: OpenShareGroupRequest): OpenShareGroupResponse = {
+                scala.concurrent.Await.result(impl.OpenShareGroupAsync(ctx, req), scala.concurrent.duration.Duration.Inf)
+            }
+            def SharePoll(ctx: grpcdc.Endpoint#CallContext, req: SharePollRequest): SharePollResponse = {
+                scala.concurrent.Await.result(impl.SharePollAsync(ctx, req), scala.concurrent.duration.Duration.Inf)
+            }
+            def ShareAck(ctx: grpcdc.Endpoint#CallContext, req: ShareAckRequest): ShareAckResponse = {
+                scala.concurrent.Await.result(impl.ShareAckAsync(ctx, req), scala.concurrent.duration.Duration.Inf)
+            }
+            def CloseShareGroup(ctx: grpcdc.Endpoint#CallContext, req: CloseShareGroupRequest): CloseShareGroupResponse = {
+                scala.concurrent.Await.result(impl.CloseShareGroupAsync(ctx, req), scala.concurrent.duration.Duration.Inf)
             }
         })
     }

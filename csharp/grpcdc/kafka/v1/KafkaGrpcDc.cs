@@ -104,6 +104,125 @@ public static class KafkaGrpcDc
             return resp;
         }
 
+        public DescribeConfigsResponse DescribeConfigs(DescribeConfigsRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null)
+        {
+            var resp = new DescribeConfigsResponse();
+            _channel.Unary("/grpcdc.kafka.v1.Kafka/DescribeConfigs", req, resp, metadata, timeout);
+            return resp;
+        }
+
+        public AlterConfigsResponse AlterConfigs(AlterConfigsRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null)
+        {
+            var resp = new AlterConfigsResponse();
+            _channel.Unary("/grpcdc.kafka.v1.Kafka/AlterConfigs", req, resp, metadata, timeout);
+            return resp;
+        }
+
+        public CreatePartitionsResponse CreatePartitions(CreatePartitionsRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null)
+        {
+            var resp = new CreatePartitionsResponse();
+            _channel.Unary("/grpcdc.kafka.v1.Kafka/CreatePartitions", req, resp, metadata, timeout);
+            return resp;
+        }
+
+        public DeleteRecordsResponse DeleteRecords(DeleteRecordsRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null)
+        {
+            var resp = new DeleteRecordsResponse();
+            _channel.Unary("/grpcdc.kafka.v1.Kafka/DeleteRecords", req, resp, metadata, timeout);
+            return resp;
+        }
+
+        public ListGroupsResponse ListGroups(ListGroupsRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null)
+        {
+            var resp = new ListGroupsResponse();
+            _channel.Unary("/grpcdc.kafka.v1.Kafka/ListGroups", req, resp, metadata, timeout);
+            return resp;
+        }
+
+        public DescribeGroupsResponse DescribeGroups(DescribeGroupsRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null)
+        {
+            var resp = new DescribeGroupsResponse();
+            _channel.Unary("/grpcdc.kafka.v1.Kafka/DescribeGroups", req, resp, metadata, timeout);
+            return resp;
+        }
+
+        public DeleteGroupsResponse DeleteGroups(DeleteGroupsRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null)
+        {
+            var resp = new DeleteGroupsResponse();
+            _channel.Unary("/grpcdc.kafka.v1.Kafka/DeleteGroups", req, resp, metadata, timeout);
+            return resp;
+        }
+
+        public DeleteGroupOffsetsResponse DeleteGroupOffsets(DeleteGroupOffsetsRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null)
+        {
+            var resp = new DeleteGroupOffsetsResponse();
+            _channel.Unary("/grpcdc.kafka.v1.Kafka/DeleteGroupOffsets", req, resp, metadata, timeout);
+            return resp;
+        }
+
+        public DescribeAclsResponse DescribeAcls(DescribeAclsRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null)
+        {
+            var resp = new DescribeAclsResponse();
+            _channel.Unary("/grpcdc.kafka.v1.Kafka/DescribeAcls", req, resp, metadata, timeout);
+            return resp;
+        }
+
+        public CreateAclsResponse CreateAcls(CreateAclsRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null)
+        {
+            var resp = new CreateAclsResponse();
+            _channel.Unary("/grpcdc.kafka.v1.Kafka/CreateAcls", req, resp, metadata, timeout);
+            return resp;
+        }
+
+        public DeleteAclsResponse DeleteAcls(DeleteAclsRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null)
+        {
+            var resp = new DeleteAclsResponse();
+            _channel.Unary("/grpcdc.kafka.v1.Kafka/DeleteAcls", req, resp, metadata, timeout);
+            return resp;
+        }
+
+        public ListTransactionsResponse ListTransactions(ListTransactionsRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null)
+        {
+            var resp = new ListTransactionsResponse();
+            _channel.Unary("/grpcdc.kafka.v1.Kafka/ListTransactions", req, resp, metadata, timeout);
+            return resp;
+        }
+
+        public DescribeTransactionsResponse DescribeTransactions(DescribeTransactionsRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null)
+        {
+            var resp = new DescribeTransactionsResponse();
+            _channel.Unary("/grpcdc.kafka.v1.Kafka/DescribeTransactions", req, resp, metadata, timeout);
+            return resp;
+        }
+
+        public OpenShareGroupResponse OpenShareGroup(OpenShareGroupRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null)
+        {
+            var resp = new OpenShareGroupResponse();
+            _channel.Unary("/grpcdc.kafka.v1.Kafka/OpenShareGroup", req, resp, metadata, timeout);
+            return resp;
+        }
+
+        public SharePollResponse SharePoll(SharePollRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null)
+        {
+            var resp = new SharePollResponse();
+            _channel.Unary("/grpcdc.kafka.v1.Kafka/SharePoll", req, resp, metadata, timeout);
+            return resp;
+        }
+
+        public ShareAckResponse ShareAck(ShareAckRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null)
+        {
+            var resp = new ShareAckResponse();
+            _channel.Unary("/grpcdc.kafka.v1.Kafka/ShareAck", req, resp, metadata, timeout);
+            return resp;
+        }
+
+        public CloseShareGroupResponse CloseShareGroup(CloseShareGroupRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null)
+        {
+            var resp = new CloseShareGroupResponse();
+            _channel.Unary("/grpcdc.kafka.v1.Kafka/CloseShareGroup", req, resp, metadata, timeout);
+            return resp;
+        }
+
         public Task<MetadataResponse> MetadataAsync(MetadataRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,
             CancellationToken cancellationToken = default)
         {
@@ -184,6 +303,108 @@ public static class KafkaGrpcDc
             return AsyncPump.Run(() => DeleteTopics(req, metadata, timeout), cancellationToken);
         }
 
+        public Task<DescribeConfigsResponse> DescribeConfigsAsync(DescribeConfigsRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,
+            CancellationToken cancellationToken = default)
+        {
+            return AsyncPump.Run(() => DescribeConfigs(req, metadata, timeout), cancellationToken);
+        }
+
+        public Task<AlterConfigsResponse> AlterConfigsAsync(AlterConfigsRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,
+            CancellationToken cancellationToken = default)
+        {
+            return AsyncPump.Run(() => AlterConfigs(req, metadata, timeout), cancellationToken);
+        }
+
+        public Task<CreatePartitionsResponse> CreatePartitionsAsync(CreatePartitionsRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,
+            CancellationToken cancellationToken = default)
+        {
+            return AsyncPump.Run(() => CreatePartitions(req, metadata, timeout), cancellationToken);
+        }
+
+        public Task<DeleteRecordsResponse> DeleteRecordsAsync(DeleteRecordsRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,
+            CancellationToken cancellationToken = default)
+        {
+            return AsyncPump.Run(() => DeleteRecords(req, metadata, timeout), cancellationToken);
+        }
+
+        public Task<ListGroupsResponse> ListGroupsAsync(ListGroupsRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,
+            CancellationToken cancellationToken = default)
+        {
+            return AsyncPump.Run(() => ListGroups(req, metadata, timeout), cancellationToken);
+        }
+
+        public Task<DescribeGroupsResponse> DescribeGroupsAsync(DescribeGroupsRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,
+            CancellationToken cancellationToken = default)
+        {
+            return AsyncPump.Run(() => DescribeGroups(req, metadata, timeout), cancellationToken);
+        }
+
+        public Task<DeleteGroupsResponse> DeleteGroupsAsync(DeleteGroupsRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,
+            CancellationToken cancellationToken = default)
+        {
+            return AsyncPump.Run(() => DeleteGroups(req, metadata, timeout), cancellationToken);
+        }
+
+        public Task<DeleteGroupOffsetsResponse> DeleteGroupOffsetsAsync(DeleteGroupOffsetsRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,
+            CancellationToken cancellationToken = default)
+        {
+            return AsyncPump.Run(() => DeleteGroupOffsets(req, metadata, timeout), cancellationToken);
+        }
+
+        public Task<DescribeAclsResponse> DescribeAclsAsync(DescribeAclsRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,
+            CancellationToken cancellationToken = default)
+        {
+            return AsyncPump.Run(() => DescribeAcls(req, metadata, timeout), cancellationToken);
+        }
+
+        public Task<CreateAclsResponse> CreateAclsAsync(CreateAclsRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,
+            CancellationToken cancellationToken = default)
+        {
+            return AsyncPump.Run(() => CreateAcls(req, metadata, timeout), cancellationToken);
+        }
+
+        public Task<DeleteAclsResponse> DeleteAclsAsync(DeleteAclsRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,
+            CancellationToken cancellationToken = default)
+        {
+            return AsyncPump.Run(() => DeleteAcls(req, metadata, timeout), cancellationToken);
+        }
+
+        public Task<ListTransactionsResponse> ListTransactionsAsync(ListTransactionsRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,
+            CancellationToken cancellationToken = default)
+        {
+            return AsyncPump.Run(() => ListTransactions(req, metadata, timeout), cancellationToken);
+        }
+
+        public Task<DescribeTransactionsResponse> DescribeTransactionsAsync(DescribeTransactionsRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,
+            CancellationToken cancellationToken = default)
+        {
+            return AsyncPump.Run(() => DescribeTransactions(req, metadata, timeout), cancellationToken);
+        }
+
+        public Task<OpenShareGroupResponse> OpenShareGroupAsync(OpenShareGroupRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,
+            CancellationToken cancellationToken = default)
+        {
+            return AsyncPump.Run(() => OpenShareGroup(req, metadata, timeout), cancellationToken);
+        }
+
+        public Task<SharePollResponse> SharePollAsync(SharePollRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,
+            CancellationToken cancellationToken = default)
+        {
+            return AsyncPump.Run(() => SharePoll(req, metadata, timeout), cancellationToken);
+        }
+
+        public Task<ShareAckResponse> ShareAckAsync(ShareAckRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,
+            CancellationToken cancellationToken = default)
+        {
+            return AsyncPump.Run(() => ShareAck(req, metadata, timeout), cancellationToken);
+        }
+
+        public Task<CloseShareGroupResponse> CloseShareGroupAsync(CloseShareGroupRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,
+            CancellationToken cancellationToken = default)
+        {
+            return AsyncPump.Run(() => CloseShareGroup(req, metadata, timeout), cancellationToken);
+        }
+
     }
 
     /// <summary>Receiving stream for Kafka.Consume: Recv() throws EndOfStreamException at end. Dispose to abandon early (RST).</summary>
@@ -261,6 +482,23 @@ public static class KafkaGrpcDc
         FetchOffsetResponse FetchOffset(Endpoint.CallContext ctx, FetchOffsetRequest req);
         CreateTopicsResponse CreateTopics(Endpoint.CallContext ctx, CreateTopicsRequest req);
         DeleteTopicsResponse DeleteTopics(Endpoint.CallContext ctx, DeleteTopicsRequest req);
+        DescribeConfigsResponse DescribeConfigs(Endpoint.CallContext ctx, DescribeConfigsRequest req);
+        AlterConfigsResponse AlterConfigs(Endpoint.CallContext ctx, AlterConfigsRequest req);
+        CreatePartitionsResponse CreatePartitions(Endpoint.CallContext ctx, CreatePartitionsRequest req);
+        DeleteRecordsResponse DeleteRecords(Endpoint.CallContext ctx, DeleteRecordsRequest req);
+        ListGroupsResponse ListGroups(Endpoint.CallContext ctx, ListGroupsRequest req);
+        DescribeGroupsResponse DescribeGroups(Endpoint.CallContext ctx, DescribeGroupsRequest req);
+        DeleteGroupsResponse DeleteGroups(Endpoint.CallContext ctx, DeleteGroupsRequest req);
+        DeleteGroupOffsetsResponse DeleteGroupOffsets(Endpoint.CallContext ctx, DeleteGroupOffsetsRequest req);
+        DescribeAclsResponse DescribeAcls(Endpoint.CallContext ctx, DescribeAclsRequest req);
+        CreateAclsResponse CreateAcls(Endpoint.CallContext ctx, CreateAclsRequest req);
+        DeleteAclsResponse DeleteAcls(Endpoint.CallContext ctx, DeleteAclsRequest req);
+        ListTransactionsResponse ListTransactions(Endpoint.CallContext ctx, ListTransactionsRequest req);
+        DescribeTransactionsResponse DescribeTransactions(Endpoint.CallContext ctx, DescribeTransactionsRequest req);
+        OpenShareGroupResponse OpenShareGroup(Endpoint.CallContext ctx, OpenShareGroupRequest req);
+        SharePollResponse SharePoll(Endpoint.CallContext ctx, SharePollRequest req);
+        ShareAckResponse ShareAck(Endpoint.CallContext ctx, ShareAckRequest req);
+        CloseShareGroupResponse CloseShareGroup(Endpoint.CallContext ctx, CloseShareGroupRequest req);
     }
 
     /// <summary>Server-streaming sink passed to service implementations.</summary>
@@ -322,6 +560,23 @@ public static class KafkaGrpcDc
         Task<FetchOffsetResponse> FetchOffsetAsync(Endpoint.CallContext ctx, FetchOffsetRequest req);
         Task<CreateTopicsResponse> CreateTopicsAsync(Endpoint.CallContext ctx, CreateTopicsRequest req);
         Task<DeleteTopicsResponse> DeleteTopicsAsync(Endpoint.CallContext ctx, DeleteTopicsRequest req);
+        Task<DescribeConfigsResponse> DescribeConfigsAsync(Endpoint.CallContext ctx, DescribeConfigsRequest req);
+        Task<AlterConfigsResponse> AlterConfigsAsync(Endpoint.CallContext ctx, AlterConfigsRequest req);
+        Task<CreatePartitionsResponse> CreatePartitionsAsync(Endpoint.CallContext ctx, CreatePartitionsRequest req);
+        Task<DeleteRecordsResponse> DeleteRecordsAsync(Endpoint.CallContext ctx, DeleteRecordsRequest req);
+        Task<ListGroupsResponse> ListGroupsAsync(Endpoint.CallContext ctx, ListGroupsRequest req);
+        Task<DescribeGroupsResponse> DescribeGroupsAsync(Endpoint.CallContext ctx, DescribeGroupsRequest req);
+        Task<DeleteGroupsResponse> DeleteGroupsAsync(Endpoint.CallContext ctx, DeleteGroupsRequest req);
+        Task<DeleteGroupOffsetsResponse> DeleteGroupOffsetsAsync(Endpoint.CallContext ctx, DeleteGroupOffsetsRequest req);
+        Task<DescribeAclsResponse> DescribeAclsAsync(Endpoint.CallContext ctx, DescribeAclsRequest req);
+        Task<CreateAclsResponse> CreateAclsAsync(Endpoint.CallContext ctx, CreateAclsRequest req);
+        Task<DeleteAclsResponse> DeleteAclsAsync(Endpoint.CallContext ctx, DeleteAclsRequest req);
+        Task<ListTransactionsResponse> ListTransactionsAsync(Endpoint.CallContext ctx, ListTransactionsRequest req);
+        Task<DescribeTransactionsResponse> DescribeTransactionsAsync(Endpoint.CallContext ctx, DescribeTransactionsRequest req);
+        Task<OpenShareGroupResponse> OpenShareGroupAsync(Endpoint.CallContext ctx, OpenShareGroupRequest req);
+        Task<SharePollResponse> SharePollAsync(Endpoint.CallContext ctx, SharePollRequest req);
+        Task<ShareAckResponse> ShareAckAsync(Endpoint.CallContext ctx, ShareAckRequest req);
+        Task<CloseShareGroupResponse> CloseShareGroupAsync(Endpoint.CallContext ctx, CloseShareGroupRequest req);
     }
 
     private sealed class KafkaServerAsyncAdapter : KafkaServer
@@ -391,6 +646,91 @@ public static class KafkaGrpcDc
         public DeleteTopicsResponse DeleteTopics(Endpoint.CallContext ctx, DeleteTopicsRequest req)
         {
             return _impl.DeleteTopicsAsync(ctx, req).GetAwaiter().GetResult();
+        }
+
+        public DescribeConfigsResponse DescribeConfigs(Endpoint.CallContext ctx, DescribeConfigsRequest req)
+        {
+            return _impl.DescribeConfigsAsync(ctx, req).GetAwaiter().GetResult();
+        }
+
+        public AlterConfigsResponse AlterConfigs(Endpoint.CallContext ctx, AlterConfigsRequest req)
+        {
+            return _impl.AlterConfigsAsync(ctx, req).GetAwaiter().GetResult();
+        }
+
+        public CreatePartitionsResponse CreatePartitions(Endpoint.CallContext ctx, CreatePartitionsRequest req)
+        {
+            return _impl.CreatePartitionsAsync(ctx, req).GetAwaiter().GetResult();
+        }
+
+        public DeleteRecordsResponse DeleteRecords(Endpoint.CallContext ctx, DeleteRecordsRequest req)
+        {
+            return _impl.DeleteRecordsAsync(ctx, req).GetAwaiter().GetResult();
+        }
+
+        public ListGroupsResponse ListGroups(Endpoint.CallContext ctx, ListGroupsRequest req)
+        {
+            return _impl.ListGroupsAsync(ctx, req).GetAwaiter().GetResult();
+        }
+
+        public DescribeGroupsResponse DescribeGroups(Endpoint.CallContext ctx, DescribeGroupsRequest req)
+        {
+            return _impl.DescribeGroupsAsync(ctx, req).GetAwaiter().GetResult();
+        }
+
+        public DeleteGroupsResponse DeleteGroups(Endpoint.CallContext ctx, DeleteGroupsRequest req)
+        {
+            return _impl.DeleteGroupsAsync(ctx, req).GetAwaiter().GetResult();
+        }
+
+        public DeleteGroupOffsetsResponse DeleteGroupOffsets(Endpoint.CallContext ctx, DeleteGroupOffsetsRequest req)
+        {
+            return _impl.DeleteGroupOffsetsAsync(ctx, req).GetAwaiter().GetResult();
+        }
+
+        public DescribeAclsResponse DescribeAcls(Endpoint.CallContext ctx, DescribeAclsRequest req)
+        {
+            return _impl.DescribeAclsAsync(ctx, req).GetAwaiter().GetResult();
+        }
+
+        public CreateAclsResponse CreateAcls(Endpoint.CallContext ctx, CreateAclsRequest req)
+        {
+            return _impl.CreateAclsAsync(ctx, req).GetAwaiter().GetResult();
+        }
+
+        public DeleteAclsResponse DeleteAcls(Endpoint.CallContext ctx, DeleteAclsRequest req)
+        {
+            return _impl.DeleteAclsAsync(ctx, req).GetAwaiter().GetResult();
+        }
+
+        public ListTransactionsResponse ListTransactions(Endpoint.CallContext ctx, ListTransactionsRequest req)
+        {
+            return _impl.ListTransactionsAsync(ctx, req).GetAwaiter().GetResult();
+        }
+
+        public DescribeTransactionsResponse DescribeTransactions(Endpoint.CallContext ctx, DescribeTransactionsRequest req)
+        {
+            return _impl.DescribeTransactionsAsync(ctx, req).GetAwaiter().GetResult();
+        }
+
+        public OpenShareGroupResponse OpenShareGroup(Endpoint.CallContext ctx, OpenShareGroupRequest req)
+        {
+            return _impl.OpenShareGroupAsync(ctx, req).GetAwaiter().GetResult();
+        }
+
+        public SharePollResponse SharePoll(Endpoint.CallContext ctx, SharePollRequest req)
+        {
+            return _impl.SharePollAsync(ctx, req).GetAwaiter().GetResult();
+        }
+
+        public ShareAckResponse ShareAck(Endpoint.CallContext ctx, ShareAckRequest req)
+        {
+            return _impl.ShareAckAsync(ctx, req).GetAwaiter().GetResult();
+        }
+
+        public CloseShareGroupResponse CloseShareGroup(Endpoint.CallContext ctx, CloseShareGroupRequest req)
+        {
+            return _impl.CloseShareGroupAsync(ctx, req).GetAwaiter().GetResult();
         }
 
     }
@@ -473,6 +813,108 @@ public static class KafkaGrpcDc
                     var req = new DeleteTopicsRequest();
                     reqs.RecvInto(req);
                     sink(impl.DeleteTopics(ctx, req).MarshalDc());
+                }),
+                new Server.Method("DescribeConfigs", "/grpcdc.kafka.v1.Kafka/DescribeConfigs", Server.KindUnary, (ctx, reqs, sink) =>
+                {
+                    var req = new DescribeConfigsRequest();
+                    reqs.RecvInto(req);
+                    sink(impl.DescribeConfigs(ctx, req).MarshalDc());
+                }),
+                new Server.Method("AlterConfigs", "/grpcdc.kafka.v1.Kafka/AlterConfigs", Server.KindUnary, (ctx, reqs, sink) =>
+                {
+                    var req = new AlterConfigsRequest();
+                    reqs.RecvInto(req);
+                    sink(impl.AlterConfigs(ctx, req).MarshalDc());
+                }),
+                new Server.Method("CreatePartitions", "/grpcdc.kafka.v1.Kafka/CreatePartitions", Server.KindUnary, (ctx, reqs, sink) =>
+                {
+                    var req = new CreatePartitionsRequest();
+                    reqs.RecvInto(req);
+                    sink(impl.CreatePartitions(ctx, req).MarshalDc());
+                }),
+                new Server.Method("DeleteRecords", "/grpcdc.kafka.v1.Kafka/DeleteRecords", Server.KindUnary, (ctx, reqs, sink) =>
+                {
+                    var req = new DeleteRecordsRequest();
+                    reqs.RecvInto(req);
+                    sink(impl.DeleteRecords(ctx, req).MarshalDc());
+                }),
+                new Server.Method("ListGroups", "/grpcdc.kafka.v1.Kafka/ListGroups", Server.KindUnary, (ctx, reqs, sink) =>
+                {
+                    var req = new ListGroupsRequest();
+                    reqs.RecvInto(req);
+                    sink(impl.ListGroups(ctx, req).MarshalDc());
+                }),
+                new Server.Method("DescribeGroups", "/grpcdc.kafka.v1.Kafka/DescribeGroups", Server.KindUnary, (ctx, reqs, sink) =>
+                {
+                    var req = new DescribeGroupsRequest();
+                    reqs.RecvInto(req);
+                    sink(impl.DescribeGroups(ctx, req).MarshalDc());
+                }),
+                new Server.Method("DeleteGroups", "/grpcdc.kafka.v1.Kafka/DeleteGroups", Server.KindUnary, (ctx, reqs, sink) =>
+                {
+                    var req = new DeleteGroupsRequest();
+                    reqs.RecvInto(req);
+                    sink(impl.DeleteGroups(ctx, req).MarshalDc());
+                }),
+                new Server.Method("DeleteGroupOffsets", "/grpcdc.kafka.v1.Kafka/DeleteGroupOffsets", Server.KindUnary, (ctx, reqs, sink) =>
+                {
+                    var req = new DeleteGroupOffsetsRequest();
+                    reqs.RecvInto(req);
+                    sink(impl.DeleteGroupOffsets(ctx, req).MarshalDc());
+                }),
+                new Server.Method("DescribeAcls", "/grpcdc.kafka.v1.Kafka/DescribeAcls", Server.KindUnary, (ctx, reqs, sink) =>
+                {
+                    var req = new DescribeAclsRequest();
+                    reqs.RecvInto(req);
+                    sink(impl.DescribeAcls(ctx, req).MarshalDc());
+                }),
+                new Server.Method("CreateAcls", "/grpcdc.kafka.v1.Kafka/CreateAcls", Server.KindUnary, (ctx, reqs, sink) =>
+                {
+                    var req = new CreateAclsRequest();
+                    reqs.RecvInto(req);
+                    sink(impl.CreateAcls(ctx, req).MarshalDc());
+                }),
+                new Server.Method("DeleteAcls", "/grpcdc.kafka.v1.Kafka/DeleteAcls", Server.KindUnary, (ctx, reqs, sink) =>
+                {
+                    var req = new DeleteAclsRequest();
+                    reqs.RecvInto(req);
+                    sink(impl.DeleteAcls(ctx, req).MarshalDc());
+                }),
+                new Server.Method("ListTransactions", "/grpcdc.kafka.v1.Kafka/ListTransactions", Server.KindUnary, (ctx, reqs, sink) =>
+                {
+                    var req = new ListTransactionsRequest();
+                    reqs.RecvInto(req);
+                    sink(impl.ListTransactions(ctx, req).MarshalDc());
+                }),
+                new Server.Method("DescribeTransactions", "/grpcdc.kafka.v1.Kafka/DescribeTransactions", Server.KindUnary, (ctx, reqs, sink) =>
+                {
+                    var req = new DescribeTransactionsRequest();
+                    reqs.RecvInto(req);
+                    sink(impl.DescribeTransactions(ctx, req).MarshalDc());
+                }),
+                new Server.Method("OpenShareGroup", "/grpcdc.kafka.v1.Kafka/OpenShareGroup", Server.KindUnary, (ctx, reqs, sink) =>
+                {
+                    var req = new OpenShareGroupRequest();
+                    reqs.RecvInto(req);
+                    sink(impl.OpenShareGroup(ctx, req).MarshalDc());
+                }),
+                new Server.Method("SharePoll", "/grpcdc.kafka.v1.Kafka/SharePoll", Server.KindUnary, (ctx, reqs, sink) =>
+                {
+                    var req = new SharePollRequest();
+                    reqs.RecvInto(req);
+                    sink(impl.SharePoll(ctx, req).MarshalDc());
+                }),
+                new Server.Method("ShareAck", "/grpcdc.kafka.v1.Kafka/ShareAck", Server.KindUnary, (ctx, reqs, sink) =>
+                {
+                    var req = new ShareAckRequest();
+                    reqs.RecvInto(req);
+                    sink(impl.ShareAck(ctx, req).MarshalDc());
+                }),
+                new Server.Method("CloseShareGroup", "/grpcdc.kafka.v1.Kafka/CloseShareGroup", Server.KindUnary, (ctx, reqs, sink) =>
+                {
+                    var req = new CloseShareGroupRequest();
+                    reqs.RecvInto(req);
+                    sink(impl.CloseShareGroup(ctx, req).MarshalDc());
                 }),
             }));
     }

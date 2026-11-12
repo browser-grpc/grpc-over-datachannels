@@ -31,6 +31,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`TestInteropOracle.swift`](tests/TestInteropOracle.swift) — Official-implementation oracle, via the proxy
 - [`TestInteropServerOracle.swift`](tests/TestInteropServerOracle.swift) — Official-implementation oracle, via the proxy
 - [`TestKafkaE2E.swift`](tests/TestKafkaE2E.swift) — Kafka end-to-end (broker legs env-gated)
+- [`TestKafkaNative.swift`](tests/TestKafkaNative.swift) — Kafka end-to-end (broker legs env-gated)
 - [`TestOracle.swift`](tests/TestOracle.swift) — Official-implementation oracle, via the proxy
 - [`TestPbMessages.swift`](tests/TestPbMessages.swift) — Generated suite/example
 - [`TestSidecar.swift`](tests/TestSidecar.swift) — Sidecar transport

@@ -115,6 +115,80 @@ export declare function createPeer(
   options?: { parity?: "odd" | "even" },
 ): { endpoint: Endpoint; server: Server; channel: Channel };
 
+// HTTP/POST signaling (browser client; server half is the
+// Node-only grpc-dc/signaling_server module, untyped here).
+export declare const SIGNAL_PATH: string;
+export declare function signalViaHttp(
+  url: string,
+  offerSdp: string,
+  fetchImpl?: typeof fetch,
+): Promise<string>;
+export declare function signalSessionViaHttp(
+  url: string,
+  offerSdp: string,
+  fetchImpl?: typeof fetch,
+): Promise<{ sdp: string; session: string | null }>;
+export declare function signalCandidateViaHttp(
+  url: string,
+  session: string,
+  candidate: string,
+  fetchImpl?: typeof fetch,
+): Promise<void>;
+export declare function signalRestartViaHttp(
+  url: string,
+  session: string,
+  offerSdp: string,
+  fetchImpl?: typeof fetch,
+): Promise<string>;
+export interface HttpSignalingOptions {
+  iceServers?: RTCIceServer[];
+  iceGatherTimeoutMs?: number;
+  connectTimeoutMs?: number;
+  label?: string;
+  trickle?: boolean;
+  fetchImpl?: typeof fetch;
+  RTCPeerConnectionImpl?: typeof RTCPeerConnection;
+}
+export declare function httpSignalingChannel(
+  url: string,
+  options?: HttpSignalingOptions,
+): Promise<Channel & {
+  peerConnection: RTCPeerConnection;
+  dataChannel: RTCDataChannel;
+  signalingSession: string | null;
+  closeSignaling(): void;
+  restartSignaling(): Promise<void>;
+}>;
+export interface RendezvousDescriptor {
+  host: string;
+  port: number;
+  iceUfrag: string;
+  icePwd: string;
+  fingerprint: string;
+  setup?: string;
+}
+export interface RendezvousOptions {
+  iceServers?: RTCIceServer[];
+  iceTransportPolicy?: RTCIceTransportPolicy;
+  timeoutMs?: number;
+  label?: string;
+}
+export declare function synthesizeRendezvousOffer(
+  descriptor: RendezvousDescriptor,
+): string;
+export declare function fetchRendezvousDescriptor(
+  url: string,
+  options?: { fetchImpl?: typeof fetch },
+): Promise<RendezvousDescriptor>;
+export declare function rendezvousChannel(
+  descriptor: RendezvousDescriptor,
+  options?: RendezvousOptions,
+): Promise<Channel & {
+  peerConnection: RTCPeerConnection;
+  dataChannel: RTCDataChannel;
+  closeRendezvous(): void;
+}>;
+
 // Event bus (grpcdc.events.v1): message/stub types live in
 // grpc-dc's generated events_pb/events_grpc_dc modules; these
 // are the broker and helpers over them. TagValue/Event are

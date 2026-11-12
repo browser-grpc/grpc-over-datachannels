@@ -41,6 +41,40 @@ pub const CreateTopicsRequest = kafka_messages.CreateTopicsRequest;
 pub const CreateTopicsResponse = kafka_messages.CreateTopicsResponse;
 pub const DeleteTopicsRequest = kafka_messages.DeleteTopicsRequest;
 pub const DeleteTopicsResponse = kafka_messages.DeleteTopicsResponse;
+pub const DescribeConfigsRequest = kafka_messages.DescribeConfigsRequest;
+pub const DescribeConfigsResponse = kafka_messages.DescribeConfigsResponse;
+pub const AlterConfigsRequest = kafka_messages.AlterConfigsRequest;
+pub const AlterConfigsResponse = kafka_messages.AlterConfigsResponse;
+pub const CreatePartitionsRequest = kafka_messages.CreatePartitionsRequest;
+pub const CreatePartitionsResponse = kafka_messages.CreatePartitionsResponse;
+pub const DeleteRecordsRequest = kafka_messages.DeleteRecordsRequest;
+pub const DeleteRecordsResponse = kafka_messages.DeleteRecordsResponse;
+pub const ListGroupsRequest = kafka_messages.ListGroupsRequest;
+pub const ListGroupsResponse = kafka_messages.ListGroupsResponse;
+pub const DescribeGroupsRequest = kafka_messages.DescribeGroupsRequest;
+pub const DescribeGroupsResponse = kafka_messages.DescribeGroupsResponse;
+pub const DeleteGroupsRequest = kafka_messages.DeleteGroupsRequest;
+pub const DeleteGroupsResponse = kafka_messages.DeleteGroupsResponse;
+pub const DeleteGroupOffsetsRequest = kafka_messages.DeleteGroupOffsetsRequest;
+pub const DeleteGroupOffsetsResponse = kafka_messages.DeleteGroupOffsetsResponse;
+pub const DescribeAclsRequest = kafka_messages.DescribeAclsRequest;
+pub const DescribeAclsResponse = kafka_messages.DescribeAclsResponse;
+pub const CreateAclsRequest = kafka_messages.CreateAclsRequest;
+pub const CreateAclsResponse = kafka_messages.CreateAclsResponse;
+pub const DeleteAclsRequest = kafka_messages.DeleteAclsRequest;
+pub const DeleteAclsResponse = kafka_messages.DeleteAclsResponse;
+pub const ListTransactionsRequest = kafka_messages.ListTransactionsRequest;
+pub const ListTransactionsResponse = kafka_messages.ListTransactionsResponse;
+pub const DescribeTransactionsRequest = kafka_messages.DescribeTransactionsRequest;
+pub const DescribeTransactionsResponse = kafka_messages.DescribeTransactionsResponse;
+pub const OpenShareGroupRequest = kafka_messages.OpenShareGroupRequest;
+pub const OpenShareGroupResponse = kafka_messages.OpenShareGroupResponse;
+pub const SharePollRequest = kafka_messages.SharePollRequest;
+pub const SharePollResponse = kafka_messages.SharePollResponse;
+pub const ShareAckRequest = kafka_messages.ShareAckRequest;
+pub const ShareAckResponse = kafka_messages.ShareAckResponse;
+pub const CloseShareGroupRequest = kafka_messages.CloseShareGroupRequest;
+pub const CloseShareGroupResponse = kafka_messages.CloseShareGroupResponse;
 
 /// Client for grpcdc.kafka.v1.Kafka.
 pub const KafkaClient = struct {
@@ -130,6 +164,125 @@ pub const KafkaClient = struct {
     pub fn deleteTopics(self: *KafkaClient, req: *const DeleteTopicsRequest, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(DeleteTopicsResponse) {
         var resp = DeleteTopicsResponse{};
         const st = self.channel.unary("/grpcdc.kafka.v1.Kafka/DeleteTopics", req, &resp, call_metadata, timeout_ms);
+        if (!st.isOk()) return .{ .status = st };
+        return .{ .ok = resp };
+    }
+
+    pub fn describeConfigs(self: *KafkaClient, req: *const DescribeConfigsRequest, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(DescribeConfigsResponse) {
+        var resp = DescribeConfigsResponse{};
+        const st = self.channel.unary("/grpcdc.kafka.v1.Kafka/DescribeConfigs", req, &resp, call_metadata, timeout_ms);
+        if (!st.isOk()) return .{ .status = st };
+        return .{ .ok = resp };
+    }
+
+    pub fn alterConfigs(self: *KafkaClient, req: *const AlterConfigsRequest, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(AlterConfigsResponse) {
+        var resp = AlterConfigsResponse{};
+        const st = self.channel.unary("/grpcdc.kafka.v1.Kafka/AlterConfigs", req, &resp, call_metadata, timeout_ms);
+        if (!st.isOk()) return .{ .status = st };
+        return .{ .ok = resp };
+    }
+
+    pub fn createPartitions(self: *KafkaClient, req: *const CreatePartitionsRequest, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(CreatePartitionsResponse) {
+        var resp = CreatePartitionsResponse{};
+        const st = self.channel.unary("/grpcdc.kafka.v1.Kafka/CreatePartitions", req, &resp, call_metadata, timeout_ms);
+        if (!st.isOk()) return .{ .status = st };
+        return .{ .ok = resp };
+    }
+
+    pub fn deleteRecords(self: *KafkaClient, req: *const DeleteRecordsRequest, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(DeleteRecordsResponse) {
+        var resp = DeleteRecordsResponse{};
+        const st = self.channel.unary("/grpcdc.kafka.v1.Kafka/DeleteRecords", req, &resp, call_metadata, timeout_ms);
+        if (!st.isOk()) return .{ .status = st };
+        return .{ .ok = resp };
+    }
+
+    pub fn listGroups(self: *KafkaClient, req: *const ListGroupsRequest, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(ListGroupsResponse) {
+        var resp = ListGroupsResponse{};
+        const st = self.channel.unary("/grpcdc.kafka.v1.Kafka/ListGroups", req, &resp, call_metadata, timeout_ms);
+        if (!st.isOk()) return .{ .status = st };
+        return .{ .ok = resp };
+    }
+
+    pub fn describeGroups(self: *KafkaClient, req: *const DescribeGroupsRequest, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(DescribeGroupsResponse) {
+        var resp = DescribeGroupsResponse{};
+        const st = self.channel.unary("/grpcdc.kafka.v1.Kafka/DescribeGroups", req, &resp, call_metadata, timeout_ms);
+        if (!st.isOk()) return .{ .status = st };
+        return .{ .ok = resp };
+    }
+
+    pub fn deleteGroups(self: *KafkaClient, req: *const DeleteGroupsRequest, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(DeleteGroupsResponse) {
+        var resp = DeleteGroupsResponse{};
+        const st = self.channel.unary("/grpcdc.kafka.v1.Kafka/DeleteGroups", req, &resp, call_metadata, timeout_ms);
+        if (!st.isOk()) return .{ .status = st };
+        return .{ .ok = resp };
+    }
+
+    pub fn deleteGroupOffsets(self: *KafkaClient, req: *const DeleteGroupOffsetsRequest, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(DeleteGroupOffsetsResponse) {
+        var resp = DeleteGroupOffsetsResponse{};
+        const st = self.channel.unary("/grpcdc.kafka.v1.Kafka/DeleteGroupOffsets", req, &resp, call_metadata, timeout_ms);
+        if (!st.isOk()) return .{ .status = st };
+        return .{ .ok = resp };
+    }
+
+    pub fn describeAcls(self: *KafkaClient, req: *const DescribeAclsRequest, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(DescribeAclsResponse) {
+        var resp = DescribeAclsResponse{};
+        const st = self.channel.unary("/grpcdc.kafka.v1.Kafka/DescribeAcls", req, &resp, call_metadata, timeout_ms);
+        if (!st.isOk()) return .{ .status = st };
+        return .{ .ok = resp };
+    }
+
+    pub fn createAcls(self: *KafkaClient, req: *const CreateAclsRequest, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(CreateAclsResponse) {
+        var resp = CreateAclsResponse{};
+        const st = self.channel.unary("/grpcdc.kafka.v1.Kafka/CreateAcls", req, &resp, call_metadata, timeout_ms);
+        if (!st.isOk()) return .{ .status = st };
+        return .{ .ok = resp };
+    }
+
+    pub fn deleteAcls(self: *KafkaClient, req: *const DeleteAclsRequest, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(DeleteAclsResponse) {
+        var resp = DeleteAclsResponse{};
+        const st = self.channel.unary("/grpcdc.kafka.v1.Kafka/DeleteAcls", req, &resp, call_metadata, timeout_ms);
+        if (!st.isOk()) return .{ .status = st };
+        return .{ .ok = resp };
+    }
+
+    pub fn listTransactions(self: *KafkaClient, req: *const ListTransactionsRequest, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(ListTransactionsResponse) {
+        var resp = ListTransactionsResponse{};
+        const st = self.channel.unary("/grpcdc.kafka.v1.Kafka/ListTransactions", req, &resp, call_metadata, timeout_ms);
+        if (!st.isOk()) return .{ .status = st };
+        return .{ .ok = resp };
+    }
+
+    pub fn describeTransactions(self: *KafkaClient, req: *const DescribeTransactionsRequest, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(DescribeTransactionsResponse) {
+        var resp = DescribeTransactionsResponse{};
+        const st = self.channel.unary("/grpcdc.kafka.v1.Kafka/DescribeTransactions", req, &resp, call_metadata, timeout_ms);
+        if (!st.isOk()) return .{ .status = st };
+        return .{ .ok = resp };
+    }
+
+    pub fn openShareGroup(self: *KafkaClient, req: *const OpenShareGroupRequest, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(OpenShareGroupResponse) {
+        var resp = OpenShareGroupResponse{};
+        const st = self.channel.unary("/grpcdc.kafka.v1.Kafka/OpenShareGroup", req, &resp, call_metadata, timeout_ms);
+        if (!st.isOk()) return .{ .status = st };
+        return .{ .ok = resp };
+    }
+
+    pub fn sharePoll(self: *KafkaClient, req: *const SharePollRequest, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(SharePollResponse) {
+        var resp = SharePollResponse{};
+        const st = self.channel.unary("/grpcdc.kafka.v1.Kafka/SharePoll", req, &resp, call_metadata, timeout_ms);
+        if (!st.isOk()) return .{ .status = st };
+        return .{ .ok = resp };
+    }
+
+    pub fn shareAck(self: *KafkaClient, req: *const ShareAckRequest, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(ShareAckResponse) {
+        var resp = ShareAckResponse{};
+        const st = self.channel.unary("/grpcdc.kafka.v1.Kafka/ShareAck", req, &resp, call_metadata, timeout_ms);
+        if (!st.isOk()) return .{ .status = st };
+        return .{ .ok = resp };
+    }
+
+    pub fn closeShareGroup(self: *KafkaClient, req: *const CloseShareGroupRequest, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(CloseShareGroupResponse) {
+        var resp = CloseShareGroupResponse{};
+        const st = self.channel.unary("/grpcdc.kafka.v1.Kafka/CloseShareGroup", req, &resp, call_metadata, timeout_ms);
         if (!st.isOk()) return .{ .status = st };
         return .{ .ok = resp };
     }
@@ -242,6 +395,23 @@ pub const KafkaServer = struct {
     fetch_offset_fn: *const fn (ctx: *anyopaque, call_ctx: *CallContext, req: *const FetchOffsetRequest, resp: *FetchOffsetResponse, alloc: std.mem.Allocator) Status,
     create_topics_fn: *const fn (ctx: *anyopaque, call_ctx: *CallContext, req: *const CreateTopicsRequest, resp: *CreateTopicsResponse, alloc: std.mem.Allocator) Status,
     delete_topics_fn: *const fn (ctx: *anyopaque, call_ctx: *CallContext, req: *const DeleteTopicsRequest, resp: *DeleteTopicsResponse, alloc: std.mem.Allocator) Status,
+    describe_configs_fn: *const fn (ctx: *anyopaque, call_ctx: *CallContext, req: *const DescribeConfigsRequest, resp: *DescribeConfigsResponse, alloc: std.mem.Allocator) Status,
+    alter_configs_fn: *const fn (ctx: *anyopaque, call_ctx: *CallContext, req: *const AlterConfigsRequest, resp: *AlterConfigsResponse, alloc: std.mem.Allocator) Status,
+    create_partitions_fn: *const fn (ctx: *anyopaque, call_ctx: *CallContext, req: *const CreatePartitionsRequest, resp: *CreatePartitionsResponse, alloc: std.mem.Allocator) Status,
+    delete_records_fn: *const fn (ctx: *anyopaque, call_ctx: *CallContext, req: *const DeleteRecordsRequest, resp: *DeleteRecordsResponse, alloc: std.mem.Allocator) Status,
+    list_groups_fn: *const fn (ctx: *anyopaque, call_ctx: *CallContext, req: *const ListGroupsRequest, resp: *ListGroupsResponse, alloc: std.mem.Allocator) Status,
+    describe_groups_fn: *const fn (ctx: *anyopaque, call_ctx: *CallContext, req: *const DescribeGroupsRequest, resp: *DescribeGroupsResponse, alloc: std.mem.Allocator) Status,
+    delete_groups_fn: *const fn (ctx: *anyopaque, call_ctx: *CallContext, req: *const DeleteGroupsRequest, resp: *DeleteGroupsResponse, alloc: std.mem.Allocator) Status,
+    delete_group_offsets_fn: *const fn (ctx: *anyopaque, call_ctx: *CallContext, req: *const DeleteGroupOffsetsRequest, resp: *DeleteGroupOffsetsResponse, alloc: std.mem.Allocator) Status,
+    describe_acls_fn: *const fn (ctx: *anyopaque, call_ctx: *CallContext, req: *const DescribeAclsRequest, resp: *DescribeAclsResponse, alloc: std.mem.Allocator) Status,
+    create_acls_fn: *const fn (ctx: *anyopaque, call_ctx: *CallContext, req: *const CreateAclsRequest, resp: *CreateAclsResponse, alloc: std.mem.Allocator) Status,
+    delete_acls_fn: *const fn (ctx: *anyopaque, call_ctx: *CallContext, req: *const DeleteAclsRequest, resp: *DeleteAclsResponse, alloc: std.mem.Allocator) Status,
+    list_transactions_fn: *const fn (ctx: *anyopaque, call_ctx: *CallContext, req: *const ListTransactionsRequest, resp: *ListTransactionsResponse, alloc: std.mem.Allocator) Status,
+    describe_transactions_fn: *const fn (ctx: *anyopaque, call_ctx: *CallContext, req: *const DescribeTransactionsRequest, resp: *DescribeTransactionsResponse, alloc: std.mem.Allocator) Status,
+    open_share_group_fn: *const fn (ctx: *anyopaque, call_ctx: *CallContext, req: *const OpenShareGroupRequest, resp: *OpenShareGroupResponse, alloc: std.mem.Allocator) Status,
+    share_poll_fn: *const fn (ctx: *anyopaque, call_ctx: *CallContext, req: *const SharePollRequest, resp: *SharePollResponse, alloc: std.mem.Allocator) Status,
+    share_ack_fn: *const fn (ctx: *anyopaque, call_ctx: *CallContext, req: *const ShareAckRequest, resp: *ShareAckResponse, alloc: std.mem.Allocator) Status,
+    close_share_group_fn: *const fn (ctx: *anyopaque, call_ctx: *CallContext, req: *const CloseShareGroupRequest, resp: *CloseShareGroupResponse, alloc: std.mem.Allocator) Status,
 };
 
 fn kafkaMetadataAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {
@@ -448,6 +618,312 @@ fn kafkaDeleteTopicsAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *serv
     return sink.send(payload);
 }
 
+fn kafkaDescribeConfigsAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {
+    const impl: *KafkaServer = @ptrCast(@alignCast(ctx));
+    var req = DescribeConfigsRequest{};
+    switch (reqs.recvInto(&req)) {
+        .message => {},
+        .end => return Status.init(wire.codeInternal, "unary call closed with no request"),
+        .status => |st| return st,
+    }
+    var arena = std.heap.ArenaAllocator.init(reqs.alloc);
+    defer arena.deinit();
+    var resp = DescribeConfigsResponse{};
+    const st = impl.describe_configs_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
+    if (!st.isOk()) return st;
+    const payload = resp.marshalDc(reqs.alloc);
+    defer reqs.alloc.free(payload);
+    return sink.send(payload);
+}
+
+fn kafkaAlterConfigsAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {
+    const impl: *KafkaServer = @ptrCast(@alignCast(ctx));
+    var req = AlterConfigsRequest{};
+    switch (reqs.recvInto(&req)) {
+        .message => {},
+        .end => return Status.init(wire.codeInternal, "unary call closed with no request"),
+        .status => |st| return st,
+    }
+    var arena = std.heap.ArenaAllocator.init(reqs.alloc);
+    defer arena.deinit();
+    var resp = AlterConfigsResponse{};
+    const st = impl.alter_configs_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
+    if (!st.isOk()) return st;
+    const payload = resp.marshalDc(reqs.alloc);
+    defer reqs.alloc.free(payload);
+    return sink.send(payload);
+}
+
+fn kafkaCreatePartitionsAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {
+    const impl: *KafkaServer = @ptrCast(@alignCast(ctx));
+    var req = CreatePartitionsRequest{};
+    switch (reqs.recvInto(&req)) {
+        .message => {},
+        .end => return Status.init(wire.codeInternal, "unary call closed with no request"),
+        .status => |st| return st,
+    }
+    var arena = std.heap.ArenaAllocator.init(reqs.alloc);
+    defer arena.deinit();
+    var resp = CreatePartitionsResponse{};
+    const st = impl.create_partitions_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
+    if (!st.isOk()) return st;
+    const payload = resp.marshalDc(reqs.alloc);
+    defer reqs.alloc.free(payload);
+    return sink.send(payload);
+}
+
+fn kafkaDeleteRecordsAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {
+    const impl: *KafkaServer = @ptrCast(@alignCast(ctx));
+    var req = DeleteRecordsRequest{};
+    switch (reqs.recvInto(&req)) {
+        .message => {},
+        .end => return Status.init(wire.codeInternal, "unary call closed with no request"),
+        .status => |st| return st,
+    }
+    var arena = std.heap.ArenaAllocator.init(reqs.alloc);
+    defer arena.deinit();
+    var resp = DeleteRecordsResponse{};
+    const st = impl.delete_records_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
+    if (!st.isOk()) return st;
+    const payload = resp.marshalDc(reqs.alloc);
+    defer reqs.alloc.free(payload);
+    return sink.send(payload);
+}
+
+fn kafkaListGroupsAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {
+    const impl: *KafkaServer = @ptrCast(@alignCast(ctx));
+    var req = ListGroupsRequest{};
+    switch (reqs.recvInto(&req)) {
+        .message => {},
+        .end => return Status.init(wire.codeInternal, "unary call closed with no request"),
+        .status => |st| return st,
+    }
+    var arena = std.heap.ArenaAllocator.init(reqs.alloc);
+    defer arena.deinit();
+    var resp = ListGroupsResponse{};
+    const st = impl.list_groups_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
+    if (!st.isOk()) return st;
+    const payload = resp.marshalDc(reqs.alloc);
+    defer reqs.alloc.free(payload);
+    return sink.send(payload);
+}
+
+fn kafkaDescribeGroupsAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {
+    const impl: *KafkaServer = @ptrCast(@alignCast(ctx));
+    var req = DescribeGroupsRequest{};
+    switch (reqs.recvInto(&req)) {
+        .message => {},
+        .end => return Status.init(wire.codeInternal, "unary call closed with no request"),
+        .status => |st| return st,
+    }
+    var arena = std.heap.ArenaAllocator.init(reqs.alloc);
+    defer arena.deinit();
+    var resp = DescribeGroupsResponse{};
+    const st = impl.describe_groups_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
+    if (!st.isOk()) return st;
+    const payload = resp.marshalDc(reqs.alloc);
+    defer reqs.alloc.free(payload);
+    return sink.send(payload);
+}
+
+fn kafkaDeleteGroupsAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {
+    const impl: *KafkaServer = @ptrCast(@alignCast(ctx));
+    var req = DeleteGroupsRequest{};
+    switch (reqs.recvInto(&req)) {
+        .message => {},
+        .end => return Status.init(wire.codeInternal, "unary call closed with no request"),
+        .status => |st| return st,
+    }
+    var arena = std.heap.ArenaAllocator.init(reqs.alloc);
+    defer arena.deinit();
+    var resp = DeleteGroupsResponse{};
+    const st = impl.delete_groups_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
+    if (!st.isOk()) return st;
+    const payload = resp.marshalDc(reqs.alloc);
+    defer reqs.alloc.free(payload);
+    return sink.send(payload);
+}
+
+fn kafkaDeleteGroupOffsetsAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {
+    const impl: *KafkaServer = @ptrCast(@alignCast(ctx));
+    var req = DeleteGroupOffsetsRequest{};
+    switch (reqs.recvInto(&req)) {
+        .message => {},
+        .end => return Status.init(wire.codeInternal, "unary call closed with no request"),
+        .status => |st| return st,
+    }
+    var arena = std.heap.ArenaAllocator.init(reqs.alloc);
+    defer arena.deinit();
+    var resp = DeleteGroupOffsetsResponse{};
+    const st = impl.delete_group_offsets_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
+    if (!st.isOk()) return st;
+    const payload = resp.marshalDc(reqs.alloc);
+    defer reqs.alloc.free(payload);
+    return sink.send(payload);
+}
+
+fn kafkaDescribeAclsAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {
+    const impl: *KafkaServer = @ptrCast(@alignCast(ctx));
+    var req = DescribeAclsRequest{};
+    switch (reqs.recvInto(&req)) {
+        .message => {},
+        .end => return Status.init(wire.codeInternal, "unary call closed with no request"),
+        .status => |st| return st,
+    }
+    var arena = std.heap.ArenaAllocator.init(reqs.alloc);
+    defer arena.deinit();
+    var resp = DescribeAclsResponse{};
+    const st = impl.describe_acls_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
+    if (!st.isOk()) return st;
+    const payload = resp.marshalDc(reqs.alloc);
+    defer reqs.alloc.free(payload);
+    return sink.send(payload);
+}
+
+fn kafkaCreateAclsAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {
+    const impl: *KafkaServer = @ptrCast(@alignCast(ctx));
+    var req = CreateAclsRequest{};
+    switch (reqs.recvInto(&req)) {
+        .message => {},
+        .end => return Status.init(wire.codeInternal, "unary call closed with no request"),
+        .status => |st| return st,
+    }
+    var arena = std.heap.ArenaAllocator.init(reqs.alloc);
+    defer arena.deinit();
+    var resp = CreateAclsResponse{};
+    const st = impl.create_acls_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
+    if (!st.isOk()) return st;
+    const payload = resp.marshalDc(reqs.alloc);
+    defer reqs.alloc.free(payload);
+    return sink.send(payload);
+}
+
+fn kafkaDeleteAclsAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {
+    const impl: *KafkaServer = @ptrCast(@alignCast(ctx));
+    var req = DeleteAclsRequest{};
+    switch (reqs.recvInto(&req)) {
+        .message => {},
+        .end => return Status.init(wire.codeInternal, "unary call closed with no request"),
+        .status => |st| return st,
+    }
+    var arena = std.heap.ArenaAllocator.init(reqs.alloc);
+    defer arena.deinit();
+    var resp = DeleteAclsResponse{};
+    const st = impl.delete_acls_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
+    if (!st.isOk()) return st;
+    const payload = resp.marshalDc(reqs.alloc);
+    defer reqs.alloc.free(payload);
+    return sink.send(payload);
+}
+
+fn kafkaListTransactionsAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {
+    const impl: *KafkaServer = @ptrCast(@alignCast(ctx));
+    var req = ListTransactionsRequest{};
+    switch (reqs.recvInto(&req)) {
+        .message => {},
+        .end => return Status.init(wire.codeInternal, "unary call closed with no request"),
+        .status => |st| return st,
+    }
+    var arena = std.heap.ArenaAllocator.init(reqs.alloc);
+    defer arena.deinit();
+    var resp = ListTransactionsResponse{};
+    const st = impl.list_transactions_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
+    if (!st.isOk()) return st;
+    const payload = resp.marshalDc(reqs.alloc);
+    defer reqs.alloc.free(payload);
+    return sink.send(payload);
+}
+
+fn kafkaDescribeTransactionsAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {
+    const impl: *KafkaServer = @ptrCast(@alignCast(ctx));
+    var req = DescribeTransactionsRequest{};
+    switch (reqs.recvInto(&req)) {
+        .message => {},
+        .end => return Status.init(wire.codeInternal, "unary call closed with no request"),
+        .status => |st| return st,
+    }
+    var arena = std.heap.ArenaAllocator.init(reqs.alloc);
+    defer arena.deinit();
+    var resp = DescribeTransactionsResponse{};
+    const st = impl.describe_transactions_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
+    if (!st.isOk()) return st;
+    const payload = resp.marshalDc(reqs.alloc);
+    defer reqs.alloc.free(payload);
+    return sink.send(payload);
+}
+
+fn kafkaOpenShareGroupAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {
+    const impl: *KafkaServer = @ptrCast(@alignCast(ctx));
+    var req = OpenShareGroupRequest{};
+    switch (reqs.recvInto(&req)) {
+        .message => {},
+        .end => return Status.init(wire.codeInternal, "unary call closed with no request"),
+        .status => |st| return st,
+    }
+    var arena = std.heap.ArenaAllocator.init(reqs.alloc);
+    defer arena.deinit();
+    var resp = OpenShareGroupResponse{};
+    const st = impl.open_share_group_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
+    if (!st.isOk()) return st;
+    const payload = resp.marshalDc(reqs.alloc);
+    defer reqs.alloc.free(payload);
+    return sink.send(payload);
+}
+
+fn kafkaSharePollAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {
+    const impl: *KafkaServer = @ptrCast(@alignCast(ctx));
+    var req = SharePollRequest{};
+    switch (reqs.recvInto(&req)) {
+        .message => {},
+        .end => return Status.init(wire.codeInternal, "unary call closed with no request"),
+        .status => |st| return st,
+    }
+    var arena = std.heap.ArenaAllocator.init(reqs.alloc);
+    defer arena.deinit();
+    var resp = SharePollResponse{};
+    const st = impl.share_poll_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
+    if (!st.isOk()) return st;
+    const payload = resp.marshalDc(reqs.alloc);
+    defer reqs.alloc.free(payload);
+    return sink.send(payload);
+}
+
+fn kafkaShareAckAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {
+    const impl: *KafkaServer = @ptrCast(@alignCast(ctx));
+    var req = ShareAckRequest{};
+    switch (reqs.recvInto(&req)) {
+        .message => {},
+        .end => return Status.init(wire.codeInternal, "unary call closed with no request"),
+        .status => |st| return st,
+    }
+    var arena = std.heap.ArenaAllocator.init(reqs.alloc);
+    defer arena.deinit();
+    var resp = ShareAckResponse{};
+    const st = impl.share_ack_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
+    if (!st.isOk()) return st;
+    const payload = resp.marshalDc(reqs.alloc);
+    defer reqs.alloc.free(payload);
+    return sink.send(payload);
+}
+
+fn kafkaCloseShareGroupAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {
+    const impl: *KafkaServer = @ptrCast(@alignCast(ctx));
+    var req = CloseShareGroupRequest{};
+    switch (reqs.recvInto(&req)) {
+        .message => {},
+        .end => return Status.init(wire.codeInternal, "unary call closed with no request"),
+        .status => |st| return st,
+    }
+    var arena = std.heap.ArenaAllocator.init(reqs.alloc);
+    defer arena.deinit();
+    var resp = CloseShareGroupResponse{};
+    const st = impl.close_share_group_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
+    if (!st.isOk()) return st;
+    const payload = resp.marshalDc(reqs.alloc);
+    defer reqs.alloc.free(payload);
+    return sink.send(payload);
+}
+
 /// Generated gRPC-over-DataChannels stubs for kafka.proto.
 pub const KafkaGrpcDc = struct {
     /// Register an implementation of grpcdc.kafka.v1.Kafka on a Server.
@@ -467,6 +943,23 @@ pub const KafkaGrpcDc = struct {
                 .{ .name = "FetchOffset", .path = "/grpcdc.kafka.v1.Kafka/FetchOffset", .kind = .unary, .ctx = impl, .handler = kafkaFetchOffsetAdapter },
                 .{ .name = "CreateTopics", .path = "/grpcdc.kafka.v1.Kafka/CreateTopics", .kind = .unary, .ctx = impl, .handler = kafkaCreateTopicsAdapter },
                 .{ .name = "DeleteTopics", .path = "/grpcdc.kafka.v1.Kafka/DeleteTopics", .kind = .unary, .ctx = impl, .handler = kafkaDeleteTopicsAdapter },
+                .{ .name = "DescribeConfigs", .path = "/grpcdc.kafka.v1.Kafka/DescribeConfigs", .kind = .unary, .ctx = impl, .handler = kafkaDescribeConfigsAdapter },
+                .{ .name = "AlterConfigs", .path = "/grpcdc.kafka.v1.Kafka/AlterConfigs", .kind = .unary, .ctx = impl, .handler = kafkaAlterConfigsAdapter },
+                .{ .name = "CreatePartitions", .path = "/grpcdc.kafka.v1.Kafka/CreatePartitions", .kind = .unary, .ctx = impl, .handler = kafkaCreatePartitionsAdapter },
+                .{ .name = "DeleteRecords", .path = "/grpcdc.kafka.v1.Kafka/DeleteRecords", .kind = .unary, .ctx = impl, .handler = kafkaDeleteRecordsAdapter },
+                .{ .name = "ListGroups", .path = "/grpcdc.kafka.v1.Kafka/ListGroups", .kind = .unary, .ctx = impl, .handler = kafkaListGroupsAdapter },
+                .{ .name = "DescribeGroups", .path = "/grpcdc.kafka.v1.Kafka/DescribeGroups", .kind = .unary, .ctx = impl, .handler = kafkaDescribeGroupsAdapter },
+                .{ .name = "DeleteGroups", .path = "/grpcdc.kafka.v1.Kafka/DeleteGroups", .kind = .unary, .ctx = impl, .handler = kafkaDeleteGroupsAdapter },
+                .{ .name = "DeleteGroupOffsets", .path = "/grpcdc.kafka.v1.Kafka/DeleteGroupOffsets", .kind = .unary, .ctx = impl, .handler = kafkaDeleteGroupOffsetsAdapter },
+                .{ .name = "DescribeAcls", .path = "/grpcdc.kafka.v1.Kafka/DescribeAcls", .kind = .unary, .ctx = impl, .handler = kafkaDescribeAclsAdapter },
+                .{ .name = "CreateAcls", .path = "/grpcdc.kafka.v1.Kafka/CreateAcls", .kind = .unary, .ctx = impl, .handler = kafkaCreateAclsAdapter },
+                .{ .name = "DeleteAcls", .path = "/grpcdc.kafka.v1.Kafka/DeleteAcls", .kind = .unary, .ctx = impl, .handler = kafkaDeleteAclsAdapter },
+                .{ .name = "ListTransactions", .path = "/grpcdc.kafka.v1.Kafka/ListTransactions", .kind = .unary, .ctx = impl, .handler = kafkaListTransactionsAdapter },
+                .{ .name = "DescribeTransactions", .path = "/grpcdc.kafka.v1.Kafka/DescribeTransactions", .kind = .unary, .ctx = impl, .handler = kafkaDescribeTransactionsAdapter },
+                .{ .name = "OpenShareGroup", .path = "/grpcdc.kafka.v1.Kafka/OpenShareGroup", .kind = .unary, .ctx = impl, .handler = kafkaOpenShareGroupAdapter },
+                .{ .name = "SharePoll", .path = "/grpcdc.kafka.v1.Kafka/SharePoll", .kind = .unary, .ctx = impl, .handler = kafkaSharePollAdapter },
+                .{ .name = "ShareAck", .path = "/grpcdc.kafka.v1.Kafka/ShareAck", .kind = .unary, .ctx = impl, .handler = kafkaShareAckAdapter },
+                .{ .name = "CloseShareGroup", .path = "/grpcdc.kafka.v1.Kafka/CloseShareGroup", .kind = .unary, .ctx = impl, .handler = kafkaCloseShareGroupAdapter },
             },
         });
     }

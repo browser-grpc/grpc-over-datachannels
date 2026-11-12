@@ -34,6 +34,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`test_interop_oracle.cpp`](tests/test_interop_oracle.cpp) — Official-implementation oracle, via the proxy
 - [`test_interop_server_oracle.cpp`](tests/test_interop_server_oracle.cpp) — Official-implementation oracle, via the proxy
 - [`test_kafka_e2e.cpp`](tests/test_kafka_e2e.cpp) — Kafka end-to-end (broker legs env-gated)
+- [`test_kafka_native.cpp`](tests/test_kafka_native.cpp) — Kafka end-to-end (broker legs env-gated)
 - [`test_oracle.cpp`](tests/test_oracle.cpp) — Official-implementation oracle, via the proxy
 - [`test_pb_messages.cpp`](tests/test_pb_messages.cpp) — Generated suite/example
 - [`test_sidecar.cpp`](tests/test_sidecar.cpp) — Sidecar transport

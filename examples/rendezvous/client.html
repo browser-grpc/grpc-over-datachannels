@@ -1,0 +1,42 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>grpc-dc rendezvous example</title>
+<h1>gRPC over a DataChannel, dialed with no signaling</h1>
+<p>
+  This page fetches the server's published rendezvous
+  descriptor from <code>/rendezvous.json</code> (five static
+  values: host, port, ICE credentials, DTLS fingerprint),
+  synthesizes the server's WebRTC description locally with the
+  generated <code>rendezvousChannel</code>, and runs Echo
+  calls over the <code>grpc</code> DataChannel. No offer or
+  answer is ever exchanged.
+</p>
+<pre id="result">connecting…</pre>
+<script type="module">
+import { rendezvousChannel } from "/js/index.js";
+import { EchoRequest } from "/js/examples/echo_pb.js";
+import { EchoClient } from "/js/examples/echo_grpc_dc.js";
+
+const out = document.getElementById("result");
+try {
+  const descriptor = await (await fetch("/rendezvous.json")).json();
+  const channel = await rendezvousChannel(descriptor);
+  const client = new EchoClient(channel);
+  const req = (message, count = 0) => new EchoRequest({ message, count });
+
+  const lines = [];
+  const unary = await client.unary(req("hello"));
+  lines.push(`unary -> ${unary.message}`);
+
+  const ticks = [];
+  for await (const resp of await client.serverStream(req("tick", 3))) {
+    ticks.push(resp.index);
+  }
+  lines.push(`serverStream -> indexes ${ticks.join(", ")}`);
+
+  out.textContent = lines.join("\n") + "\nrendezvous example OK";
+  channel.closeRendezvous();
+} catch (e) {
+  out.textContent = `failed: ${e.message ?? e}`;
+}
+</script>

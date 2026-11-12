@@ -125,6 +125,22 @@ class Acks:
     ACKS_ALL = 3
 
 
+class ConfigResourceType:
+    """Enum grpcdc.kafka.v1.ConfigResourceType."""
+    CONFIG_RESOURCE_UNKNOWN = 0
+    CONFIG_RESOURCE_TOPIC = 2
+    CONFIG_RESOURCE_BROKER = 4
+    CONFIG_RESOURCE_BROKER_LOGGER = 8
+    CONFIG_RESOURCE_CLIENT_METRICS = 16
+    CONFIG_RESOURCE_GROUP = 32
+
+
+class ConfigOp:
+    """Enum grpcdc.kafka.v1.ConfigOp."""
+    CONFIG_OP_SET = 0
+    CONFIG_OP_DELETE = 1
+
+
 class Header:
     """Message grpcdc.kafka.v1.Header."""
 
@@ -1081,7 +1097,7 @@ class ConsumeResponse:
 class GroupSubscribeRequest:
     """Message grpcdc.kafka.v1.GroupSubscribeRequest."""
 
-    def __init__(self, group_id="", topics=None, group_instance_id="", session_timeout_ms=0, max_poll_records=0, auto_offset_reset="", read_committed=False):
+    def __init__(self, group_id="", topics=None, group_instance_id="", session_timeout_ms=0, max_poll_records=0, auto_offset_reset="", read_committed=False, group_protocol=""):
         self.group_id = group_id
         self.topics = list(topics) if topics is not None else []
         self.group_instance_id = group_instance_id
@@ -1089,6 +1105,7 @@ class GroupSubscribeRequest:
         self.max_poll_records = max_poll_records
         self.auto_offset_reset = auto_offset_reset
         self.read_committed = read_committed
+        self.group_protocol = group_protocol
         self.unknown_fields = b""
 
     def marshal_dc(self):
@@ -1101,6 +1118,7 @@ class GroupSubscribeRequest:
         out = _append_varint_field(out, 5, self.max_poll_records)
         out = _append_string_field(out, 6, self.auto_offset_reset)
         out = _append_varint_field(out, 7, (1 if self.read_committed else 0))
+        out = _append_string_field(out, 8, self.group_protocol)
         out += self.unknown_fields
         return bytes(out)
 
@@ -1113,6 +1131,7 @@ class GroupSubscribeRequest:
         self.max_poll_records = 0
         self.auto_offset_reset = ""
         self.read_committed = False
+        self.group_protocol = ""
         reader = _Reader(data)
         while True:
             item = reader.field()
@@ -1133,6 +1152,8 @@ class GroupSubscribeRequest:
                 self.auto_offset_reset = value.decode("utf-8")
             elif num == 7:
                 self.read_committed = (value != 0)
+            elif num == 8:
+                self.group_protocol = value.decode("utf-8")
             else:
                 self.unknown_fields = self.unknown_fields + raw
 
@@ -1140,7 +1161,7 @@ class GroupSubscribeRequest:
         return isinstance(other, GroupSubscribeRequest) and self.__dict__ == other.__dict__
 
     def __repr__(self):
-        return f"GroupSubscribeRequest(group_id={self.group_id!r}, topics={self.topics!r}, group_instance_id={self.group_instance_id!r}, session_timeout_ms={self.session_timeout_ms!r}, max_poll_records={self.max_poll_records!r}, auto_offset_reset={self.auto_offset_reset!r}, read_committed={self.read_committed!r})"
+        return f"GroupSubscribeRequest(group_id={self.group_id!r}, topics={self.topics!r}, group_instance_id={self.group_instance_id!r}, session_timeout_ms={self.session_timeout_ms!r}, max_poll_records={self.max_poll_records!r}, auto_offset_reset={self.auto_offset_reset!r}, read_committed={self.read_committed!r}, group_protocol={self.group_protocol!r})"
 
 
 class GroupSubscribeResponse:
@@ -1862,5 +1883,1996 @@ class DeleteTopicsResponse:
 
     def __repr__(self):
         return f"DeleteTopicsResponse(results={self.results!r})"
+
+
+class ConfigEntry:
+    """Message grpcdc.kafka.v1.ConfigEntry."""
+
+    def __init__(self, name="", value=""):
+        self.name = name
+        self.value = value
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        out = _append_string_field(out, 1, self.name)
+        out = _append_string_field(out, 2, self.value)
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.name = ""
+        self.value = ""
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                self.name = value.decode("utf-8")
+            elif num == 2:
+                self.value = value.decode("utf-8")
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, ConfigEntry) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"ConfigEntry(name={self.name!r}, value={self.value!r})"
+
+
+class AlterConfigEntry:
+    """Message grpcdc.kafka.v1.AlterConfigEntry."""
+
+    def __init__(self, name="", value="", op=0):
+        self.name = name
+        self.value = value
+        self.op = op
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        out = _append_string_field(out, 1, self.name)
+        out = _append_string_field(out, 2, self.value)
+        out = _append_varint_field(out, 3, self.op)
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.name = ""
+        self.value = ""
+        self.op = 0
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                self.name = value.decode("utf-8")
+            elif num == 2:
+                self.value = value.decode("utf-8")
+            elif num == 3:
+                self.op = _as_int32(value)
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, AlterConfigEntry) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"AlterConfigEntry(name={self.name!r}, value={self.value!r}, op={self.op!r})"
+
+
+class DescribeConfigsRequest:
+    """Message grpcdc.kafka.v1.DescribeConfigsRequest."""
+
+    def __init__(self, resource_type=0, resource_name="", config_keys=None, include_synonyms=False):
+        self.resource_type = resource_type
+        self.resource_name = resource_name
+        self.config_keys = list(config_keys) if config_keys is not None else []
+        self.include_synonyms = include_synonyms
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        out = _append_varint_field(out, 1, self.resource_type)
+        out = _append_string_field(out, 2, self.resource_name)
+        for v in self.config_keys:
+            out = _append_bytes_field(out, 3, v.encode("utf-8"))
+        out = _append_varint_field(out, 4, (1 if self.include_synonyms else 0))
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.resource_type = 0
+        self.resource_name = ""
+        self.config_keys = []
+        self.include_synonyms = False
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                self.resource_type = _as_int32(value)
+            elif num == 2:
+                self.resource_name = value.decode("utf-8")
+            elif num == 3:
+                self.config_keys.append(value.decode("utf-8"))
+            elif num == 4:
+                self.include_synonyms = (value != 0)
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, DescribeConfigsRequest) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"DescribeConfigsRequest(resource_type={self.resource_type!r}, resource_name={self.resource_name!r}, config_keys={self.config_keys!r}, include_synonyms={self.include_synonyms!r})"
+
+
+class ConfigValue:
+    """Message grpcdc.kafka.v1.ConfigValue."""
+
+    def __init__(self, name="", value="", read_only=False, source=0, is_sensitive=False):
+        self.name = name
+        self.value = value
+        self.read_only = read_only
+        self.source = source
+        self.is_sensitive = is_sensitive
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        out = _append_string_field(out, 1, self.name)
+        out = _append_string_field(out, 2, self.value)
+        out = _append_varint_field(out, 3, (1 if self.read_only else 0))
+        out = _append_varint_field(out, 4, self.source)
+        out = _append_varint_field(out, 5, (1 if self.is_sensitive else 0))
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.name = ""
+        self.value = ""
+        self.read_only = False
+        self.source = 0
+        self.is_sensitive = False
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                self.name = value.decode("utf-8")
+            elif num == 2:
+                self.value = value.decode("utf-8")
+            elif num == 3:
+                self.read_only = (value != 0)
+            elif num == 4:
+                self.source = _as_int32(value)
+            elif num == 5:
+                self.is_sensitive = (value != 0)
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, ConfigValue) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"ConfigValue(name={self.name!r}, value={self.value!r}, read_only={self.read_only!r}, source={self.source!r}, is_sensitive={self.is_sensitive!r})"
+
+
+class DescribeConfigsResponse:
+    """Message grpcdc.kafka.v1.DescribeConfigsResponse."""
+
+    def __init__(self, error_code=0, values=None):
+        self.error_code = error_code
+        self.values = list(values) if values is not None else []
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        out = _append_varint_field(out, 1, self.error_code)
+        for v in self.values:
+            out = _append_bytes_field(out, 2, v.marshal_dc())
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.error_code = 0
+        self.values = []
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                self.error_code = _as_int32(value)
+            elif num == 2:
+                tmp = ConfigValue()
+                tmp.unmarshal_dc(value)
+                tmp2 = tmp
+                self.values.append(tmp2)
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, DescribeConfigsResponse) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"DescribeConfigsResponse(error_code={self.error_code!r}, values={self.values!r})"
+
+
+class AlterConfigsRequest:
+    """Message grpcdc.kafka.v1.AlterConfigsRequest."""
+
+    def __init__(self, resource_type=0, resource_name="", entries=None, validate_only=False):
+        self.resource_type = resource_type
+        self.resource_name = resource_name
+        self.entries = list(entries) if entries is not None else []
+        self.validate_only = validate_only
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        out = _append_varint_field(out, 1, self.resource_type)
+        out = _append_string_field(out, 2, self.resource_name)
+        for v in self.entries:
+            out = _append_bytes_field(out, 3, v.marshal_dc())
+        out = _append_varint_field(out, 4, (1 if self.validate_only else 0))
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.resource_type = 0
+        self.resource_name = ""
+        self.entries = []
+        self.validate_only = False
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                self.resource_type = _as_int32(value)
+            elif num == 2:
+                self.resource_name = value.decode("utf-8")
+            elif num == 3:
+                tmp = AlterConfigEntry()
+                tmp.unmarshal_dc(value)
+                tmp2 = tmp
+                self.entries.append(tmp2)
+            elif num == 4:
+                self.validate_only = (value != 0)
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, AlterConfigsRequest) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"AlterConfigsRequest(resource_type={self.resource_type!r}, resource_name={self.resource_name!r}, entries={self.entries!r}, validate_only={self.validate_only!r})"
+
+
+class AlterConfigsResponse:
+    """Message grpcdc.kafka.v1.AlterConfigsResponse."""
+
+    def __init__(self, error_code=0):
+        self.error_code = error_code
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        out = _append_varint_field(out, 1, self.error_code)
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.error_code = 0
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                self.error_code = _as_int32(value)
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, AlterConfigsResponse) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"AlterConfigsResponse(error_code={self.error_code!r})"
+
+
+class CreatePartitionsRequest:
+    """Message grpcdc.kafka.v1.CreatePartitionsRequest."""
+
+    def __init__(self, topic="", total_count=0, validate_only=False, timeout_ms=0):
+        self.topic = topic
+        self.total_count = total_count
+        self.validate_only = validate_only
+        self.timeout_ms = timeout_ms
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        out = _append_string_field(out, 1, self.topic)
+        out = _append_varint_field(out, 2, self.total_count)
+        out = _append_varint_field(out, 3, (1 if self.validate_only else 0))
+        out = _append_varint_field(out, 4, self.timeout_ms)
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.topic = ""
+        self.total_count = 0
+        self.validate_only = False
+        self.timeout_ms = 0
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                self.topic = value.decode("utf-8")
+            elif num == 2:
+                self.total_count = _as_int32(value)
+            elif num == 3:
+                self.validate_only = (value != 0)
+            elif num == 4:
+                self.timeout_ms = _as_int32(value)
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, CreatePartitionsRequest) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"CreatePartitionsRequest(topic={self.topic!r}, total_count={self.total_count!r}, validate_only={self.validate_only!r}, timeout_ms={self.timeout_ms!r})"
+
+
+class CreatePartitionsResponse:
+    """Message grpcdc.kafka.v1.CreatePartitionsResponse."""
+
+    def __init__(self, error_code=0):
+        self.error_code = error_code
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        out = _append_varint_field(out, 1, self.error_code)
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.error_code = 0
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                self.error_code = _as_int32(value)
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, CreatePartitionsResponse) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"CreatePartitionsResponse(error_code={self.error_code!r})"
+
+
+class DeleteRecordsRequest:
+    """Message grpcdc.kafka.v1.DeleteRecordsRequest."""
+
+    def __init__(self, topic="", partition=0, before_offset=0):
+        self.topic = topic
+        self.partition = partition
+        self.before_offset = before_offset
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        out = _append_string_field(out, 1, self.topic)
+        out = _append_varint_field(out, 2, self.partition)
+        out = _append_varint_field(out, 3, self.before_offset)
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.topic = ""
+        self.partition = 0
+        self.before_offset = 0
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                self.topic = value.decode("utf-8")
+            elif num == 2:
+                self.partition = _as_int32(value)
+            elif num == 3:
+                self.before_offset = _as_int64(value)
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, DeleteRecordsRequest) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"DeleteRecordsRequest(topic={self.topic!r}, partition={self.partition!r}, before_offset={self.before_offset!r})"
+
+
+class DeleteRecordsResponse:
+    """Message grpcdc.kafka.v1.DeleteRecordsResponse."""
+
+    def __init__(self, low_watermark=0, error_code=0):
+        self.low_watermark = low_watermark
+        self.error_code = error_code
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        out = _append_varint_field(out, 1, self.low_watermark)
+        out = _append_varint_field(out, 2, self.error_code)
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.low_watermark = 0
+        self.error_code = 0
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                self.low_watermark = _as_int64(value)
+            elif num == 2:
+                self.error_code = _as_int32(value)
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, DeleteRecordsResponse) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"DeleteRecordsResponse(low_watermark={self.low_watermark!r}, error_code={self.error_code!r})"
+
+
+class ListGroupsRequest:
+    """Message grpcdc.kafka.v1.ListGroupsRequest."""
+
+    def __init__(self, ):
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+
+    def __eq__(self, other):
+        return isinstance(other, ListGroupsRequest) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"ListGroupsRequest()"
+
+
+class GroupListing:
+    """Message grpcdc.kafka.v1.GroupListing."""
+
+    def __init__(self, group_id="", protocol_type="", group_state=""):
+        self.group_id = group_id
+        self.protocol_type = protocol_type
+        self.group_state = group_state
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        out = _append_string_field(out, 1, self.group_id)
+        out = _append_string_field(out, 2, self.protocol_type)
+        out = _append_string_field(out, 3, self.group_state)
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.group_id = ""
+        self.protocol_type = ""
+        self.group_state = ""
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                self.group_id = value.decode("utf-8")
+            elif num == 2:
+                self.protocol_type = value.decode("utf-8")
+            elif num == 3:
+                self.group_state = value.decode("utf-8")
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, GroupListing) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"GroupListing(group_id={self.group_id!r}, protocol_type={self.protocol_type!r}, group_state={self.group_state!r})"
+
+
+class ListGroupsResponse:
+    """Message grpcdc.kafka.v1.ListGroupsResponse."""
+
+    def __init__(self, error_code=0, groups=None):
+        self.error_code = error_code
+        self.groups = list(groups) if groups is not None else []
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        out = _append_varint_field(out, 1, self.error_code)
+        for v in self.groups:
+            out = _append_bytes_field(out, 2, v.marshal_dc())
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.error_code = 0
+        self.groups = []
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                self.error_code = _as_int32(value)
+            elif num == 2:
+                tmp = GroupListing()
+                tmp.unmarshal_dc(value)
+                tmp2 = tmp
+                self.groups.append(tmp2)
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, ListGroupsResponse) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"ListGroupsResponse(error_code={self.error_code!r}, groups={self.groups!r})"
+
+
+class DescribeGroupsRequest:
+    """Message grpcdc.kafka.v1.DescribeGroupsRequest."""
+
+    def __init__(self, group_ids=None):
+        self.group_ids = list(group_ids) if group_ids is not None else []
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        for v in self.group_ids:
+            out = _append_bytes_field(out, 1, v.encode("utf-8"))
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.group_ids = []
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                self.group_ids.append(value.decode("utf-8"))
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, DescribeGroupsRequest) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"DescribeGroupsRequest(group_ids={self.group_ids!r})"
+
+
+class GroupMember:
+    """Message grpcdc.kafka.v1.GroupMember."""
+
+    def __init__(self, member_id="", client_id="", client_host="", assignment=None):
+        self.member_id = member_id
+        self.client_id = client_id
+        self.client_host = client_host
+        self.assignment = list(assignment) if assignment is not None else []
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        out = _append_string_field(out, 1, self.member_id)
+        out = _append_string_field(out, 2, self.client_id)
+        out = _append_string_field(out, 3, self.client_host)
+        for v in self.assignment:
+            out = _append_bytes_field(out, 4, v.marshal_dc())
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.member_id = ""
+        self.client_id = ""
+        self.client_host = ""
+        self.assignment = []
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                self.member_id = value.decode("utf-8")
+            elif num == 2:
+                self.client_id = value.decode("utf-8")
+            elif num == 3:
+                self.client_host = value.decode("utf-8")
+            elif num == 4:
+                tmp = TopicPartition()
+                tmp.unmarshal_dc(value)
+                tmp2 = tmp
+                self.assignment.append(tmp2)
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, GroupMember) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"GroupMember(member_id={self.member_id!r}, client_id={self.client_id!r}, client_host={self.client_host!r}, assignment={self.assignment!r})"
+
+
+class DescribedGroup:
+    """Message grpcdc.kafka.v1.DescribedGroup."""
+
+    def __init__(self, group_id="", error_code=0, group_state="", protocol_type="", protocol="", members=None):
+        self.group_id = group_id
+        self.error_code = error_code
+        self.group_state = group_state
+        self.protocol_type = protocol_type
+        self.protocol = protocol
+        self.members = list(members) if members is not None else []
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        out = _append_string_field(out, 1, self.group_id)
+        out = _append_varint_field(out, 2, self.error_code)
+        out = _append_string_field(out, 3, self.group_state)
+        out = _append_string_field(out, 4, self.protocol_type)
+        out = _append_string_field(out, 5, self.protocol)
+        for v in self.members:
+            out = _append_bytes_field(out, 6, v.marshal_dc())
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.group_id = ""
+        self.error_code = 0
+        self.group_state = ""
+        self.protocol_type = ""
+        self.protocol = ""
+        self.members = []
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                self.group_id = value.decode("utf-8")
+            elif num == 2:
+                self.error_code = _as_int32(value)
+            elif num == 3:
+                self.group_state = value.decode("utf-8")
+            elif num == 4:
+                self.protocol_type = value.decode("utf-8")
+            elif num == 5:
+                self.protocol = value.decode("utf-8")
+            elif num == 6:
+                tmp = GroupMember()
+                tmp.unmarshal_dc(value)
+                tmp2 = tmp
+                self.members.append(tmp2)
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, DescribedGroup) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"DescribedGroup(group_id={self.group_id!r}, error_code={self.error_code!r}, group_state={self.group_state!r}, protocol_type={self.protocol_type!r}, protocol={self.protocol!r}, members={self.members!r})"
+
+
+class DescribeGroupsResponse:
+    """Message grpcdc.kafka.v1.DescribeGroupsResponse."""
+
+    def __init__(self, groups=None):
+        self.groups = list(groups) if groups is not None else []
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        for v in self.groups:
+            out = _append_bytes_field(out, 1, v.marshal_dc())
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.groups = []
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                tmp = DescribedGroup()
+                tmp.unmarshal_dc(value)
+                tmp2 = tmp
+                self.groups.append(tmp2)
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, DescribeGroupsResponse) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"DescribeGroupsResponse(groups={self.groups!r})"
+
+
+class DeleteGroupsRequest:
+    """Message grpcdc.kafka.v1.DeleteGroupsRequest."""
+
+    def __init__(self, group_ids=None):
+        self.group_ids = list(group_ids) if group_ids is not None else []
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        for v in self.group_ids:
+            out = _append_bytes_field(out, 1, v.encode("utf-8"))
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.group_ids = []
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                self.group_ids.append(value.decode("utf-8"))
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, DeleteGroupsRequest) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"DeleteGroupsRequest(group_ids={self.group_ids!r})"
+
+
+class GroupErrorResult:
+    """Message grpcdc.kafka.v1.GroupErrorResult."""
+
+    def __init__(self, group_id="", error_code=0):
+        self.group_id = group_id
+        self.error_code = error_code
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        out = _append_string_field(out, 1, self.group_id)
+        out = _append_varint_field(out, 2, self.error_code)
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.group_id = ""
+        self.error_code = 0
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                self.group_id = value.decode("utf-8")
+            elif num == 2:
+                self.error_code = _as_int32(value)
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, GroupErrorResult) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"GroupErrorResult(group_id={self.group_id!r}, error_code={self.error_code!r})"
+
+
+class DeleteGroupsResponse:
+    """Message grpcdc.kafka.v1.DeleteGroupsResponse."""
+
+    def __init__(self, results=None):
+        self.results = list(results) if results is not None else []
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        for v in self.results:
+            out = _append_bytes_field(out, 1, v.marshal_dc())
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.results = []
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                tmp = GroupErrorResult()
+                tmp.unmarshal_dc(value)
+                tmp2 = tmp
+                self.results.append(tmp2)
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, DeleteGroupsResponse) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"DeleteGroupsResponse(results={self.results!r})"
+
+
+class DeleteGroupOffsetsRequest:
+    """Message grpcdc.kafka.v1.DeleteGroupOffsetsRequest."""
+
+    def __init__(self, group_id="", topic="", partitions=None):
+        self.group_id = group_id
+        self.topic = topic
+        self.partitions = list(partitions) if partitions is not None else []
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        out = _append_string_field(out, 1, self.group_id)
+        out = _append_string_field(out, 2, self.topic)
+        if self.partitions:
+            payload = bytearray()
+            for v in self.partitions:
+                payload = _append_varint(payload, v)
+            out = _append_bytes_field(out, 3, bytes(payload))
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.group_id = ""
+        self.topic = ""
+        self.partitions = []
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                self.group_id = value.decode("utf-8")
+            elif num == 2:
+                self.topic = value.decode("utf-8")
+            elif num == 3:
+                if wire == 2:
+                    sub = _Reader(value)
+                    while sub.pos < len(sub.buf):
+                        self.partitions.append(_as_int32(sub.varint()))
+                else:
+                    self.partitions.append(_as_int32(value))
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, DeleteGroupOffsetsRequest) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"DeleteGroupOffsetsRequest(group_id={self.group_id!r}, topic={self.topic!r}, partitions={self.partitions!r})"
+
+
+class DeleteGroupOffsetsResponse:
+    """Message grpcdc.kafka.v1.DeleteGroupOffsetsResponse."""
+
+    def __init__(self, error_code=0):
+        self.error_code = error_code
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        out = _append_varint_field(out, 1, self.error_code)
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.error_code = 0
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                self.error_code = _as_int32(value)
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, DeleteGroupOffsetsResponse) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"DeleteGroupOffsetsResponse(error_code={self.error_code!r})"
+
+
+class Acl:
+    """Message grpcdc.kafka.v1.Acl."""
+
+    def __init__(self, resource_type=0, resource_name="", pattern_type=0, principal="", host="", operation=0, permission_type=0):
+        self.resource_type = resource_type
+        self.resource_name = resource_name
+        self.pattern_type = pattern_type
+        self.principal = principal
+        self.host = host
+        self.operation = operation
+        self.permission_type = permission_type
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        out = _append_varint_field(out, 1, self.resource_type)
+        out = _append_string_field(out, 2, self.resource_name)
+        out = _append_varint_field(out, 3, self.pattern_type)
+        out = _append_string_field(out, 4, self.principal)
+        out = _append_string_field(out, 5, self.host)
+        out = _append_varint_field(out, 6, self.operation)
+        out = _append_varint_field(out, 7, self.permission_type)
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.resource_type = 0
+        self.resource_name = ""
+        self.pattern_type = 0
+        self.principal = ""
+        self.host = ""
+        self.operation = 0
+        self.permission_type = 0
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                self.resource_type = _as_int32(value)
+            elif num == 2:
+                self.resource_name = value.decode("utf-8")
+            elif num == 3:
+                self.pattern_type = _as_int32(value)
+            elif num == 4:
+                self.principal = value.decode("utf-8")
+            elif num == 5:
+                self.host = value.decode("utf-8")
+            elif num == 6:
+                self.operation = _as_int32(value)
+            elif num == 7:
+                self.permission_type = _as_int32(value)
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, Acl) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"Acl(resource_type={self.resource_type!r}, resource_name={self.resource_name!r}, pattern_type={self.pattern_type!r}, principal={self.principal!r}, host={self.host!r}, operation={self.operation!r}, permission_type={self.permission_type!r})"
+
+
+class DescribeAclsRequest:
+    """Message grpcdc.kafka.v1.DescribeAclsRequest."""
+
+    def __init__(self, filter=None):
+        self.filter = filter
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        if self.filter is not None: out = _append_bytes_field(out, 1, self.filter.marshal_dc())
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.filter = None
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                tmp = Acl()
+                tmp.unmarshal_dc(value)
+                self.filter = tmp
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, DescribeAclsRequest) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"DescribeAclsRequest(filter={self.filter!r})"
+
+
+class DescribeAclsResponse:
+    """Message grpcdc.kafka.v1.DescribeAclsResponse."""
+
+    def __init__(self, error_code=0, acls=None):
+        self.error_code = error_code
+        self.acls = list(acls) if acls is not None else []
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        out = _append_varint_field(out, 1, self.error_code)
+        for v in self.acls:
+            out = _append_bytes_field(out, 2, v.marshal_dc())
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.error_code = 0
+        self.acls = []
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                self.error_code = _as_int32(value)
+            elif num == 2:
+                tmp = Acl()
+                tmp.unmarshal_dc(value)
+                tmp2 = tmp
+                self.acls.append(tmp2)
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, DescribeAclsResponse) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"DescribeAclsResponse(error_code={self.error_code!r}, acls={self.acls!r})"
+
+
+class CreateAclsRequest:
+    """Message grpcdc.kafka.v1.CreateAclsRequest."""
+
+    def __init__(self, acls=None):
+        self.acls = list(acls) if acls is not None else []
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        for v in self.acls:
+            out = _append_bytes_field(out, 1, v.marshal_dc())
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.acls = []
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                tmp = Acl()
+                tmp.unmarshal_dc(value)
+                tmp2 = tmp
+                self.acls.append(tmp2)
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, CreateAclsRequest) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"CreateAclsRequest(acls={self.acls!r})"
+
+
+class CreateAclsResponse:
+    """Message grpcdc.kafka.v1.CreateAclsResponse."""
+
+    def __init__(self, error_codes=None):
+        self.error_codes = list(error_codes) if error_codes is not None else []
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        if self.error_codes:
+            payload = bytearray()
+            for v in self.error_codes:
+                payload = _append_varint(payload, v)
+            out = _append_bytes_field(out, 1, bytes(payload))
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.error_codes = []
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                if wire == 2:
+                    sub = _Reader(value)
+                    while sub.pos < len(sub.buf):
+                        self.error_codes.append(_as_int32(sub.varint()))
+                else:
+                    self.error_codes.append(_as_int32(value))
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, CreateAclsResponse) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"CreateAclsResponse(error_codes={self.error_codes!r})"
+
+
+class DeleteAclsRequest:
+    """Message grpcdc.kafka.v1.DeleteAclsRequest."""
+
+    def __init__(self, filters=None):
+        self.filters = list(filters) if filters is not None else []
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        for v in self.filters:
+            out = _append_bytes_field(out, 1, v.marshal_dc())
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.filters = []
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                tmp = Acl()
+                tmp.unmarshal_dc(value)
+                tmp2 = tmp
+                self.filters.append(tmp2)
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, DeleteAclsRequest) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"DeleteAclsRequest(filters={self.filters!r})"
+
+
+class DeleteAclsResponse:
+    """Message grpcdc.kafka.v1.DeleteAclsResponse."""
+
+    def __init__(self, error_codes=None):
+        self.error_codes = list(error_codes) if error_codes is not None else []
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        if self.error_codes:
+            payload = bytearray()
+            for v in self.error_codes:
+                payload = _append_varint(payload, v)
+            out = _append_bytes_field(out, 1, bytes(payload))
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.error_codes = []
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                if wire == 2:
+                    sub = _Reader(value)
+                    while sub.pos < len(sub.buf):
+                        self.error_codes.append(_as_int32(sub.varint()))
+                else:
+                    self.error_codes.append(_as_int32(value))
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, DeleteAclsResponse) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"DeleteAclsResponse(error_codes={self.error_codes!r})"
+
+
+class ListTransactionsRequest:
+    """Message grpcdc.kafka.v1.ListTransactionsRequest."""
+
+    def __init__(self, ):
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+
+    def __eq__(self, other):
+        return isinstance(other, ListTransactionsRequest) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"ListTransactionsRequest()"
+
+
+class TransactionListing:
+    """Message grpcdc.kafka.v1.TransactionListing."""
+
+    def __init__(self, transactional_id="", producer_id=0, transaction_state=""):
+        self.transactional_id = transactional_id
+        self.producer_id = producer_id
+        self.transaction_state = transaction_state
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        out = _append_string_field(out, 1, self.transactional_id)
+        out = _append_varint_field(out, 2, self.producer_id)
+        out = _append_string_field(out, 3, self.transaction_state)
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.transactional_id = ""
+        self.producer_id = 0
+        self.transaction_state = ""
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                self.transactional_id = value.decode("utf-8")
+            elif num == 2:
+                self.producer_id = _as_int64(value)
+            elif num == 3:
+                self.transaction_state = value.decode("utf-8")
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, TransactionListing) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"TransactionListing(transactional_id={self.transactional_id!r}, producer_id={self.producer_id!r}, transaction_state={self.transaction_state!r})"
+
+
+class ListTransactionsResponse:
+    """Message grpcdc.kafka.v1.ListTransactionsResponse."""
+
+    def __init__(self, error_code=0, transactions=None):
+        self.error_code = error_code
+        self.transactions = list(transactions) if transactions is not None else []
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        out = _append_varint_field(out, 1, self.error_code)
+        for v in self.transactions:
+            out = _append_bytes_field(out, 2, v.marshal_dc())
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.error_code = 0
+        self.transactions = []
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                self.error_code = _as_int32(value)
+            elif num == 2:
+                tmp = TransactionListing()
+                tmp.unmarshal_dc(value)
+                tmp2 = tmp
+                self.transactions.append(tmp2)
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, ListTransactionsResponse) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"ListTransactionsResponse(error_code={self.error_code!r}, transactions={self.transactions!r})"
+
+
+class DescribeTransactionsRequest:
+    """Message grpcdc.kafka.v1.DescribeTransactionsRequest."""
+
+    def __init__(self, transactional_ids=None):
+        self.transactional_ids = list(transactional_ids) if transactional_ids is not None else []
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        for v in self.transactional_ids:
+            out = _append_bytes_field(out, 1, v.encode("utf-8"))
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.transactional_ids = []
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                self.transactional_ids.append(value.decode("utf-8"))
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, DescribeTransactionsRequest) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"DescribeTransactionsRequest(transactional_ids={self.transactional_ids!r})"
+
+
+class DescribedTransaction:
+    """Message grpcdc.kafka.v1.DescribedTransaction."""
+
+    def __init__(self, transactional_id="", error_code=0, producer_id=0, producer_epoch=0, transaction_state="", last_update_timestamp_ms=0):
+        self.transactional_id = transactional_id
+        self.error_code = error_code
+        self.producer_id = producer_id
+        self.producer_epoch = producer_epoch
+        self.transaction_state = transaction_state
+        self.last_update_timestamp_ms = last_update_timestamp_ms
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        out = _append_string_field(out, 1, self.transactional_id)
+        out = _append_varint_field(out, 2, self.error_code)
+        out = _append_varint_field(out, 3, self.producer_id)
+        out = _append_varint_field(out, 4, self.producer_epoch)
+        out = _append_string_field(out, 5, self.transaction_state)
+        out = _append_varint_field(out, 6, self.last_update_timestamp_ms)
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.transactional_id = ""
+        self.error_code = 0
+        self.producer_id = 0
+        self.producer_epoch = 0
+        self.transaction_state = ""
+        self.last_update_timestamp_ms = 0
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                self.transactional_id = value.decode("utf-8")
+            elif num == 2:
+                self.error_code = _as_int32(value)
+            elif num == 3:
+                self.producer_id = _as_int64(value)
+            elif num == 4:
+                self.producer_epoch = _as_int32(value)
+            elif num == 5:
+                self.transaction_state = value.decode("utf-8")
+            elif num == 6:
+                self.last_update_timestamp_ms = _as_int64(value)
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, DescribedTransaction) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"DescribedTransaction(transactional_id={self.transactional_id!r}, error_code={self.error_code!r}, producer_id={self.producer_id!r}, producer_epoch={self.producer_epoch!r}, transaction_state={self.transaction_state!r}, last_update_timestamp_ms={self.last_update_timestamp_ms!r})"
+
+
+class DescribeTransactionsResponse:
+    """Message grpcdc.kafka.v1.DescribeTransactionsResponse."""
+
+    def __init__(self, transactions=None):
+        self.transactions = list(transactions) if transactions is not None else []
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        for v in self.transactions:
+            out = _append_bytes_field(out, 1, v.marshal_dc())
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.transactions = []
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                tmp = DescribedTransaction()
+                tmp.unmarshal_dc(value)
+                tmp2 = tmp
+                self.transactions.append(tmp2)
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, DescribeTransactionsResponse) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"DescribeTransactionsResponse(transactions={self.transactions!r})"
+
+
+class OpenShareGroupRequest:
+    """Message grpcdc.kafka.v1.OpenShareGroupRequest."""
+
+    def __init__(self, group_id="", topics=None, group_instance_id="", session_timeout_ms=0):
+        self.group_id = group_id
+        self.topics = list(topics) if topics is not None else []
+        self.group_instance_id = group_instance_id
+        self.session_timeout_ms = session_timeout_ms
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        out = _append_string_field(out, 1, self.group_id)
+        for v in self.topics:
+            out = _append_bytes_field(out, 2, v.encode("utf-8"))
+        out = _append_string_field(out, 3, self.group_instance_id)
+        out = _append_varint_field(out, 4, self.session_timeout_ms)
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.group_id = ""
+        self.topics = []
+        self.group_instance_id = ""
+        self.session_timeout_ms = 0
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                self.group_id = value.decode("utf-8")
+            elif num == 2:
+                self.topics.append(value.decode("utf-8"))
+            elif num == 3:
+                self.group_instance_id = value.decode("utf-8")
+            elif num == 4:
+                self.session_timeout_ms = _as_int32(value)
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, OpenShareGroupRequest) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"OpenShareGroupRequest(group_id={self.group_id!r}, topics={self.topics!r}, group_instance_id={self.group_instance_id!r}, session_timeout_ms={self.session_timeout_ms!r})"
+
+
+class OpenShareGroupResponse:
+    """Message grpcdc.kafka.v1.OpenShareGroupResponse."""
+
+    def __init__(self, session_id="", error_code=0, assignment=None):
+        self.session_id = session_id
+        self.error_code = error_code
+        self.assignment = assignment
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        out = _append_string_field(out, 1, self.session_id)
+        out = _append_varint_field(out, 2, self.error_code)
+        if self.assignment is not None: out = _append_bytes_field(out, 3, self.assignment.marshal_dc())
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.session_id = ""
+        self.error_code = 0
+        self.assignment = None
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                self.session_id = value.decode("utf-8")
+            elif num == 2:
+                self.error_code = _as_int32(value)
+            elif num == 3:
+                tmp = Assignment()
+                tmp.unmarshal_dc(value)
+                self.assignment = tmp
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, OpenShareGroupResponse) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"OpenShareGroupResponse(session_id={self.session_id!r}, error_code={self.error_code!r}, assignment={self.assignment!r})"
+
+
+class SharePollRequest:
+    """Message grpcdc.kafka.v1.SharePollRequest."""
+
+    def __init__(self, session_id="", max_records=0, max_wait_ms=0):
+        self.session_id = session_id
+        self.max_records = max_records
+        self.max_wait_ms = max_wait_ms
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        out = _append_string_field(out, 1, self.session_id)
+        out = _append_varint_field(out, 2, self.max_records)
+        out = _append_varint_field(out, 3, self.max_wait_ms)
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.session_id = ""
+        self.max_records = 0
+        self.max_wait_ms = 0
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                self.session_id = value.decode("utf-8")
+            elif num == 2:
+                self.max_records = _as_int32(value)
+            elif num == 3:
+                self.max_wait_ms = _as_int32(value)
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, SharePollRequest) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"SharePollRequest(session_id={self.session_id!r}, max_records={self.max_records!r}, max_wait_ms={self.max_wait_ms!r})"
+
+
+class SharePollRecord:
+    """Message grpcdc.kafka.v1.SharePollRecord."""
+
+    def __init__(self, topic="", partition=0, offset=0, key=b"", value=b"", headers=None, timestamp_ms=0, delivery_count=0, null_key=False):
+        self.topic = topic
+        self.partition = partition
+        self.offset = offset
+        self.key = key
+        self.value = value
+        self.headers = list(headers) if headers is not None else []
+        self.timestamp_ms = timestamp_ms
+        self.delivery_count = delivery_count
+        self.null_key = null_key
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        out = _append_string_field(out, 1, self.topic)
+        out = _append_varint_field(out, 2, self.partition)
+        out = _append_varint_field(out, 3, self.offset)
+        if self.key: out = _append_bytes_field(out, 4, self.key)
+        if self.value: out = _append_bytes_field(out, 5, self.value)
+        for v in self.headers:
+            out = _append_bytes_field(out, 6, v.marshal_dc())
+        out = _append_varint_field(out, 7, self.timestamp_ms)
+        out = _append_varint_field(out, 8, self.delivery_count)
+        out = _append_varint_field(out, 9, (1 if self.null_key else 0))
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.topic = ""
+        self.partition = 0
+        self.offset = 0
+        self.key = b""
+        self.value = b""
+        self.headers = []
+        self.timestamp_ms = 0
+        self.delivery_count = 0
+        self.null_key = False
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                self.topic = value.decode("utf-8")
+            elif num == 2:
+                self.partition = _as_int32(value)
+            elif num == 3:
+                self.offset = _as_int64(value)
+            elif num == 4:
+                self.key = bytes(value)
+            elif num == 5:
+                self.value = bytes(value)
+            elif num == 6:
+                tmp = Header()
+                tmp.unmarshal_dc(value)
+                tmp2 = tmp
+                self.headers.append(tmp2)
+            elif num == 7:
+                self.timestamp_ms = _as_int64(value)
+            elif num == 8:
+                self.delivery_count = _as_int32(value)
+            elif num == 9:
+                self.null_key = (value != 0)
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, SharePollRecord) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"SharePollRecord(topic={self.topic!r}, partition={self.partition!r}, offset={self.offset!r}, key={self.key!r}, value={self.value!r}, headers={self.headers!r}, timestamp_ms={self.timestamp_ms!r}, delivery_count={self.delivery_count!r}, null_key={self.null_key!r})"
+
+
+class SharePollResponse:
+    """Message grpcdc.kafka.v1.SharePollResponse."""
+
+    def __init__(self, records=None, error_code=0):
+        self.records = list(records) if records is not None else []
+        self.error_code = error_code
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        for v in self.records:
+            out = _append_bytes_field(out, 1, v.marshal_dc())
+        out = _append_varint_field(out, 2, self.error_code)
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.records = []
+        self.error_code = 0
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                tmp = SharePollRecord()
+                tmp.unmarshal_dc(value)
+                tmp2 = tmp
+                self.records.append(tmp2)
+            elif num == 2:
+                self.error_code = _as_int32(value)
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, SharePollResponse) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"SharePollResponse(records={self.records!r}, error_code={self.error_code!r})"
+
+
+class ShareAckEntry:
+    """Message grpcdc.kafka.v1.ShareAckEntry."""
+
+    def __init__(self, topic="", partition=0, offset=0, ack_type=0):
+        self.topic = topic
+        self.partition = partition
+        self.offset = offset
+        self.ack_type = ack_type
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        out = _append_string_field(out, 1, self.topic)
+        out = _append_varint_field(out, 2, self.partition)
+        out = _append_varint_field(out, 3, self.offset)
+        out = _append_varint_field(out, 4, self.ack_type)
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.topic = ""
+        self.partition = 0
+        self.offset = 0
+        self.ack_type = 0
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                self.topic = value.decode("utf-8")
+            elif num == 2:
+                self.partition = _as_int32(value)
+            elif num == 3:
+                self.offset = _as_int64(value)
+            elif num == 4:
+                self.ack_type = _as_int32(value)
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, ShareAckEntry) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"ShareAckEntry(topic={self.topic!r}, partition={self.partition!r}, offset={self.offset!r}, ack_type={self.ack_type!r})"
+
+
+class ShareAckRequest:
+    """Message grpcdc.kafka.v1.ShareAckRequest."""
+
+    def __init__(self, session_id="", entries=None):
+        self.session_id = session_id
+        self.entries = list(entries) if entries is not None else []
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        out = _append_string_field(out, 1, self.session_id)
+        for v in self.entries:
+            out = _append_bytes_field(out, 2, v.marshal_dc())
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.session_id = ""
+        self.entries = []
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                self.session_id = value.decode("utf-8")
+            elif num == 2:
+                tmp = ShareAckEntry()
+                tmp.unmarshal_dc(value)
+                tmp2 = tmp
+                self.entries.append(tmp2)
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, ShareAckRequest) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"ShareAckRequest(session_id={self.session_id!r}, entries={self.entries!r})"
+
+
+class ShareAckResponse:
+    """Message grpcdc.kafka.v1.ShareAckResponse."""
+
+    def __init__(self, error_code=0):
+        self.error_code = error_code
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        out = _append_varint_field(out, 1, self.error_code)
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.error_code = 0
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                self.error_code = _as_int32(value)
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, ShareAckResponse) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"ShareAckResponse(error_code={self.error_code!r})"
+
+
+class CloseShareGroupRequest:
+    """Message grpcdc.kafka.v1.CloseShareGroupRequest."""
+
+    def __init__(self, session_id=""):
+        self.session_id = session_id
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        out = _append_string_field(out, 1, self.session_id)
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.session_id = ""
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                self.session_id = value.decode("utf-8")
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, CloseShareGroupRequest) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"CloseShareGroupRequest(session_id={self.session_id!r})"
+
+
+class CloseShareGroupResponse:
+    """Message grpcdc.kafka.v1.CloseShareGroupResponse."""
+
+    def __init__(self, error_code=0):
+        self.error_code = error_code
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        out = _append_varint_field(out, 1, self.error_code)
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.error_code = 0
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                self.error_code = _as_int32(value)
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, CloseShareGroupResponse) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"CloseShareGroupResponse(error_code={self.error_code!r})"
 
 

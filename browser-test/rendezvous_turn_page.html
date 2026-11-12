@@ -1,0 +1,45 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>grpc-dc rendezvous-over-TURN browser test</title>
+<script type="module">
+import { rendezvousChannel } from "/js/index.js";
+import { EchoRequest } from "/js/examples/echo_pb.js";
+import { EchoClient } from "/js/examples/echo_grpc_dc.js";
+
+// Browser side: symmetric-NAT shape. iceTransportPolicy
+// "relay" forbids host/srflx candidates outright, so the
+// browser can only reach the rendezvous listener through its
+// TURN allocation; the listener itself has no TURN awareness
+// (it answers checks arriving from the relay's transport
+// address like any other dialer's).
+window.__runRendezvousTurn = async () => {
+  const descriptor = await (await fetch("/rendezvous.json")).json();
+  const turn = new URLSearchParams(location.search).get("turn");
+  const channel = await rendezvousChannel(descriptor, {
+    iceServers: [{ urls: `turn:${turn}`, username: "dcuser", credential: "dcpass" }],
+    iceTransportPolicy: "relay",
+  });
+  try {
+    const stats = await channel.peerConnection.getStats();
+    let pair = null;
+    for (const [, s] of stats) {
+      if (s.type === "candidate-pair" && s.nominated) {
+        pair = { local: s.localCandidateId, remote: s.remoteCandidateId, state: s.state };
+      }
+    }
+    const byId = {};
+    for (const [, s] of stats) {
+      if (s.type === "local-candidate" || s.type === "remote-candidate") byId[s.id] = s;
+    }
+    const client = new EchoClient(channel);
+    const unary = await client.unary(new EchoRequest({ message: "hello-turn", count: 0 }));
+    return {
+      unary: unary.message,
+      localType: pair ? byId[pair.local]?.candidateType : null,
+      remoteType: pair ? byId[pair.remote]?.candidateType : null,
+    };
+  } finally {
+    channel.closeRendezvous();
+  }
+};
+</script>

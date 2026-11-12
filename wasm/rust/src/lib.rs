@@ -470,14 +470,18 @@ pub async fn echo_client_tracing(transport: JsTransport) -> Result<String, JsVal
     let client = EchoClient::new(Channel::new(wasm_transport(transport)));
     let result = client.unary(req("hello", 0)).await;
     grpc_dc::status::set_tracer(None);
-    // Large-message leg on the same endpoint: 192 KiB unary
-    // (under the browser RTCDataChannel max-message-size of
-    // 256 KiB — dc.send rejects larger single messages, and
-    // no browser transport chunks yet; chunking the frame
-    // stream under the endpoint is the follow-up that unlocks
-    // multi-MB browser messages). The multi-MB stall class
-    // must stay dead in browsers too.
-    let large = client.unary(req(&"x".repeat(192 * 1024), 0)).await;
+    // Large-message leg on the same endpoint: 512 KiB unary,
+    // twice the browser RTCDataChannel single-message cap
+    // (256 KiB), so the frame crosses as DC chunks (0xF0 shim
+    // in the page glue + relay); the endpoint sees one whole
+    // frame. 512 KiB is the matrix echo size for every
+    // server (Swift facade included; multi-MiB Swift facade
+    // calls are covered in wasm_swift_facade_server.test.mjs
+    // after its allocator gained a real free list); the
+    // stacks and JS runtime move 1 MiB+ in their own
+    // chunking tests. The multi-MB stall class must stay
+    // dead in browsers too.
+    let large = client.unary(req(&"x".repeat(512 * 1024), 0)).await;
     match (result, large) {
         (Ok(resp), Ok(big)) => {
             let results = MatrixClientResults {

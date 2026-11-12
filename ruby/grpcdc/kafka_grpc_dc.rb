@@ -231,6 +231,74 @@ module KafkaGrpcDc
       @channel.unary("/grpcdc.kafka.v1.Kafka/DeleteTopics", req, KafkaPb::DeleteTopicsResponse.new, metadata, timeout: timeout)
     end
 
+    def DescribeConfigs(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.v1.Kafka/DescribeConfigs", req, KafkaPb::DescribeConfigsResponse.new, metadata, timeout: timeout)
+    end
+
+    def AlterConfigs(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.v1.Kafka/AlterConfigs", req, KafkaPb::AlterConfigsResponse.new, metadata, timeout: timeout)
+    end
+
+    def CreatePartitions(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.v1.Kafka/CreatePartitions", req, KafkaPb::CreatePartitionsResponse.new, metadata, timeout: timeout)
+    end
+
+    def DeleteRecords(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.v1.Kafka/DeleteRecords", req, KafkaPb::DeleteRecordsResponse.new, metadata, timeout: timeout)
+    end
+
+    def ListGroups(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.v1.Kafka/ListGroups", req, KafkaPb::ListGroupsResponse.new, metadata, timeout: timeout)
+    end
+
+    def DescribeGroups(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.v1.Kafka/DescribeGroups", req, KafkaPb::DescribeGroupsResponse.new, metadata, timeout: timeout)
+    end
+
+    def DeleteGroups(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.v1.Kafka/DeleteGroups", req, KafkaPb::DeleteGroupsResponse.new, metadata, timeout: timeout)
+    end
+
+    def DeleteGroupOffsets(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.v1.Kafka/DeleteGroupOffsets", req, KafkaPb::DeleteGroupOffsetsResponse.new, metadata, timeout: timeout)
+    end
+
+    def DescribeAcls(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.v1.Kafka/DescribeAcls", req, KafkaPb::DescribeAclsResponse.new, metadata, timeout: timeout)
+    end
+
+    def CreateAcls(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.v1.Kafka/CreateAcls", req, KafkaPb::CreateAclsResponse.new, metadata, timeout: timeout)
+    end
+
+    def DeleteAcls(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.v1.Kafka/DeleteAcls", req, KafkaPb::DeleteAclsResponse.new, metadata, timeout: timeout)
+    end
+
+    def ListTransactions(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.v1.Kafka/ListTransactions", req, KafkaPb::ListTransactionsResponse.new, metadata, timeout: timeout)
+    end
+
+    def DescribeTransactions(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.v1.Kafka/DescribeTransactions", req, KafkaPb::DescribeTransactionsResponse.new, metadata, timeout: timeout)
+    end
+
+    def OpenShareGroup(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.v1.Kafka/OpenShareGroup", req, KafkaPb::OpenShareGroupResponse.new, metadata, timeout: timeout)
+    end
+
+    def SharePoll(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.v1.Kafka/SharePoll", req, KafkaPb::SharePollResponse.new, metadata, timeout: timeout)
+    end
+
+    def ShareAck(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.v1.Kafka/ShareAck", req, KafkaPb::ShareAckResponse.new, metadata, timeout: timeout)
+    end
+
+    def CloseShareGroup(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.v1.Kafka/CloseShareGroup", req, KafkaPb::CloseShareGroupResponse.new, metadata, timeout: timeout)
+    end
+
   end
 
   # Fiber client: wraps a Grpcdc::FiberChannel (a sync Channel is wrapped).
@@ -287,6 +355,74 @@ module KafkaGrpcDc
 
     def DeleteTopics(req, metadata = nil, timeout: nil)
       @channel.unary("/grpcdc.kafka.v1.Kafka/DeleteTopics", req, KafkaPb::DeleteTopicsResponse.new, metadata, timeout: timeout)
+    end
+
+    def DescribeConfigs(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.v1.Kafka/DescribeConfigs", req, KafkaPb::DescribeConfigsResponse.new, metadata, timeout: timeout)
+    end
+
+    def AlterConfigs(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.v1.Kafka/AlterConfigs", req, KafkaPb::AlterConfigsResponse.new, metadata, timeout: timeout)
+    end
+
+    def CreatePartitions(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.v1.Kafka/CreatePartitions", req, KafkaPb::CreatePartitionsResponse.new, metadata, timeout: timeout)
+    end
+
+    def DeleteRecords(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.v1.Kafka/DeleteRecords", req, KafkaPb::DeleteRecordsResponse.new, metadata, timeout: timeout)
+    end
+
+    def ListGroups(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.v1.Kafka/ListGroups", req, KafkaPb::ListGroupsResponse.new, metadata, timeout: timeout)
+    end
+
+    def DescribeGroups(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.v1.Kafka/DescribeGroups", req, KafkaPb::DescribeGroupsResponse.new, metadata, timeout: timeout)
+    end
+
+    def DeleteGroups(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.v1.Kafka/DeleteGroups", req, KafkaPb::DeleteGroupsResponse.new, metadata, timeout: timeout)
+    end
+
+    def DeleteGroupOffsets(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.v1.Kafka/DeleteGroupOffsets", req, KafkaPb::DeleteGroupOffsetsResponse.new, metadata, timeout: timeout)
+    end
+
+    def DescribeAcls(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.v1.Kafka/DescribeAcls", req, KafkaPb::DescribeAclsResponse.new, metadata, timeout: timeout)
+    end
+
+    def CreateAcls(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.v1.Kafka/CreateAcls", req, KafkaPb::CreateAclsResponse.new, metadata, timeout: timeout)
+    end
+
+    def DeleteAcls(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.v1.Kafka/DeleteAcls", req, KafkaPb::DeleteAclsResponse.new, metadata, timeout: timeout)
+    end
+
+    def ListTransactions(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.v1.Kafka/ListTransactions", req, KafkaPb::ListTransactionsResponse.new, metadata, timeout: timeout)
+    end
+
+    def DescribeTransactions(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.v1.Kafka/DescribeTransactions", req, KafkaPb::DescribeTransactionsResponse.new, metadata, timeout: timeout)
+    end
+
+    def OpenShareGroup(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.v1.Kafka/OpenShareGroup", req, KafkaPb::OpenShareGroupResponse.new, metadata, timeout: timeout)
+    end
+
+    def SharePoll(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.v1.Kafka/SharePoll", req, KafkaPb::SharePollResponse.new, metadata, timeout: timeout)
+    end
+
+    def ShareAck(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.v1.Kafka/ShareAck", req, KafkaPb::ShareAckResponse.new, metadata, timeout: timeout)
+    end
+
+    def CloseShareGroup(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.v1.Kafka/CloseShareGroup", req, KafkaPb::CloseShareGroupResponse.new, metadata, timeout: timeout)
     end
 
   end
@@ -362,6 +498,108 @@ module KafkaGrpcDc
       sink.send(resp.marshal_dc)
     end
 
+    describe_configs_handler = lambda do |ctx, reqs, sink|
+      req = reqs.recv_into(KafkaPb::DescribeConfigsRequest.new)
+      resp = impl.DescribeConfigs(ctx, req)
+      sink.send(resp.marshal_dc)
+    end
+
+    alter_configs_handler = lambda do |ctx, reqs, sink|
+      req = reqs.recv_into(KafkaPb::AlterConfigsRequest.new)
+      resp = impl.AlterConfigs(ctx, req)
+      sink.send(resp.marshal_dc)
+    end
+
+    create_partitions_handler = lambda do |ctx, reqs, sink|
+      req = reqs.recv_into(KafkaPb::CreatePartitionsRequest.new)
+      resp = impl.CreatePartitions(ctx, req)
+      sink.send(resp.marshal_dc)
+    end
+
+    delete_records_handler = lambda do |ctx, reqs, sink|
+      req = reqs.recv_into(KafkaPb::DeleteRecordsRequest.new)
+      resp = impl.DeleteRecords(ctx, req)
+      sink.send(resp.marshal_dc)
+    end
+
+    list_groups_handler = lambda do |ctx, reqs, sink|
+      req = reqs.recv_into(KafkaPb::ListGroupsRequest.new)
+      resp = impl.ListGroups(ctx, req)
+      sink.send(resp.marshal_dc)
+    end
+
+    describe_groups_handler = lambda do |ctx, reqs, sink|
+      req = reqs.recv_into(KafkaPb::DescribeGroupsRequest.new)
+      resp = impl.DescribeGroups(ctx, req)
+      sink.send(resp.marshal_dc)
+    end
+
+    delete_groups_handler = lambda do |ctx, reqs, sink|
+      req = reqs.recv_into(KafkaPb::DeleteGroupsRequest.new)
+      resp = impl.DeleteGroups(ctx, req)
+      sink.send(resp.marshal_dc)
+    end
+
+    delete_group_offsets_handler = lambda do |ctx, reqs, sink|
+      req = reqs.recv_into(KafkaPb::DeleteGroupOffsetsRequest.new)
+      resp = impl.DeleteGroupOffsets(ctx, req)
+      sink.send(resp.marshal_dc)
+    end
+
+    describe_acls_handler = lambda do |ctx, reqs, sink|
+      req = reqs.recv_into(KafkaPb::DescribeAclsRequest.new)
+      resp = impl.DescribeAcls(ctx, req)
+      sink.send(resp.marshal_dc)
+    end
+
+    create_acls_handler = lambda do |ctx, reqs, sink|
+      req = reqs.recv_into(KafkaPb::CreateAclsRequest.new)
+      resp = impl.CreateAcls(ctx, req)
+      sink.send(resp.marshal_dc)
+    end
+
+    delete_acls_handler = lambda do |ctx, reqs, sink|
+      req = reqs.recv_into(KafkaPb::DeleteAclsRequest.new)
+      resp = impl.DeleteAcls(ctx, req)
+      sink.send(resp.marshal_dc)
+    end
+
+    list_transactions_handler = lambda do |ctx, reqs, sink|
+      req = reqs.recv_into(KafkaPb::ListTransactionsRequest.new)
+      resp = impl.ListTransactions(ctx, req)
+      sink.send(resp.marshal_dc)
+    end
+
+    describe_transactions_handler = lambda do |ctx, reqs, sink|
+      req = reqs.recv_into(KafkaPb::DescribeTransactionsRequest.new)
+      resp = impl.DescribeTransactions(ctx, req)
+      sink.send(resp.marshal_dc)
+    end
+
+    open_share_group_handler = lambda do |ctx, reqs, sink|
+      req = reqs.recv_into(KafkaPb::OpenShareGroupRequest.new)
+      resp = impl.OpenShareGroup(ctx, req)
+      sink.send(resp.marshal_dc)
+    end
+
+    share_poll_handler = lambda do |ctx, reqs, sink|
+      req = reqs.recv_into(KafkaPb::SharePollRequest.new)
+      resp = impl.SharePoll(ctx, req)
+      sink.send(resp.marshal_dc)
+    end
+
+    share_ack_handler = lambda do |ctx, reqs, sink|
+      req = reqs.recv_into(KafkaPb::ShareAckRequest.new)
+      resp = impl.ShareAck(ctx, req)
+      sink.send(resp.marshal_dc)
+    end
+
+    close_share_group_handler = lambda do |ctx, reqs, sink|
+      req = reqs.recv_into(KafkaPb::CloseShareGroupRequest.new)
+      resp = impl.CloseShareGroup(ctx, req)
+      sink.send(resp.marshal_dc)
+    end
+
     server.register_service(Grpcdc::ServiceDesc.new(
       "grpcdc.kafka.v1.Kafka",
       [
@@ -377,6 +615,23 @@ module KafkaGrpcDc
         Grpcdc::Method.new("FetchOffset", "/grpcdc.kafka.v1.Kafka/FetchOffset", Grpcdc::KIND_UNARY, fetch_offset_handler),
         Grpcdc::Method.new("CreateTopics", "/grpcdc.kafka.v1.Kafka/CreateTopics", Grpcdc::KIND_UNARY, create_topics_handler),
         Grpcdc::Method.new("DeleteTopics", "/grpcdc.kafka.v1.Kafka/DeleteTopics", Grpcdc::KIND_UNARY, delete_topics_handler),
+        Grpcdc::Method.new("DescribeConfigs", "/grpcdc.kafka.v1.Kafka/DescribeConfigs", Grpcdc::KIND_UNARY, describe_configs_handler),
+        Grpcdc::Method.new("AlterConfigs", "/grpcdc.kafka.v1.Kafka/AlterConfigs", Grpcdc::KIND_UNARY, alter_configs_handler),
+        Grpcdc::Method.new("CreatePartitions", "/grpcdc.kafka.v1.Kafka/CreatePartitions", Grpcdc::KIND_UNARY, create_partitions_handler),
+        Grpcdc::Method.new("DeleteRecords", "/grpcdc.kafka.v1.Kafka/DeleteRecords", Grpcdc::KIND_UNARY, delete_records_handler),
+        Grpcdc::Method.new("ListGroups", "/grpcdc.kafka.v1.Kafka/ListGroups", Grpcdc::KIND_UNARY, list_groups_handler),
+        Grpcdc::Method.new("DescribeGroups", "/grpcdc.kafka.v1.Kafka/DescribeGroups", Grpcdc::KIND_UNARY, describe_groups_handler),
+        Grpcdc::Method.new("DeleteGroups", "/grpcdc.kafka.v1.Kafka/DeleteGroups", Grpcdc::KIND_UNARY, delete_groups_handler),
+        Grpcdc::Method.new("DeleteGroupOffsets", "/grpcdc.kafka.v1.Kafka/DeleteGroupOffsets", Grpcdc::KIND_UNARY, delete_group_offsets_handler),
+        Grpcdc::Method.new("DescribeAcls", "/grpcdc.kafka.v1.Kafka/DescribeAcls", Grpcdc::KIND_UNARY, describe_acls_handler),
+        Grpcdc::Method.new("CreateAcls", "/grpcdc.kafka.v1.Kafka/CreateAcls", Grpcdc::KIND_UNARY, create_acls_handler),
+        Grpcdc::Method.new("DeleteAcls", "/grpcdc.kafka.v1.Kafka/DeleteAcls", Grpcdc::KIND_UNARY, delete_acls_handler),
+        Grpcdc::Method.new("ListTransactions", "/grpcdc.kafka.v1.Kafka/ListTransactions", Grpcdc::KIND_UNARY, list_transactions_handler),
+        Grpcdc::Method.new("DescribeTransactions", "/grpcdc.kafka.v1.Kafka/DescribeTransactions", Grpcdc::KIND_UNARY, describe_transactions_handler),
+        Grpcdc::Method.new("OpenShareGroup", "/grpcdc.kafka.v1.Kafka/OpenShareGroup", Grpcdc::KIND_UNARY, open_share_group_handler),
+        Grpcdc::Method.new("SharePoll", "/grpcdc.kafka.v1.Kafka/SharePoll", Grpcdc::KIND_UNARY, share_poll_handler),
+        Grpcdc::Method.new("ShareAck", "/grpcdc.kafka.v1.Kafka/ShareAck", Grpcdc::KIND_UNARY, share_ack_handler),
+        Grpcdc::Method.new("CloseShareGroup", "/grpcdc.kafka.v1.Kafka/CloseShareGroup", Grpcdc::KIND_UNARY, close_share_group_handler),
       ]
     ))
   end

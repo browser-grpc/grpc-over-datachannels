@@ -238,6 +238,26 @@ const PAIRS = [
     serverSpans: "window",
     exactSingle: true,
   },
+  {
+    clientLabel: "Zig facade client",
+    clientPage: "wasm_zig_page.html?trace=1",
+    serverLabel: "C++ facade server",
+    serverPage: "wasm_cpp_facade_server_page.html?trace=1",
+    runClient: "__runWasm",
+    runServer: "__runServer",
+    clientSpans: "window",
+    serverSpans: "window",
+  },
+  {
+    clientLabel: "C++ facade client",
+    clientPage: "wasm_facade_page.html?wasm=/browser-test/echo_cpp.wasm&trace=1",
+    serverLabel: "Zig facade server",
+    serverPage: "wasm_zig_facade_server_page.html?trace=1",
+    runClient: "__runWasm",
+    runServer: "__runServer",
+    clientSpans: "window",
+    serverSpans: "window",
+  },
 ];
 
 function relay(from, to) {
@@ -290,8 +310,8 @@ async function runPair(name, pair) {
     await clientPg.waitForFunction(() => window.__offer, null, { timeout: 30000 });
     await serverPg.waitForFunction(() => window.__offer, null, { timeout: 30000 });
 
-    clientPeer = await Peer.create();
-    serverPeer = await Peer.create();
+    clientPeer = await Peer.create({ chunkMessages: true });
+    serverPeer = await Peer.create({ chunkMessages: true });
     const clientAnswer = clientPeer.handleOffer(await clientPg.evaluate(() => window.__offer));
     const serverAnswer = serverPeer.handleOffer(await serverPg.evaluate(() => window.__offer));
     await clientPg.evaluate((sdp) => window.__acceptAnswer(sdp), clientAnswer);
@@ -303,7 +323,18 @@ async function runPair(name, pair) {
     relay(serverDc, clientDc);
 
     await serverPg.evaluate((fn) => window[fn](), pair.runServer);
-    const result = await clientPg.evaluate((fn) => window[fn](), pair.runClient);
+    // Per-pair deadline: a wedged pair must fail with its name
+    // attached, not eat the whole suite's timeout (a hung
+    // evaluate otherwise stalls every later pair).
+    const result = await Promise.race([
+      clientPg.evaluate((fn) => window[fn](), pair.runClient),
+      new Promise((_, reject) =>
+        setTimeout(
+          () => reject(new Error(`pair timed out after 180s: ${pair.clientLabel} -> ${pair.serverLabel}`)),
+          180000,
+        ),
+      ),
+    ]);
     assert.equal(pair.exactSingle ? result.message : result.unary, "echo: hello");
 
     // Server span ends can land a tick after the client sees the
@@ -313,7 +344,7 @@ async function runPair(name, pair) {
     const clientData = await readSpans(clientPg, pair.clientSpans, result);
     const serverData = await readSpans(serverPg, pair.serverSpans, result);
     const clientStarts = normalize(clientData.starts).filter((s) => s.kind === "client");
-    // The Rust native client also pushes an untraced 192 KiB
+    // The Rust native client also pushes an untraced large
     // unary on the same endpoint (largeBytes below); its server
     // span belongs to another trace, so parenting assertions
     // only cover server spans in a client trace.
@@ -339,12 +370,12 @@ async function runPair(name, pair) {
       `(client spans ${clientStarts.length}, server spans ${serverStarts.length})`,
     );
     // Large-message leg: clients that report largeBytes pushed
-    // a 192 KiB unary on the same endpoint (just under the
-    // browser max-message-size; the multi-MB stall class must
-    // stay dead in browsers too).
+    // a 512 KiB unary on the same endpoint (twice the browser's
+    // 256 KiB single-message cap, via the DC chunk shim; the
+    // multi-MB stall class must stay dead in browsers too).
     if (result.largeBytes !== undefined) {
-      assert.equal(result.largeBytes, 192 * 1024 + 6, "192 KiB echo byte count");
-      console.log(`${name}: ${pair.clientLabel} -> ${pair.serverLabel} large (192KiB) OK`);
+      assert.equal(result.largeBytes, 512 * 1024 + 6, "512 KiB echo byte count");
+      console.log(`${name}: ${pair.clientLabel} -> ${pair.serverLabel} large (512KiB) OK`);
     }
   } finally {
     await browser.close();

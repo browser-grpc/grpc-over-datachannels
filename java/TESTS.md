@@ -29,6 +29,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`TestInteropOracle.java`](tests/TestInteropOracle.java) — Official-implementation oracle, via the proxy
 - [`TestInteropServerOracle.java`](tests/TestInteropServerOracle.java) — Official-implementation oracle, via the proxy
 - [`TestKafkaE2E.java`](tests/TestKafkaE2E.java) — Kafka end-to-end (broker legs env-gated)
+- [`TestKafkaNative.java`](tests/TestKafkaNative.java) — Kafka end-to-end (broker legs env-gated)
 - [`TestOracle.java`](tests/TestOracle.java) — Official-implementation oracle, via the proxy
 - [`TestPbMessages.java`](tests/TestPbMessages.java) — Generated suite/example
 - [`TestSidecar.java`](tests/TestSidecar.java) — Sidecar transport
