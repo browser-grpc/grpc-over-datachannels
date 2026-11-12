@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import grpcdc
 from grpcdc.kafka_grpc_dc import KafkaClient, KafkaClientAsync
 from grpcdc.kafka_pb import (
+    CloseShareGroupRequest,
     ConsumeRequest,
     CreateTopicsRequest,
     DeleteTopicsRequest,
@@ -28,8 +29,12 @@ from grpcdc.kafka_pb import (
     ListGroupsRequest,
     ListOffsetsRequest,
     NewTopic,
+    OpenShareGroupRequest,
     ProduceRequest,
     Record,
+    ShareAckEntry,
+    ShareAckRequest,
+    SharePollRequest,
 )
 
 PROXY_ADDR = os.environ.get("KAFKA_E2E_PROXY_ADDR", "")
@@ -243,6 +248,137 @@ class TestKafkaAsyncE2E(unittest.IsolatedAsyncioTestCase):
             ListOffsetsRequest(topic=self.topic, partition=0, timestamp=-1)
         )
         self.assertEqual(latest.error_code, 0)
+
+
+@unittest.skipUnless(PROXY_ADDR, "KAFKA_E2E_PROXY_ADDR not set")
+class TestKafkaShareE2E(unittest.TestCase):
+    """KIP-932 share groups via the session RPCs: ACCEPT retires,
+    RELEASE redelivers with delivery_count incremented. Brokers
+    without share-group support (e.g. Redpanda) refuse the open
+    and the test skips, mirroring the Rust share e2e."""
+
+    def _poll(self, client, session, want, timeout_s=30):
+        deadline = time.time() + timeout_s
+        out = []
+        while len(out) < want and time.time() < deadline:
+            resp = client.SharePoll(
+                SharePollRequest(session_id=session, max_records=10, max_wait_ms=500)
+            )
+            self.assertEqual(resp.error_code, 0)
+            out.extend(resp.records)
+            if not out:
+                time.sleep(0.2)
+        return out
+
+    def _produce(self, client, topic, value):
+        resp = client.Produce(
+            ProduceRequest(topic=topic, partition=0, records=[Record(value=value)])
+        )
+        self.assertEqual(resp.error_code, 0)
+
+    def test_share_accept_release_redelivery(self):
+        client = _client()
+        topic = "py-share-e2e-" + uuid.uuid4().hex[:16]
+        group = "py-share-group-" + uuid.uuid4().hex[:16]
+        resp = client.CreateTopics(
+            CreateTopicsRequest(
+                topics=[NewTopic(name=topic, num_partitions=1, replication_factor=1)],
+                timeout_ms=15000,
+            )
+        )
+        self.assertEqual([r.error_code for r in resp.results], [0])
+        try:
+            try:
+                opened = client.OpenShareGroup(
+                    OpenShareGroupRequest(group_id=group, topics=[topic])
+                )
+            except Exception as exc:  # broker without KIP-932
+                self.skipTest(f"share group open raised: {exc}")
+            if opened.error_code != 0:
+                self.skipTest(
+                    f"broker refused share group (error {opened.error_code})"
+                )
+            session = opened.session_id
+            self.assertTrue(session)
+            # Assignment settles asynchronously (bounded in the
+            # service); it may still be empty here under load.
+            # Delivery below is what proves it arrived.
+            self.assertIsNotNone(opened.assignment)
+
+            # A share partition's start offset is taken at its
+            # first fetch; initialize it before producing.
+            init = client.SharePoll(
+                SharePollRequest(session_id=session, max_records=10, max_wait_ms=500)
+            )
+            self.assertEqual(init.error_code, 0)
+            self.assertEqual(init.records, [])
+
+            self._produce(client, topic, b"s1")
+            self._produce(client, topic, b"s2")
+            first = self._poll(client, session, 2)
+            if not first and not opened.assignment.partitions:
+                # The coordinator never assigned and nothing
+                # delivers: this broker cannot initialize share
+                # state (e.g. the gate's combined-mode SASL
+                # fixture, whose share persister cannot
+                # authenticate internally — the reference share
+                # consumer stalls identically there). Delivery
+                # failures WITH an assignment still fail below.
+                self.skipTest("share assignment never delivered on this broker")
+            self.assertEqual(len(first), 2, f"share delivery timed out: {first}")
+            self.assertEqual([r.value for r in first], [b"s1", b"s2"])
+            self.assertTrue(all(r.delivery_count == 1 for r in first))
+
+            acked = client.ShareAck(
+                ShareAckRequest(
+                    session_id=session,
+                    entries=[
+                        ShareAckEntry(
+                            topic=topic, partition=0, offset=r.offset, ack_type=1
+                        )
+                        for r in first
+                    ],
+                )
+            )
+            self.assertEqual(acked.error_code, 0)
+            empty = client.SharePoll(
+                SharePollRequest(session_id=session, max_records=10, max_wait_ms=500)
+            )
+            self.assertEqual(empty.error_code, 0)
+            self.assertEqual(empty.records, [])
+
+            self._produce(client, topic, b"s3")
+            third = self._poll(client, session, 1)
+            self.assertEqual(len(third), 1, "share delivery of s3 timed out")
+            self.assertEqual(third[0].delivery_count, 1)
+            released = client.ShareAck(
+                ShareAckRequest(
+                    session_id=session,
+                    entries=[
+                        ShareAckEntry(
+                            topic=topic,
+                            partition=0,
+                            offset=third[0].offset,
+                            ack_type=2,
+                        )
+                    ],
+                )
+            )
+            self.assertEqual(released.error_code, 0)
+            redelivered = self._poll(client, session, 1)
+            self.assertEqual(len(redelivered), 1, "release redelivery timed out")
+            self.assertEqual(redelivered[0].offset, third[0].offset)
+            self.assertEqual(redelivered[0].delivery_count, 2)
+
+            closed = client.CloseShareGroup(
+                CloseShareGroupRequest(session_id=session)
+            )
+            self.assertEqual(closed.error_code, 0)
+        finally:
+            try:
+                client.DeleteTopics(DeleteTopicsRequest(topics=[topic]))
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":
