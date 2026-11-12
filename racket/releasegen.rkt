@@ -1818,6 +1818,7 @@
     "ENV KAFKA_HOME=/opt/kafka\n"
     "WORKDIR /src\n"
     "COPY rust ./rust\n"
+    "COPY crates/kafka-native ./crates/kafka-native\n"
     "COPY webrtc/rust ./webrtc/rust\n"
     "COPY proto ./proto\n"
     "COPY fixtures ./fixtures\n"
