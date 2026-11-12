@@ -20,6 +20,12 @@ curated release tags on `master`; dates are the tag dates.
   form factor cross-check each other record-for-record in a
   differential gate leg (all compression codecs, consumer
   groups, offsets).
+- kafka-native crate is publishable standalone: the
+  release export internalizes the generated pb/stub
+  modules into the crate and stamps a versioned grpc-dc
+  dependency (crates.io first publish stays a manual,
+  token-based step; OIDC takes over once the crate's
+  Trusted Publisher is registered).
 - KIP-932 share groups in kafka-native: session-based
   `OpenShareGroup`/`SharePoll`/`ShareAck`/`CloseShareGroup`
   RPCs (client-generated member ids, share-session epoch

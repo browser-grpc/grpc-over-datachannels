@@ -2145,13 +2145,44 @@
   (define kn-kn-bare-version
     (if (string-prefix? version "v") (substring version 1) version))
   ;; Stamp the crate version to the release version so the
-  ;; crates.io publish matches the release.
+  ;; crates.io publish matches the release. The grpc-dc path
+  ;; dependency gains the matching version (cargo strips the
+  ;; path when packaging; the exported rust/ tree is stamped
+  ;; to the same version so in-repo builds still resolve via
+  ;; the path), and the generated pb/stub modules are copied
+  ;; inside the crate (lib.rs reaches them via ../../../rust/
+  ;; in the source tree, which a packaged crate cannot do).
   (let* ([cargo (build-path kafka-native-out "crates/kafka-native/Cargo.toml")]
          [stamped (string-replace (file->string cargo)
                                   "version = \"0.1.0\""
-                                  (string-append "version = \"" kn-bare-version "\""))])
+                                  (string-append "version = \"" kn-bare-version "\""))]
+         [stamped (string-replace stamped
+                                  "grpc-dc = { path = \"../../rust\" }"
+                                  (string-append "grpc-dc = { version = \"" kn-bare-version "\", path = \"../../rust\" }"))])
     (call-with-output-file cargo
       (lambda (out) (display stamped out))
+      #:exists 'replace))
+  (let* ([rust-cargo (build-path kafka-native-out "rust/Cargo.toml")]
+         [stamped (string-replace (file->string rust-cargo)
+                                  "version = \"0.1.0\""
+                                  (string-append "version = \"" kn-bare-version "\""))])
+    (call-with-output-file rust-cargo
+      (lambda (out) (display stamped out))
+      #:exists 'replace))
+  (make-directory* (build-path kafka-native-out "crates/kafka-native/src/gen"))
+  (for ([gen (in-list '("kafka_pb.rs" "kafka_grpc_dc.rs"))])
+    (copy-file (build-path out-dir "rust/gen" gen)
+               (build-path kafka-native-out "crates/kafka-native/src/gen" gen)
+               #t))
+  (let* ([lib (build-path kafka-native-out "crates/kafka-native/src/lib.rs")]
+         [rewritten (string-replace (file->string lib)
+                                    "../../../rust/gen/kafka_pb.rs"
+                                    "gen/kafka_pb.rs")]
+         [rewritten (string-replace rewritten
+                                    "../../../rust/gen/kafka_grpc_dc.rs"
+                                    "gen/kafka_grpc_dc.rs")])
+    (call-with-output-file lib
+      (lambda (out) (display rewritten out))
       #:exists 'replace))
   (emit-kn-file
    ".github/workflows/publish-crates.yml"
@@ -2173,9 +2204,14 @@
     "      - uses: dtolnay/rust-toolchain@stable\n"
     "      - uses: rust-lang/crates-io-auth-action@v1\n"
     "        id: auth\n"
-    "      - name: Publish kafka-native\n"
+    "      - name: Publish kafka-native (retry while the index catches up)\n"
     "        working-directory: crates/kafka-native\n"
-    "        run: cargo publish --token ${{ steps.auth.outputs.token }}\n"))
+    "        run: |\n"
+    "          for i in $(seq 1 20); do\n"
+    "            cargo publish --token ${{ steps.auth.outputs.token }} && exit 0\n"
+    "            sleep 30\n"
+    "          done\n"
+    "          exit 1\n"))
   (emit-kn-file
    ".github/workflows/publish-pypi.yml"
    (string-append
