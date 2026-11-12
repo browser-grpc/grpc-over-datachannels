@@ -537,9 +537,9 @@ run() { # label, then command with env
 # built these; standalone `make test-kafka` builds what it needs.
 build_clients() {
     echo "== building language test clients (if missing)"
-    if [ ! -x "$ROOT/dart/build/tests" ]; then
-        (cd "$ROOT" && mkdir -p dart/build && dart compile exe dart/tests/main.dart -o dart/build/tests) || return 1
-    fi
+    # Dart is always rebuilt: the compile is seconds, and a
+    # stale prebuilt binary silently lacks new dispatch cases.
+    (cd "$ROOT" && mkdir -p dart/build && dart compile exe dart/tests/main.dart -o dart/build/tests) || return 1
     if [ ! -f "$ROOT/java/build/tests/TestKafkaE2E.class" ]; then
         (cd "$ROOT/java" && mkdir -p build && javac -encoding UTF-8 -d build $(find grpcdc examples tests -name '*.java')) || return 1
     fi
@@ -553,7 +553,7 @@ build_clients() {
         (cd "$ROOT/csharp" && dotnet build tests/Tests.csproj --nologo -v q) || return 1
     fi
     if [ ! -x "$ROOT/swift/build/tests" ]; then
-        (cd "$ROOT" && mkdir -p swift/build && swiftc -swift-version 5 -O swift/grpcdc/*.swift swift/examples/Pb.swift swift/examples/EchoMessages.swift swift/examples/EchoGrpcDc.swift swift/examples/EchoServiceImpl.swift swift/examples/StdioTransport.swift swift/examples/DynamicEchoService.swift swift/examples/interop/*.swift swift/tests/*.swift -o swift/build/tests) || return 1
+        (cd "$ROOT" && mkdir -p swift/build && swiftc -swift-version 5 -O swift/grpcdc/*.swift swift/examples/Pb.swift swift/examples/EchoMessages.swift swift/examples/EchoGrpcDc.swift swift/examples/EchoServiceImpl.swift swift/examples/StdioTransport.swift swift/examples/DynamicEchoService.swift swift/examples/interop/*.swift $(ls swift/tests/*.swift | grep -v TestKafkaNative.swift) -o swift/build/tests) || return 1
     fi
     if [ ! -x "$ROOT/cpp/build/tests" ]; then
         (cd "$ROOT" && mkdir -p cpp/build && g++ -std=c++17 -pthread -O1 -Icpp -I. cpp/tests/main.cpp cpp/tests/test_codec.cpp cpp/tests/test_echo.cpp cpp/tests/test_interop.cpp cpp/tests/test_interop_oracle.cpp cpp/tests/test_interop_server_oracle.cpp cpp/tests/test_oracle.cpp cpp/tests/test_dynamic.cpp cpp/tests/test_bdd.cpp cpp/tests/test_deadline.cpp cpp/tests/test_inline_pump.cpp cpp/tests/test_pb_messages.cpp cpp/tests/test_bdd_schemas.cpp cpp/tests/test_sidecar.cpp cpp/tests/test_bdd_sidecar.cpp cpp/tests/test_eventbus.cpp cpp/tests/test_kafka_e2e.cpp -o cpp/build/tests) || return 1
@@ -589,7 +589,7 @@ run_suites() { # broker_addr proxy_addr label
     run "php e2e ($label)" env KAFKA_E2E_PROXY_ADDR="$proxy" \
         bash -c "cd '$ROOT' && php php/tests/main.php TestKafkaE2E"
     run "dart e2e ($label)" env KAFKA_E2E_PROXY_ADDR="$proxy" \
-        bash -c "cd '$ROOT/dart' && ./build/tests TestKafkaE2E"
+        bash -c "cd '$ROOT/dart' && ./build/tests TestKafkaE2E && ./build/tests TestKafkaShareE2E"
     run "lua e2e ($label)" env KAFKA_E2E_PROXY_ADDR="$proxy" \
         bash -c "cd '$ROOT' && ${LUA:-lua5.4} lua/tests/main.lua TestKafkaE2E"
     run "java e2e ($label)" env KAFKA_E2E_PROXY_ADDR="$proxy" \

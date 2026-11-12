@@ -17,6 +17,7 @@ import 'test_pb_messages.dart';
 import 'test_sidecar.dart';
 import 'test_kafka_e2e.dart';
 import 'test_kafka_native.dart';
+import 'test_kafka_share_e2e.dart';
 
 // Test runner: ./tests <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic>
 Future<void> main(List<String> args) async {
@@ -73,6 +74,9 @@ Future<void> main(List<String> args) async {
         break;
       case 'TestKafkaE2E':
         await testKafkaE2E();
+        break;
+      case 'TestKafkaShareE2E':
+        await testKafkaShareE2E();
         break;
       case 'TestKafkaNative':
         await testKafkaNative();
