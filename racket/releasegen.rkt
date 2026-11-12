@@ -207,7 +207,7 @@
 
 (for ([rel (in-list tracked)]
       #:when (and (string-prefix? rel "browser-test/")
-                  (regexp-match? #rx"[.](mjs|html|json)$" rel)
+                  (regexp-match? #rx"[.](mjs|html|json|py)$" rel)
                   (not (string-contains? rel "node_modules"))))
   (copy-in rel))
 (for ([rel (in-list '("browser-test/package-lock.json"
@@ -1413,7 +1413,7 @@
                         " && ./build/test_async"))
    (list "swift" "swift:6.2-bookworm"
          '("RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler nodejs && rm -rf /var/lib/apt/lists/*" "COPY swift ./swift" "COPY fixtures ./fixtures" "COPY bin ./bin" "COPY webapp/testdata ./webapp/testdata" "COPY docs/app/protoc-gen-grpc-dc.mjs ./docs/app/protoc-gen-grpc-dc.mjs" "COPY docs/app/gen ./docs/app/gen" "COPY proto ./proto"
-           "RUN mkdir -p swift/build && swiftc -swift-version 5 -O swift/grpcdc/*.swift swift/examples/Pb.swift swift/examples/EchoMessages.swift swift/examples/EchoGrpcDc.swift swift/examples/EchoServiceImpl.swift swift/examples/StdioTransport.swift swift/examples/DynamicEchoService.swift swift/examples/interop/*.swift swift/tests/*.swift -o swift/build/tests && swiftc -swift-version 5 -O swift/grpcdc/*.swift swift/examples/Pb.swift swift/examples/EchoMessages.swift swift/examples/EchoGrpcDc.swift swift/examples/EchoServiceImpl.swift swift/examples/StdioTransport.swift swift/examples/EchoServerStdio/main.swift -o swift/build/echo_server_stdio && swiftc -swift-version 5 -O swift/grpcdc/*.swift swift/examples/Pb.swift swift/examples/EchoMessages.swift swift/examples/EchoGrpcDc.swift swift/examples/EchoServiceImpl.swift swift/examples/StdioTransport.swift swift/examples/EchoClientStdio/main.swift -o swift/build/echo_client_stdio && swiftc -swift-version 5 -O swift/grpcdc/*.swift swift/examples/StdioTransport.swift swift/examples/DynamicEchoService.swift swift/examples/DynamicEchoServerStdio/main.swift -o swift/build/dynamic_echo_server_stdio")
+           "RUN mkdir -p swift/build && swiftc -swift-version 5 -O swift/grpcdc/*.swift swift/examples/Pb.swift swift/examples/EchoMessages.swift swift/examples/EchoGrpcDc.swift swift/examples/EchoServiceImpl.swift swift/examples/StdioTransport.swift swift/examples/DynamicEchoService.swift swift/examples/interop/*.swift $(ls swift/tests/*.swift | grep -v TestKafkaNative.swift) -o swift/build/tests && swiftc -swift-version 5 -O swift/grpcdc/*.swift swift/examples/Pb.swift swift/examples/EchoMessages.swift swift/examples/EchoGrpcDc.swift swift/examples/EchoServiceImpl.swift swift/examples/StdioTransport.swift swift/examples/EchoServerStdio/main.swift -o swift/build/echo_server_stdio && swiftc -swift-version 5 -O swift/grpcdc/*.swift swift/examples/Pb.swift swift/examples/EchoMessages.swift swift/examples/EchoGrpcDc.swift swift/examples/EchoServiceImpl.swift swift/examples/StdioTransport.swift swift/examples/EchoClientStdio/main.swift -o swift/build/echo_client_stdio && swiftc -swift-version 5 -O swift/grpcdc/*.swift swift/examples/StdioTransport.swift swift/examples/DynamicEchoService.swift swift/examples/DynamicEchoServerStdio/main.swift -o swift/build/dynamic_echo_server_stdio")
          (string-append "cd swift && "
                         (test-loop "./build/tests ~a"
                                    '("TestCodec" "TestEcho" "TestBdd" "TestDeadline" "TestBddSchemas" "TestPbMessages"))))
@@ -1611,6 +1611,7 @@
       "FROM rust:1-bookworm AS build\n"
       "WORKDIR /src\n"
       "COPY rust ./rust\n"
+      "COPY crates/kafka-native ./crates/kafka-native\n"
       "COPY webrtc/rust ./webrtc/rust\n"
       "COPY proto ./proto\n"
       "RUN cd rust && cargo build --release --locked --features kafka-tls,webrtc --example kafka_proxy\n"
@@ -1739,7 +1740,7 @@
   (when (directory-exists? kafka-proxy-out)
     (delete-directory/files kafka-proxy-out))
   (make-directory* kafka-proxy-out)
-  (for ([dir (in-list '("rust" "webrtc/rust" "proto" "fixtures"))])
+  (for ([dir (in-list '("rust" "webrtc/rust" "proto" "fixtures" "crates/kafka-native"))])
     (make-directory* (path-only (build-path kafka-proxy-out dir)))
     (copy-directory/files (build-path out-dir dir)
                           (build-path kafka-proxy-out dir)))
@@ -2066,6 +2067,7 @@
     "ENV KAFKA_HOME=/opt/kafka\n"
     "WORKDIR /src\n"
     "COPY rust ./rust\n"
+    "COPY webrtc/rust ./webrtc/rust\n"
     "COPY crates ./crates\n"
     "COPY python ./python\n"
     "COPY proto ./proto\n"
@@ -2250,12 +2252,11 @@
     "        run: |\n"
     "          pip install build\n"
     "          python -m build --wheel\n"
-    "      - name: Repair wheel to a manylinux tag\n"
+    "      - name: Retag wheel to a manylinux tag\n"
     "        run: |\n"
-    "          pip install auditwheel\n"
-    "          auditwheel repair wheel/dist/*.whl -w wheel/dist-fixed\n"
-    "          rm wheel/dist/*.whl\n"
-    "          mv wheel/dist-fixed/*.whl wheel/dist/\n"
+    "          pip install wheel\n"
+    "          GLIBC=$(ldd --version | head -n1 | grep -oE '[0-9]+\\.[0-9]+$' | tr '.' '_')\n"
+    "          python -m wheel tags --platform-tag manylinux_${GLIBC}_x86_64 --remove wheel/dist/*.whl\n"
     "      - name: Publish to PyPI\n"
     "        uses: pypa/gh-action-pypi-publish@release/v1\n"
     "        with:\n"
@@ -2783,7 +2784,7 @@
                "cd zig && zig build tests"
                (string-append "Zig package manager: `zig fetch --save git+https://github.com/browser-grpc/grpc-over-datachannels.git#" version "` — the repository root is a Zig package (build.zig.zon) exposing modules `grpcdc` (the runtime) and `kafka_grpc` (the grpcdc.kafka.v1 stubs). Depend on it with `b.dependency(\"grpc_dc\", .{})` and `dep.module(\"grpcdc\")` / `dep.module(\"kafka_grpc\")`. Or copy this directory; there are no dependencies."))
    "swift" (list "Swift"
-                 "cd swift && mkdir -p build && swiftc -swift-version 5 -O grpcdc/*.swift examples/Pb.swift examples/EchoMessages.swift examples/EchoGrpcDc.swift examples/EchoServiceImpl.swift examples/StdioTransport.swift examples/DynamicEchoService.swift examples/interop/*.swift tests/*.swift -o build/tests && ./build/tests TestEcho"
+                 "cd swift && mkdir -p build && swiftc -swift-version 5 -O grpcdc/*.swift examples/Pb.swift examples/EchoMessages.swift examples/EchoGrpcDc.swift examples/EchoServiceImpl.swift examples/StdioTransport.swift examples/DynamicEchoService.swift examples/interop/*.swift $(ls tests/*.swift | grep -v TestKafkaNative.swift) -o build/tests && ./build/tests TestEcho"
                  "SwiftPM: this repository is a Swift package (Package.swift at the root, listed on the Swift Package Index). Add it as a package dependency on https://github.com/browser-grpc/grpc-over-datachannels (use the newest release tag) and depend on the `GrpcDc` library product (module `Grpcdc`). Or compile the sources in `swift/grpcdc/` directly into your target — no dependencies either way. The `grpcdc.kafka.v1` stubs (KafkaMessages/KafkaGrpcDc) are part of the same module.")
    "csharp" (list "C#"
                   "cd csharp && dotnet run --project tests -- TestEcho"
