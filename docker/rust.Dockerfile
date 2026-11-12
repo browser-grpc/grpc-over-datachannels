@@ -9,6 +9,7 @@ FROM rust:1-bookworm
 WORKDIR /src
 RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler nodejs && rm -rf /var/lib/apt/lists/*
 COPY rust ./rust
+COPY crates/kafka-native ./crates/kafka-native
 COPY webrtc/rust ./webrtc/rust
 COPY fixtures ./fixtures
 COPY bin ./bin

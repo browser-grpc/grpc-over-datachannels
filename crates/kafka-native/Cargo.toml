@@ -1,0 +1,24 @@
+[package]
+name = "kafka-native"
+version = "0.1.0"
+edition = "2021"
+description = "Kafka protocol client for grpc-dc: dependency-free Kafka wire implementation behind the grpcdc.kafka.v1 service, usable in-process (library) or via the kafka_proxy sidecar"
+license = "Apache-2.0"
+
+[lib]
+name = "kafka_native"
+path = "src/lib.rs"
+crate-type = ["lib", "cdylib"]
+
+[features]
+default = ["kafka-tls"]
+# TLS to the broker (rustls), mirroring the proxy's kafka-tls.
+kafka-tls = ["dep:tokio-rustls", "dep:rustls", "dep:rustls-pemfile"]
+
+[dependencies]
+grpc-dc = { path = "../../rust" }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "sync", "time", "io-util", "net"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+tokio-rustls = { version = "0.26", optional = true, default-features = false, features = ["ring", "tls12"] }
+rustls = { version = "0.23", optional = true, default-features = false, features = ["ring", "std", "tls12"] }
+rustls-pemfile = { version = "2", optional = true }
