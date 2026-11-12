@@ -78,7 +78,11 @@ Share partitions take their start offset when first fetched,
 so records produced before the first poll of a fresh share
 partition are not delivered (verified against the reference
 share consumer). Member ids are client-generated Kafka
-Uuids, as the protocol requires.
+Uuids, as the protocol requires. `DescribeShareGroups`
+(ShareGroupDescribe, API 77) reports live members, epochs,
+and assignments; share groups are managed by the group
+coordinator (client FindCoordinator key type 2 is rejected
+by the broker).
 
 ## Service surface
 

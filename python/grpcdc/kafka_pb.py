@@ -3876,3 +3876,208 @@ class CloseShareGroupResponse:
         return f"CloseShareGroupResponse(error_code={self.error_code!r})"
 
 
+class ShareGroupMember:
+    """Message grpcdc.kafka.v1.ShareGroupMember."""
+
+    def __init__(self, member_id="", member_epoch=0, client_id="", client_host="", subscribed_topics=None, assignment=None):
+        self.member_id = member_id
+        self.member_epoch = member_epoch
+        self.client_id = client_id
+        self.client_host = client_host
+        self.subscribed_topics = list(subscribed_topics) if subscribed_topics is not None else []
+        self.assignment = list(assignment) if assignment is not None else []
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        out = _append_string_field(out, 1, self.member_id)
+        out = _append_varint_field(out, 2, self.member_epoch)
+        out = _append_string_field(out, 3, self.client_id)
+        out = _append_string_field(out, 4, self.client_host)
+        for v in self.subscribed_topics:
+            out = _append_bytes_field(out, 5, v.encode("utf-8"))
+        for v in self.assignment:
+            out = _append_bytes_field(out, 6, v.marshal_dc())
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.member_id = ""
+        self.member_epoch = 0
+        self.client_id = ""
+        self.client_host = ""
+        self.subscribed_topics = []
+        self.assignment = []
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                self.member_id = value.decode("utf-8")
+            elif num == 2:
+                self.member_epoch = _as_int32(value)
+            elif num == 3:
+                self.client_id = value.decode("utf-8")
+            elif num == 4:
+                self.client_host = value.decode("utf-8")
+            elif num == 5:
+                self.subscribed_topics.append(value.decode("utf-8"))
+            elif num == 6:
+                tmp = TopicPartition()
+                tmp.unmarshal_dc(value)
+                tmp2 = tmp
+                self.assignment.append(tmp2)
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, ShareGroupMember) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"ShareGroupMember(member_id={self.member_id!r}, member_epoch={self.member_epoch!r}, client_id={self.client_id!r}, client_host={self.client_host!r}, subscribed_topics={self.subscribed_topics!r}, assignment={self.assignment!r})"
+
+
+class ShareGroupDescription:
+    """Message grpcdc.kafka.v1.ShareGroupDescription."""
+
+    def __init__(self, group_id="", error_code=0, state="", group_epoch=0, assignment_epoch=0, members=None):
+        self.group_id = group_id
+        self.error_code = error_code
+        self.state = state
+        self.group_epoch = group_epoch
+        self.assignment_epoch = assignment_epoch
+        self.members = list(members) if members is not None else []
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        out = _append_string_field(out, 1, self.group_id)
+        out = _append_varint_field(out, 2, self.error_code)
+        out = _append_string_field(out, 3, self.state)
+        out = _append_varint_field(out, 4, self.group_epoch)
+        out = _append_varint_field(out, 5, self.assignment_epoch)
+        for v in self.members:
+            out = _append_bytes_field(out, 6, v.marshal_dc())
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.group_id = ""
+        self.error_code = 0
+        self.state = ""
+        self.group_epoch = 0
+        self.assignment_epoch = 0
+        self.members = []
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                self.group_id = value.decode("utf-8")
+            elif num == 2:
+                self.error_code = _as_int32(value)
+            elif num == 3:
+                self.state = value.decode("utf-8")
+            elif num == 4:
+                self.group_epoch = _as_int32(value)
+            elif num == 5:
+                self.assignment_epoch = _as_int32(value)
+            elif num == 6:
+                tmp = ShareGroupMember()
+                tmp.unmarshal_dc(value)
+                tmp2 = tmp
+                self.members.append(tmp2)
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, ShareGroupDescription) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"ShareGroupDescription(group_id={self.group_id!r}, error_code={self.error_code!r}, state={self.state!r}, group_epoch={self.group_epoch!r}, assignment_epoch={self.assignment_epoch!r}, members={self.members!r})"
+
+
+class DescribeShareGroupsRequest:
+    """Message grpcdc.kafka.v1.DescribeShareGroupsRequest."""
+
+    def __init__(self, group_ids=None):
+        self.group_ids = list(group_ids) if group_ids is not None else []
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        for v in self.group_ids:
+            out = _append_bytes_field(out, 1, v.encode("utf-8"))
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.group_ids = []
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                self.group_ids.append(value.decode("utf-8"))
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, DescribeShareGroupsRequest) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"DescribeShareGroupsRequest(group_ids={self.group_ids!r})"
+
+
+class DescribeShareGroupsResponse:
+    """Message grpcdc.kafka.v1.DescribeShareGroupsResponse."""
+
+    def __init__(self, groups=None, error_code=0):
+        self.groups = list(groups) if groups is not None else []
+        self.error_code = error_code
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        for v in self.groups:
+            out = _append_bytes_field(out, 1, v.marshal_dc())
+        out = _append_varint_field(out, 2, self.error_code)
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.groups = []
+        self.error_code = 0
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                tmp = ShareGroupDescription()
+                tmp.unmarshal_dc(value)
+                tmp2 = tmp
+                self.groups.append(tmp2)
+            elif num == 2:
+                self.error_code = _as_int32(value)
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, DescribeShareGroupsResponse) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"DescribeShareGroupsResponse(groups={self.groups!r}, error_code={self.error_code!r})"
+
+

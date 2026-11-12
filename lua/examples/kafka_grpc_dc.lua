@@ -66,6 +66,8 @@ local ShareAckRequest = kafkaMessages.ShareAckRequest
 local ShareAckResponse = kafkaMessages.ShareAckResponse
 local CloseShareGroupRequest = kafkaMessages.CloseShareGroupRequest
 local CloseShareGroupResponse = kafkaMessages.CloseShareGroupResponse
+local DescribeShareGroupsRequest = kafkaMessages.DescribeShareGroupsRequest
+local DescribeShareGroupsResponse = kafkaMessages.DescribeShareGroupsResponse
 
 local Channel = channelModule.Channel
 local Server = serverModule.Server
@@ -362,6 +364,12 @@ function KafkaClient:closeShareGroup(req, metadata, timeout)
   return resp
 end
 
+function KafkaClient:describeShareGroups(req, metadata, timeout)
+  local resp = DescribeShareGroupsResponse.new()
+  self.channel:unary("/grpcdc.kafka.v1.Kafka/DescribeShareGroups", req, resp, metadata, timeout)
+  return resp
+end
+
 --- Coroutine receiving stream for Consume responses: a producer
 --- coroutine yields each response; next() returns nil at the
 --- end of the call and raises a Status on trailers errors.
@@ -645,6 +653,12 @@ end
 function KafkaClientCoro:closeShareGroup(req, metadata, timeout)
   local resp = CloseShareGroupResponse.new()
   self.channel:unary("/grpcdc.kafka.v1.Kafka/CloseShareGroup", req, resp, metadata, timeout)
+  return resp
+end
+
+function KafkaClientCoro:describeShareGroups(req, metadata, timeout)
+  local resp = DescribeShareGroupsResponse.new()
+  self.channel:unary("/grpcdc.kafka.v1.Kafka/DescribeShareGroups", req, resp, metadata, timeout)
   return resp
 end
 
@@ -943,6 +957,16 @@ local function registerKafkaServer(server, impl)
           local req = CloseShareGroupRequest.new()
           reqs:recvInto(req)
           sink(impl:closeShareGroup(ctx, req):marshalDc())
+        end,
+      },
+      {
+        name = "DescribeShareGroups",
+        path = "/grpcdc.kafka.v1.Kafka/DescribeShareGroups",
+        kind = Server.KIND_UNARY,
+        handler = function(ctx, reqs, sink)
+          local req = DescribeShareGroupsRequest.new()
+          reqs:recvInto(req)
+          sink(impl:describeShareGroups(ctx, req):marshalDc())
         end,
       },
     },

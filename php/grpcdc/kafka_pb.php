@@ -5589,3 +5589,298 @@ class CloseShareGroupResponse
     }
 }
 
+class ShareGroupMember
+{
+    public string $memberId = "";
+    public int $memberEpoch = 0;
+    public string $clientId = "";
+    public string $clientHost = "";
+    public array $subscribedTopics = [];
+    public array $assignment = [];
+
+    public string $unknownFields = "";
+    public function __construct(string $memberId = "", int $memberEpoch = 0, string $clientId = "", string $clientHost = "", array $subscribedTopics = [], array $assignment = [])
+    {
+        $this->memberId = $memberId;
+        $this->memberEpoch = $memberEpoch;
+        $this->clientId = $clientId;
+        $this->clientHost = $clientHost;
+        $this->subscribedTopics = $subscribedTopics;
+        $this->assignment = $assignment;
+    }
+
+    public function marshalDc(): string
+    {
+        $w = new Writer();
+        $w->stringField(1, $this->memberId);
+        if ($this->memberEpoch !== 0) {
+            $w->tag(2, 0);
+            $w->varint($this->memberEpoch);
+        }
+        $w->stringField(3, $this->clientId);
+        $w->stringField(4, $this->clientHost);
+        foreach ($this->subscribedTopics as $x) {
+            $w->bytesField(5, $x);
+        }
+        foreach ($this->assignment as $x) {
+            $w->bytesField(6, $x->marshalDc());
+        }
+        $w->raw($this->unknownFields);
+        return $w->toBytes();
+    }
+
+    public function unmarshalDc(string $data): self
+    {
+        $this->unknownFields = "";
+        $this->memberId = "";
+        $this->memberEpoch = 0;
+        $this->clientId = "";
+        $this->clientHost = "";
+        $this->subscribedTopics = [];
+        $this->assignment = [];
+        $r = new Reader($data);
+        while (($item = $r->field()) !== null) {
+            [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;
+            switch ($num) {
+                case 1:
+                    $this->memberId = $bytesValue;
+                    break;
+                case 2:
+                    $this->memberEpoch = ((($varintValue & 0xffffffff) >= 0x80000000) ? (($varintValue & 0xffffffff) - 0x100000000) : ($varintValue & 0xffffffff));
+                    break;
+                case 3:
+                    $this->clientId = $bytesValue;
+                    break;
+                case 4:
+                    $this->clientHost = $bytesValue;
+                    break;
+                case 5:
+                    $this->subscribedTopics[] = $bytesValue;
+                    break;
+                case 6:
+                    $item = new TopicPartition();
+                    $item->unmarshalDc($bytesValue);
+                    $this->assignment[] = $item;
+                    break;
+                default:
+                    $this->unknownFields .= $rawValue;
+                    break;
+            }
+        }
+        return $this;
+    }
+
+    public function equals(?object $other): bool
+    {
+        return $other instanceof ShareGroupMember
+            && $this->memberId === $other->memberId
+            && $this->memberEpoch === $other->memberEpoch
+            && $this->clientId === $other->clientId
+            && $this->clientHost === $other->clientHost
+            && $this->subscribedTopics === $other->subscribedTopics
+            && $this->assignment === $other->assignment;
+    }
+}
+
+class ShareGroupDescription
+{
+    public string $groupId = "";
+    public int $errorCode = 0;
+    public string $state = "";
+    public int $groupEpoch = 0;
+    public int $assignmentEpoch = 0;
+    public array $members = [];
+
+    public string $unknownFields = "";
+    public function __construct(string $groupId = "", int $errorCode = 0, string $state = "", int $groupEpoch = 0, int $assignmentEpoch = 0, array $members = [])
+    {
+        $this->groupId = $groupId;
+        $this->errorCode = $errorCode;
+        $this->state = $state;
+        $this->groupEpoch = $groupEpoch;
+        $this->assignmentEpoch = $assignmentEpoch;
+        $this->members = $members;
+    }
+
+    public function marshalDc(): string
+    {
+        $w = new Writer();
+        $w->stringField(1, $this->groupId);
+        if ($this->errorCode !== 0) {
+            $w->tag(2, 0);
+            $w->varint($this->errorCode);
+        }
+        $w->stringField(3, $this->state);
+        if ($this->groupEpoch !== 0) {
+            $w->tag(4, 0);
+            $w->varint($this->groupEpoch);
+        }
+        if ($this->assignmentEpoch !== 0) {
+            $w->tag(5, 0);
+            $w->varint($this->assignmentEpoch);
+        }
+        foreach ($this->members as $x) {
+            $w->bytesField(6, $x->marshalDc());
+        }
+        $w->raw($this->unknownFields);
+        return $w->toBytes();
+    }
+
+    public function unmarshalDc(string $data): self
+    {
+        $this->unknownFields = "";
+        $this->groupId = "";
+        $this->errorCode = 0;
+        $this->state = "";
+        $this->groupEpoch = 0;
+        $this->assignmentEpoch = 0;
+        $this->members = [];
+        $r = new Reader($data);
+        while (($item = $r->field()) !== null) {
+            [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;
+            switch ($num) {
+                case 1:
+                    $this->groupId = $bytesValue;
+                    break;
+                case 2:
+                    $this->errorCode = ((($varintValue & 0xffffffff) >= 0x80000000) ? (($varintValue & 0xffffffff) - 0x100000000) : ($varintValue & 0xffffffff));
+                    break;
+                case 3:
+                    $this->state = $bytesValue;
+                    break;
+                case 4:
+                    $this->groupEpoch = ((($varintValue & 0xffffffff) >= 0x80000000) ? (($varintValue & 0xffffffff) - 0x100000000) : ($varintValue & 0xffffffff));
+                    break;
+                case 5:
+                    $this->assignmentEpoch = ((($varintValue & 0xffffffff) >= 0x80000000) ? (($varintValue & 0xffffffff) - 0x100000000) : ($varintValue & 0xffffffff));
+                    break;
+                case 6:
+                    $item = new ShareGroupMember();
+                    $item->unmarshalDc($bytesValue);
+                    $this->members[] = $item;
+                    break;
+                default:
+                    $this->unknownFields .= $rawValue;
+                    break;
+            }
+        }
+        return $this;
+    }
+
+    public function equals(?object $other): bool
+    {
+        return $other instanceof ShareGroupDescription
+            && $this->groupId === $other->groupId
+            && $this->errorCode === $other->errorCode
+            && $this->state === $other->state
+            && $this->groupEpoch === $other->groupEpoch
+            && $this->assignmentEpoch === $other->assignmentEpoch
+            && $this->members === $other->members;
+    }
+}
+
+class DescribeShareGroupsRequest
+{
+    public array $groupIds = [];
+
+    public string $unknownFields = "";
+    public function __construct(array $groupIds = [])
+    {
+        $this->groupIds = $groupIds;
+    }
+
+    public function marshalDc(): string
+    {
+        $w = new Writer();
+        foreach ($this->groupIds as $x) {
+            $w->bytesField(1, $x);
+        }
+        $w->raw($this->unknownFields);
+        return $w->toBytes();
+    }
+
+    public function unmarshalDc(string $data): self
+    {
+        $this->unknownFields = "";
+        $this->groupIds = [];
+        $r = new Reader($data);
+        while (($item = $r->field()) !== null) {
+            [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;
+            switch ($num) {
+                case 1:
+                    $this->groupIds[] = $bytesValue;
+                    break;
+                default:
+                    $this->unknownFields .= $rawValue;
+                    break;
+            }
+        }
+        return $this;
+    }
+
+    public function equals(?object $other): bool
+    {
+        return $other instanceof DescribeShareGroupsRequest
+            && $this->groupIds === $other->groupIds;
+    }
+}
+
+class DescribeShareGroupsResponse
+{
+    public array $groups = [];
+    public int $errorCode = 0;
+
+    public string $unknownFields = "";
+    public function __construct(array $groups = [], int $errorCode = 0)
+    {
+        $this->groups = $groups;
+        $this->errorCode = $errorCode;
+    }
+
+    public function marshalDc(): string
+    {
+        $w = new Writer();
+        foreach ($this->groups as $x) {
+            $w->bytesField(1, $x->marshalDc());
+        }
+        if ($this->errorCode !== 0) {
+            $w->tag(2, 0);
+            $w->varint($this->errorCode);
+        }
+        $w->raw($this->unknownFields);
+        return $w->toBytes();
+    }
+
+    public function unmarshalDc(string $data): self
+    {
+        $this->unknownFields = "";
+        $this->groups = [];
+        $this->errorCode = 0;
+        $r = new Reader($data);
+        while (($item = $r->field()) !== null) {
+            [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;
+            switch ($num) {
+                case 1:
+                    $item = new ShareGroupDescription();
+                    $item->unmarshalDc($bytesValue);
+                    $this->groups[] = $item;
+                    break;
+                case 2:
+                    $this->errorCode = ((($varintValue & 0xffffffff) >= 0x80000000) ? (($varintValue & 0xffffffff) - 0x100000000) : ($varintValue & 0xffffffff));
+                    break;
+                default:
+                    $this->unknownFields .= $rawValue;
+                    break;
+            }
+        }
+        return $this;
+    }
+
+    public function equals(?object $other): bool
+    {
+        return $other instanceof DescribeShareGroupsResponse
+            && $this->groups === $other->groups
+            && $this->errorCode === $other->errorCode;
+    }
+}
+

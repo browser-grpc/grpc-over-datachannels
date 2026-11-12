@@ -196,6 +196,10 @@ local ShareAckRequest
 local ShareAckResponse
 local CloseShareGroupRequest
 local CloseShareGroupResponse
+local ShareGroupMember
+local ShareGroupDescription
+local DescribeShareGroupsRequest
+local DescribeShareGroupsResponse
 local Compression = { COMPRESSION_NONE = 0, COMPRESSION_GZIP = 1, COMPRESSION_SNAPPY = 2, COMPRESSION_LZ4 = 3, COMPRESSION_ZSTD = 4 }
 
 local Acks = { ACKS_UNSPECIFIED = 0, ACKS_NONE = 1, ACKS_LEADER = 2, ACKS_ALL = 3 }
@@ -3409,6 +3413,176 @@ function CloseShareGroupResponse:unmarshalDc(data)
   end
 end
 
+ShareGroupMember = {}
+ShareGroupMember.__index = ShareGroupMember
+
+function ShareGroupMember.new(memberId, memberEpoch, clientId, clientHost, subscribedTopics, assignment)
+  return setmetatable({ memberId = memberId or "", memberEpoch = memberEpoch or 0, clientId = clientId or "", clientHost = clientHost or "", subscribedTopics = subscribedTopics or {}, assignment = assignment or {}, unknownFields = "" }, ShareGroupMember)
+end
+
+function ShareGroupMember:marshalDc()
+  local w = Writer.new()
+    w:stringField(1, self.memberId)
+    if self.memberEpoch ~= 0 then w:tag(2, 0) w:varint(self.memberEpoch) end
+    w:stringField(3, self.clientId)
+    w:stringField(4, self.clientHost)
+    for _, x in ipairs(self.subscribedTopics) do w:bytesField(5, x) end
+    for _, x in ipairs(self.assignment) do w:bytesField(6, x:marshalDc()) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function ShareGroupMember:unmarshalDc(data)
+  self.unknownFields = ""
+  self.memberId = ""
+  self.memberEpoch = 0
+  self.clientId = ""
+  self.clientHost = ""
+  self.subscribedTopics = {}
+  self.assignment = {}
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      self.memberId = field.bytesValue
+    elseif field.number == 2 then
+      self.memberEpoch = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    elseif field.number == 3 then
+      self.clientId = field.bytesValue
+    elseif field.number == 4 then
+      self.clientHost = field.bytesValue
+    elseif field.number == 5 then
+      self.subscribedTopics[#self.subscribedTopics + 1] = field.bytesValue
+    elseif field.number == 6 then
+      local item = TopicPartition.new()
+      item:unmarshalDc(field.bytesValue)
+      self.assignment[#self.assignment + 1] = item
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+ShareGroupDescription = {}
+ShareGroupDescription.__index = ShareGroupDescription
+
+function ShareGroupDescription.new(groupId, errorCode, state, groupEpoch, assignmentEpoch, members)
+  return setmetatable({ groupId = groupId or "", errorCode = errorCode or 0, state = state or "", groupEpoch = groupEpoch or 0, assignmentEpoch = assignmentEpoch or 0, members = members or {}, unknownFields = "" }, ShareGroupDescription)
+end
+
+function ShareGroupDescription:marshalDc()
+  local w = Writer.new()
+    w:stringField(1, self.groupId)
+    if self.errorCode ~= 0 then w:tag(2, 0) w:varint(self.errorCode) end
+    w:stringField(3, self.state)
+    if self.groupEpoch ~= 0 then w:tag(4, 0) w:varint(self.groupEpoch) end
+    if self.assignmentEpoch ~= 0 then w:tag(5, 0) w:varint(self.assignmentEpoch) end
+    for _, x in ipairs(self.members) do w:bytesField(6, x:marshalDc()) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function ShareGroupDescription:unmarshalDc(data)
+  self.unknownFields = ""
+  self.groupId = ""
+  self.errorCode = 0
+  self.state = ""
+  self.groupEpoch = 0
+  self.assignmentEpoch = 0
+  self.members = {}
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      self.groupId = field.bytesValue
+    elseif field.number == 2 then
+      self.errorCode = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    elseif field.number == 3 then
+      self.state = field.bytesValue
+    elseif field.number == 4 then
+      self.groupEpoch = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    elseif field.number == 5 then
+      self.assignmentEpoch = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    elseif field.number == 6 then
+      local item = ShareGroupMember.new()
+      item:unmarshalDc(field.bytesValue)
+      self.members[#self.members + 1] = item
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+DescribeShareGroupsRequest = {}
+DescribeShareGroupsRequest.__index = DescribeShareGroupsRequest
+
+function DescribeShareGroupsRequest.new(groupIds)
+  return setmetatable({ groupIds = groupIds or {}, unknownFields = "" }, DescribeShareGroupsRequest)
+end
+
+function DescribeShareGroupsRequest:marshalDc()
+  local w = Writer.new()
+    for _, x in ipairs(self.groupIds) do w:bytesField(1, x) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function DescribeShareGroupsRequest:unmarshalDc(data)
+  self.unknownFields = ""
+  self.groupIds = {}
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      self.groupIds[#self.groupIds + 1] = field.bytesValue
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+DescribeShareGroupsResponse = {}
+DescribeShareGroupsResponse.__index = DescribeShareGroupsResponse
+
+function DescribeShareGroupsResponse.new(groups, errorCode)
+  return setmetatable({ groups = groups or {}, errorCode = errorCode or 0, unknownFields = "" }, DescribeShareGroupsResponse)
+end
+
+function DescribeShareGroupsResponse:marshalDc()
+  local w = Writer.new()
+    for _, x in ipairs(self.groups) do w:bytesField(1, x:marshalDc()) end
+    if self.errorCode ~= 0 then w:tag(2, 0) w:varint(self.errorCode) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function DescribeShareGroupsResponse:unmarshalDc(data)
+  self.unknownFields = ""
+  self.groups = {}
+  self.errorCode = 0
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      local item = ShareGroupDescription.new()
+      item:unmarshalDc(field.bytesValue)
+      self.groups[#self.groups + 1] = item
+    elseif field.number == 2 then
+      self.errorCode = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
 return {
   Header = Header,
   Record = Record,
@@ -3492,6 +3666,10 @@ return {
   ShareAckResponse = ShareAckResponse,
   CloseShareGroupRequest = CloseShareGroupRequest,
   CloseShareGroupResponse = CloseShareGroupResponse,
+  ShareGroupMember = ShareGroupMember,
+  ShareGroupDescription = ShareGroupDescription,
+  DescribeShareGroupsRequest = DescribeShareGroupsRequest,
+  DescribeShareGroupsResponse = DescribeShareGroupsResponse,
   Compression = Compression,
   Acks = Acks,
   ConfigResourceType = ConfigResourceType,

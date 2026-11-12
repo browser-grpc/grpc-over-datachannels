@@ -299,6 +299,10 @@ module KafkaGrpcDc
       @channel.unary("/grpcdc.kafka.v1.Kafka/CloseShareGroup", req, KafkaPb::CloseShareGroupResponse.new, metadata, timeout: timeout)
     end
 
+    def DescribeShareGroups(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.v1.Kafka/DescribeShareGroups", req, KafkaPb::DescribeShareGroupsResponse.new, metadata, timeout: timeout)
+    end
+
   end
 
   # Fiber client: wraps a Grpcdc::FiberChannel (a sync Channel is wrapped).
@@ -423,6 +427,10 @@ module KafkaGrpcDc
 
     def CloseShareGroup(req, metadata = nil, timeout: nil)
       @channel.unary("/grpcdc.kafka.v1.Kafka/CloseShareGroup", req, KafkaPb::CloseShareGroupResponse.new, metadata, timeout: timeout)
+    end
+
+    def DescribeShareGroups(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.v1.Kafka/DescribeShareGroups", req, KafkaPb::DescribeShareGroupsResponse.new, metadata, timeout: timeout)
     end
 
   end
@@ -600,6 +608,12 @@ module KafkaGrpcDc
       sink.send(resp.marshal_dc)
     end
 
+    describe_share_groups_handler = lambda do |ctx, reqs, sink|
+      req = reqs.recv_into(KafkaPb::DescribeShareGroupsRequest.new)
+      resp = impl.DescribeShareGroups(ctx, req)
+      sink.send(resp.marshal_dc)
+    end
+
     server.register_service(Grpcdc::ServiceDesc.new(
       "grpcdc.kafka.v1.Kafka",
       [
@@ -632,6 +646,7 @@ module KafkaGrpcDc
         Grpcdc::Method.new("SharePoll", "/grpcdc.kafka.v1.Kafka/SharePoll", Grpcdc::KIND_UNARY, share_poll_handler),
         Grpcdc::Method.new("ShareAck", "/grpcdc.kafka.v1.Kafka/ShareAck", Grpcdc::KIND_UNARY, share_ack_handler),
         Grpcdc::Method.new("CloseShareGroup", "/grpcdc.kafka.v1.Kafka/CloseShareGroup", Grpcdc::KIND_UNARY, close_share_group_handler),
+        Grpcdc::Method.new("DescribeShareGroups", "/grpcdc.kafka.v1.Kafka/DescribeShareGroups", Grpcdc::KIND_UNARY, describe_share_groups_handler),
       ]
     ))
   end

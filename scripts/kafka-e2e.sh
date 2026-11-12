@@ -549,9 +549,9 @@ build_clients() {
     if [ ! -f "$ROOT/scala/build/tests.jar" ]; then
         (cd "$ROOT" && mkdir -p scala/build && scalac -d scala/build/tests.jar scala/grpcdc/*.scala scala/examples/EchoMessages.scala scala/examples/EchoGrpcDc.scala scala/examples/EchoServiceImpl.scala scala/examples/StdioTransport.scala scala/examples/DynamicEchoService.scala scala/examples/interop/*.scala scala/tests/*.scala) || return 1
     fi
-    if [ ! -f "$ROOT/csharp/tests/bin/Debug/net8.0/GrpcdcTests.dll" ]; then
-        (cd "$ROOT/csharp" && dotnet build tests/Tests.csproj --nologo -v q) || return 1
-    fi
+    # C# is always rebuilt too (incremental; a stale dll
+    # silently lacks new dispatch cases).
+    (cd "$ROOT/csharp" && dotnet build tests/Tests.csproj --nologo -v q) || return 1
     if [ ! -x "$ROOT/swift/build/tests" ]; then
         (cd "$ROOT" && mkdir -p swift/build && swiftc -swift-version 5 -O swift/grpcdc/*.swift swift/examples/Pb.swift swift/examples/EchoMessages.swift swift/examples/EchoGrpcDc.swift swift/examples/EchoServiceImpl.swift swift/examples/StdioTransport.swift swift/examples/DynamicEchoService.swift swift/examples/interop/*.swift $(ls swift/tests/*.swift | grep -v TestKafkaNative.swift) -o swift/build/tests) || return 1
     fi
@@ -599,7 +599,7 @@ run_suites() { # broker_addr proxy_addr label
     run "scala e2e ($label)" env KAFKA_E2E_PROXY_ADDR="$proxy" \
         bash -c "cd '$ROOT' && java -cp '$(scala_libs)' tests.Main TestKafkaE2E"
     run "csharp e2e ($label)" env KAFKA_E2E_PROXY_ADDR="$proxy" \
-        bash -c "cd '$ROOT/csharp' && dotnet run --project tests --no-build -- TestKafkaE2E"
+        bash -c "cd '$ROOT/csharp' && dotnet run --project tests --no-build -- TestKafkaE2E && dotnet run --project tests --no-build -- TestKafkaShareE2E"
     run "swift e2e ($label)" env KAFKA_E2E_PROXY_ADDR="$proxy" \
         bash -c "cd '$ROOT/swift' && ./build/tests TestKafkaE2E"
     run "cpp e2e ($label)" env KAFKA_E2E_PROXY_ADDR="$proxy" \

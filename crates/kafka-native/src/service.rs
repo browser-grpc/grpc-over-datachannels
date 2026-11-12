@@ -749,6 +749,25 @@ impl crate::stub::Kafka for KafkaService {
         Ok(crate::pb::DescribeGroupsResponse { groups, ..Default::default() })
     }
 
+    async fn describe_share_groups(
+        &self,
+        req: crate::pb::DescribeShareGroupsRequest,
+        _ctx: CallCtx,
+    ) -> Result<crate::pb::DescribeShareGroupsResponse, Status> {
+        let mut groups = Vec::new();
+        for group_id in &req.group_ids {
+            // Share groups are managed by the group
+            // coordinator (the broker rejects client
+            // FindCoordinator key type 2 with error 42).
+            let conn = self.broker.coordinator_fresh(group_id, 0).await?;
+            groups.push(self.broker.share_group_describe(&conn, group_id).await?);
+        }
+        Ok(crate::pb::DescribeShareGroupsResponse {
+            groups,
+            ..Default::default()
+        })
+    }
+
     async fn delete_groups(
         &self,
         req: crate::pb::DeleteGroupsRequest,

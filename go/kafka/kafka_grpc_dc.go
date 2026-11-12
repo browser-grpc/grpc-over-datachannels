@@ -241,6 +241,13 @@ func (c *KafkaClient) CloseShareGroup(ctx context.Context, req *CloseShareGroupR
 	}
 	return resp, nil
 }
+func (c *KafkaClient) DescribeShareGroups(ctx context.Context, req *DescribeShareGroupsRequest) (*DescribeShareGroupsResponse, error) {
+	resp := new(DescribeShareGroupsResponse)
+	if err := c.Channel.Unary(ctx, "/grpcdc.kafka.v1.Kafka/DescribeShareGroups", req, resp); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
 
 type KafkaServer interface {
 	Metadata(context.Context, *MetadataRequest) (*MetadataResponse, error)
@@ -272,6 +279,7 @@ type KafkaServer interface {
 	SharePoll(context.Context, *SharePollRequest) (*SharePollResponse, error)
 	ShareAck(context.Context, *ShareAckRequest) (*ShareAckResponse, error)
 	CloseShareGroup(context.Context, *CloseShareGroupRequest) (*CloseShareGroupResponse, error)
+	DescribeShareGroups(context.Context, *DescribeShareGroupsRequest) (*DescribeShareGroupsResponse, error)
 }
 
 type KafkaConsumeServer interface {
@@ -614,6 +622,17 @@ func RegisterKafkaServer(s *grpcdc.Server, srv KafkaServer) {
 					return err
 				}
 				resp, err := srv.CloseShareGroup(ctx, req)
+				if err != nil {
+					return err
+				}
+				return sink.Send(resp.MarshalDC())
+			}},
+			{Name: "DescribeShareGroups", Path: "/grpcdc.kafka.v1.Kafka/DescribeShareGroups", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
+				req := new(DescribeShareGroupsRequest)
+				if err := reqs.RecvInto(req); err != nil {
+					return err
+				}
+				resp, err := srv.DescribeShareGroups(ctx, req)
 				if err != nil {
 					return err
 				}

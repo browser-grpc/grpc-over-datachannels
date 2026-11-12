@@ -31,6 +31,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`TestInteropServerOracle.cs`](tests/TestInteropServerOracle.cs) — Official-implementation oracle, via the proxy
 - [`TestKafkaE2E.cs`](tests/TestKafkaE2E.cs) — Kafka end-to-end (broker legs env-gated)
 - [`TestKafkaNative.cs`](tests/TestKafkaNative.cs) — Kafka end-to-end (broker legs env-gated)
+- [`TestKafkaShareE2E.cs`](tests/TestKafkaShareE2E.cs) — Kafka end-to-end (broker legs env-gated)
 - [`TestOracle.cs`](tests/TestOracle.cs) — Official-implementation oracle, via the proxy
 - [`TestPbMessages.cs`](tests/TestPbMessages.cs) — Generated suite/example
 - [`TestSidecar.cs`](tests/TestSidecar.cs) — Sidecar transport

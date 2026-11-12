@@ -200,6 +200,28 @@ async fn kafka_share_group_accept_and_release() {
     assert_eq!(empty.error_code, 0, "{empty:?}");
     assert!(empty.records.is_empty(), "accepted records redelivered: {empty:?}");
 
+    // ShareGroupDescribe sees the live member + assignment.
+    let described = client
+        .describe_share_groups(pb::DescribeShareGroupsRequest {
+            group_ids: vec![group.clone()],
+            ..Default::default()
+        })
+        .await
+        .expect("describe share groups");
+    assert_eq!(described.groups.len(), 1, "{described:?}");
+    let desc = &described.groups[0];
+    assert_eq!(desc.error_code, 0, "{desc:?}");
+    assert_eq!(desc.group_id, group, "{desc:?}");
+    assert!(!desc.state.is_empty(), "{desc:?}");
+    assert_eq!(desc.members.len(), 1, "{desc:?}");
+    assert!(
+        desc.members[0]
+            .assignment
+            .iter()
+            .any(|tp| tp.topic == topic && tp.partition == 0),
+        "member assignment must cover the topic partition: {desc:?}"
+    );
+
     // RELEASE redelivers with delivery_count incremented.
     let produced = client
         .produce(pb::ProduceRequest {

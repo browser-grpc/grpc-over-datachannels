@@ -75,6 +75,8 @@ pub const ShareAckRequest = kafka_messages.ShareAckRequest;
 pub const ShareAckResponse = kafka_messages.ShareAckResponse;
 pub const CloseShareGroupRequest = kafka_messages.CloseShareGroupRequest;
 pub const CloseShareGroupResponse = kafka_messages.CloseShareGroupResponse;
+pub const DescribeShareGroupsRequest = kafka_messages.DescribeShareGroupsRequest;
+pub const DescribeShareGroupsResponse = kafka_messages.DescribeShareGroupsResponse;
 
 /// Client for grpcdc.kafka.v1.Kafka.
 pub const KafkaClient = struct {
@@ -287,6 +289,13 @@ pub const KafkaClient = struct {
         return .{ .ok = resp };
     }
 
+    pub fn describeShareGroups(self: *KafkaClient, req: *const DescribeShareGroupsRequest, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(DescribeShareGroupsResponse) {
+        var resp = DescribeShareGroupsResponse{};
+        const st = self.channel.unary("/grpcdc.kafka.v1.Kafka/DescribeShareGroups", req, &resp, call_metadata, timeout_ms);
+        if (!st.isOk()) return .{ .status = st };
+        return .{ .ok = resp };
+    }
+
 };
 
 /// Response stream of a Consume call.
@@ -412,6 +421,7 @@ pub const KafkaServer = struct {
     share_poll_fn: *const fn (ctx: *anyopaque, call_ctx: *CallContext, req: *const SharePollRequest, resp: *SharePollResponse, alloc: std.mem.Allocator) Status,
     share_ack_fn: *const fn (ctx: *anyopaque, call_ctx: *CallContext, req: *const ShareAckRequest, resp: *ShareAckResponse, alloc: std.mem.Allocator) Status,
     close_share_group_fn: *const fn (ctx: *anyopaque, call_ctx: *CallContext, req: *const CloseShareGroupRequest, resp: *CloseShareGroupResponse, alloc: std.mem.Allocator) Status,
+    describe_share_groups_fn: *const fn (ctx: *anyopaque, call_ctx: *CallContext, req: *const DescribeShareGroupsRequest, resp: *DescribeShareGroupsResponse, alloc: std.mem.Allocator) Status,
 };
 
 fn kafkaMetadataAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {
@@ -924,6 +934,24 @@ fn kafkaCloseShareGroupAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *s
     return sink.send(payload);
 }
 
+fn kafkaDescribeShareGroupsAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {
+    const impl: *KafkaServer = @ptrCast(@alignCast(ctx));
+    var req = DescribeShareGroupsRequest{};
+    switch (reqs.recvInto(&req)) {
+        .message => {},
+        .end => return Status.init(wire.codeInternal, "unary call closed with no request"),
+        .status => |st| return st,
+    }
+    var arena = std.heap.ArenaAllocator.init(reqs.alloc);
+    defer arena.deinit();
+    var resp = DescribeShareGroupsResponse{};
+    const st = impl.describe_share_groups_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
+    if (!st.isOk()) return st;
+    const payload = resp.marshalDc(reqs.alloc);
+    defer reqs.alloc.free(payload);
+    return sink.send(payload);
+}
+
 /// Generated gRPC-over-DataChannels stubs for kafka.proto.
 pub const KafkaGrpcDc = struct {
     /// Register an implementation of grpcdc.kafka.v1.Kafka on a Server.
@@ -960,6 +988,7 @@ pub const KafkaGrpcDc = struct {
                 .{ .name = "SharePoll", .path = "/grpcdc.kafka.v1.Kafka/SharePoll", .kind = .unary, .ctx = impl, .handler = kafkaSharePollAdapter },
                 .{ .name = "ShareAck", .path = "/grpcdc.kafka.v1.Kafka/ShareAck", .kind = .unary, .ctx = impl, .handler = kafkaShareAckAdapter },
                 .{ .name = "CloseShareGroup", .path = "/grpcdc.kafka.v1.Kafka/CloseShareGroup", .kind = .unary, .ctx = impl, .handler = kafkaCloseShareGroupAdapter },
+                .{ .name = "DescribeShareGroups", .path = "/grpcdc.kafka.v1.Kafka/DescribeShareGroups", .kind = .unary, .ctx = impl, .handler = kafkaDescribeShareGroupsAdapter },
             },
         });
     }

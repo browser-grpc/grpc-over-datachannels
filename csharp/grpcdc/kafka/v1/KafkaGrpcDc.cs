@@ -223,6 +223,13 @@ public static class KafkaGrpcDc
             return resp;
         }
 
+        public DescribeShareGroupsResponse DescribeShareGroups(DescribeShareGroupsRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null)
+        {
+            var resp = new DescribeShareGroupsResponse();
+            _channel.Unary("/grpcdc.kafka.v1.Kafka/DescribeShareGroups", req, resp, metadata, timeout);
+            return resp;
+        }
+
         public Task<MetadataResponse> MetadataAsync(MetadataRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,
             CancellationToken cancellationToken = default)
         {
@@ -405,6 +412,12 @@ public static class KafkaGrpcDc
             return AsyncPump.Run(() => CloseShareGroup(req, metadata, timeout), cancellationToken);
         }
 
+        public Task<DescribeShareGroupsResponse> DescribeShareGroupsAsync(DescribeShareGroupsRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,
+            CancellationToken cancellationToken = default)
+        {
+            return AsyncPump.Run(() => DescribeShareGroups(req, metadata, timeout), cancellationToken);
+        }
+
     }
 
     /// <summary>Receiving stream for Kafka.Consume: Recv() throws EndOfStreamException at end. Dispose to abandon early (RST).</summary>
@@ -499,6 +512,7 @@ public static class KafkaGrpcDc
         SharePollResponse SharePoll(Endpoint.CallContext ctx, SharePollRequest req);
         ShareAckResponse ShareAck(Endpoint.CallContext ctx, ShareAckRequest req);
         CloseShareGroupResponse CloseShareGroup(Endpoint.CallContext ctx, CloseShareGroupRequest req);
+        DescribeShareGroupsResponse DescribeShareGroups(Endpoint.CallContext ctx, DescribeShareGroupsRequest req);
     }
 
     /// <summary>Server-streaming sink passed to service implementations.</summary>
@@ -577,6 +591,7 @@ public static class KafkaGrpcDc
         Task<SharePollResponse> SharePollAsync(Endpoint.CallContext ctx, SharePollRequest req);
         Task<ShareAckResponse> ShareAckAsync(Endpoint.CallContext ctx, ShareAckRequest req);
         Task<CloseShareGroupResponse> CloseShareGroupAsync(Endpoint.CallContext ctx, CloseShareGroupRequest req);
+        Task<DescribeShareGroupsResponse> DescribeShareGroupsAsync(Endpoint.CallContext ctx, DescribeShareGroupsRequest req);
     }
 
     private sealed class KafkaServerAsyncAdapter : KafkaServer
@@ -731,6 +746,11 @@ public static class KafkaGrpcDc
         public CloseShareGroupResponse CloseShareGroup(Endpoint.CallContext ctx, CloseShareGroupRequest req)
         {
             return _impl.CloseShareGroupAsync(ctx, req).GetAwaiter().GetResult();
+        }
+
+        public DescribeShareGroupsResponse DescribeShareGroups(Endpoint.CallContext ctx, DescribeShareGroupsRequest req)
+        {
+            return _impl.DescribeShareGroupsAsync(ctx, req).GetAwaiter().GetResult();
         }
 
     }
@@ -915,6 +935,12 @@ public static class KafkaGrpcDc
                     var req = new CloseShareGroupRequest();
                     reqs.RecvInto(req);
                     sink(impl.CloseShareGroup(ctx, req).MarshalDc());
+                }),
+                new Server.Method("DescribeShareGroups", "/grpcdc.kafka.v1.Kafka/DescribeShareGroups", Server.KindUnary, (ctx, reqs, sink) =>
+                {
+                    var req = new DescribeShareGroupsRequest();
+                    reqs.RecvInto(req);
+                    sink(impl.DescribeShareGroups(ctx, req).MarshalDc());
                 }),
             }));
     }

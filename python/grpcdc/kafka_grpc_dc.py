@@ -209,6 +209,9 @@ class KafkaClient:
     def CloseShareGroup(self, req, metadata=None, timeout=None):
         return self._channel.unary("/grpcdc.kafka.v1.Kafka/CloseShareGroup", req, kafka_pb.CloseShareGroupResponse(), metadata, timeout)
 
+    def DescribeShareGroups(self, req, metadata=None, timeout=None):
+        return self._channel.unary("/grpcdc.kafka.v1.Kafka/DescribeShareGroups", req, kafka_pb.DescribeShareGroupsResponse(), metadata, timeout)
+
 class KafkaClientAsync:
     """Asyncio client: wrap a grpcdc.AsyncChannel (a sync Channel is wrapped)."""
 
@@ -306,6 +309,9 @@ class KafkaClientAsync:
 
     async def CloseShareGroup(self, req, metadata=None, timeout=None):
         return await self._channel.unary("/grpcdc.kafka.v1.Kafka/CloseShareGroup", req, kafka_pb.CloseShareGroupResponse(), metadata, timeout)
+
+    async def DescribeShareGroups(self, req, metadata=None, timeout=None):
+        return await self._channel.unary("/grpcdc.kafka.v1.Kafka/DescribeShareGroups", req, kafka_pb.DescribeShareGroupsResponse(), metadata, timeout)
 
 def register_kafka_server(server, impl):
     def _Metadata_handler(ctx, reqs, sink):
@@ -451,6 +457,11 @@ def register_kafka_server(server, impl):
         resp = impl.CloseShareGroup(ctx, req)
         sink.send(resp.marshal_dc())
 
+    def _DescribeShareGroups_handler(ctx, reqs, sink):
+        req = reqs.recv_into(kafka_pb.DescribeShareGroupsRequest())
+        resp = impl.DescribeShareGroups(ctx, req)
+        sink.send(resp.marshal_dc())
+
     server.register_service(grpcdc.ServiceDesc(
         "grpcdc.kafka.v1.Kafka",
         [
@@ -483,5 +494,6 @@ def register_kafka_server(server, impl):
         grpcdc.Method("SharePoll", "/grpcdc.kafka.v1.Kafka/SharePoll", grpcdc.KIND_UNARY, _SharePoll_handler),
         grpcdc.Method("ShareAck", "/grpcdc.kafka.v1.Kafka/ShareAck", grpcdc.KIND_UNARY, _ShareAck_handler),
         grpcdc.Method("CloseShareGroup", "/grpcdc.kafka.v1.Kafka/CloseShareGroup", grpcdc.KIND_UNARY, _CloseShareGroup_handler),
+        grpcdc.Method("DescribeShareGroups", "/grpcdc.kafka.v1.Kafka/DescribeShareGroups", grpcdc.KIND_UNARY, _DescribeShareGroups_handler),
         ],
     ))
