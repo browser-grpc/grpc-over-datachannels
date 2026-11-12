@@ -4,6 +4,7 @@
 FROM rust:1-bookworm AS build
 WORKDIR /src
 COPY rust ./rust
+COPY crates/kafka-native ./crates/kafka-native
 COPY webrtc/rust ./webrtc/rust
 COPY proto ./proto
 RUN cd rust && cargo build --release --locked --features kafka-tls,webrtc --example kafka_proxy

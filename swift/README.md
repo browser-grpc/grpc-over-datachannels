@@ -7,7 +7,7 @@ the gRPC wire protocol over WebRTC DataChannels.
 ## First run
 
 ```sh
-    cd swift && mkdir -p build && swiftc -swift-version 5 -O grpcdc/*.swift examples/Pb.swift examples/EchoMessages.swift examples/EchoGrpcDc.swift examples/EchoServiceImpl.swift examples/StdioTransport.swift examples/DynamicEchoService.swift examples/interop/*.swift tests/*.swift -o build/tests && ./build/tests TestEcho
+    cd swift && mkdir -p build && swiftc -swift-version 5 -O grpcdc/*.swift examples/Pb.swift examples/EchoMessages.swift examples/EchoGrpcDc.swift examples/EchoServiceImpl.swift examples/StdioTransport.swift examples/DynamicEchoService.swift examples/interop/*.swift $(ls tests/*.swift | grep -v TestKafkaNative.swift) -o build/tests && ./build/tests TestEcho
 ```
 
 ## Use it in your project
