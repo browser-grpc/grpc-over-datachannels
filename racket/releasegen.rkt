@@ -2165,6 +2165,16 @@
     (call-with-output-file cargo
       (lambda (out) (display stamped out))
       #:exists 'replace))
+  ;; The crate's Cargo.lock must carry the stamped version too:
+  ;; cargo publish updates a stale lock itself and then refuses
+  ;; the dirty tree, which is exactly how v0.42.0 failed.
+  (let* ([lock (build-path kafka-native-out "crates/kafka-native/Cargo.lock")]
+         [stamped (string-replace (file->string lock)
+                                  "name = \"kafka-native\"\nversion = \"0.1.0\""
+                                  (string-append "name = \"kafka-native\"\nversion = \"" kn-bare-version "\""))])
+    (call-with-output-file lock
+      (lambda (out) (display stamped out))
+      #:exists 'replace))
   (let* ([rust-cargo (build-path kafka-native-out "rust/Cargo.toml")]
          [stamped (string-replace (file->string rust-cargo)
                                   "version = \"0.1.0\""
