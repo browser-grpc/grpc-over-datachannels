@@ -3,7 +3,7 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.42.0 — 2026-11-12 (published to GitHub/npm/PyPI/GHCR/NuGet/Maven Central/GitHub Maven/crates.io/RubyGems/LuaRocks/JSR)
+## v0.42.0 — 2026-11-12 (published to GitHub/npm/PyPI/GHCR/NuGet/Maven Central/GitHub Maven/pub.dev/crates.io/RubyGems/LuaRocks/JSR)
 
 - Rendezvous auth: the generated JS, Go, and Rust rendezvous
   servers can require an HMAC-SHA256 bearer token on every
