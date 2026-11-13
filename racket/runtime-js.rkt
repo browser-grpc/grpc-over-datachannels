@@ -2977,6 +2977,11 @@ const UNARY = {
   DeleteAcls: "DeleteAclsResponse",
   ListTransactions: "ListTransactionsResponse",
   DescribeTransactions: "DescribeTransactionsResponse",
+  DescribeShareGroups: "DescribeShareGroupsResponse",
+  OpenShareGroup: "OpenShareGroupResponse",
+  SharePoll: "SharePollResponse",
+  ShareAck: "ShareAckResponse",
+  CloseShareGroup: "CloseShareGroupResponse",
 };
 
 const STREAMS = {
@@ -3100,6 +3105,11 @@ export class KafkaNativeClient {
   async deleteAcls(request) { return this.#call("DeleteAcls", request); }
   async listTransactions(request) { return this.#call("ListTransactions", request); }
   async describeTransactions(request) { return this.#call("DescribeTransactions", request); }
+  async describeShareGroups(request) { return this.#call("DescribeShareGroups", request); }
+  async openShareGroup(request) { return this.#call("OpenShareGroup", request); }
+  async sharePoll(request) { return this.#call("SharePoll", request); }
+  async shareAck(request) { return this.#call("ShareAck", request); }
+  async closeShareGroup(request) { return this.#call("CloseShareGroup", request); }
 }
 GRPC_RUNTIME_EOF
 )

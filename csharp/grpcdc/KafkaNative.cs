@@ -195,6 +195,11 @@ public sealed class KafkaNativeClient : IDisposable
     public DeleteAclsResponse DeleteAcls(DeleteAclsRequest req) => Unary("DeleteAcls", req.MarshalDc(), b => { var r = new DeleteAclsResponse(); r.UnmarshalDc(b); return r; });
     public ListTransactionsResponse ListTransactions(ListTransactionsRequest req) => Unary("ListTransactions", req.MarshalDc(), b => { var r = new ListTransactionsResponse(); r.UnmarshalDc(b); return r; });
     public DescribeTransactionsResponse DescribeTransactions(DescribeTransactionsRequest req) => Unary("DescribeTransactions", req.MarshalDc(), b => { var r = new DescribeTransactionsResponse(); r.UnmarshalDc(b); return r; });
+    public DescribeShareGroupsResponse DescribeShareGroups(DescribeShareGroupsRequest req) => Unary("DescribeShareGroups", req.MarshalDc(), b => { var r = new DescribeShareGroupsResponse(); r.UnmarshalDc(b); return r; });
+    public OpenShareGroupResponse OpenShareGroup(OpenShareGroupRequest req) => Unary("OpenShareGroup", req.MarshalDc(), b => { var r = new OpenShareGroupResponse(); r.UnmarshalDc(b); return r; });
+    public SharePollResponse SharePoll(SharePollRequest req) => Unary("SharePoll", req.MarshalDc(), b => { var r = new SharePollResponse(); r.UnmarshalDc(b); return r; });
+    public ShareAckResponse ShareAck(ShareAckRequest req) => Unary("ShareAck", req.MarshalDc(), b => { var r = new ShareAckResponse(); r.UnmarshalDc(b); return r; });
+    public CloseShareGroupResponse CloseShareGroup(CloseShareGroupRequest req) => Unary("CloseShareGroup", req.MarshalDc(), b => { var r = new CloseShareGroupResponse(); r.UnmarshalDc(b); return r; });
 }
 
 /// <summary>Error from the kafka-native library.</summary>

@@ -1347,6 +1347,11 @@ module Grpcdc
       "DeleteAcls" => :DeleteAclsResponse,
       "ListTransactions" => :ListTransactionsResponse,
       "DescribeTransactions" => :DescribeTransactionsResponse,
+      "DescribeShareGroups" => :DescribeShareGroupsResponse,
+      "OpenShareGroup" => :OpenShareGroupResponse,
+      "SharePoll" => :SharePollResponse,
+      "ShareAck" => :ShareAckResponse,
+      "CloseShareGroup" => :CloseShareGroupResponse,
     }.freeze
 
     STREAMS = {
