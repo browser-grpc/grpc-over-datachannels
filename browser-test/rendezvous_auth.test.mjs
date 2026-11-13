@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
+import { networkInterfaces } from "node:os";
 import { fileURLToPath } from "node:url";
 import { chromium, firefox, webkit } from "playwright";
 
@@ -68,10 +69,18 @@ const listener = await serveRendezvous(grpcServer, {
 });
 console.log(`rendezvous auth on port ${listener.descriptor("x").port}`);
 
+// Firefox will not pair a non-loopback local candidate with a
+// loopback remote candidate, so publish the outward address
+// (same convention as rendezvous.test.mjs).
+const hostIp =
+  Object.values(networkInterfaces())
+    .flat()
+    .find((n) => n && n.family === "IPv4" && !n.internal)?.address ?? "127.0.0.1";
+
 const server = createServer(async (req, res) => {
   if (req.url.startsWith("/rendezvous.json")) {
     res.writeHead(200, { "content-type": "application/json" });
-    res.end(JSON.stringify(listener.descriptor("127.0.0.1")));
+    res.end(JSON.stringify(listener.descriptor(hostIp)));
     return;
   }
   try {
