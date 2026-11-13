@@ -96,3 +96,7 @@ kafka_msg!(ShareAckRequest);
 kafka_msg!(ShareAckResponse);
 kafka_msg!(CloseShareGroupRequest);
 kafka_msg!(CloseShareGroupResponse);
+kafka_msg!(ShareGroupMember);
+kafka_msg!(ShareGroupDescription);
+kafka_msg!(DescribeShareGroupsRequest);
+kafka_msg!(DescribeShareGroupsResponse);

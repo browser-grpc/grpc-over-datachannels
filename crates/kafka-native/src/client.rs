@@ -2982,6 +2982,113 @@ impl Broker {
         Ok(described)
     }
 
+    /// KIP-932 ShareGroupDescribe (API 77) for one group.
+    pub async fn share_group_describe(
+        &self,
+        conn: &Arc<Mutex<Conn>>,
+        group_id: &str,
+    ) -> Result<crate::pb::ShareGroupDescription, Status> {
+        let mut c = conn.lock().await;
+        let ver = c.negotiate(API_SHARE_GROUP_DESCRIBE, 1)?;
+        let mut body = W::new();
+        body.carr(1);
+        body.cstr(group_id);
+        body.i8(0); // include_authorized_operations
+        body.tagged_none();
+        let resp = c
+            .request(API_SHARE_GROUP_DESCRIBE, ver, body, true)
+            .await?;
+        drop(c);
+        let mut r = R::new(&resp);
+        let _throttle = r.i32().map_err(bad)?;
+        let n = r.carr_len().map_err(bad)?;
+        let mut described = crate::pb::ShareGroupDescription {
+            group_id: group_id.to_string(),
+            ..Default::default()
+        };
+        // (member_id, epoch, client_id, client_host, topics, assignment)
+        let mut pending: Vec<(
+            String,
+            i32,
+            String,
+            String,
+            Vec<String>,
+            Vec<([u8; 16], String, Vec<i32>)>,
+        )> = Vec::new();
+        for _ in 0..n {
+            described.error_code = r.i16().map_err(bad)? as i32;
+            let _msg = r.cstr_opt().map_err(bad)?;
+            described.group_id = r.cstr().map_err(bad)?;
+            described.state = r.cstr().map_err(bad)?;
+            described.group_epoch = r.i32().map_err(bad)?;
+            described.assignment_epoch = r.i32().map_err(bad)?;
+            let _assignor = r.cstr().map_err(bad)?;
+            let nmembers = r.carr_len().map_err(bad)?;
+            for _ in 0..nmembers {
+                let member_id = r.cstr().map_err(bad)?;
+                let _rack = r.cstr_opt().map_err(bad)?;
+                let member_epoch = r.i32().map_err(bad)?;
+                let client_id = r.cstr().map_err(bad)?;
+                let client_host = r.cstr().map_err(bad)?;
+                let nsub = r.carr_len().map_err(bad)?;
+                let mut subscribed = Vec::new();
+                for _ in 0..nsub {
+                    subscribed.push(r.cstr().map_err(bad)?);
+                }
+                let assignment = read_describe_assignment(&mut r)?;
+                r.skip_tagged().map_err(bad)?;
+                pending.push((
+                    member_id,
+                    member_epoch,
+                    client_id,
+                    client_host,
+                    subscribed,
+                    assignment,
+                ));
+            }
+            let _authorized = r.i32().map_err(bad)?;
+            r.skip_tagged().map_err(bad)?;
+        }
+        let needs_names = pending
+            .iter()
+            .any(|(_, _, _, _, _, a)| a.iter().any(|(_, name, _)| name.is_empty()));
+        let (_by_name, by_id) = if needs_names {
+            self.topic_id_maps(&[]).await.unwrap_or_default()
+        } else {
+            (Default::default(), Default::default())
+        };
+        for (member_id, member_epoch, client_id, client_host, subscribed, assignment) in pending
+        {
+            described.members.push(crate::pb::ShareGroupMember {
+                member_id,
+                member_epoch,
+                client_id,
+                client_host,
+                subscribed_topics: subscribed,
+                assignment: assignment
+                    .into_iter()
+                    .flat_map(|(id, name, partitions)| {
+                        let topic = if !name.is_empty() {
+                            name
+                        } else {
+                            by_id.get(&id).cloned().unwrap_or_default()
+                        };
+                        partitions
+                            .into_iter()
+                            .map(move |partition| crate::pb::TopicPartition {
+                                topic: topic.clone(),
+                                partition,
+                                ..Default::default()
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .collect(),
+                ..Default::default()
+            });
+        }
+        Ok(described)
+    }
+
     /// KIP-932 ShareGroupHeartbeat (API 76): join/maintain a
     /// share group member. member_epoch 0 joins, -1 leaves.
     /// Response mirrors ConsumerGroupHeartbeat, except the

@@ -3,7 +3,47 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.41.0 — 2026-11-12 (published to GitHub/PyPI/GHCR/NuGet/Maven Central/GitHub Maven/RubyGems/LuaRocks/JSR)
+## v0.42.0 — 2026-11-12
+
+- Rendezvous auth: the generated JS, Go, and Rust rendezvous
+  servers can require an HMAC-SHA256 bearer token on every
+  call. A token is
+  `base64url(protobuf claims) + "." + base64url(HMAC-SHA256)`
+  with claims `sub/iss/aud/exp/nbf/iat/scopes[]/jti` — one wire
+  layout on all three stacks (one shared fixed test vector),
+  verified before dispatch: bad, missing, or expired tokens
+  fail `UNAUTHENTICATED`, valid but under-scoped tokens fail
+  `PERMISSION_DENIED`, and verified claims reach handlers
+  (`ctx.claims` / `ClaimsFromContext` / `CallCtx.claims`).
+  Required scopes are a per-method-path map in the serve
+  options; `rendezvousChannel(descriptor, { token | getToken })`
+  attaches the token per call. Rendezvous-only by design: no
+  protoc plugin option. See SPEC-WEBRTC.md.
+- `examples/rendezvous-auth/`: a stdlib-only WebAuthn issuer
+  (Node) that verifies passkey registration/login over HTTPS
+  and mints rendezvous tokens; the rendezvous server never
+  sees WebAuthn data. Includes a browser-free synthetic
+  credential test.
+- Kafka share-group parity: the KIP-932 session RPCs
+  (`DescribeShareGroups`, `OpenShareGroup`, `SharePoll`,
+  `ShareAck`, `CloseShareGroup`) now dispatch through the
+  kafka-native FFI and are exposed by every generated native
+  wrapper (JS, Python, PHP, Ruby, Java, C#, Dart), matching
+  the proxy `KafkaClient` surface.
+- JS Kafka differentials match Python: transactional
+  read-committed produce/consume and share-group
+  accept/release/redelivery across the proxy and native form
+  factors, both directions, against Apache Kafka.
+- AF_XDP was spiked for the rendezvous listener and
+  discarded: at high channel counts the bottlenecks are
+  per-peer DTLS/SCTP state, timers, and demux, not packet
+  ingress; the portable UDP socket remains the only path.
+- Fixes found by the full gate: C# `KafkaNative` now compiles
+  for netstandard2.0 (loads via the OS loader where
+  `NativeLibrary` is unavailable), and the C tracing test
+  serializes its span recording across threads.
+
+## v0.41.0 — 2026-11-12 (published to GitHub/PyPI/GHCR/NuGet/Maven Central/GitHub Maven/pub.dev/crates.io/RubyGems/LuaRocks/JSR; npm for grpc-dc/kafka-grpc/eventbus-grpc (all at 0.41.0; eventbus-grpc's earlier Trusted Publisher mismatch was fixed and 0.41.0 published 2026-11-12); kafka-native first crates.io publish was manual, OIDC from here on)
 
 - New public repo and packages: `browser-grpc/kafka-native` —
   the in-process Kafka protocol client (extracted from the

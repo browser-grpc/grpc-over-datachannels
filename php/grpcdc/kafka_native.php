@@ -118,6 +118,11 @@ class KafkaNativeClient
         "DeleteAcls" => "DeleteAclsResponse",
         "ListTransactions" => "ListTransactionsResponse",
         "DescribeTransactions" => "DescribeTransactionsResponse",
+        "DescribeShareGroups" => "DescribeShareGroupsResponse",
+        "OpenShareGroup" => "OpenShareGroupResponse",
+        "SharePoll" => "SharePollResponse",
+        "ShareAck" => "ShareAckResponse",
+        "CloseShareGroup" => "CloseShareGroupResponse",
     ];
 
     private const STREAMS = [

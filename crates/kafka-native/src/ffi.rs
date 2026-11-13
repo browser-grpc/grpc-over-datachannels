@@ -122,6 +122,11 @@ async fn dispatch_unary(
         "DeleteAcls" => unary!(delete_acls, DeleteAclsRequest),
         "ListTransactions" => unary!(list_transactions, ListTransactionsRequest),
         "DescribeTransactions" => unary!(describe_transactions, DescribeTransactionsRequest),
+        "DescribeShareGroups" => unary!(describe_share_groups, DescribeShareGroupsRequest),
+        "OpenShareGroup" => unary!(open_share_group, OpenShareGroupRequest),
+        "SharePoll" => unary!(share_poll, SharePollRequest),
+        "ShareAck" => unary!(share_ack, ShareAckRequest),
+        "CloseShareGroup" => unary!(close_share_group, CloseShareGroupRequest),
         other => Err(Status::invalid_argument(format!(
             "kafka ffi: unknown or streaming method {other}"
         ))),

@@ -3585,3 +3585,195 @@ class CloseShareGroupResponse implements Marshaler, Unmarshaler {
     }
   }
 }
+class ShareGroupMember implements Marshaler, Unmarshaler {
+  String memberId;
+  int memberEpoch;
+  String clientId;
+  String clientHost;
+  List<String> subscribedTopics;
+  List<TopicPartition> assignment;
+  Uint8List unknownFields = Uint8List(0);
+  ShareGroupMember([this.memberId = '', this.memberEpoch = 0, this.clientId = '', this.clientHost = '']) : subscribedTopics = [], assignment = [];
+  @override
+  Uint8List marshalDc() {
+    final w = KafkaPbWriter();
+    w.stringField(1, memberId);
+    if (memberEpoch != 0) { w.tag(2, 0); w.varint(memberEpoch); }
+    w.stringField(3, clientId);
+    w.stringField(4, clientHost);
+    for (final x in subscribedTopics) { w.bytesField(5, utf8.encode(x)); }
+    for (final x in assignment) { w.bytesField(6, x.marshalDc()); }
+    w.raw(unknownFields);
+    return w.toBytes();
+  }
+  @override
+  void unmarshalDc(List<int> data) {
+    unknownFields = Uint8List(0);
+    memberId = '';
+    memberEpoch = 0;
+    clientId = '';
+    clientHost = '';
+    subscribedTopics = [];
+    assignment = [];
+    final r = KafkaPbReader(Uint8List.fromList(data));
+    while (true) {
+      final field = r.next();
+      if (field == null) break;
+      switch (field.number) {
+        case 1:
+          memberId = utf8.decode(field.bytesValue);
+          break;
+        case 2:
+          memberEpoch = (field.varintValue).toSigned(32);
+          break;
+        case 3:
+          clientId = utf8.decode(field.bytesValue);
+          break;
+        case 4:
+          clientHost = utf8.decode(field.bytesValue);
+          break;
+        case 5:
+          subscribedTopics.add(utf8.decode(field.bytesValue));
+          break;
+        case 6:
+          final item = TopicPartition();
+          item.unmarshalDc(field.bytesValue);
+          assignment.add(item);
+          break;
+        default:
+          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          break;
+      }
+    }
+  }
+}
+class ShareGroupDescription implements Marshaler, Unmarshaler {
+  String groupId;
+  int errorCode;
+  String state;
+  int groupEpoch;
+  int assignmentEpoch;
+  List<ShareGroupMember> members;
+  Uint8List unknownFields = Uint8List(0);
+  ShareGroupDescription([this.groupId = '', this.errorCode = 0, this.state = '', this.groupEpoch = 0, this.assignmentEpoch = 0]) : members = [];
+  @override
+  Uint8List marshalDc() {
+    final w = KafkaPbWriter();
+    w.stringField(1, groupId);
+    if (errorCode != 0) { w.tag(2, 0); w.varint(errorCode); }
+    w.stringField(3, state);
+    if (groupEpoch != 0) { w.tag(4, 0); w.varint(groupEpoch); }
+    if (assignmentEpoch != 0) { w.tag(5, 0); w.varint(assignmentEpoch); }
+    for (final x in members) { w.bytesField(6, x.marshalDc()); }
+    w.raw(unknownFields);
+    return w.toBytes();
+  }
+  @override
+  void unmarshalDc(List<int> data) {
+    unknownFields = Uint8List(0);
+    groupId = '';
+    errorCode = 0;
+    state = '';
+    groupEpoch = 0;
+    assignmentEpoch = 0;
+    members = [];
+    final r = KafkaPbReader(Uint8List.fromList(data));
+    while (true) {
+      final field = r.next();
+      if (field == null) break;
+      switch (field.number) {
+        case 1:
+          groupId = utf8.decode(field.bytesValue);
+          break;
+        case 2:
+          errorCode = (field.varintValue).toSigned(32);
+          break;
+        case 3:
+          state = utf8.decode(field.bytesValue);
+          break;
+        case 4:
+          groupEpoch = (field.varintValue).toSigned(32);
+          break;
+        case 5:
+          assignmentEpoch = (field.varintValue).toSigned(32);
+          break;
+        case 6:
+          final item = ShareGroupMember();
+          item.unmarshalDc(field.bytesValue);
+          members.add(item);
+          break;
+        default:
+          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          break;
+      }
+    }
+  }
+}
+class DescribeShareGroupsRequest implements Marshaler, Unmarshaler {
+  List<String> groupIds;
+  Uint8List unknownFields = Uint8List(0);
+  DescribeShareGroupsRequest() : groupIds = [];
+  @override
+  Uint8List marshalDc() {
+    final w = KafkaPbWriter();
+    for (final x in groupIds) { w.bytesField(1, utf8.encode(x)); }
+    w.raw(unknownFields);
+    return w.toBytes();
+  }
+  @override
+  void unmarshalDc(List<int> data) {
+    unknownFields = Uint8List(0);
+    groupIds = [];
+    final r = KafkaPbReader(Uint8List.fromList(data));
+    while (true) {
+      final field = r.next();
+      if (field == null) break;
+      switch (field.number) {
+        case 1:
+          groupIds.add(utf8.decode(field.bytesValue));
+          break;
+        default:
+          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          break;
+      }
+    }
+  }
+}
+class DescribeShareGroupsResponse implements Marshaler, Unmarshaler {
+  List<ShareGroupDescription> groups;
+  int errorCode;
+  Uint8List unknownFields = Uint8List(0);
+  DescribeShareGroupsResponse([this.errorCode = 0]) : groups = [];
+  @override
+  Uint8List marshalDc() {
+    final w = KafkaPbWriter();
+    for (final x in groups) { w.bytesField(1, x.marshalDc()); }
+    if (errorCode != 0) { w.tag(2, 0); w.varint(errorCode); }
+    w.raw(unknownFields);
+    return w.toBytes();
+  }
+  @override
+  void unmarshalDc(List<int> data) {
+    unknownFields = Uint8List(0);
+    groups = [];
+    errorCode = 0;
+    final r = KafkaPbReader(Uint8List.fromList(data));
+    while (true) {
+      final field = r.next();
+      if (field == null) break;
+      switch (field.number) {
+        case 1:
+          final item = ShareGroupDescription();
+          item.unmarshalDc(field.bytesValue);
+          groups.add(item);
+          break;
+        case 2:
+          errorCode = (field.varintValue).toSigned(32);
+          break;
+        default:
+          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          break;
+      }
+    }
+  }
+}

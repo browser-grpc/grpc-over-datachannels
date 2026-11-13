@@ -52,6 +52,11 @@ _UNARY = {
     "DeleteAcls": kafka_pb.DeleteAclsResponse,
     "ListTransactions": kafka_pb.ListTransactionsResponse,
     "DescribeTransactions": kafka_pb.DescribeTransactionsResponse,
+    "DescribeShareGroups": kafka_pb.DescribeShareGroupsResponse,
+    "OpenShareGroup": kafka_pb.OpenShareGroupResponse,
+    "SharePoll": kafka_pb.SharePollResponse,
+    "ShareAck": kafka_pb.ShareAckResponse,
+    "CloseShareGroup": kafka_pb.CloseShareGroupResponse,
 }
 
 _STREAMS = {
@@ -326,3 +331,18 @@ class NativeKafkaClient:
 
     def DescribeTransactions(self, req):
         return self._call("DescribeTransactions", req)
+
+    def DescribeShareGroups(self, req):
+        return self._call("DescribeShareGroups", req)
+
+    def OpenShareGroup(self, req):
+        return self._call("OpenShareGroup", req)
+
+    def SharePoll(self, req):
+        return self._call("SharePoll", req)
+
+    def ShareAck(self, req):
+        return self._call("ShareAck", req)
+
+    def CloseShareGroup(self, req):
+        return self._call("CloseShareGroup", req)

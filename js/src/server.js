@@ -4,6 +4,7 @@
 // on an endpoint and dispatches HEADERS by path.
 
 import {
+  StatusCode,
   StatusError,
   StatusName,
   parseTimeout,
@@ -36,6 +37,8 @@ async function firstRequest(requests) {
 
 export class Server {
   #methods = new Map();
+  #authVerifier = null;
+  #authScopes = {};
 
   addService(definition) {
     for (const [name, method] of Object.entries(definition.methods)) {
@@ -44,6 +47,21 @@ export class Server {
       }
       this.#methods.set(method.path, { ...method, service: definition.name, method: name });
     }
+    return this;
+  }
+
+  /**
+   * Require rendezvous bearer auth on every call: `verifier`
+   * is an async (token) => claims function that throws on a
+   * bad, missing or expired token; `scopes` maps a method path
+   * to the scopes it requires (no entry = any authenticated
+   * caller). Verified claims land on ctx.claims. Installed by
+   * serveRendezvous when options.auth is set; rendezvous-only
+   * by design (no protoc plugin option).
+   */
+  requireRendezvousAuth(verifier, scopes = {}) {
+    this.#authVerifier = verifier;
+    this.#authScopes = scopes ?? {};
     return this;
   }
 
@@ -64,6 +82,32 @@ export class Server {
       throw StatusError.unimplemented(`unknown method ${path}`);
     }
     const metadata = headers.metadata ?? {};
+    let claims = null;
+    if (this.#authVerifier !== null) {
+      const header = metadata.authorization ?? "";
+      const match = /^Bearer (.+)$/.exec(header);
+      if (!match) {
+        throw new StatusError(StatusCode.UNAUTHENTICATED, "missing bearer token");
+      }
+      try {
+        claims = await this.#authVerifier(match[1]);
+      } catch (e) {
+        throw new StatusError(
+          StatusCode.UNAUTHENTICATED,
+          e instanceof Error ? e.message : "invalid bearer token",
+        );
+      }
+      const required = this.#authScopes[path] ?? [];
+      const granted = new Set(claims?.scopes ?? []);
+      for (const scope of required) {
+        if (!granted.has(scope)) {
+          throw new StatusError(
+            StatusCode.PERMISSION_DENIED,
+            `missing required scope ${scope}`,
+          );
+        }
+      }
+    }
     const timeoutMs = parseTimeout(metadata["grpc-timeout"]);
     const deadline = timeoutMs === null ? null : Date.now() + timeoutMs;
     // Initial/trailing metadata the handler accumulates via
@@ -91,6 +135,7 @@ export class Server {
     const ctx = {
       path,
       metadata,
+      claims,
       service: method.service,
       method: method.method,
       deadline,

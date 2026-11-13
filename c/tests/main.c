@@ -2566,17 +2566,23 @@ typedef struct {
 static trace_start_rec trace_starts[8];
 static int trace_start_count;
 static int trace_end_count;
+/* Spans start on the client, front-server, and downstream
+   threads; serialize recording (index assignment + field
+   fills) so concurrent starts cannot interleave records. */
+static pthread_mutex_t trace_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static void trace_on_start(void *ctx, const char *kind, const char *method,
                            const char *trace_id, const char *span_id,
                            const char *parent_span_id) {
     (void)ctx; (void)method;
+    pthread_mutex_lock(&trace_lock);
     trace_start_rec *r = &trace_starts[trace_start_count++];
     snprintf(r->kind, sizeof(r->kind), "%s", kind);
     snprintf(r->trace_id, sizeof(r->trace_id), "%s", trace_id);
     snprintf(r->span_id, sizeof(r->span_id), "%s", span_id);
     snprintf(r->parent_span_id, sizeof(r->parent_span_id), "%s",
              parent_span_id ? parent_span_id : "");
+    pthread_mutex_unlock(&trace_lock);
 }
 
 static void trace_on_end(void *ctx, const char *kind, const char *method,
@@ -2585,7 +2591,9 @@ static void trace_on_end(void *ctx, const char *kind, const char *method,
     (void)ctx; (void)kind; (void)method; (void)trace_id; (void)span_id;
     (void)status;
     check(duration_ms >= 0, "duration");
+    pthread_mutex_lock(&trace_lock);
     trace_end_count++;
+    pthread_mutex_unlock(&trace_lock);
 }
 
 typedef struct {
@@ -2668,9 +2676,18 @@ static void test_tracing(void) {
               strcmp(trace_starts[2].kind, "client") == 0 &&
               strcmp(trace_starts[3].kind, "server") == 0,
           "kinds");
-    for (int i = 0; i < 4; i++)
+    for (int i = 0; i < 4; i++) {
+        if (strcmp(trace_starts[i].trace_id, trace_starts[0].trace_id) != 0) {
+            fprintf(stderr,
+                    "trace ids differ: [0]=%s/%s [1]=%s/%s [2]=%s/%s [3]=%s/%s\n",
+                    trace_starts[0].trace_id, trace_starts[0].span_id,
+                    trace_starts[1].trace_id, trace_starts[1].span_id,
+                    trace_starts[2].trace_id, trace_starts[2].span_id,
+                    trace_starts[3].trace_id, trace_starts[3].span_id);
+        }
         check(strcmp(trace_starts[i].trace_id, trace_starts[0].trace_id) == 0,
               "trace ids");
+    }
     check(strcmp(trace_starts[1].parent_span_id, trace_starts[0].span_id) == 0,
           "server parent");
     check(strcmp(trace_starts[2].parent_span_id, trace_starts[1].span_id) == 0,

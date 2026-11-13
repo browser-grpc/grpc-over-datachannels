@@ -3221,3 +3221,175 @@ enum class ConfigOp(val number: Int) {
         }
     }
 }
+ class ShareGroupMember(
+    var memberId: String = "",
+    var memberEpoch: Int = 0,
+    var clientId: String = "",
+    var clientHost: String = "",
+    var subscribedTopics: MutableList<String> = mutableListOf(),
+    var assignment: MutableList<TopicPartition> = mutableListOf(),
+) : Marshaler, Unmarshaler {
+    var unknownFields: ByteArray = ByteArray(0)
+    override fun marshalDc(): ByteArray {
+        val w = KafkaPb.Writer()
+        w.stringField(1, memberId)
+        if (memberEpoch != 0) { w.tag(2, 0); w.varint(memberEpoch.toLong()) }
+        w.stringField(3, clientId)
+        w.stringField(4, clientHost)
+        for (x in subscribedTopics) w.bytesField(5, x.toByteArray(Charsets.UTF_8))
+        for (x in assignment) w.bytesField(6, x.marshalDc())
+        w.raw(unknownFields)
+        return w.toBytes()
+    }
+    override fun unmarshalDc(data: ByteArray) {
+        unknownFields = ByteArray(0)
+        memberId = ""
+        memberEpoch = 0
+        clientId = ""
+        clientHost = ""
+        subscribedTopics = mutableListOf()
+        assignment = mutableListOf()
+        val r = KafkaPb.Reader(data)
+        while (true) {
+            val field = r.next() ?: break
+            when (field.number) {
+                1 -> {
+                    memberId = String(field.bytesValue, Charsets.UTF_8)
+                }
+                2 -> {
+                    memberEpoch = field.varintValue.toInt()
+                }
+                3 -> {
+                    clientId = String(field.bytesValue, Charsets.UTF_8)
+                }
+                4 -> {
+                    clientHost = String(field.bytesValue, Charsets.UTF_8)
+                }
+                5 -> {
+                    subscribedTopics.add(String(field.bytesValue, Charsets.UTF_8))
+                }
+                6 -> {
+                    val item = TopicPartition()
+                    item.unmarshalDc(field.bytesValue)
+                    assignment.add(item)
+                }
+                else -> { unknownFields = unknownFields + field.rawValue }
+            }
+        }
+    }
+}
+ class ShareGroupDescription(
+    var groupId: String = "",
+    var errorCode: Int = 0,
+    var state: String = "",
+    var groupEpoch: Int = 0,
+    var assignmentEpoch: Int = 0,
+    var members: MutableList<ShareGroupMember> = mutableListOf(),
+) : Marshaler, Unmarshaler {
+    var unknownFields: ByteArray = ByteArray(0)
+    override fun marshalDc(): ByteArray {
+        val w = KafkaPb.Writer()
+        w.stringField(1, groupId)
+        if (errorCode != 0) { w.tag(2, 0); w.varint(errorCode.toLong()) }
+        w.stringField(3, state)
+        if (groupEpoch != 0) { w.tag(4, 0); w.varint(groupEpoch.toLong()) }
+        if (assignmentEpoch != 0) { w.tag(5, 0); w.varint(assignmentEpoch.toLong()) }
+        for (x in members) w.bytesField(6, x.marshalDc())
+        w.raw(unknownFields)
+        return w.toBytes()
+    }
+    override fun unmarshalDc(data: ByteArray) {
+        unknownFields = ByteArray(0)
+        groupId = ""
+        errorCode = 0
+        state = ""
+        groupEpoch = 0
+        assignmentEpoch = 0
+        members = mutableListOf()
+        val r = KafkaPb.Reader(data)
+        while (true) {
+            val field = r.next() ?: break
+            when (field.number) {
+                1 -> {
+                    groupId = String(field.bytesValue, Charsets.UTF_8)
+                }
+                2 -> {
+                    errorCode = field.varintValue.toInt()
+                }
+                3 -> {
+                    state = String(field.bytesValue, Charsets.UTF_8)
+                }
+                4 -> {
+                    groupEpoch = field.varintValue.toInt()
+                }
+                5 -> {
+                    assignmentEpoch = field.varintValue.toInt()
+                }
+                6 -> {
+                    val item = ShareGroupMember()
+                    item.unmarshalDc(field.bytesValue)
+                    members.add(item)
+                }
+                else -> { unknownFields = unknownFields + field.rawValue }
+            }
+        }
+    }
+}
+ class DescribeShareGroupsRequest(
+    var groupIds: MutableList<String> = mutableListOf(),
+) : Marshaler, Unmarshaler {
+    var unknownFields: ByteArray = ByteArray(0)
+    override fun marshalDc(): ByteArray {
+        val w = KafkaPb.Writer()
+        for (x in groupIds) w.bytesField(1, x.toByteArray(Charsets.UTF_8))
+        w.raw(unknownFields)
+        return w.toBytes()
+    }
+    override fun unmarshalDc(data: ByteArray) {
+        unknownFields = ByteArray(0)
+        groupIds = mutableListOf()
+        val r = KafkaPb.Reader(data)
+        while (true) {
+            val field = r.next() ?: break
+            when (field.number) {
+                1 -> {
+                    groupIds.add(String(field.bytesValue, Charsets.UTF_8))
+                }
+                else -> { unknownFields = unknownFields + field.rawValue }
+            }
+        }
+    }
+}
+ class DescribeShareGroupsResponse(
+    var groups: MutableList<ShareGroupDescription> = mutableListOf(),
+    var errorCode: Int = 0,
+) : Marshaler, Unmarshaler {
+    var unknownFields: ByteArray = ByteArray(0)
+    override fun marshalDc(): ByteArray {
+        val w = KafkaPb.Writer()
+        for (x in groups) w.bytesField(1, x.marshalDc())
+        if (errorCode != 0) { w.tag(2, 0); w.varint(errorCode.toLong()) }
+        w.raw(unknownFields)
+        return w.toBytes()
+    }
+    override fun unmarshalDc(data: ByteArray) {
+        unknownFields = ByteArray(0)
+        groups = mutableListOf()
+        errorCode = 0
+        val r = KafkaPb.Reader(data)
+        while (true) {
+            val field = r.next() ?: break
+            when (field.number) {
+                1 -> {
+                    val item = ShareGroupDescription()
+                    item.unmarshalDc(field.bytesValue)
+                    groups.add(item)
+                }
+                2 -> {
+                    errorCode = field.varintValue.toInt()
+                }
+                else -> { unknownFields = unknownFields + field.rawValue }
+            }
+        }
+    }
+}

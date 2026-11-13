@@ -219,6 +219,13 @@ class KafkaClient {
     return resp;
   }
 
+  Future<DescribeShareGroupsResponse> describeShareGroups(DescribeShareGroupsRequest req,
+      {Map<String, String>? metadata, Duration? timeout}) async {
+    final resp = DescribeShareGroupsResponse();
+    await _channel.unary("/grpcdc.kafka.v1.Kafka/DescribeShareGroups", req, resp, metadata: metadata, timeout: timeout);
+    return resp;
+  }
+
 }
 
 /// Receiving stream for Kafka/Consume responses.
@@ -376,6 +383,7 @@ abstract class KafkaServer {
   Future<SharePollResponse> sharePoll(CallContext ctx, SharePollRequest req);
   Future<ShareAckResponse> shareAck(CallContext ctx, ShareAckRequest req);
   Future<CloseShareGroupResponse> closeShareGroup(CallContext ctx, CloseShareGroupRequest req);
+  Future<DescribeShareGroupsResponse> describeShareGroups(CallContext ctx, DescribeShareGroupsRequest req);
 }
 
 class _KafkaConsumeServerImpl implements KafkaConsumeServer {
@@ -582,6 +590,12 @@ class KafkaGrpcDc {
         final req = CloseShareGroupRequest();
         await reqs.recvInto(req);
         sink((await impl.closeShareGroup(ctx, req)).marshalDc());
+      }),
+      Method("DescribeShareGroups", "/grpcdc.kafka.v1.Kafka/DescribeShareGroups", Server.kindUnary,
+          (ctx, reqs, sink) async {
+        final req = DescribeShareGroupsRequest();
+        await reqs.recvInto(req);
+        sink((await impl.describeShareGroups(ctx, req)).marshalDc());
       }),
     ]));
   }

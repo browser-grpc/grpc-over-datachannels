@@ -4527,3 +4527,229 @@ impl CloseShareGroupResponse {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct ShareGroupMember {
+    pub member_id: String,
+    pub member_epoch: i32,
+    pub client_id: String,
+    pub client_host: String,
+    pub subscribed_topics: Vec<String>,
+    pub assignment: Vec<TopicPartition>,
+    pub unknown_fields: Vec<u8>,
+}
+
+impl Default for ShareGroupMember {
+    fn default() -> Self {
+        Self {
+            member_id: String::new(),
+            member_epoch: 0,
+            client_id: String::new(),
+            client_host: String::new(),
+            subscribed_topics: Vec::new(),
+            assignment: Vec::new(),
+            unknown_fields: Vec::new(),
+        }
+    }
+}
+
+impl ShareGroupMember {
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        pb_append_string_field(&mut out, 1, &self.member_id);
+        if self.member_epoch != 0 { pb_append_tag(&mut out, 2, 0); pb_append_varint(&mut out, (self.member_epoch as u64)); }
+        pb_append_string_field(&mut out, 3, &self.client_id);
+        pb_append_string_field(&mut out, 4, &self.client_host);
+        for x in &self.subscribed_topics { pb_append_bytes_field(&mut out, 5, x.as_bytes()); }
+        for x in &self.assignment { pb_append_bytes_field(&mut out, 6, &x.encode()); }
+        out.extend_from_slice(&self.unknown_fields);
+        out
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, String> {
+        let mut msg = Self::default();
+        let mut reader = PbReader::new(bytes);
+        while let Some(field) = reader.next()? {
+            match field.number {
+                1 => {
+                    msg.member_id = String::from_utf8_lossy(&field.bytes_value).into_owned();
+                }
+                2 => {
+                    msg.member_epoch = (field.varint_value as u32 as i32);
+                }
+                3 => {
+                    msg.client_id = String::from_utf8_lossy(&field.bytes_value).into_owned();
+                }
+                4 => {
+                    msg.client_host = String::from_utf8_lossy(&field.bytes_value).into_owned();
+                }
+                5 => {
+                    msg.subscribed_topics.push(String::from_utf8_lossy(&field.bytes_value).into_owned());
+                }
+                6 => {
+                    msg.assignment.push(TopicPartition::decode(&field.bytes_value)?);
+                }
+                _ => {
+                    msg.unknown_fields.extend_from_slice(&field.raw_value);
+                }
+            }
+        }
+        Ok(msg)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ShareGroupDescription {
+    pub group_id: String,
+    pub error_code: i32,
+    pub state: String,
+    pub group_epoch: i32,
+    pub assignment_epoch: i32,
+    pub members: Vec<ShareGroupMember>,
+    pub unknown_fields: Vec<u8>,
+}
+
+impl Default for ShareGroupDescription {
+    fn default() -> Self {
+        Self {
+            group_id: String::new(),
+            error_code: 0,
+            state: String::new(),
+            group_epoch: 0,
+            assignment_epoch: 0,
+            members: Vec::new(),
+            unknown_fields: Vec::new(),
+        }
+    }
+}
+
+impl ShareGroupDescription {
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        pb_append_string_field(&mut out, 1, &self.group_id);
+        if self.error_code != 0 { pb_append_tag(&mut out, 2, 0); pb_append_varint(&mut out, (self.error_code as u64)); }
+        pb_append_string_field(&mut out, 3, &self.state);
+        if self.group_epoch != 0 { pb_append_tag(&mut out, 4, 0); pb_append_varint(&mut out, (self.group_epoch as u64)); }
+        if self.assignment_epoch != 0 { pb_append_tag(&mut out, 5, 0); pb_append_varint(&mut out, (self.assignment_epoch as u64)); }
+        for x in &self.members { pb_append_bytes_field(&mut out, 6, &x.encode()); }
+        out.extend_from_slice(&self.unknown_fields);
+        out
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, String> {
+        let mut msg = Self::default();
+        let mut reader = PbReader::new(bytes);
+        while let Some(field) = reader.next()? {
+            match field.number {
+                1 => {
+                    msg.group_id = String::from_utf8_lossy(&field.bytes_value).into_owned();
+                }
+                2 => {
+                    msg.error_code = (field.varint_value as u32 as i32);
+                }
+                3 => {
+                    msg.state = String::from_utf8_lossy(&field.bytes_value).into_owned();
+                }
+                4 => {
+                    msg.group_epoch = (field.varint_value as u32 as i32);
+                }
+                5 => {
+                    msg.assignment_epoch = (field.varint_value as u32 as i32);
+                }
+                6 => {
+                    msg.members.push(ShareGroupMember::decode(&field.bytes_value)?);
+                }
+                _ => {
+                    msg.unknown_fields.extend_from_slice(&field.raw_value);
+                }
+            }
+        }
+        Ok(msg)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct DescribeShareGroupsRequest {
+    pub group_ids: Vec<String>,
+    pub unknown_fields: Vec<u8>,
+}
+
+impl Default for DescribeShareGroupsRequest {
+    fn default() -> Self {
+        Self {
+            group_ids: Vec::new(),
+            unknown_fields: Vec::new(),
+        }
+    }
+}
+
+impl DescribeShareGroupsRequest {
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        for x in &self.group_ids { pb_append_bytes_field(&mut out, 1, x.as_bytes()); }
+        out.extend_from_slice(&self.unknown_fields);
+        out
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, String> {
+        let mut msg = Self::default();
+        let mut reader = PbReader::new(bytes);
+        while let Some(field) = reader.next()? {
+            match field.number {
+                1 => {
+                    msg.group_ids.push(String::from_utf8_lossy(&field.bytes_value).into_owned());
+                }
+                _ => {
+                    msg.unknown_fields.extend_from_slice(&field.raw_value);
+                }
+            }
+        }
+        Ok(msg)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct DescribeShareGroupsResponse {
+    pub groups: Vec<ShareGroupDescription>,
+    pub error_code: i32,
+    pub unknown_fields: Vec<u8>,
+}
+
+impl Default for DescribeShareGroupsResponse {
+    fn default() -> Self {
+        Self {
+            groups: Vec::new(),
+            error_code: 0,
+            unknown_fields: Vec::new(),
+        }
+    }
+}
+
+impl DescribeShareGroupsResponse {
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        for x in &self.groups { pb_append_bytes_field(&mut out, 1, &x.encode()); }
+        if self.error_code != 0 { pb_append_tag(&mut out, 2, 0); pb_append_varint(&mut out, (self.error_code as u64)); }
+        out.extend_from_slice(&self.unknown_fields);
+        out
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, String> {
+        let mut msg = Self::default();
+        let mut reader = PbReader::new(bytes);
+        while let Some(field) = reader.next()? {
+            match field.number {
+                1 => {
+                    msg.groups.push(ShareGroupDescription::decode(&field.bytes_value)?);
+                }
+                2 => {
+                    msg.error_code = (field.varint_value as u32 as i32);
+                }
+                _ => {
+                    msg.unknown_fields.extend_from_slice(&field.raw_value);
+                }
+            }
+        }
+        Ok(msg)
+    }
+}
+

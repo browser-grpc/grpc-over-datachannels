@@ -1,5 +1,5 @@
 name: kafka_grpc
-version: 0.41.0
+version: 0.42.0
 description: "Kafka over gRPC for Dart and Flutter: generated grpcdc.kafka.v1 clients (produce/consume/groups/topics) speaking gRPC over WebRTC DataChannels, via the grpc_dc runtime."
 homepage: https://github.com/browser-grpc/grpc-over-datachannels
 repository: https://github.com/browser-grpc/grpc-over-datachannels
@@ -7,4 +7,4 @@ issue_tracker: https://github.com/browser-grpc/grpc-over-datachannels/issues
 environment:
   sdk: ">=3.0.0 <4.0.0"
 dependencies:
-  grpc_dc: ^0.41.0
+  grpc_dc: ^0.42.0

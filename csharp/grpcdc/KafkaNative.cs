@@ -17,6 +17,47 @@ namespace Grpcdc;
 /// GRPC_DC_KAFKA_NATIVE_LIB environment variable, or the OS
 /// loader path.
 /// </summary>
+internal static class NativeLib
+{
+    // NativeLibrary is netstandard2.1+; netstandard2.0 loads
+    // via the OS loader directly so KafkaNative.cs compiles
+    // for every KafkaGrpc target.
+#if NETSTANDARD2_0
+    [DllImport("kernel32", SetLastError = true, CharSet = CharSet.Ansi)]
+    private static extern IntPtr LoadLibrary(string path);
+
+    [DllImport("kernel32", SetLastError = true, CharSet = CharSet.Ansi)]
+    private static extern IntPtr GetProcAddress(IntPtr lib, string name);
+
+    [DllImport("libdl", SetLastError = true)]
+    private static extern IntPtr dlopen(string path, int flags);
+
+    [DllImport("libdl", SetLastError = true, CharSet = CharSet.Ansi)]
+    private static extern IntPtr dlsym(IntPtr lib, string name);
+
+    private static bool IsWindows =>
+        Environment.OSVersion.Platform == PlatformID.Win32NT;
+
+    public static IntPtr Load(string path)
+    {
+        var lib = IsWindows ? LoadLibrary(path) : dlopen(path, 0x102); // RTLD_NOW | RTLD_GLOBAL
+        if (lib == IntPtr.Zero) throw new DllNotFoundException(path);
+        return lib;
+    }
+
+    public static bool TryGetExport(IntPtr lib, string name, out IntPtr addr)
+    {
+        addr = IsWindows ? GetProcAddress(lib, name) : dlsym(lib, name);
+        return addr != IntPtr.Zero;
+    }
+#else
+    public static IntPtr Load(string path) => NativeLibrary.Load(path);
+
+    public static bool TryGetExport(IntPtr lib, string name, out IntPtr addr) =>
+        NativeLibrary.TryGetExport(lib, name, out addr);
+#endif
+}
+
 public sealed class KafkaNativeClient : IDisposable
 {
     private delegate IntPtr NewFn(IntPtr broker, IntPtr clientId);
@@ -44,7 +85,7 @@ public sealed class KafkaNativeClient : IDisposable
         IntPtr lib;
         try
         {
-            lib = libPath != null ? NativeLibrary.Load(libPath) : NativeLibrary.Load("kafka_native");
+            lib = libPath != null ? NativeLib.Load(libPath) : NativeLib.Load("kafka_native");
         }
         catch (Exception e)
         {
@@ -74,7 +115,7 @@ public sealed class KafkaNativeClient : IDisposable
 
     private static T Export<T>(IntPtr lib, string name) where T : Delegate
     {
-        if (!NativeLibrary.TryGetExport(lib, name, out var addr))
+        if (!NativeLib.TryGetExport(lib, name, out var addr))
         {
             throw new KafkaNativeException("libkafka_native missing export " + name);
         }
@@ -195,6 +236,11 @@ public sealed class KafkaNativeClient : IDisposable
     public DeleteAclsResponse DeleteAcls(DeleteAclsRequest req) => Unary("DeleteAcls", req.MarshalDc(), b => { var r = new DeleteAclsResponse(); r.UnmarshalDc(b); return r; });
     public ListTransactionsResponse ListTransactions(ListTransactionsRequest req) => Unary("ListTransactions", req.MarshalDc(), b => { var r = new ListTransactionsResponse(); r.UnmarshalDc(b); return r; });
     public DescribeTransactionsResponse DescribeTransactions(DescribeTransactionsRequest req) => Unary("DescribeTransactions", req.MarshalDc(), b => { var r = new DescribeTransactionsResponse(); r.UnmarshalDc(b); return r; });
+    public DescribeShareGroupsResponse DescribeShareGroups(DescribeShareGroupsRequest req) => Unary("DescribeShareGroups", req.MarshalDc(), b => { var r = new DescribeShareGroupsResponse(); r.UnmarshalDc(b); return r; });
+    public OpenShareGroupResponse OpenShareGroup(OpenShareGroupRequest req) => Unary("OpenShareGroup", req.MarshalDc(), b => { var r = new OpenShareGroupResponse(); r.UnmarshalDc(b); return r; });
+    public SharePollResponse SharePoll(SharePollRequest req) => Unary("SharePoll", req.MarshalDc(), b => { var r = new SharePollResponse(); r.UnmarshalDc(b); return r; });
+    public ShareAckResponse ShareAck(ShareAckRequest req) => Unary("ShareAck", req.MarshalDc(), b => { var r = new ShareAckResponse(); r.UnmarshalDc(b); return r; });
+    public CloseShareGroupResponse CloseShareGroup(CloseShareGroupRequest req) => Unary("CloseShareGroup", req.MarshalDc(), b => { var r = new CloseShareGroupResponse(); r.UnmarshalDc(b); return r; });
 }
 
 /// <summary>Error from the kafka-native library.</summary>

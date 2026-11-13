@@ -90,6 +90,7 @@ export class Channel {
   #endpoint;
   #traces = new Map();
   #traceContext = null;
+  #metadataProvider = null;
 
   // A Channel view sharing this endpoint whose outbound spans are
   // parented to traceContext (a server span context from
@@ -99,6 +100,19 @@ export class Channel {
   withTraceContext(traceContext) {
     const ch = new Channel(this.#endpoint);
     ch.#traceContext = traceContext ?? null;
+    ch.#metadataProvider = this.#metadataProvider;
+    return ch;
+  }
+
+  // A Channel view sharing this endpoint that merges metadata
+  // from `provider` (a map, or a function returning a map or a
+  // promise of one) into every call. Explicit per-call metadata
+  // still wins. Used by rendezvousChannel to attach the
+  // authorization bearer token per call.
+  withMetadata(provider) {
+    const ch = new Channel(this.#endpoint);
+    ch.#traceContext = this.#traceContext;
+    ch.#metadataProvider = provider ?? null;
     return ch;
   }
 
@@ -113,6 +127,13 @@ export class Channel {
   }
 
   async #open(path, metadata, timeout, signal = null) {
+    if (this.#metadataProvider !== null) {
+      const provided =
+        typeof this.#metadataProvider === "function"
+          ? await this.#metadataProvider()
+          : this.#metadataProvider;
+      if (provided) metadata = { ...provided, ...metadata };
+    }
     let deadline = null;
     if (timeout !== undefined && timeout !== null) {
       deadline = Date.now() + timeout;

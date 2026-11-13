@@ -4592,4 +4592,236 @@ end
     end
   end
 
+  class ShareGroupMember
+    attr_accessor :member_id, :member_epoch, :client_id, :client_host, :subscribed_topics, :assignment, :unknown_fields
+
+    def initialize(member_id: "", member_epoch: 0, client_id: "", client_host: "", subscribed_topics: [], assignment: [])
+      @member_id = member_id
+      @member_epoch = member_epoch
+      @client_id = client_id
+      @client_host = client_host
+      @subscribed_topics = subscribed_topics
+      @assignment = assignment
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    w.string_field(1, @member_id)
+    if @member_epoch != 0
+      w.tag(2, 0)
+      w.varint(@member_epoch)
+    end
+    w.string_field(3, @client_id)
+    w.string_field(4, @client_host)
+    @subscribed_topics.each { |x| w.bytes_field(5, x) }
+    @assignment.each { |x| w.bytes_field(6, x.marshal_dc) }
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @member_id = ""
+      @member_epoch = 0
+      @client_id = ""
+      @client_host = ""
+      @subscribed_topics = []
+      @assignment = []
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        @member_id = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 2
+        @member_epoch = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+      when 3
+        @client_id = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 4
+        @client_host = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 5
+        @subscribed_topics << bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 6
+        item = TopicPartition.new
+        item.unmarshal_dc(bytes_value)
+        @assignment << item
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(ShareGroupMember) && @member_id == other.member_id && @member_epoch == other.member_epoch && @client_id == other.client_id && @client_host == other.client_host && @subscribed_topics == other.subscribed_topics && @assignment == other.assignment
+    end
+  end
+
+  class ShareGroupDescription
+    attr_accessor :group_id, :error_code, :state, :group_epoch, :assignment_epoch, :members, :unknown_fields
+
+    def initialize(group_id: "", error_code: 0, state: "", group_epoch: 0, assignment_epoch: 0, members: [])
+      @group_id = group_id
+      @error_code = error_code
+      @state = state
+      @group_epoch = group_epoch
+      @assignment_epoch = assignment_epoch
+      @members = members
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    w.string_field(1, @group_id)
+    if @error_code != 0
+      w.tag(2, 0)
+      w.varint(@error_code)
+    end
+    w.string_field(3, @state)
+    if @group_epoch != 0
+      w.tag(4, 0)
+      w.varint(@group_epoch)
+    end
+    if @assignment_epoch != 0
+      w.tag(5, 0)
+      w.varint(@assignment_epoch)
+    end
+    @members.each { |x| w.bytes_field(6, x.marshal_dc) }
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @group_id = ""
+      @error_code = 0
+      @state = ""
+      @group_epoch = 0
+      @assignment_epoch = 0
+      @members = []
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        @group_id = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 2
+        @error_code = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+      when 3
+        @state = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 4
+        @group_epoch = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+      when 5
+        @assignment_epoch = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+      when 6
+        item = ShareGroupMember.new
+        item.unmarshal_dc(bytes_value)
+        @members << item
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(ShareGroupDescription) && @group_id == other.group_id && @error_code == other.error_code && @state == other.state && @group_epoch == other.group_epoch && @assignment_epoch == other.assignment_epoch && @members == other.members
+    end
+  end
+
+  class DescribeShareGroupsRequest
+    attr_accessor :group_ids, :unknown_fields
+
+    def initialize(group_ids: [])
+      @group_ids = group_ids
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    @group_ids.each { |x| w.bytes_field(1, x) }
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @group_ids = []
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        @group_ids << bytes_value.dup.force_encoding(Encoding::UTF_8)
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(DescribeShareGroupsRequest) && @group_ids == other.group_ids
+    end
+  end
+
+  class DescribeShareGroupsResponse
+    attr_accessor :groups, :error_code, :unknown_fields
+
+    def initialize(groups: [], error_code: 0)
+      @groups = groups
+      @error_code = error_code
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    @groups.each { |x| w.bytes_field(1, x.marshal_dc) }
+    if @error_code != 0
+      w.tag(2, 0)
+      w.varint(@error_code)
+    end
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @groups = []
+      @error_code = 0
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        item = ShareGroupDescription.new
+        item.unmarshal_dc(bytes_value)
+        @groups << item
+      when 2
+        @error_code = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(DescribeShareGroupsResponse) && @groups == other.groups && @error_code == other.error_code
+    end
+  end
+
 end

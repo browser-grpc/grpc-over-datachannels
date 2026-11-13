@@ -244,4 +244,14 @@ class KafkaNativeClient {
       _unary('ListTransactions', req, () => ListTransactionsResponse());
   DescribeTransactionsResponse describeTransactions(DescribeTransactionsRequest req) =>
       _unary('DescribeTransactions', req, () => DescribeTransactionsResponse());
+  DescribeShareGroupsResponse describeShareGroups(DescribeShareGroupsRequest req) =>
+      _unary('DescribeShareGroups', req, () => DescribeShareGroupsResponse());
+  OpenShareGroupResponse openShareGroup(OpenShareGroupRequest req) =>
+      _unary('OpenShareGroup', req, () => OpenShareGroupResponse());
+  SharePollResponse sharePoll(SharePollRequest req) =>
+      _unary('SharePoll', req, () => SharePollResponse());
+  ShareAckResponse shareAck(ShareAckRequest req) =>
+      _unary('ShareAck', req, () => ShareAckResponse());
+  CloseShareGroupResponse closeShareGroup(CloseShareGroupRequest req) =>
+      _unary('CloseShareGroup', req, () => CloseShareGroupResponse());
 }

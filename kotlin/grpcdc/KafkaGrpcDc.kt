@@ -226,6 +226,12 @@ object KafkaGrpcDc {
             return resp
         }
 
+        fun DescribeShareGroups(req: DescribeShareGroupsRequest, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): DescribeShareGroupsResponse {
+            val resp = DescribeShareGroupsResponse()
+            channel.unary("/grpcdc.kafka.v1.Kafka/DescribeShareGroups", req, resp, metadata, timeout)
+            return resp
+        }
+
         // -- async (coroutine / CompletableFuture) surface ---------------
 
         suspend fun MetadataAsync(req: MetadataRequest, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): MetadataResponse {
@@ -482,6 +488,14 @@ object KafkaGrpcDc {
             return AsyncPump.future { CloseShareGroup(req, metadata, timeout) }
         }
 
+        suspend fun DescribeShareGroupsAsync(req: DescribeShareGroupsRequest, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): DescribeShareGroupsResponse {
+            return AsyncPump.await(DescribeShareGroupsFuture(req, metadata, timeout))
+        }
+
+        fun DescribeShareGroupsFuture(req: DescribeShareGroupsRequest, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): CompletableFuture<DescribeShareGroupsResponse> {
+            return AsyncPump.future { DescribeShareGroups(req, metadata, timeout) }
+        }
+
     }
 
     /** Server-streaming sink passed to service implementations. */
@@ -527,6 +541,7 @@ object KafkaGrpcDc {
         fun SharePoll(ctx: Endpoint.CallContext, req: SharePollRequest): SharePollResponse
         fun ShareAck(ctx: Endpoint.CallContext, req: ShareAckRequest): ShareAckResponse
         fun CloseShareGroup(ctx: Endpoint.CallContext, req: CloseShareGroupRequest): CloseShareGroupResponse
+        fun DescribeShareGroups(ctx: Endpoint.CallContext, req: DescribeShareGroupsRequest): DescribeShareGroupsResponse
     }
 
     /** Async service implementation interface for grpcdc.kafka.v1.Kafka. */
@@ -560,6 +575,7 @@ object KafkaGrpcDc {
         suspend fun SharePollAsync(ctx: Endpoint.CallContext, req: SharePollRequest): SharePollResponse
         suspend fun ShareAckAsync(ctx: Endpoint.CallContext, req: ShareAckRequest): ShareAckResponse
         suspend fun CloseShareGroupAsync(ctx: Endpoint.CallContext, req: CloseShareGroupRequest): CloseShareGroupResponse
+        suspend fun DescribeShareGroupsAsync(ctx: Endpoint.CallContext, req: DescribeShareGroupsRequest): DescribeShareGroupsResponse
     }
 
     private class KafkaConsumeServerImpl(
@@ -695,6 +711,10 @@ object KafkaGrpcDc {
 
         override fun CloseShareGroup(ctx: Endpoint.CallContext, req: CloseShareGroupRequest): CloseShareGroupResponse {
             return AsyncPump.runSuspend { impl.CloseShareGroupAsync(ctx, req) }
+        }
+
+        override fun DescribeShareGroups(ctx: Endpoint.CallContext, req: DescribeShareGroupsRequest): DescribeShareGroupsResponse {
+            return AsyncPump.runSuspend { impl.DescribeShareGroupsAsync(ctx, req) }
         }
 
     }
@@ -849,6 +869,11 @@ object KafkaGrpcDc {
                         val req = CloseShareGroupRequest()
                         reqs.recvInto(req)
                         sink.send(impl.CloseShareGroup(ctx, req).marshalDc())
+                    },
+                    Server.Method("DescribeShareGroups", "/grpcdc.kafka.v1.Kafka/DescribeShareGroups", Server.KIND_UNARY) { ctx, reqs, sink ->
+                        val req = DescribeShareGroupsRequest()
+                        reqs.recvInto(req)
+                        sink.send(impl.DescribeShareGroups(ctx, req).marshalDc())
                     }
                 )
             )

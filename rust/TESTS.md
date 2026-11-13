@@ -34,6 +34,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`mod.rs`](tests/oracle_scenarios/mod.rs) — Generated suite/example
 - [`pb_messages.rs`](tests/pb_messages.rs) — Generated suite/example
 - [`rendezvous.rs`](tests/rendezvous.rs) — Generated suite/example
+- [`rendezvous_auth.rs`](tests/rendezvous_auth.rs) — Generated suite/example
 - [`tracing.rs`](tests/tracing.rs) — Tracing: traceparent propagation, span observers, nested calls
 - [`webrtc_direct_grpc.rs`](tests/webrtc_direct_grpc.rs) — WebRTC-Direct example/test
 - [`webrtc_grpc.rs`](tests/webrtc_grpc.rs) — WebRTC transport

@@ -273,6 +273,13 @@ struct KafkaGrpcDc {
       return resp;
     }
 
+    DescribeShareGroupsResponse DescribeShareGroups(DescribeShareGroupsRequest req,
+                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      DescribeShareGroupsResponse resp;
+      channel_->Unary("/grpcdc.kafka.v1.Kafka/DescribeShareGroups", req, resp, metadata, timeout);
+      return resp;
+    }
+
     // -- async (std::future) surface -------------------------------------
 
     std::future<MetadataResponse> MetadataAsync(
@@ -467,6 +474,12 @@ struct KafkaGrpcDc {
         CloseShareGroupRequest req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
       return std::async(std::launch::async,
                         [this, req, metadata, timeout] { return CloseShareGroup(req, metadata, timeout); });
+    }
+
+    std::future<DescribeShareGroupsResponse> DescribeShareGroupsAsync(
+        DescribeShareGroupsRequest req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      return std::async(std::launch::async,
+                        [this, req, metadata, timeout] { return DescribeShareGroups(req, metadata, timeout); });
     }
 
    private:
@@ -723,6 +736,13 @@ struct KafkaGrpcDc {
       co_return resp;
     }
 
+    grpcdc::Task<DescribeShareGroupsResponse> DescribeShareGroups(DescribeShareGroupsRequest req,
+                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      DescribeShareGroupsResponse resp;
+      co_await channel_->Unary("/grpcdc.kafka.v1.Kafka/DescribeShareGroups", req, resp, metadata, timeout);
+      co_return resp;
+    }
+
    private:
     std::shared_ptr<grpcdc::AsyncChannel> channel_;
   };
@@ -803,6 +823,8 @@ struct KafkaGrpcDc {
                                ShareAckRequest& req) = 0;
     virtual CloseShareGroupResponse CloseShareGroup(grpcdc::Endpoint::CallContext& ctx,
                                CloseShareGroupRequest& req) = 0;
+    virtual DescribeShareGroupsResponse DescribeShareGroups(grpcdc::Endpoint::CallContext& ctx,
+                               DescribeShareGroupsRequest& req) = 0;
   };
 
   /// Async service implementation interface for grpcdc.kafka.v1.Kafka.
@@ -866,6 +888,8 @@ struct KafkaGrpcDc {
         grpcdc::Endpoint::CallContext& ctx, ShareAckRequest& req) = 0;
     virtual std::future<CloseShareGroupResponse> CloseShareGroupAsync(
         grpcdc::Endpoint::CallContext& ctx, CloseShareGroupRequest& req) = 0;
+    virtual std::future<DescribeShareGroupsResponse> DescribeShareGroupsAsync(
+        grpcdc::Endpoint::CallContext& ctx, DescribeShareGroupsRequest& req) = 0;
   };
 
  private:
@@ -1013,6 +1037,10 @@ struct KafkaGrpcDc {
     CloseShareGroupResponse CloseShareGroup(grpcdc::Endpoint::CallContext& ctx,
                        CloseShareGroupRequest& req) override {
       return impl_->CloseShareGroupAsync(ctx, req).get();
+    }
+    DescribeShareGroupsResponse DescribeShareGroups(grpcdc::Endpoint::CallContext& ctx,
+                       DescribeShareGroupsRequest& req) override {
+      return impl_->DescribeShareGroupsAsync(ctx, req).get();
     }
 
    private:
@@ -1315,6 +1343,16 @@ struct KafkaGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                CloseShareGroupResponse resp = impl.CloseShareGroup(mutable_ctx, req);
+               sink(resp.MarshalDc());
+             }},
+            {"DescribeShareGroups", "/grpcdc.kafka.v1.Kafka/DescribeShareGroups", grpcdc::Server::kKindUnary,
+             [&impl](const grpcdc::Endpoint::CallContext& ctx,
+                     grpcdc::Server::RequestStream& reqs,
+                     grpcdc::Server::ServerSink& sink) {
+               DescribeShareGroupsRequest req;
+               reqs.RecvInto(req);
+               auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
+               DescribeShareGroupsResponse resp = impl.DescribeShareGroups(mutable_ctx, req);
                sink(resp.MarshalDc());
              }},
         }});

@@ -34,6 +34,16 @@ import grpcdc.kafka.v1.DescribeGroupsRequest;
 import grpcdc.kafka.v1.DescribeGroupsResponse;
 import grpcdc.kafka.v1.DescribeTransactionsRequest;
 import grpcdc.kafka.v1.DescribeTransactionsResponse;
+import grpcdc.kafka.v1.DescribeShareGroupsRequest;
+import grpcdc.kafka.v1.DescribeShareGroupsResponse;
+import grpcdc.kafka.v1.OpenShareGroupRequest;
+import grpcdc.kafka.v1.OpenShareGroupResponse;
+import grpcdc.kafka.v1.SharePollRequest;
+import grpcdc.kafka.v1.SharePollResponse;
+import grpcdc.kafka.v1.ShareAckRequest;
+import grpcdc.kafka.v1.ShareAckResponse;
+import grpcdc.kafka.v1.CloseShareGroupRequest;
+import grpcdc.kafka.v1.CloseShareGroupResponse;
 import grpcdc.kafka.v1.EndTransactionRequest;
 import grpcdc.kafka.v1.EndTransactionResponse;
 import grpcdc.kafka.v1.FetchOffsetRequest;
@@ -191,6 +201,11 @@ public final class KafkaNative implements AutoCloseable {
     public DeleteAclsResponse DeleteAcls(DeleteAclsRequest req) { return unary("DeleteAcls", req, DeleteAclsResponse::new); }
     public ListTransactionsResponse ListTransactions(ListTransactionsRequest req) { return unary("ListTransactions", req, ListTransactionsResponse::new); }
     public DescribeTransactionsResponse DescribeTransactions(DescribeTransactionsRequest req) { return unary("DescribeTransactions", req, DescribeTransactionsResponse::new); }
+    public DescribeShareGroupsResponse DescribeShareGroups(DescribeShareGroupsRequest req) { return unary("DescribeShareGroups", req, DescribeShareGroupsResponse::new); }
+    public OpenShareGroupResponse OpenShareGroup(OpenShareGroupRequest req) { return unary("OpenShareGroup", req, OpenShareGroupResponse::new); }
+    public SharePollResponse SharePoll(SharePollRequest req) { return unary("SharePoll", req, SharePollResponse::new); }
+    public ShareAckResponse ShareAck(ShareAckRequest req) { return unary("ShareAck", req, ShareAckResponse::new); }
+    public CloseShareGroupResponse CloseShareGroup(CloseShareGroupRequest req) { return unary("CloseShareGroup", req, CloseShareGroupResponse::new); }
 
     /** Error from the kafka-native library. */
     public static final class KafkaNativeException extends RuntimeException {
