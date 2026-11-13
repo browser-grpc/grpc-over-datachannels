@@ -77,6 +77,7 @@ type ServiceDesc struct {
 // Server dispatches inbound calls to registered methods.
 type Server struct {
 	methods map[string]Method
+	auth    *RendezvousAuth
 }
 
 // NewServer builds an empty server.
@@ -105,7 +106,28 @@ func (s *Server) ServeEndpoint(ep *Endpoint) {
 	ep.Start()
 }
 
+// SetRendezvousAuth requires a rendezvous bearer token on
+// every call (installed by ServeRendezvousWithAuth): a bad,
+// missing or expired token fails UNAUTHENTICATED, a valid but
+// under-scoped token fails PERMISSION_DENIED, and verified
+// claims are exposed via ClaimsFromContext. Rendezvous-only
+// by design: no protoc plugin option.
+func (s *Server) SetRendezvousAuth(auth *RendezvousAuth) {
+	s.auth = auth
+}
+
 type callStateKey struct{}
+
+type claimsKey struct{}
+
+// ClaimsFromContext returns the verified rendezvous claims
+// for the call, or nil when the call was not authenticated.
+func ClaimsFromContext(ctx context.Context) *RendezvousClaims {
+	if claims, ok := ctx.Value(claimsKey{}).(*RendezvousClaims); ok {
+		return claims
+	}
+	return nil
+}
 
 // SetHeader records response initial metadata for the call in
 // ctx (sent lazily, before the first response message). Safe
@@ -139,6 +161,16 @@ func (s *Server) dispatch(ctx context.Context, headers Headers, in *streamInput,
 	method, ok := s.methods[*headers.Path]
 	if !ok {
 		return NewStatus(CodeUnimplemented, "unknown method "+*headers.Path)
+	}
+	if s.auth != nil {
+		claims, st := s.auth.verify(headers.Metadata)
+		if st != nil {
+			return st
+		}
+		if st := s.auth.checkScopes(*headers.Path, claims); st != nil {
+			return st
+		}
+		ctx = context.WithValue(ctx, claimsKey{}, claims)
 	}
 	ctx = context.WithValue(ctx, callStateKey{}, sink)
 	traceCtx := traceStart("server", *headers.Path, ParseTraceparent(headers.Metadata["traceparent"]))

@@ -8,7 +8,7 @@
 
 use crate::endpoint::{Endpoint, StreamEvent};
 use crate::message::Message;
-use crate::status::{Metadata, Status};
+use crate::status::{Code, Metadata, Status};
 use crate::transport::DcTransport;
 use crate::BoxFuture;
 use bytes::Bytes;
@@ -32,11 +32,396 @@ pub struct ResponseMeta {
 /// Shared per-call response metadata.
 pub type SharedMeta = Arc<std::sync::Mutex<ResponseMeta>>;
 
+// ---------------------------------------------------------------------------
+// Rendezvous auth tokens: base64url(protobuf claims) + "." +
+// base64url(HMAC-SHA256(secret, claims)). Claims wire layout
+// (protobuf, no schema dependency): 1 sub, 2 iss, 3 aud
+// (strings); 4 exp, 5 nbf, 6 iat (varint seconds); 7 scopes
+// (repeated string); 8 jti (string). The same layout is
+// implemented in the JS and Go rendezvous code, so one token
+// verifies on every stack. Rendezvous-only by design: no
+// protoc plugin option. SHA-256/HMAC are implemented natively
+// here so the runtime stays dependency-free.
+
+/// The payload of a rendezvous token.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RendezvousClaims {
+    pub sub: String,
+    pub iss: String,
+    pub aud: String,
+    pub exp: i64,
+    pub nbf: i64,
+    pub iat: i64,
+    pub scopes: Vec<String>,
+    pub jti: String,
+}
+
+fn push_varint(out: &mut Vec<u8>, mut v: u64) {
+    loop {
+        let b = (v & 0x7f) as u8;
+        v >>= 7;
+        if v == 0 {
+            out.push(b);
+            return;
+        }
+        out.push(b | 0x80);
+    }
+}
+
+fn push_len_field(out: &mut Vec<u8>, field: u64, payload: &[u8]) {
+    push_varint(out, (field << 3) | 2);
+    push_varint(out, payload.len() as u64);
+    out.extend_from_slice(payload);
+}
+
+fn push_varint_field(out: &mut Vec<u8>, field: u64, v: i64) {
+    push_varint(out, (field << 3) | 0);
+    push_varint(out, v as u64);
+}
+
+/// Serialize rendezvous claims to protobuf wire bytes.
+pub fn encode_rendezvous_claims(claims: &RendezvousClaims) -> Vec<u8> {
+    let mut out = Vec::new();
+    if !claims.sub.is_empty() {
+        push_len_field(&mut out, 1, claims.sub.as_bytes());
+    }
+    if !claims.iss.is_empty() {
+        push_len_field(&mut out, 2, claims.iss.as_bytes());
+    }
+    if !claims.aud.is_empty() {
+        push_len_field(&mut out, 3, claims.aud.as_bytes());
+    }
+    if claims.exp != 0 {
+        push_varint_field(&mut out, 4, claims.exp);
+    }
+    if claims.nbf != 0 {
+        push_varint_field(&mut out, 5, claims.nbf);
+    }
+    if claims.iat != 0 {
+        push_varint_field(&mut out, 6, claims.iat);
+    }
+    for scope in &claims.scopes {
+        push_len_field(&mut out, 7, scope.as_bytes());
+    }
+    if !claims.jti.is_empty() {
+        push_len_field(&mut out, 8, claims.jti.as_bytes());
+    }
+    out
+}
+
+/// Parse rendezvous claims from protobuf wire bytes.
+pub fn decode_rendezvous_claims(data: &[u8]) -> Result<RendezvousClaims, Status> {
+    let mut claims = RendezvousClaims::default();
+    let mut pos = 0usize;
+    fn read_varint(data: &[u8], pos: &mut usize) -> Result<u64, Status> {
+        let mut v: u64 = 0;
+        let mut shift = 0u32;
+        loop {
+            if *pos >= data.len() {
+                return Err(Status::invalid_argument("truncated varint"));
+            }
+            let b = data[*pos];
+            *pos += 1;
+            v |= ((b & 0x7f) as u64) << shift;
+            if b & 0x80 == 0 {
+                return Ok(v);
+            }
+            shift += 7;
+        }
+    }
+    while pos < data.len() {
+        let tag = read_varint(data, &mut pos)?;
+        let field = tag >> 3;
+        match tag & 7 {
+            2 => {
+                let len = read_varint(data, &mut pos)? as usize;
+                if pos + len > data.len() {
+                    return Err(Status::invalid_argument("truncated length-delimited field"));
+                }
+                let slice = &data[pos..pos + len];
+                pos += len;
+                let text = String::from_utf8_lossy(slice).into_owned();
+                match field {
+                    1 => claims.sub = text,
+                    2 => claims.iss = text,
+                    3 => claims.aud = text,
+                    7 => claims.scopes.push(text),
+                    8 => claims.jti = text,
+                    _ => {}
+                }
+            }
+            0 => {
+                let v = read_varint(data, &mut pos)? as i64;
+                match field {
+                    4 => claims.exp = v,
+                    5 => claims.nbf = v,
+                    6 => claims.iat = v,
+                    _ => {}
+                }
+            }
+            _ => return Err(Status::invalid_argument("unsupported wire type")),
+        }
+    }
+    Ok(claims)
+}
+
+const SHA256_K: [u32; 64] = [
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+];
+
+fn sha256(data: &[u8]) -> [u8; 32] {
+    let mut h: [u32; 8] = [
+        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab,
+        0x5be0cd19,
+    ];
+    let bit_len = (data.len() as u64).wrapping_mul(8);
+    let mut msg = data.to_vec();
+    msg.push(0x80);
+    while msg.len() % 64 != 56 {
+        msg.push(0);
+    }
+    msg.extend_from_slice(&bit_len.to_be_bytes());
+    for chunk in msg.chunks_exact(64) {
+        let mut w = [0u32; 64];
+        for i in 0..16 {
+            w[i] = u32::from_be_bytes([chunk[4 * i], chunk[4 * i + 1], chunk[4 * i + 2], chunk[4 * i + 3]]);
+        }
+        for i in 16..64 {
+            let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
+            let s1 = w[i - 2].rotate_right(17) ^ w[i - 2].rotate_right(19) ^ (w[i - 2] >> 10);
+            w[i] = w[i - 16]
+                .wrapping_add(s0)
+                .wrapping_add(w[i - 7])
+                .wrapping_add(s1);
+        }
+        let (mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut hh) =
+            (h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7]);
+        for i in 0..64 {
+            let s1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
+            let ch = (e & f) ^ ((!e) & g);
+            let t1 = hh
+                .wrapping_add(s1)
+                .wrapping_add(ch)
+                .wrapping_add(SHA256_K[i])
+                .wrapping_add(w[i]);
+            let s0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
+            let maj = (a & b) ^ (a & c) ^ (b & c);
+            let t2 = s0.wrapping_add(maj);
+            hh = g;
+            g = f;
+            f = e;
+            e = d.wrapping_add(t1);
+            d = c;
+            c = b;
+            b = a;
+            a = t1.wrapping_add(t2);
+        }
+        h[0] = h[0].wrapping_add(a);
+        h[1] = h[1].wrapping_add(b);
+        h[2] = h[2].wrapping_add(c);
+        h[3] = h[3].wrapping_add(d);
+        h[4] = h[4].wrapping_add(e);
+        h[5] = h[5].wrapping_add(f);
+        h[6] = h[6].wrapping_add(g);
+        h[7] = h[7].wrapping_add(hh);
+    }
+    let mut out = [0u8; 32];
+    for (i, v) in h.iter().enumerate() {
+        out[4 * i..4 * i + 4].copy_from_slice(&v.to_be_bytes());
+    }
+    out
+}
+
+fn hmac_sha256(key: &[u8], data: &[u8]) -> [u8; 32] {
+    let mut block = [0u8; 64];
+    if key.len() > 64 {
+        block[..32].copy_from_slice(&sha256(key));
+    } else {
+        block[..key.len()].copy_from_slice(key);
+    }
+    let mut inner = Vec::with_capacity(64 + data.len());
+    inner.extend(block.iter().map(|b| b ^ 0x36));
+    inner.extend_from_slice(data);
+    let inner_hash = sha256(&inner);
+    let mut outer = Vec::with_capacity(64 + 32);
+    outer.extend(block.iter().map(|b| b ^ 0x5c));
+    outer.extend_from_slice(&inner_hash);
+    sha256(&outer)
+}
+
+const B64URL: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+fn b64url_encode(data: &[u8]) -> String {
+    let mut out = String::new();
+    for chunk in data.chunks(3) {
+        let b = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
+        let n = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | b[2] as u32;
+        out.push(B64URL[(n >> 18) as usize & 63] as char);
+        out.push(B64URL[(n >> 12) as usize & 63] as char);
+        if chunk.len() > 1 {
+            out.push(B64URL[(n >> 6) as usize & 63] as char);
+        }
+        if chunk.len() > 2 {
+            out.push(B64URL[n as usize & 63] as char);
+        }
+    }
+    out
+}
+
+fn b64url_decode(text: &str) -> Result<Vec<u8>, Status> {
+    let mut vals = Vec::with_capacity(text.len());
+    for c in text.bytes() {
+        let v = match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'-' => 62,
+            b'_' => 63,
+            _ => return Err(Status::invalid_argument("malformed rendezvous token")),
+        };
+        vals.push(v);
+    }
+    let mut out = Vec::new();
+    for chunk in vals.chunks(4) {
+        let mut n: u32 = 0;
+        for (i, v) in chunk.iter().enumerate() {
+            n |= (*v as u32) << (18 - 6 * i);
+        }
+        out.push((n >> 16) as u8);
+        if chunk.len() > 2 {
+            out.push((n >> 8) as u8);
+        }
+        if chunk.len() > 3 {
+            out.push(n as u8);
+        }
+    }
+    Ok(out)
+}
+
+fn unix_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+/// Rendezvous bearer-token verification config: `secret` is
+/// the HMAC key; `issuer`/`audience`, when set, must match the
+/// token's iss/aud; `scopes` maps a method path to the scopes
+/// it requires (no entry = any authenticated caller).
+#[derive(Clone, Debug)]
+pub struct RendezvousAuth {
+    pub secret: Vec<u8>,
+    pub issuer: String,
+    pub audience: String,
+    pub scopes: std::collections::HashMap<String, Vec<String>>,
+}
+
+impl RendezvousAuth {
+    pub fn new(secret: impl Into<Vec<u8>>) -> Self {
+        Self {
+            secret: secret.into(),
+            issuer: String::new(),
+            audience: String::new(),
+            scopes: std::collections::HashMap::new(),
+        }
+    }
+
+    /// Verify a token and return its claims. `now_seconds`
+    /// overrides the clock (tests).
+    pub fn verify_token(
+        &self,
+        token: &str,
+        now_seconds: Option<i64>,
+    ) -> Result<RendezvousClaims, Status> {
+        let mut parts = token.split('.');
+        let (Some(body_part), Some(sig_part), None) =
+            (parts.next(), parts.next(), parts.next())
+        else {
+            return Err(Status::new(Code::Unauthenticated, "malformed rendezvous token"));
+        };
+        let body = b64url_decode(body_part)
+            .map_err(|_| Status::new(Code::Unauthenticated, "malformed rendezvous token"))?;
+        let sig = b64url_decode(sig_part)
+            .map_err(|_| Status::new(Code::Unauthenticated, "malformed rendezvous token"))?;
+        let expected = hmac_sha256(&self.secret, &body);
+        let mut diff = (sig.len() != expected.len()) as u8;
+        for i in 0..expected.len() {
+            diff |= sig.get(i).copied().unwrap_or(0) ^ expected[i];
+        }
+        if diff != 0 {
+            return Err(Status::new(Code::Unauthenticated, "bad rendezvous token signature"));
+        }
+        let claims = decode_rendezvous_claims(&body)
+            .map_err(|_| Status::new(Code::Unauthenticated, "malformed rendezvous claims"))?;
+        let now = now_seconds.unwrap_or_else(unix_now);
+        if claims.exp != 0 && now >= claims.exp {
+            return Err(Status::new(Code::Unauthenticated, "rendezvous token expired"));
+        }
+        if claims.nbf != 0 && now < claims.nbf {
+            return Err(Status::new(Code::Unauthenticated, "rendezvous token not yet valid"));
+        }
+        if !self.issuer.is_empty() && claims.iss != self.issuer {
+            return Err(Status::new(Code::Unauthenticated, "rendezvous token issuer mismatch"));
+        }
+        if !self.audience.is_empty() && claims.aud != self.audience {
+            return Err(Status::new(Code::Unauthenticated, "rendezvous token audience mismatch"));
+        }
+        Ok(claims)
+    }
+
+    /// Verify the `authorization` metadata for `path`:
+    /// UNAUTHENTICATED for a bad/missing/expired token,
+    /// PERMISSION_DENIED for a valid but under-scoped one.
+    pub fn verify_metadata(
+        &self,
+        metadata: &Metadata,
+        path: &str,
+    ) -> Result<RendezvousClaims, Status> {
+        let header = metadata.get("authorization").cloned().unwrap_or_default();
+        let Some(token) = header.strip_prefix("Bearer ") else {
+            return Err(Status::new(Code::Unauthenticated, "missing bearer token"));
+        };
+        if token.is_empty() {
+            return Err(Status::new(Code::Unauthenticated, "missing bearer token"));
+        }
+        let claims = self.verify_token(token, None)?;
+        if let Some(required) = self.scopes.get(path) {
+            for scope in required {
+                if !claims.scopes.iter().any(|s| s == scope) {
+                    return Err(Status::new(
+                        Code::PermissionDenied,
+                        format!("missing required scope {scope}"),
+                    ));
+                }
+            }
+        }
+        Ok(claims)
+    }
+}
+
+/// Mint a rendezvous token for `claims` under `secret`.
+pub fn issue_rendezvous_token(secret: &[u8], claims: &RendezvousClaims) -> String {
+    let body = encode_rendezvous_claims(claims);
+    let sig = hmac_sha256(secret, &body);
+    format!("{}.{}", b64url_encode(&body), b64url_encode(&sig))
+}
+
 /// Per-call context handed to handlers.
 #[derive(Clone, Debug)]
 pub struct CallCtx {
     pub path: String,
     pub metadata: Metadata,
+    /// Verified rendezvous claims (None when the call was not
+    /// authenticated; see RendezvousAuth).
+    pub claims: Option<RendezvousClaims>,
     /// This call's server span context (None when tracing is
     /// dormant). Pass it to outbound calls via
     /// CallOptions::trace_parent to join the same trace.
@@ -55,6 +440,7 @@ impl CallCtx {
         Self {
             path: path.into(),
             metadata: Metadata::default(),
+            claims: None,
             trace_context: None,
             stream_id: 0,
             deadline: None,
@@ -387,6 +773,21 @@ impl Server {
     /// it initiates itself (see `Peer` for bidirectional use).
     pub async fn serve(transport: Arc<dyn DcTransport>, services: Vec<ServiceDef>) {
         let ep = Endpoint::new(transport, crate::endpoint::StreamIdParity::Even);
+        for service in services {
+            ep.register_service(service);
+        }
+        ep.run().await;
+    }
+
+    /// Serve with rendezvous bearer auth required on every
+    /// call (see RendezvousAuth).
+    pub async fn serve_with_auth(
+        transport: Arc<dyn DcTransport>,
+        services: Vec<ServiceDef>,
+        auth: Arc<RendezvousAuth>,
+    ) {
+        let ep = Endpoint::new(transport, crate::endpoint::StreamIdParity::Even);
+        ep.set_rendezvous_auth(auth);
         for service in services {
             ep.register_service(service);
         }

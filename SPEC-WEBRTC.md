@@ -327,6 +327,36 @@ in a config file, or served as static JSON.
   stays stable across restarts; ephemeral values rotate per
   process. Serve HTTP/POST signaling instead when the server
   address cannot be fixed in advance.
+- **Rendezvous auth (optional)**: the generated adapters can
+  require a bearer token on every call — JS
+  `serveRendezvous(server, { auth: { secret, scopes, issuer,
+  audience } })`, Go `ServeRendezvousWithAuth`, Rust
+  `serve_rendezvous_with_auth`. A token is
+  `base64url(protobuf claims) + "." +
+  base64url(HMAC-SHA256(secret, claims))`; the claims wire
+  layout (no schema dependency) is fields 1 `sub`, 2 `iss`,
+  3 `aud` (strings), 4 `exp`, 5 `nbf`, 6 `iat` (varint
+  seconds), 7 `scopes` (repeated string), 8 `jti`, and the
+  identical layout is implemented in all three stacks, so one
+  token verifies anywhere (`issueRendezvousToken` /
+  `IssueRendezvousToken` / `issue_rendezvous_token` mint;
+  `verifyRendezvousToken` / `VerifyRendezvousToken` /
+  `verify_token` check). The browser sends the token as
+  `authorization: Bearer …` per-call HEADERS metadata via
+  `rendezvousChannel(descriptor, { token | getToken })`; the
+  server verifies before dispatch: a bad, missing or expired
+  token fails with `UNAUTHENTICATED` (16), a valid but
+  under-scoped token with `PERMISSION_DENIED` (7). Required
+  scopes come from a per-path map in the serve options (no
+  entry = any authenticated caller); verified claims are
+  exposed to handlers as `ctx.claims` (JS), `ClaimsFromContext`
+  (Go), `CallCtx.claims` (Rust). Rendezvous-only by design:
+  there is no protoc plugin option. An external issuer (for
+  example a WebAuthn backend) mints tokens; the rendezvous
+  server only verifies HMAC. Tests: `js/test/rendezvous.test.js`,
+  `go/rendezvous_auth_test.go`, `rust/tests/rendezvous_auth.rs`
+  (one shared fixed token vector) and
+  `browser-test/rendezvous_auth.test.mjs`.
 - **Sharing one socket with signaling (JS)**: a
   `RendezvousListener` may attach to a signaling server's
   `PeerMux` instead of binding its own socket
@@ -379,11 +409,11 @@ in a config file, or served as static JSON.
   - No ICE restart. Restart renegotiates SDP, and SDP is
     what Rendezvous does not exchange; a failed session
     redials the descriptor (fresh ufrag, fresh session).
-  - No per-browser authentication of the dialer: the
-    server authenticates to the browser by fingerprint,
-    but any holder of the descriptor can dial. Treat the
-    descriptor as a published address, not a secret, and
-    authenticate at the gRPC layer if the service needs it.
+  - The descriptor alone authenticates nobody: the server
+    authenticates to the browser by fingerprint, but any
+    holder of the descriptor can dial. Treat the descriptor
+    as a published address, not a secret; enable rendezvous
+    auth (above) when callers must authenticate.
   - One descriptor describes one listener (one host/port).
     Multi-homed or anycast deployments publish one
     descriptor per address and let the page choose.

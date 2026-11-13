@@ -9,6 +9,7 @@
 // address cannot be fixed in advance.
 
 import { RendezvousListener } from "../../webrtc/js/rendezvous.js";
+import { verifyRendezvousToken } from "./rendezvous.js";
 
 export { RendezvousListener } from "../../webrtc/js/rendezvous.js";
 
@@ -28,6 +29,17 @@ export { RendezvousListener } from "../../webrtc/js/rendezvous.js";
  * and .close()).
  */
 export async function serveRendezvous(grpcServer, options = {}) {
+  // options.auth {secret, scopes, issuer, audience} requires a
+  // rendezvous bearer token on every call (see rendezvous.js):
+  // bad/missing/expired -> UNAUTHENTICATED, under-scoped ->
+  // PERMISSION_DENIED, verified claims on ctx.claims.
+  if (options.auth) {
+    const { secret, scopes, issuer, audience } = options.auth;
+    grpcServer.requireRendezvousAuth(
+      (token) => verifyRendezvousToken(secret, token, { issuer, audience }),
+      scopes ?? {},
+    );
+  }
   const listener = await RendezvousListener.bind({
     ...options,
     onChannel: (channel, peer) => {

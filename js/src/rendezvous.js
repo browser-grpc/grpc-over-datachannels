@@ -68,6 +68,150 @@ export function synthesizeRendezvousOffer(descriptor) {
   ].join("\r\n");
 }
 
+// ---------------------------------------------------------------------------
+// Rendezvous auth tokens: base64url(protobuf claims) + "." +
+// base64url(HMAC-SHA256(secret, claims)). Claims wire layout
+// (protobuf, no schema dependency): 1 sub, 2 iss, 3 aud
+// (strings); 4 exp, 5 nbf, 6 iat (varint seconds); 7 scopes
+// (repeated string); 8 jti (string). The same layout is
+// implemented in the Go and Rust rendezvous servers, so one
+// token verifies on every stack. Rendezvous-only by design:
+// no protoc plugin option.
+
+function b64urlEncode(bytes) {
+  let bin = "";
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+}
+
+function b64urlDecode(text) {
+  const bin = atob(text.replaceAll("-", "+").replaceAll("_", "/"));
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+function pushVarint(out, value) {
+  let v = BigInt(value);
+  for (;;) {
+    const b = Number(v & 0x7fn);
+    v >>= 7n;
+    if (v === 0n) { out.push(b); return; }
+    out.push(b | 0x80);
+  }
+}
+
+function pushLenField(out, field, bytes) {
+  pushVarint(out, (field << 3) | 2);
+  pushVarint(out, bytes.length);
+  for (const b of bytes) out.push(b);
+}
+
+function pushVarintField(out, field, value) {
+  pushVarint(out, (field << 3) | 0);
+  pushVarint(out, value);
+}
+
+/** Serialize rendezvous claims to protobuf wire bytes. */
+export function encodeRendezvousClaims(claims) {
+  const enc = new TextEncoder();
+  const out = [];
+  if (claims.sub) pushLenField(out, 1, enc.encode(claims.sub));
+  if (claims.iss) pushLenField(out, 2, enc.encode(claims.iss));
+  if (claims.aud) pushLenField(out, 3, enc.encode(claims.aud));
+  if (claims.exp) pushVarintField(out, 4, claims.exp);
+  if (claims.nbf) pushVarintField(out, 5, claims.nbf);
+  if (claims.iat) pushVarintField(out, 6, claims.iat);
+  for (const scope of claims.scopes ?? []) pushLenField(out, 7, enc.encode(scope));
+  if (claims.jti) pushLenField(out, 8, enc.encode(claims.jti));
+  return new Uint8Array(out);
+}
+
+/** Parse rendezvous claims from protobuf wire bytes. */
+export function decodeRendezvousClaims(bytes) {
+  const dec = new TextDecoder();
+  const claims = { scopes: [] };
+  let pos = 0;
+  const readVarint = () => {
+    let v = 0n;
+    let shift = 0n;
+    for (;;) {
+      if (pos >= bytes.length) throw new Error("truncated varint");
+      const b = bytes[pos++];
+      v |= BigInt(b & 0x7f) << shift;
+      if ((b & 0x80) === 0) return v;
+      shift += 7n;
+    }
+  };
+  while (pos < bytes.length) {
+    const tag = Number(readVarint());
+    const field = tag >> 3;
+    const wire = tag & 7;
+    if (wire === 2) {
+      const len = Number(readVarint());
+      const slice = bytes.slice(pos, pos + len);
+      pos += len;
+      if (field === 1) claims.sub = dec.decode(slice);
+      else if (field === 2) claims.iss = dec.decode(slice);
+      else if (field === 3) claims.aud = dec.decode(slice);
+      else if (field === 7) claims.scopes.push(dec.decode(slice));
+      else if (field === 8) claims.jti = dec.decode(slice);
+    } else if (wire === 0) {
+      const v = Number(readVarint());
+      if (field === 4) claims.exp = v;
+      else if (field === 5) claims.nbf = v;
+      else if (field === 6) claims.iat = v;
+    } else {
+      throw new Error(`unsupported wire type ${wire}`);
+    }
+  }
+  return claims;
+}
+
+async function hmacKey(secret) {
+  const raw = typeof secret === "string" ? new TextEncoder().encode(secret) : secret;
+  return crypto.subtle.importKey("raw", raw, { name: "HMAC", hash: "SHA-256" }, false, [
+    "sign",
+    "verify",
+  ]);
+}
+
+/** Mint a rendezvous token for `claims` under `secret`. */
+export async function issueRendezvousToken(secret, claims) {
+  const body = encodeRendezvousClaims(claims);
+  const key = await hmacKey(secret);
+  const sig = new Uint8Array(await crypto.subtle.sign("HMAC", key, body));
+  return `${b64urlEncode(body)}.${b64urlEncode(sig)}`;
+}
+
+/**
+ * Verify a rendezvous token and return its claims. Throws on
+ * a malformed token, a bad signature, expiry (exp), a
+ * not-yet-valid token (nbf), or an issuer/audience mismatch
+ * when options.issuer / options.audience are set.
+ * options: { issuer, audience, nowSeconds }
+ */
+export async function verifyRendezvousToken(secret, token, options = {}) {
+  const parts = String(token).split(".");
+  if (parts.length !== 2) throw new Error("malformed rendezvous token");
+  const body = b64urlDecode(parts[0]);
+  const sig = b64urlDecode(parts[1]);
+  const key = await hmacKey(secret);
+  const ok = await crypto.subtle.verify("HMAC", key, sig, body);
+  if (!ok) throw new Error("bad rendezvous token signature");
+  const claims = decodeRendezvousClaims(body);
+  const now = options.nowSeconds ?? Math.floor(Date.now() / 1000);
+  if (claims.exp && now >= claims.exp) throw new Error("rendezvous token expired");
+  if (claims.nbf && now < claims.nbf) throw new Error("rendezvous token not yet valid");
+  if (options.issuer && claims.iss !== options.issuer) {
+    throw new Error("rendezvous token issuer mismatch");
+  }
+  if (options.audience && claims.aud !== options.audience) {
+    throw new Error("rendezvous token audience mismatch");
+  }
+  return claims;
+}
+
 /**
  * Fetch a rendezvous descriptor JSON from `url` (HTTPS in
  * production; the well-known location
@@ -96,7 +240,8 @@ export async function fetchRendezvousDescriptor(url, options = {}) {
  * Waits for the "grpc" DataChannel to open, matching
  * httpSignalingChannel's ready-to-use contract.
  *
- * options: { iceServers, iceTransportPolicy, timeoutMs, label }
+ * options: { iceServers, iceTransportPolicy, timeoutMs, label,
+ *   token, getToken }
  * iceTransportPolicy "relay" (with TURN iceServers) is the
  * symmetric-NAT shape: the browser nominates its relay
  * candidate against the listener's published address.
@@ -119,7 +264,20 @@ export async function rendezvousChannel(descriptor, options = {}) {
     pc.close();
     throw e;
   }
-  const channel = new Channel(dc);
+  const base = new Channel(dc);
+  base.peerConnection = pc;
+  base.dataChannel = dc;
+  base.closeRendezvous = () => pc.close();
+  // options.token (a string) or options.getToken (sync/async
+  // () => string) attaches `authorization: Bearer <token>` to
+  // every call on the returned channel; explicit per-call
+  // metadata still wins.
+  const getToken = options.getToken ?? (options.token ? () => options.token : null);
+  if (getToken === null) return base;
+  const channel = base.withMetadata(async () => {
+    const token = await getToken();
+    return token ? { authorization: `Bearer ${token}` } : {};
+  });
   channel.peerConnection = pc;
   channel.dataChannel = dc;
   channel.closeRendezvous = () => pc.close();

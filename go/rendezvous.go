@@ -11,7 +11,14 @@ package grpcdc
 // be fixed in advance.
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/base64"
+	"errors"
 	"net"
+	"strings"
+	"time"
 
 	dcwebrtc "github.com/browser-grpc/grpc-over-datachannels/webrtc/go"
 )
@@ -35,4 +42,254 @@ func ServeRendezvous(srv *Server, addr *net.UDPAddr, options dcwebrtc.Rendezvous
 		}
 	}
 	return dcwebrtc.ListenRendezvous(addr, options)
+}
+
+// ServeRendezvousWithAuth is ServeRendezvous with rendezvous
+// bearer auth required on every call (see RendezvousAuth):
+// srv.SetRendezvousAuth(auth) plus the same listener wiring.
+func ServeRendezvousWithAuth(srv *Server, addr *net.UDPAddr, options dcwebrtc.RendezvousOptions, auth *RendezvousAuth) (*dcwebrtc.RendezvousListener, error) {
+	srv.SetRendezvousAuth(auth)
+	return ServeRendezvous(srv, addr, options)
+}
+
+// ---------------------------------------------------------------------------
+// Rendezvous auth tokens: base64url(protobuf claims) + "." +
+// base64url(HMAC-SHA256(secret, claims)). Claims wire layout
+// (protobuf, no schema dependency): 1 Sub, 2 Iss, 3 Aud
+// (strings); 4 Exp, 5 Nbf, 6 Iat (varint seconds); 7 Scopes
+// (repeated string); 8 Jti (string). The same layout is
+// implemented in the JS and Rust rendezvous code, so one token
+// verifies on every stack. Rendezvous-only by design: no
+// protoc plugin option.
+
+// RendezvousClaims is the payload of a rendezvous token.
+type RendezvousClaims struct {
+	Sub    string
+	Iss    string
+	Aud    string
+	Exp    int64
+	Nbf    int64
+	Iat    int64
+	Scopes []string
+	Jti    string
+}
+
+// RendezvousAuth configures bearer-token verification:
+// Secret is the HMAC key; Issuer/Audience, when set, must
+// match the token's iss/aud; Scopes maps a method path to the
+// scopes it requires (no entry = any authenticated caller);
+// Now overrides the clock (tests).
+type RendezvousAuth struct {
+	Secret   []byte
+	Issuer   string
+	Audience string
+	Scopes   map[string][]string
+	Now      func() time.Time
+}
+
+func (a *RendezvousAuth) now() time.Time {
+	if a.Now != nil {
+		return a.Now()
+	}
+	return time.Now()
+}
+
+func appendRendezvousVarint(out []byte, v uint64) []byte {
+	for v >= 0x80 {
+		out = append(out, byte(v)|0x80)
+		v >>= 7
+	}
+	return append(out, byte(v))
+}
+
+func appendRendezvousLenField(out []byte, field uint64, payload []byte) []byte {
+	out = appendRendezvousVarint(out, field<<3|2)
+	out = appendRendezvousVarint(out, uint64(len(payload)))
+	return append(out, payload...)
+}
+
+func appendRendezvousVarintField(out []byte, field uint64, v int64) []byte {
+	out = appendRendezvousVarint(out, field<<3|0)
+	return appendRendezvousVarint(out, uint64(v))
+}
+
+// EncodeRendezvousClaims serializes claims to protobuf wire bytes.
+func EncodeRendezvousClaims(c *RendezvousClaims) []byte {
+	var out []byte
+	if c.Sub != "" {
+		out = appendRendezvousLenField(out, 1, []byte(c.Sub))
+	}
+	if c.Iss != "" {
+		out = appendRendezvousLenField(out, 2, []byte(c.Iss))
+	}
+	if c.Aud != "" {
+		out = appendRendezvousLenField(out, 3, []byte(c.Aud))
+	}
+	if c.Exp != 0 {
+		out = appendRendezvousVarintField(out, 4, c.Exp)
+	}
+	if c.Nbf != 0 {
+		out = appendRendezvousVarintField(out, 5, c.Nbf)
+	}
+	if c.Iat != 0 {
+		out = appendRendezvousVarintField(out, 6, c.Iat)
+	}
+	for _, scope := range c.Scopes {
+		out = appendRendezvousLenField(out, 7, []byte(scope))
+	}
+	if c.Jti != "" {
+		out = appendRendezvousLenField(out, 8, []byte(c.Jti))
+	}
+	return out
+}
+
+// DecodeRendezvousClaims parses claims from protobuf wire bytes.
+func DecodeRendezvousClaims(data []byte) (*RendezvousClaims, error) {
+	claims := &RendezvousClaims{}
+	pos := 0
+	readVarint := func() (uint64, error) {
+		var v uint64
+		var shift uint
+		for {
+			if pos >= len(data) {
+				return 0, errors.New("truncated varint")
+			}
+			b := data[pos]
+			pos++
+			v |= uint64(b&0x7f) << shift
+			if b&0x80 == 0 {
+				return v, nil
+			}
+			shift += 7
+		}
+	}
+	for pos < len(data) {
+		tag, err := readVarint()
+		if err != nil {
+			return nil, err
+		}
+		field := tag >> 3
+		wire := tag & 7
+		switch wire {
+		case 2:
+			length, err := readVarint()
+			if err != nil {
+				return nil, err
+			}
+			if pos+int(length) > len(data) {
+				return nil, errors.New("truncated length-delimited field")
+			}
+			slice := data[pos : pos+int(length)]
+			pos += int(length)
+			switch field {
+			case 1:
+				claims.Sub = string(slice)
+			case 2:
+				claims.Iss = string(slice)
+			case 3:
+				claims.Aud = string(slice)
+			case 7:
+				claims.Scopes = append(claims.Scopes, string(slice))
+			case 8:
+				claims.Jti = string(slice)
+			}
+		case 0:
+			v, err := readVarint()
+			if err != nil {
+				return nil, err
+			}
+			switch field {
+			case 4:
+				claims.Exp = int64(v)
+			case 5:
+				claims.Nbf = int64(v)
+			case 6:
+				claims.Iat = int64(v)
+			}
+		default:
+			return nil, errors.New("unsupported wire type")
+		}
+	}
+	return claims, nil
+}
+
+func rendezvousMAC(secret, body []byte) []byte {
+	mac := hmac.New(sha256.New, secret)
+	mac.Write(body)
+	return mac.Sum(nil)
+}
+
+// IssueRendezvousToken mints a token for claims under secret.
+func IssueRendezvousToken(secret []byte, claims *RendezvousClaims) string {
+	body := EncodeRendezvousClaims(claims)
+	return base64.RawURLEncoding.EncodeToString(body) + "." +
+		base64.RawURLEncoding.EncodeToString(rendezvousMAC(secret, body))
+}
+
+// VerifyRendezvousToken verifies a token under this auth
+// config and returns its claims.
+func (a *RendezvousAuth) VerifyRendezvousToken(token string) (*RendezvousClaims, error) {
+	parts := strings.Split(token, ".")
+	if len(parts) != 2 {
+		return nil, errors.New("malformed rendezvous token")
+	}
+	body, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return nil, errors.New("malformed rendezvous token")
+	}
+	sig, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return nil, errors.New("malformed rendezvous token")
+	}
+	if subtle.ConstantTimeCompare(sig, rendezvousMAC(a.Secret, body)) != 1 {
+		return nil, errors.New("bad rendezvous token signature")
+	}
+	claims, err := DecodeRendezvousClaims(body)
+	if err != nil {
+		return nil, err
+	}
+	now := a.now().Unix()
+	if claims.Exp != 0 && now >= claims.Exp {
+		return nil, errors.New("rendezvous token expired")
+	}
+	if claims.Nbf != 0 && now < claims.Nbf {
+		return nil, errors.New("rendezvous token not yet valid")
+	}
+	if a.Issuer != "" && claims.Iss != a.Issuer {
+		return nil, errors.New("rendezvous token issuer mismatch")
+	}
+	if a.Audience != "" && claims.Aud != a.Audience {
+		return nil, errors.New("rendezvous token audience mismatch")
+	}
+	return claims, nil
+}
+
+func (a *RendezvousAuth) verify(metadata map[string]string) (*RendezvousClaims, *StatusError) {
+	header := metadata["authorization"]
+	token, ok := strings.CutPrefix(header, "Bearer ")
+	if !ok || token == "" {
+		return nil, NewStatus(CodeUnauthenticated, "missing bearer token")
+	}
+	claims, err := a.VerifyRendezvousToken(token)
+	if err != nil {
+		return nil, NewStatus(CodeUnauthenticated, err.Error())
+	}
+	return claims, nil
+}
+
+func (a *RendezvousAuth) checkScopes(path string, claims *RendezvousClaims) *StatusError {
+	required := a.Scopes[path]
+	if len(required) == 0 {
+		return nil
+	}
+	granted := make(map[string]bool, len(claims.Scopes))
+	for _, scope := range claims.Scopes {
+		granted[scope] = true
+	}
+	for _, scope := range required {
+		if !granted[scope] {
+			return NewStatus(CodePermissionDenied, "missing required scope "+scope)
+		}
+	}
+	return nil
 }

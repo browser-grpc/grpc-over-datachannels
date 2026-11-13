@@ -51,9 +51,13 @@ export {
   signalViaHttp,
 } from "./src/signaling.js";
 export {
+  decodeRendezvousClaims,
+  encodeRendezvousClaims,
   fetchRendezvousDescriptor,
+  issueRendezvousToken,
   rendezvousChannel,
   synthesizeRendezvousOffer,
+  verifyRendezvousToken,
 } from "./src/rendezvous.js";
 // The rendezvous server (src/rendezvous_server.js) is Node-only
 // (node:dgram via webrtc/js/rendezvous.js) and is not re-exported

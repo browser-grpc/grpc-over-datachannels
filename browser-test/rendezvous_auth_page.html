@@ -1,0 +1,33 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>grpc-dc rendezvous auth browser test</title>
+<script type="module">
+import { rendezvousChannel } from "/js/index.js";
+import { EchoRequest } from "/js/examples/echo_pb.js";
+import { EchoClient } from "/js/examples/echo_grpc_dc.js";
+
+// Browser side: dial the auth-protected rendezvous listener
+// twice — once with the bearer token (must succeed), once
+// without (must fail UNAUTHENTICATED). The token attaches via
+// rendezvousChannel's token option as per-call
+// `authorization: Bearer ...` HEADERS metadata.
+window.__runRendezvousAuth = async () => {
+  const descriptor = await (await fetch("/rendezvous.json")).json();
+  const token = new URLSearchParams(location.search).get("token");
+  const attempt = async (options) => {
+    const channel = await rendezvousChannel(descriptor, options);
+    try {
+      const client = new EchoClient(channel);
+      const resp = await client.unary(new EchoRequest({ message: "hello-auth", count: 0 }));
+      return { ok: true, message: resp.message };
+    } catch (e) {
+      return { ok: false, code: e.code ?? null, message: String(e?.message ?? e) };
+    } finally {
+      channel.closeRendezvous();
+    }
+  };
+  const withToken = await attempt({ token });
+  const withoutToken = await attempt({});
+  return { withToken, withoutToken };
+};
+</script>

@@ -8,7 +8,7 @@
 //! can find it; serve HTTP signaling instead when the server
 //! address cannot be fixed in advance.
 
-use crate::server::{MethodDef, ServiceDef, Server};
+use crate::server::{MethodDef, RendezvousAuth, ServiceDef, Server};
 use crate::status::Status;
 use crate::transport::DcTransport;
 use crate::webrtc_transport::WebRtcDc;
@@ -40,6 +40,14 @@ fn serve_rendezvous_endpoint(
     endpoint: dc_webrtc::endpoint::DcEndpoint,
     services: Vec<ServiceDef>,
 ) {
+    serve_rendezvous_endpoint_auth(endpoint, services, None)
+}
+
+fn serve_rendezvous_endpoint_auth(
+    endpoint: dc_webrtc::endpoint::DcEndpoint,
+    services: Vec<ServiceDef>,
+    auth: Option<Arc<RendezvousAuth>>,
+) {
     let runtime = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
         Ok(rt) => rt,
         Err(_) => return,
@@ -64,7 +72,10 @@ fn serve_rendezvous_endpoint(
             _ => return,
         };
         let transport: Arc<dyn DcTransport> = Arc::new(WebRtcDc::new(endpoint, channel));
-        Server::serve(transport, services).await;
+        match auth {
+            Some(auth) => Server::serve_with_auth(transport, services, auth).await,
+            None => Server::serve(transport, services).await,
+        }
     });
 }
 
@@ -98,6 +109,37 @@ where
     let mut options = make_options();
     options.on_endpoint = Box::new(move |endpoint| {
         serve_rendezvous_endpoint(endpoint, clone_services(&services));
+    });
+    RendezvousListener::bind(socket_addr, options)
+        .map_err(|e| Status::internal(format!("rendezvous bind: {e}")))
+}
+
+/// serve_rendezvous_with with rendezvous bearer auth required
+/// on every call (see RendezvousAuth): a bad, missing or
+/// expired token fails UNAUTHENTICATED, a valid but
+/// under-scoped token fails PERMISSION_DENIED, and verified
+/// claims land on CallCtx.claims.
+pub fn serve_rendezvous_with_auth<F>(
+    addr: &str,
+    services: Vec<ServiceDef>,
+    auth: RendezvousAuth,
+    make_options: F,
+) -> Result<RendezvousListener, Status>
+where
+    F: Fn() -> RendezvousOptions,
+{
+    let socket_addr: SocketAddr = addr
+        .parse()
+        .map_err(|_| Status::internal("invalid rendezvous address"))?;
+    let services = Arc::new(services);
+    let auth = Arc::new(auth);
+    let mut options = make_options();
+    options.on_endpoint = Box::new(move |endpoint| {
+        serve_rendezvous_endpoint_auth(
+            endpoint,
+            clone_services(&services),
+            Some(auth.clone()),
+        );
     });
     RendezvousListener::bind(socket_addr, options)
         .map_err(|e| Status::internal(format!("rendezvous bind: {e}")))

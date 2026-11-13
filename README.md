@@ -305,7 +305,17 @@ lifetime for rotation (the generated
 `fetchRendezvousDescriptor(url)` fetches and validates it);
 fix the credentials/certificate and it stays stable across
 restarts. The browser authenticates the server by the
-published fingerprint. Limits: fixed address only, IP-literal
+published fingerprint. Callers can optionally authenticate
+too: pass `auth: { secret, scopes }` to `serveRendezvous`
+(`ServeRendezvousWithAuth` in Go, `serve_rendezvous_with_auth`
+in Rust) and `token` (or `getToken`) to `rendezvousChannel`;
+the browser then sends an HMAC-SHA256 bearer token —
+`base64url(protobuf claims).base64url(signature)` — on every
+call, the server rejects bad or expired tokens with
+`UNAUTHENTICATED` and under-scoped ones with
+`PERMISSION_DENIED`, and handlers see the verified claims
+(`ctx.claims`). One token verifies on all three stacks; an
+external issuer (see `examples/rendezvous-auth/`) mints them. Limits: fixed address only, IP-literal
 host (no DNS names in candidates), no ICE restart (redial
 instead) — all detailed in SPEC-WEBRTC. Proven in Chromium,
 Firefox, and WebKit against all three stacks by

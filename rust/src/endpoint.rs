@@ -46,6 +46,7 @@ pub struct Endpoint {
     next_id: AtomicU32,
     send_lock: AsyncMutex<()>,
     traces: Mutex<HashMap<u32, (crate::status::TraceContext, String)>>,
+    rendezvous_auth: RwLock<Option<Arc<crate::server::RendezvousAuth>>>,
 }
 
 impl Endpoint {
@@ -61,6 +62,7 @@ impl Endpoint {
             }),
             send_lock: AsyncMutex::new(()),
             traces: Mutex::new(HashMap::new()),
+            rendezvous_auth: RwLock::new(None),
         })
     }
 
@@ -82,6 +84,13 @@ impl Endpoint {
             let path = format!("/{}/{}", service.name, method.name);
             services.insert(path, method);
         }
+    }
+
+    /// Require rendezvous bearer auth on every inbound call
+    /// (see crate::server::RendezvousAuth): verified claims
+    /// land on CallCtx.claims.
+    pub fn set_rendezvous_auth(&self, auth: Arc<crate::server::RendezvousAuth>) {
+        *self.rendezvous_auth.write().unwrap() = Some(auth);
     }
 
     /// Install a raw handler for paths with no registered
@@ -197,6 +206,25 @@ impl Endpoint {
                         .await;
                     return;
                 };
+                // Rendezvous auth: verify before dispatch; the
+                // failure ends the call trailers-only.
+                let claims = {
+                    let auth = self.rendezvous_auth.read().unwrap().clone();
+                    match auth {
+                        None => None,
+                        Some(auth) => match auth.verify_metadata(&headers.metadata, &path) {
+                            Ok(claims) => Some(claims),
+                            Err(status) => {
+                                let _ = self
+                                    .send_frame(
+                                        Frame::trailers(frame.stream_id, &status).unwrap(),
+                                    )
+                                    .await;
+                                return;
+                            }
+                        },
+                    }
+                };
                 let (tx, rx) = mpsc::unbounded();
                 self.streams.lock().unwrap().insert(frame.stream_id, tx);
                 // No eager HEADERS: initial metadata flushes
@@ -215,6 +243,7 @@ impl Endpoint {
                     ctx: CallCtx {
                         path: path.clone(),
                         metadata: headers.metadata.clone(),
+                        claims,
                         trace_context: trace_ctx.clone(),
                         stream_id: frame.stream_id,
                         deadline: headers
