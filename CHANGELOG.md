@@ -38,6 +38,10 @@ curated release tags on `master`; dates are the tag dates.
   discarded: at high channel counts the bottlenecks are
   per-peer DTLS/SCTP state, timers, and demux, not packet
   ingress; the portable UDP socket remains the only path.
+- Fixes found by the full gate: C# `KafkaNative` now compiles
+  for netstandard2.0 (loads via the OS loader where
+  `NativeLibrary` is unavailable), and the C tracing test
+  serializes its span recording across threads.
 
 ## v0.41.0 — 2026-11-12 (published to GitHub/PyPI/GHCR/NuGet/Maven Central/GitHub Maven/pub.dev/crates.io/RubyGems/LuaRocks/JSR; npm for grpc-dc/kafka-grpc/eventbus-grpc (all at 0.41.0; eventbus-grpc's earlier Trusted Publisher mismatch was fixed and 0.41.0 published 2026-11-12); kafka-native first crates.io publish was manual, OIDC from here on)
 
