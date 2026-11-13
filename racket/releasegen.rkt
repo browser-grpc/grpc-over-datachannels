@@ -2171,7 +2171,10 @@
   (let* ([lock (build-path kafka-native-out "crates/kafka-native/Cargo.lock")]
          [stamped (string-replace (file->string lock)
                                   "name = \"kafka-native\"\nversion = \"0.1.0\""
-                                  (string-append "name = \"kafka-native\"\nversion = \"" kn-bare-version "\""))])
+                                  (string-append "name = \"kafka-native\"\nversion = \"" kn-bare-version "\""))]
+         [stamped (string-replace stamped
+                                  "name = \"grpc-dc\"\nversion = \"0.1.0\""
+                                  (string-append "name = \"grpc-dc\"\nversion = \"" kn-bare-version "\""))])
     (call-with-output-file lock
       (lambda (out) (display stamped out))
       #:exists 'replace))
