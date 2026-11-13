@@ -481,6 +481,12 @@ run_native_legs() {
         KAFKA_E2E_PROXY_ADDR="$PROXY_KAFKA_ADDR" \
         GRPC_DC_KAFKA_NATIVE_ADDON="$TMP/kafka_native_addon.node" \
         bash -c "cd '$ROOT/js' && node --test test/kafka_native_differential.test.js"
+    run "go differential e2e (proxy vs native)" env \
+        KAFKA_E2E_BROKER="$KAFKA_ADDR" \
+        KAFKA_E2E_PROXY_ADDR="$PROXY_KAFKA_ADDR" \
+        GOFLAGS=-buildvcs=false \
+        CGO_LDFLAGS="-L$ROOT/crates/kafka-native/target/debug -Wl,-rpath,$ROOT/crates/kafka-native/target/debug" \
+        bash -c "cd '$ROOT/go' && go test -tags kafka_native -run TestKafkaDifferential -count=1 ."
     run "python differential e2e (proxy vs native)" env \
         KAFKA_E2E_BROKER="$KAFKA_ADDR" \
         KAFKA_E2E_PROXY_ADDR="$PROXY_KAFKA_ADDR" \

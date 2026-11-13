@@ -283,3 +283,28 @@ func (c *KafkaNativeClient) DescribeTransactions(req *DescribeTransactionsReques
 	resp := &DescribeTransactionsResponse{}
 	return resp, c.unary("DescribeTransactions", req, resp)
 }
+
+func (c *KafkaNativeClient) DescribeShareGroups(req *DescribeShareGroupsRequest) (*DescribeShareGroupsResponse, error) {
+	resp := &DescribeShareGroupsResponse{}
+	return resp, c.unary("DescribeShareGroups", req, resp)
+}
+
+func (c *KafkaNativeClient) OpenShareGroup(req *OpenShareGroupRequest) (*OpenShareGroupResponse, error) {
+	resp := &OpenShareGroupResponse{}
+	return resp, c.unary("OpenShareGroup", req, resp)
+}
+
+func (c *KafkaNativeClient) SharePoll(req *SharePollRequest) (*SharePollResponse, error) {
+	resp := &SharePollResponse{}
+	return resp, c.unary("SharePoll", req, resp)
+}
+
+func (c *KafkaNativeClient) ShareAck(req *ShareAckRequest) (*ShareAckResponse, error) {
+	resp := &ShareAckResponse{}
+	return resp, c.unary("ShareAck", req, resp)
+}
+
+func (c *KafkaNativeClient) CloseShareGroup(req *CloseShareGroupRequest) (*CloseShareGroupResponse, error) {
+	resp := &CloseShareGroupResponse{}
+	return resp, c.unary("CloseShareGroup", req, resp)
+}
