@@ -397,6 +397,7 @@ if [ -f "$NUGET_PROJ" ] && command -v dotnet >/dev/null 2>&1; then
   NUGET_OUT="$WORK/nuget"
   mkdir -p "$NUGET_OUT"
   dotnet pack "$EXPORT/packages/kafka-csharp/KafkaGrpc.csproj" -c Release -o "$NUGET_OUT" >>"$WORK/nuget-pack.log" 2>&1 || echo "note: KafkaGrpc pack failed; continuing"
+  dotnet pack "$EXPORT/packages/eventbus-csharp/EventBusGrpc.csproj" -c Release -o "$NUGET_OUT" >>"$WORK/nuget-pack.log" 2>&1 || echo "note: EventBusGrpc pack failed; continuing"
   if dotnet pack "$NUGET_PROJ" -c Release -o "$NUGET_OUT" >"$WORK/nuget-pack.log" 2>&1; then
     echo "nuget: packed $(ls "$NUGET_OUT"/*.nupkg | head -1)"
     if [ -n "${NUGET_API_KEY:-}" ]; then
@@ -528,8 +529,10 @@ if [ -n "$GH_TOKEN_VAL" ]; then
       echo "note: github packages npm ${spec##*:} publish failed (exists? token scope?); continuing"
     fi
   done
-  # NuGet: push the nupkgs packed in step 3b3 (GrpcDc + KafkaGrpc).
-  if command -v dotnet >/dev/null 2>&1 && ls "$WORK/nuget"/*.nupkg >/dev/null 2>&1; then
+  # NuGet: push the nupkgs packed in step 3b3 (GrpcDc + KafkaGrpc + EventBusGrpc).
+  if ! command -v dotnet >/dev/null 2>&1; then
+    echo "note: github packages nuget mirror skipped (no dotnet on this host; run the publish from the CI image)"
+  elif ls "$WORK/nuget"/*.nupkg >/dev/null 2>&1; then
     for pkg in "$WORK/nuget"/*.nupkg; do
       if dotnet nuget push "$pkg" --api-key "$GH_TOKEN_VAL" --source "https://nuget.pkg.github.com/browser-grpc/index.json" --skip-duplicate >/dev/null 2>&1; then
         echo "github packages: nuget $(basename "$pkg") published"
@@ -538,12 +541,14 @@ if [ -n "$GH_TOKEN_VAL" ]; then
       fi
     done
   fi
-  # RubyGems: build both gems and push with a temp GEM_HOME.
-  if command -v gem >/dev/null 2>&1; then
+  # RubyGems: build all three gems and push with a temp GEM_HOME.
+  if ! command -v gem >/dev/null 2>&1; then
+    echo "note: github packages gem mirror skipped (no gem on this host; run the publish from the CI image)"
+  elif true; then
     GEM_TMP="$WORK/gemhome"; mkdir -p "$GEM_TMP/.gem"
     printf -- '---\n:github: Bearer %s\n' "$GH_TOKEN_VAL" > "$GEM_TMP/.gem/credentials"
     chmod 600 "$GEM_TMP/.gem/credentials"
-    for spec in "packages/grpc-ruby/grpc-dc.gemspec" "packages/kafka-ruby/kafka-grpc.gemspec"; do
+    for spec in "packages/grpc-ruby/grpc-dc.gemspec" "packages/kafka-ruby/kafka-grpc.gemspec" "packages/eventbus-ruby/eventbus-grpc.gemspec"; do
       [ -f "$EXPORT/$spec" ] || continue
       specdir="$(dirname "$spec")"
       if (cd "$EXPORT/$specdir" && gem build "$(basename "$spec")" >/dev/null 2>&1); then
