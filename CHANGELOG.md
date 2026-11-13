@@ -3,7 +3,7 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.41.0 — 2026-11-12 (published to GitHub/PyPI/GHCR/NuGet/Maven Central/GitHub Maven/pub.dev/crates.io/RubyGems/LuaRocks/JSR; npm for grpc-dc/kafka-grpc — eventbus-grpc's npm Trusted Publisher entry still mismatches and awaits a manual npmjs fix; kafka-native first crates.io publish was manual, OIDC from here on)
+## v0.41.0 — 2026-11-12 (published to GitHub/PyPI/GHCR/NuGet/Maven Central/GitHub Maven/pub.dev/crates.io/RubyGems/LuaRocks/JSR; npm for grpc-dc/kafka-grpc/eventbus-grpc (all at 0.41.0; eventbus-grpc's earlier Trusted Publisher mismatch was fixed and 0.41.0 published 2026-11-12); kafka-native first crates.io publish was manual, OIDC from here on)
 
 - New public repo and packages: `browser-grpc/kafka-native` —
   the in-process Kafka protocol client (extracted from the
