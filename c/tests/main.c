@@ -2676,9 +2676,18 @@ static void test_tracing(void) {
               strcmp(trace_starts[2].kind, "client") == 0 &&
               strcmp(trace_starts[3].kind, "server") == 0,
           "kinds");
-    for (int i = 0; i < 4; i++)
+    for (int i = 0; i < 4; i++) {
+        if (strcmp(trace_starts[i].trace_id, trace_starts[0].trace_id) != 0) {
+            fprintf(stderr,
+                    "trace ids differ: [0]=%s/%s [1]=%s/%s [2]=%s/%s [3]=%s/%s\n",
+                    trace_starts[0].trace_id, trace_starts[0].span_id,
+                    trace_starts[1].trace_id, trace_starts[1].span_id,
+                    trace_starts[2].trace_id, trace_starts[2].span_id,
+                    trace_starts[3].trace_id, trace_starts[3].span_id);
+        }
         check(strcmp(trace_starts[i].trace_id, trace_starts[0].trace_id) == 0,
               "trace ids");
+    }
     check(strcmp(trace_starts[1].parent_span_id, trace_starts[0].span_id) == 0,
           "server parent");
     check(strcmp(trace_starts[2].parent_span_id, trace_starts[1].span_id) == 0,
