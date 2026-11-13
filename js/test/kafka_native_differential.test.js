@@ -22,8 +22,10 @@ import {
   ConsumeRequest,
   CreateTopicsRequest,
   DeleteTopicsRequest,
+  EndTransactionRequest,
   ListOffsetsRequest,
   NewTopic,
+  OpenProducerRequest,
   ProduceRequest,
   Record,
 } from "../src/kafka_pb.js";
@@ -157,4 +159,85 @@ test("js differential: proxy vs native record-for-record", { skip: SKIP }, async
   }));
   assert.equal(produced.errorCode, 0);
   assert.deepEqual(await consumeNative(native, topic, 3, 3), payload);
+});
+
+test("js differential: transactional read_committed across proxy and native", { skip: SKIP }, async (t) => {
+  const native = new KafkaNativeClient(BROKER);
+  const { client: proxy, dc } = proxyClient();
+  const topic = `js-kafka-txn-${randomUUID().slice(0, 8)}`;
+  t.after(async () => {
+    try {
+      await native.deleteTopics(new DeleteTopicsRequest({ topics: [topic], timeoutMs: 15000 }));
+    } catch { /* best effort */ }
+    native.close();
+    dc.close();
+  });
+  const created = await native.createTopics(new CreateTopicsRequest({
+    topics: [new NewTopic({ name: topic, numPartitions: 1, replicationFactor: 1 })],
+    timeoutMs: 15000,
+  }));
+  assert.equal(created.results[0].errorCode, 0);
+
+  // Transactional produce through one form factor,
+  // read_committed consume through the other (mirrors the
+  // Python differential): committed records are visible,
+  // aborted ones are not.
+  async function txn(client, label, commit) {
+    const opened = await client.openProducer(new OpenProducerRequest({
+      transactionalId: `grpc-dc-js-diff-txn-${label}-${randomUUID().slice(0, 8)}`,
+      transactionTimeoutMs: 60000,
+    }));
+    assert.equal(opened.errorCode, 0, String(opened.errorCode));
+    const produced = await client.produce(new ProduceRequest({
+      topic,
+      partition: 0,
+      records: [new Record({ value: enc(label) })],
+      acks: Acks.ACKS_ALL,
+      sessionId: opened.sessionId,
+    }));
+    assert.equal(produced.errorCode, 0, String(produced.errorCode));
+    const ended = await client.endTransaction(new EndTransactionRequest({
+      sessionId: opened.sessionId,
+      commit,
+    }));
+    assert.equal(ended.errorCode, 0, String(ended.errorCode));
+  }
+
+  async function consumeCommitted(client, isNative, want) {
+    const values = [];
+    const deadline = Date.now() + 20000;
+    while (Date.now() < deadline) {
+      const stream = isNative
+        ? native.consume(new ConsumeRequest({
+          topic, partition: 0, offset: -2n, maxRecords: 10, maxWaitMs: 1000, readCommitted: true,
+        }))
+        : await client.consume(new ConsumeRequest({
+          topic, partition: 0, offset: -2n, maxRecords: 10, maxWaitMs: 1000, readCommitted: true,
+        }));
+      try {
+        for await (const chunk of stream) {
+          assert.equal(chunk.errorCode, 0);
+          for (const r of chunk.records) values.push(dec(r.value));
+          if (values.length >= want) break;
+        }
+      } finally {
+        stream.close?.();
+      }
+      if (values.length >= want) break;
+      values.length = 0;
+      await sleep(250);
+    }
+    return values;
+  }
+
+  await txn(proxy, "tx-proxy-commit", true);
+  await txn(proxy, "tx-proxy-abort", false);
+  assert.deepEqual(await consumeCommitted(native, true, 1), ["tx-proxy-commit"]);
+
+  await txn(native, "tx-native-commit", true);
+  await txn(native, "tx-native-abort", false);
+  assert.deepEqual(
+    await consumeCommitted(proxy, false, 2),
+    ["tx-proxy-commit", "tx-native-commit"],
+  );
 });
