@@ -1,0 +1,90 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>grpc-dc rendezvous auth example</title>
+<h1>gRPC over a DataChannel, authenticated by a passkey-minted token</h1>
+<p>
+  Register a passkey, log in with it, and this page dials the
+  fixed rendezvous listener with the bearer token the issuer
+  minted. The rendezvous server only verifies the token — it
+  never sees WebAuthn data.
+</p>
+<label>name <input id="name" value="alice"></label>
+<button id="register">register passkey</button>
+<button id="login">log in + call Echo</button>
+<pre id="out">idle</pre>
+<script type="module">
+import { rendezvousChannel } from "/js/index.js";
+import { EchoRequest } from "/js/examples/echo_pb.js";
+import { EchoClient } from "/js/examples/echo_grpc_dc.js";
+
+const out = document.getElementById("out");
+const log = (line) => { out.textContent += `\n${line}`; };
+const b64uToBytes = (s) => Uint8Array.from(atob(s.replaceAll("-", "+").replaceAll("_", "/")), (c) => c.charCodeAt(0));
+const bytesToB64u = (b) => btoa(String.fromCharCode(...new Uint8Array(b))).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+const post = async (path, body) => {
+  const res = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error ?? res.status);
+  return data;
+};
+const name = () => document.getElementById("name").value || "alice";
+
+document.getElementById("register").onclick = async () => {
+  try {
+    const options = await post("/auth/register/options", { name: name() });
+    const credential = await navigator.credentials.create({
+      publicKey: {
+        ...options,
+        challenge: b64uToBytes(options.challenge),
+        user: { ...options.user, id: b64uToBytes(options.user.id) },
+      },
+    });
+    await post("/auth/register/verify", {
+      name: name(),
+      response: {
+        id: credential.id,
+        response: {
+          clientDataJSON: bytesToB64u(credential.response.clientDataJSON),
+          attestationObject: bytesToB64u(credential.response.attestationObject),
+        },
+      },
+    });
+    log("registered");
+  } catch (e) { log(`register failed: ${e.message}`); }
+};
+
+document.getElementById("login").onclick = async () => {
+  try {
+    const options = await post("/auth/login/options", { name: name() });
+    const assertion = await navigator.credentials.get({
+      publicKey: {
+        ...options,
+        challenge: b64uToBytes(options.challenge),
+        allowCredentials: options.allowCredentials.map((c) => ({ ...c, id: b64uToBytes(c.id) })),
+      },
+    });
+    const { token } = await post("/auth/login/verify", {
+      name: name(),
+      response: {
+        id: assertion.id,
+        response: {
+          clientDataJSON: bytesToB64u(assertion.response.clientDataJSON),
+          authenticatorData: bytesToB64u(assertion.response.authenticatorData),
+          signature: bytesToB64u(assertion.response.signature),
+        },
+      },
+    });
+    log("logged in; token minted");
+    const descriptor = await (await fetch("/rendezvous.json")).json();
+    const channel = await rendezvousChannel(descriptor, { token });
+    try {
+      const client = new EchoClient(channel);
+      const resp = await client.unary(new EchoRequest({ message: "hello-auth", count: 0 }));
+      log(resp.message);
+      log("rendezvous-auth example OK");
+    } finally {
+      channel.closeRendezvous();
+    }
+  } catch (e) { log(`login/call failed: ${e.message}`); }
+};
+</script>
