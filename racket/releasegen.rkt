@@ -67,7 +67,7 @@
 
 (define allow-files
   '("LICENSE" "NOTICE" "GENERATED-CODE-LICENSE.md" "CHANGELOG.md"
-    "BDD.md" "SPEC.md"))
+    "BDD.md" "SPEC.md" "CONTRIBUTING.md" "SECURITY.md"))
 
 ;; Never exported even under an allowed prefix.
 (define (denied? rel)
@@ -1744,7 +1744,7 @@
     (make-directory* (path-only (build-path kafka-proxy-out dir)))
     (copy-directory/files (build-path out-dir dir)
                           (build-path kafka-proxy-out dir)))
-  (for ([f (in-list '("LICENSE" "KAFKA.md"))])
+  (for ([f (in-list '("LICENSE" "KAFKA.md" "CONTRIBUTING.md" "SECURITY.md"))])
     (copy-file (build-path out-dir f) (build-path kafka-proxy-out f) #t))
   (make-directory* (build-path kafka-proxy-out "docker"))
   (copy-file (build-path out-dir "docker/kafka-proxy.Dockerfile")
@@ -1983,7 +1983,7 @@
     (define dest (build-path kafka-native-out rel))
     (make-directory* (path-only dest))
     (copy-file rel dest #t))
-  (for ([f (in-list '("LICENSE" "GENERATED-CODE-LICENSE.md" "KAFKA.md"))])
+  (for ([f (in-list '("LICENSE" "GENERATED-CODE-LICENSE.md" "KAFKA.md" "CONTRIBUTING.md" "SECURITY.md"))])
     (copy-file (build-path out-dir f) (build-path kafka-native-out f) #t))
   (emit-kn-file
    "RELEASE.json"
@@ -2513,7 +2513,7 @@
   (make-directory* (build-path eventbus-out "proto"))
   (copy-file (build-path out-dir "proto/events.proto")
              (build-path eventbus-out "proto/events.proto") #t)
-  (for ([f (in-list '("LICENSE" "GENERATED-CODE-LICENSE.md" "EVENTBUS.md"))])
+  (for ([f (in-list '("LICENSE" "GENERATED-CODE-LICENSE.md" "EVENTBUS.md" "CONTRIBUTING.md" "SECURITY.md"))])
     (copy-file (build-path out-dir f) (build-path eventbus-out f) #t))
   ;; Generated EventBus sources for the remaining languages.
   (for ([lang (in-list languages)]
@@ -3325,7 +3325,7 @@
   (when (directory-exists? examples-out)
     (delete-directory/files examples-out))
   (make-directory* examples-out)
-  (for ([f (in-list '("LICENSE" "GENERATED-CODE-LICENSE.md"))])
+  (for ([f (in-list '("LICENSE" "GENERATED-CODE-LICENSE.md" "CONTRIBUTING.md" "SECURITY.md"))])
     (copy-file (build-path out-dir f) (build-path examples-out f) #t))
   (define main-repo "https://github.com/browser-grpc/grpc-over-datachannels")
   (define (count-files dir)
@@ -3556,6 +3556,8 @@
     (copy-php-file php-out (build-path "php/grpcdc" f)
                    (build-path "lib/grpcdc" f)))
   (copy-php-file php-out "LICENSE" "LICENSE")
+  (copy-php-file php-out "CONTRIBUTING.md" "CONTRIBUTING.md")
+  (copy-php-file php-out "SECURITY.md" "SECURITY.md")
   (emit-php-file php-out "composer.json"
     (string-append
      "{\n"
@@ -3595,6 +3597,8 @@
                                    "require_once __DIR__ . \"/../grpcdc.php\";\n"
                                    "")))
   (copy-php-file kafka-php-out "LICENSE" "LICENSE")
+  (copy-php-file kafka-php-out "CONTRIBUTING.md" "CONTRIBUTING.md")
+  (copy-php-file kafka-php-out "SECURITY.md" "SECURITY.md")
   (emit-php-file kafka-php-out "composer.json"
     (string-append
      "{\n"
@@ -3631,6 +3635,8 @@
                                    "require_once __DIR__ . \"/../grpcdc.php\";\n"
                                    "")))
   (copy-php-file eventbus-php-out "LICENSE" "LICENSE")
+  (copy-php-file eventbus-php-out "CONTRIBUTING.md" "CONTRIBUTING.md")
+  (copy-php-file eventbus-php-out "SECURITY.md" "SECURITY.md")
   (emit-php-file eventbus-php-out "composer.json"
     (string-append
      "{\n"
