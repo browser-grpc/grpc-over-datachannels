@@ -1,0 +1,49 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>grpc-dc rendezvous-over-STUN browser test</title>
+<script type="module">
+import { rendezvousChannel } from "/js/index.js";
+import { EchoRequest } from "/js/examples/echo_pb.js";
+import { EchoClient } from "/js/examples/echo_grpc_dc.js";
+
+// Browser side: the page dials the fixed rendezvous listener
+// with a STUN server configured. The fake STUN server maps the
+// browser to 127.0.0.2, so the server-reflexive candidate is
+// a viable pair (its checks reach the listener on 127.0.0.1)
+// while the outward host candidate is not pairable with the
+// loopback remote in most engines — the nominated pair then
+// proves the srflx path carried the call.
+window.__runRendezvousStun = async () => {
+  const descriptor = await (await fetch("/rendezvous.json")).json();
+  const stun = new URLSearchParams(location.search).get("stun");
+  const channel = await rendezvousChannel(descriptor, {
+    iceServers: [{ urls: `stun:${stun}` }],
+  });
+  try {
+    const stats = await channel.peerConnection.getStats();
+    let pair = null;
+    const byId = {};
+    const gathered = new Set();
+    for (const [, s] of stats) {
+      if (s.type === "local-candidate") {
+        byId[s.id] = s;
+        gathered.add(s.candidateType);
+      }
+      if (s.type === "remote-candidate") byId[s.id] = s;
+      if (s.type === "candidate-pair" && s.nominated) {
+        pair = { local: s.localCandidateId, remote: s.remoteCandidateId, state: s.state };
+      }
+    }
+    const client = new EchoClient(channel);
+    const unary = await client.unary(new EchoRequest({ message: "hello-stun", count: 0 }));
+    return {
+      unary: unary.message,
+      gathered: [...gathered],
+      localType: pair ? byId[pair.local]?.candidateType : null,
+      remoteType: pair ? byId[pair.remote]?.candidateType : null,
+    };
+  } finally {
+    channel.closeRendezvous();
+  }
+};
+</script>

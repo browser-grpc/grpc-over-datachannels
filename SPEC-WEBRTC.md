@@ -432,7 +432,10 @@ in a config file, or served as static JSON.
   `browser-test/sidecar_rendezvous.test.mjs` (Python server
   via the Rust sidecar); `browser-test/rendezvous_turn.test.mjs`
   (browser relay-only over the fake TURN server, probe-and-
-  skip like direct_turn); native dialer + long-lived tests
+  skip like direct_turn); `browser-test/rendezvous_stun.test.mjs`
+  (browser with a STUN server configured: srflx candidate
+  gathered from the fake STUN server, call carried on a
+  reflexive pair, probe-and-skip like the TURN leg); native dialer + long-lived tests
   `webrtc/go/rendezvous_test.go` and
   `webrtc/rust/tests/rendezvous.rs`, plus generated-adapter
   tests `go/rendezvous_test.go` and
