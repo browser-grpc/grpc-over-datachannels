@@ -1001,6 +1001,22 @@ export class Server {
    * serveRendezvous when options.auth is set; rendezvous-only
    * by design (no protoc plugin option).
    */
+  /** Remove every method of `name` (runtime unregistration). */
+  removeService(name) {
+    const prefix = `/${name}/`;
+    for (const path of [...this.#methods.keys()]) {
+      if (path.startsWith(prefix)) this.#methods.delete(path);
+    }
+    return this;
+  }
+
+  /** Names of registered services, sorted (discovery source). */
+  registeredServices() {
+    const names = new Set();
+    for (const { service } of this.#methods.values()) names.add(service);
+    return [...names].sort();
+  }
+
   requireRendezvousAuth(verifier, scopes = {}) {
     this.#authVerifier = verifier;
     this.#authScopes = scopes ?? {};

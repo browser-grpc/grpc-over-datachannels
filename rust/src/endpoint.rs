@@ -86,6 +86,28 @@ impl Endpoint {
         }
     }
 
+    /// Remove every method of `name` (runtime unregistration:
+    /// later calls to those paths fail UNIMPLEMENTED).
+    pub fn unregister_service(&self, name: &str) {
+        let prefix = format!("/{name}/");
+        self.services.write().unwrap().retain(|path, _| !path.starts_with(&prefix));
+    }
+
+    /// Names of services with at least one registered method,
+    /// sorted (registry/discovery source).
+    pub fn registered_services(&self) -> Vec<String> {
+        let mut names: Vec<String> = self
+            .services
+            .read()
+            .unwrap()
+            .keys()
+            .filter_map(|path| path[1..].split('/').next().map(str::to_string))
+            .collect();
+        names.sort();
+        names.dedup();
+        names
+    }
+
     /// Require rendezvous bearer auth on every inbound call
     /// (see crate::server::RendezvousAuth): verified claims
     /// land on CallCtx.claims.

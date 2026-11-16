@@ -779,6 +779,19 @@ impl Server {
         ep.run().await;
     }
 
+    /// Serve and return the endpoint handle immediately: the
+    /// run loop is spawned, and the handle registers or
+    /// unregisters services at runtime (host/plugin hosts).
+    pub fn serve_handle(transport: Arc<dyn DcTransport>, services: Vec<ServiceDef>) -> Arc<Endpoint> {
+        let ep = Endpoint::new(transport, crate::endpoint::StreamIdParity::Even);
+        for service in services {
+            ep.register_service(service);
+        }
+        let run_ep = ep.clone();
+        crate::spawn_task(async move { run_ep.run().await });
+        ep
+    }
+
     /// Serve with rendezvous bearer auth required on every
     /// call (see RendezvousAuth).
     pub async fn serve_with_auth(

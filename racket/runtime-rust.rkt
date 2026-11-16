@@ -1117,6 +1117,28 @@ impl Endpoint {
         }
     }
 
+    /// Remove every method of `name` (runtime unregistration:
+    /// later calls to those paths fail UNIMPLEMENTED).
+    pub fn unregister_service(&self, name: &str) {
+        let prefix = format!("/{name}/");
+        self.services.write().unwrap().retain(|path, _| !path.starts_with(&prefix));
+    }
+
+    /// Names of services with at least one registered method,
+    /// sorted (registry/discovery source).
+    pub fn registered_services(&self) -> Vec<String> {
+        let mut names: Vec<String> = self
+            .services
+            .read()
+            .unwrap()
+            .keys()
+            .filter_map(|path| path[1..].split('/').next().map(str::to_string))
+            .collect();
+        names.sort();
+        names.dedup();
+        names
+    }
+
     /// Require rendezvous bearer auth on every inbound call
     /// (see crate::server::RendezvousAuth): verified claims
     /// land on CallCtx.claims.
@@ -2668,6 +2690,19 @@ impl Server {
             ep.register_service(service);
         }
         ep.run().await;
+    }
+
+    /// Serve and return the endpoint handle immediately: the
+    /// run loop is spawned, and the handle registers or
+    /// unregisters services at runtime (host/plugin hosts).
+    pub fn serve_handle(transport: Arc<dyn DcTransport>, services: Vec<ServiceDef>) -> Arc<Endpoint> {
+        let ep = Endpoint::new(transport, crate::endpoint::StreamIdParity::Even);
+        for service in services {
+            ep.register_service(service);
+        }
+        let run_ep = ep.clone();
+        crate::spawn_task(async move { run_ep.run().await });
+        ep
     }
 
     /// Serve with rendezvous bearer auth required on every
