@@ -196,3 +196,44 @@ message. HEADERS/TRAILERS payloads are JSON rather than HTTP header blocks
 so both runtimes stay dependency-light and debuggable; every other gRPC
 concept (paths, methods, streaming shapes, status codes, metadata,
 deadlines via RST) maps one-to-one.
+
+## Host/plugin deployments (issue #2)
+
+A long-lived host can serve one public endpoint while
+out-of-process plugins provide services behind it, in any
+language with a generated runtime:
+
+- **IPC transports.** Stdio and Unix domain socket
+  `DcTransport`s (Rust `StreamDc`/`stdio_dc`/`uds_dc`, JS
+  `grpc-dc/stdio`, Go `NewStdioTransport`/`DialUds`) frame
+  messages as a 4-byte big-endian length prefix plus the
+  frame, so a plugin process speaks grpc-dc to the host
+  without a WebRTC stack.
+- **Runtime registration.** Services register and unregister
+  after serve (`Server::serve_handle` + endpoint registry in
+  Rust, `addService`/`removeService` in JS, mutex-guarded
+  `RegisterService`/`UnregisterService` in Go); later calls
+  observe the change immediately, and unregistered paths
+  fail UNIMPLEMENTED.
+- **Interceptors.** One pre-dispatch chain per stack runs in
+  install order after rendezvous auth, which is the built-in
+  first interceptor; a rejection ends the call and the
+  handler never runs. JS interceptors may return claims
+  (exposed as `ctx.claims`), Go interceptors may replace the
+  call context, Rust interceptors see path + metadata.
+- **Discovery.** The well-known `grpcdc.registry.v1.Registry`
+  service (proto/registry.proto, descriptor set embedded in
+  each runtime) answers ListServices from live registrations
+  plus a descriptor store, and GetDescriptor returns the
+  FileDescriptorSet bytes a dynamic client needs to call a
+  discovered service without codegen.
+- **DC-to-DC routing.** `route_prefix` (Rust) installs a
+  fallback handler forwarding calls under a path prefix to a
+  plugin endpoint frame-by-frame (headers/metadata
+  preserved, terminal status propagated). The host's
+  interceptors and auth apply to routed calls exactly as to
+  local ones.
+
+Reference deployment: examples/plugin-host (Rust host, Node
+plugin, discovery + routed Echo). Plugin lifecycle (spawn,
+health, restart) remains the host application's job.
