@@ -608,6 +608,91 @@ pub struct ServiceDef {
     pub methods: Vec<MethodDef>,
 }
 
+/// Route every otherwise-unmatched call under `prefix`
+/// (a path prefix such as "/plugin.Service/") from `host`
+/// to the plugin endpoint `target`, frame by frame: headers
+/// and metadata are preserved, request DATA pumps one way,
+/// response events the other, and the target's terminal
+/// status becomes the call's status. Installed on the host
+/// endpoint's fallback handler (one route per host; install
+/// before serving). This is the DC-to-DC proxying piece for
+/// host/plugin deployments: one public endpoint, plugins
+/// behind it on their own endpoints (any transport).
+pub fn route_prefix(
+    host: &crate::endpoint::Endpoint,
+    prefix: impl Into<String>,
+    target: Arc<crate::endpoint::Endpoint>,
+) {
+    let prefix = prefix.into();
+    host.set_fallback_handler(Arc::new(move |call: ServerCall| {
+        let target = target.clone();
+        let prefix = prefix.clone();
+        Box::pin(async move {
+            if !call.ctx.path.starts_with(&prefix) {
+                return Err(Status::unimplemented(format!("unknown method {}", call.ctx.path)));
+            }
+            route_call(call, target).await
+        }) as BoxFuture<'static, Result<(), Status>>
+    }));
+}
+
+async fn route_call(mut call: ServerCall, target: Arc<crate::endpoint::Endpoint>) -> Result<(), Status> {
+    use futures_util::StreamExt;
+    let (target_id, mut target_rx) = target.open_stream();
+    target
+        .send_frame(crate::codec::Frame::headers(
+            target_id,
+            &crate::codec::Headers {
+                path: Some(call.ctx.path.clone()),
+                metadata: call.ctx.metadata.clone(),
+            },
+        )?)
+        .await?;
+    // Request pump: caller DATA -> target DATA, then half-close.
+    let pump_target = target.clone();
+    let mut requests = call.requests;
+    crate::spawn_task(async move {
+        while let Some(item) = requests.next().await {
+            match item {
+                Ok(payload) => {
+                    if pump_target
+                        .send_frame(crate::codec::Frame::data(target_id, payload))
+                        .await
+                        .is_err()
+                    {
+                        return;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+        let _ = pump_target.send_frame(crate::codec::Frame::half_close(target_id)).await;
+    });
+    let mut status_out = Status::ok();
+    while let Some(event) = target_rx.next().await {
+        match event {
+            crate::endpoint::StreamEvent::Headers(headers) => {
+                for (k, v) in &headers.metadata {
+                    call.ctx.set_headers([(k.clone(), v.clone())].into_iter().collect());
+                }
+            }
+            crate::endpoint::StreamEvent::Data(payload) => {
+                call.sink.send(payload.to_vec()).await?;
+            }
+            crate::endpoint::StreamEvent::Trailers(status) | crate::endpoint::StreamEvent::Rst(status) => {
+                status_out = status;
+                break;
+            }
+            crate::endpoint::StreamEvent::HalfClose => {}
+        }
+    }
+    if status_out.code == crate::status::Code::Ok {
+        Ok(())
+    } else {
+        Err(status_out)
+    }
+}
+
 impl ServiceDef {
     pub fn new(name: impl Into<String>, methods: Vec<MethodDef>) -> Self {
         Self { name: name.into(), methods }
