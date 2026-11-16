@@ -34,7 +34,8 @@
     "./rendezvous": "./src/rendezvous.js",
     "./rendezvous_server": "./src/rendezvous_server.js",
     "./http2": "./src/http2.js",
-    "./eventbus_gitlog": "./src/eventbus_gitlog.js"
+    "./eventbus_gitlog": "./src/eventbus_gitlog.js",
+    "./stdio": "./src/stdio.js"
   },
   "files": [
     "index.js",

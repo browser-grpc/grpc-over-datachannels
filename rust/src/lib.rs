@@ -212,6 +212,10 @@ where
     wasm_bindgen_futures::spawn_local(future);
 }
 pub use transport::{loopback_pair, DcTransport, InboxDc};
+#[cfg(not(target_arch = "wasm32"))]
+pub use transport::{stdio_dc, StreamDc};
+#[cfg(all(unix, not(target_arch = "wasm32")))]
+pub use transport::{uds_dc, uds_dc_accept};
 #[cfg(feature = "webrtc")]
 pub use transport::{EthDc, EthFramePort};
 

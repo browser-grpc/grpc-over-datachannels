@@ -3131,7 +3131,91 @@ GRPC_RUNTIME_EOF
    (cons "signaling.js" js-signaling-body)
    (cons "signaling_server.js" js-signaling-server-body)
    (cons "rendezvous.js" js-rendezvous-body)
-   (cons "rendezvous_server.js" js-rendezvous-server-body)))
+   (cons "rendezvous_server.js" js-rendezvous-server-body)
+   (cons "stdio.js" js-stdio-body)))
+
+(define js-stdio-body
+#<<GRPC_RUNTIME_EOF
+// IPC transports (Node only): stdio and Unix domain socket
+// channels for host/plugin use. One message is a 4-byte
+// big-endian length prefix plus the frame bytes — the same
+// framing as the Rust StreamDc and Go SidecarTransport IPC
+// forms, so a plugin process in any language can speak
+// grpc-dc to a host without a WebRTC stack. Like
+// rendezvous_server.js this module is Node-only and is not
+// re-exported from index.js; import it directly:
+//   import { stdioChannel, udsChannel } from "grpc-dc/stdio";
+
+import net from "node:net";
+import { Duplex } from "node:stream";
+import { Channel } from "./channel.js";
+
+/** DataChannel-shaped IPC endpoint over a Duplex stream. */
+export class StreamDataChannel extends EventTarget {
+  #inbox = Buffer.alloc(0);
+  #stream;
+
+  constructor(stream) {
+    super();
+    this.#stream = stream;
+    stream.on("data", (chunk) => {
+      this.#inbox = Buffer.concat([this.#inbox, chunk]);
+      for (;;) {
+        if (this.#inbox.length < 4) return;
+        const len = this.#inbox.readUInt32BE(0);
+        if (this.#inbox.length < 4 + len) return;
+        const frame = this.#inbox.subarray(4, 4 + len);
+        this.#inbox = this.#inbox.subarray(4 + len);
+        this.dispatchEvent(new MessageEvent("message", { data: frame }));
+      }
+    });
+    stream.on("error", (err) => {
+      this.dispatchEvent(new ErrorEvent("error", { error: err }));
+    });
+  }
+
+  send(frameBytes) {
+    const frame = Buffer.isBuffer(frameBytes) ? frameBytes : Buffer.from(frameBytes);
+    const prefix = Buffer.alloc(4);
+    prefix.writeUInt32BE(frame.length, 0);
+    this.#stream.write(Buffer.concat([prefix, frame]));
+  }
+
+  close() {
+    this.#stream.end();
+  }
+}
+
+/** Channel over this process's stdin/stdout (plugin side). */
+export function stdioChannel() {
+  const stream = Duplex.from({ readable: process.stdin, writable: process.stdout });
+  return new Channel(new StreamDataChannel(stream));
+}
+
+/** Channel over a Unix domain socket at `path` (plugin side). */
+export async function udsChannel(path) {
+  const socket = await new Promise((resolve, reject) => {
+    const s = net.createConnection(path);
+    s.once("connect", () => resolve(s));
+    s.once("error", reject);
+  });
+  return new Channel(new StreamDataChannel(socket));
+}
+
+/** Accept one Unix socket connection as a Channel (host side). */
+export async function udsServerChannel(path) {
+  const socket = await new Promise((resolve, reject) => {
+    const server = net.createServer((s) => {
+      server.close();
+      resolve(s);
+    });
+    server.once("error", reject);
+    server.listen(path);
+  });
+  return new Channel(new StreamDataChannel(socket));
+}
+GRPC_RUNTIME_EOF
+)
 
 (define js-dynamic-body
 #<<GRPC_RUNTIME_EOF

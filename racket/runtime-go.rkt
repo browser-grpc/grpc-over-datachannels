@@ -1366,6 +1366,8 @@ import (
 	"encoding/binary"
 	"io"
 	"net"
+	"os"
+	"time"
 )
 
 // SidecarTransport is one length-prefixed TCP connection to a
@@ -1414,6 +1416,51 @@ func (t *SidecarTransport) Recv() ([]byte, error) {
 
 // Close closes the connection.
 func (t *SidecarTransport) Close() error { return t.conn.Close() }
+
+// IPC transports for host/plugin use: the same length-prefixed
+// framing over a process's stdio or a Unix domain socket, so a
+// plugin process in any language can speak grpc-dc to a host
+// without a WebRTC stack.
+
+// NewStdioTransport frames over the process's stdin/stdout.
+func NewStdioTransport() *SidecarTransport {
+	return &SidecarTransport{conn: &streamConn{r: os.Stdin, w: os.Stdout}}
+}
+
+// streamConn adapts an io.Reader/io.Writer pair to net.Conn
+// with no-op deadlines (stdio and similar pipes).
+type streamConn struct {
+	r io.Reader
+	w io.Writer
+}
+
+func (c *streamConn) Read(b []byte) (int, error)  { return c.r.Read(b) }
+func (c *streamConn) Write(b []byte) (int, error) { return c.w.Write(b) }
+func (c *streamConn) Close() error                { return nil }
+func (c *streamConn) LocalAddr() net.Addr         { return streamAddr("stdio") }
+func (c *streamConn) RemoteAddr() net.Addr        { return streamAddr("stdio") }
+func (c *streamConn) SetDeadline(time.Time) error      { return nil }
+func (c *streamConn) SetReadDeadline(time.Time) error  { return nil }
+func (c *streamConn) SetWriteDeadline(time.Time) error { return nil }
+
+type streamAddr string
+
+func (a streamAddr) Network() string { return string(a) }
+func (a streamAddr) String() string  { return string(a) }
+
+// NewStreamTransport frames over any reader/writer pair.
+func NewStreamTransport(r io.Reader, w io.Writer) *SidecarTransport {
+	return &SidecarTransport{conn: &streamConn{r: r, w: w}}
+}
+
+// DialUds connects to a Unix domain socket.
+func DialUds(path string) (*SidecarTransport, error) {
+	conn, err := net.Dial("unix", path)
+	if err != nil {
+		return nil, err
+	}
+	return &SidecarTransport{conn: conn}, nil
+}
 GRPC_RUNTIME_EOF
 )
 
