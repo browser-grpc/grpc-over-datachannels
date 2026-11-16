@@ -29,6 +29,7 @@ pub mod eventbus_git;
 pub mod message;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod http2;
+pub mod link_stats;
 pub mod server;
 pub mod status;
 pub mod transport;

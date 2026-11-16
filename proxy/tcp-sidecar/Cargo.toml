@@ -1,0 +1,13 @@
+[package]
+name = "tcp-sidecar"
+version = "0.1.0"
+edition = "2021"
+description = "Userspace TCP leg (smoltcp) for the grpc-dc native wrapper: dc <-> http2 <-> stock gRPC server with a selectable OS/smoltcp TCP leg"
+license = "Apache-2.0"
+
+[dependencies]
+grpc-dc = { path = "../../rust" }
+smoltcp = { version = "0.12", default-features = false, features = ["std", "medium-ethernet", "proto-ipv4", "socket-tcp", "socket-udp"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "sync", "time", "io-util"] }
+bytes = "1"
+futures-util = "0.3"

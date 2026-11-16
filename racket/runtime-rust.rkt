@@ -43,6 +43,7 @@ pub mod eventbus_git;
 pub mod message;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod http2;
+pub mod link_stats;
 pub mod server;
 pub mod status;
 pub mod transport;
@@ -4425,6 +4426,100 @@ where
 GRPC_RUNTIME_EOF
 )
 
+(define rust-link-stats-body
+#<<GRPC_RUNTIME_EOF
+//! Unified link statistics for the native wrapper
+//! (`dc <-> http2 <-> stock server`): one snapshot shape over
+//! the three legs, so packet-loss instrumentation reads the
+//! same in every deployment. Each leg is optional — a plain
+//! DataChannel call has only SCTP; a stock-server call routed
+//! through the wrapper adds the TCP leg (kernel counters are
+//! the caller's to fill where the OS leg is used; the smoltcp
+//! sidecar reports its own TcpStats) and the HTTP/2 leg.
+
+use crate::http2::H2Stats;
+
+/// SCTP-leg counters (field-for-field mirror of
+/// dc_webrtc::sctp::AssociationStats, duplicated here so
+/// this module builds without the webrtc feature).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SctpStats {
+    pub packets_sent: u64,
+    pub packets_received: u64,
+    pub chunks_sent: u64,
+    pub chunks_received: u64,
+    pub retransmits: u64,
+    pub fast_retransmits: u64,
+    pub dup_chunks: u64,
+}
+
+#[cfg(feature = "webrtc")]
+impl From<dc_webrtc::sctp::AssociationStats> for SctpStats {
+    fn from(s: dc_webrtc::sctp::AssociationStats) -> Self {
+        Self {
+            packets_sent: s.packets_sent,
+            packets_received: s.packets_received,
+            chunks_sent: s.chunks_sent,
+            chunks_received: s.chunks_received,
+            retransmits: s.retransmits,
+            fast_retransmits: s.fast_retransmits,
+            dup_chunks: s.dup_chunks,
+        }
+    }
+}
+
+/// TCP-leg counters (same field shape as the smoltcp
+/// sidecar's TcpStats; kernel legs may fill what they can).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TcpStats {
+    pub frames_sent: u64,
+    pub frames_received: u64,
+    pub bytes_sent: u64,
+    pub bytes_received: u64,
+    pub tcp_retransmits: u64,
+    pub tcp_retransmit_bytes: u64,
+}
+
+/// One link snapshot: SCTP (DataChannel leg), TCP (stock
+/// server leg), HTTP/2 (wrapper leg).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LinkStats {
+    pub sctp: Option<SctpStats>,
+    pub tcp: Option<TcpStats>,
+    pub http2: Option<H2Stats>,
+}
+
+impl LinkStats {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_sctp(mut self, stats: SctpStats) -> Self {
+        self.sctp = Some(stats);
+        self
+    }
+
+    pub fn with_tcp(mut self, stats: TcpStats) -> Self {
+        self.tcp = Some(stats);
+        self
+    }
+
+    pub fn with_http2(mut self, stats: H2Stats) -> Self {
+        self.http2 = Some(stats);
+        self
+    }
+
+    /// Total retransmitted units across legs that count them
+    /// (SCTP chunks + TCP segments); legs without counters
+    /// contribute zero.
+    pub fn retransmits(&self) -> u64 {
+        self.sctp.map_or(0, |s| s.retransmits)
+            + self.tcp.map_or(0, |s| s.tcp_retransmits)
+    }
+}
+GRPC_RUNTIME_EOF
+)
+
 (define (emit-rust-runtime-files)
   (list
    (cons "lib.rs" rust-lib-body)
@@ -4437,6 +4532,7 @@ GRPC_RUNTIME_EOF
    (cons "channel.rs" rust-channel-body)
    (cons "http2.rs"
          (string-replace rust-http2-body "@@H2_TABLES@@" (emit-http2-tables-rust)))
+   (cons "link_stats.rs" rust-link-stats-body)
    (cons "server.rs" rust-server-body)
    (cons "dynamic.rs" rust-dynamic-body)
    (cons "webrtc_transport.rs" rust-webrtc-transport-body)

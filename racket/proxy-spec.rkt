@@ -30,7 +30,17 @@
      "grpc-dc client -> HTTP/2 over TCP backend (Rust)"
      shipped
      "grpc_dc_proxy --dc-listen <port> --http2-dial <host:port> [--http2-tls] (Rust example, generated grpc_dc::http2)"
-     "grpc-dc clients dial the proxy over WebRTC-Direct; it forwards every call to a stock HTTP/2 gRPC backend (h2c); compression terminated in the proxy")))
+     "grpc-dc clients dial the proxy over WebRTC-Direct; it forwards every call to a stock HTTP/2 gRPC backend (h2c); compression terminated in the proxy")
+    (smoltcp-sidecar
+     "Userspace TCP leg (smoltcp) under the native wrapper"
+     spike
+     "proxy/tcp-sidecar (Rust crate): two smoltcp stacks on a virtual Ethernet pair with Tokio streams and wire-level TcpStats (frame/byte counts, TCP retransmit detection by sequence tracking)"
+     "Selectable TCP leg when kernel sockets cannot report loss: dc-webrtc stays zero-dependency, smoltcp lives only in the sidecar crate; proven by crate tests (echo + loss injection), not yet in the release gate")
+    (link-stats
+     "Unified LinkStats across SCTP, TCP, and HTTP/2 legs"
+     spike
+     "grpc_dc::link_stats::LinkStats (Rust) with SctpStats/TcpStats/H2Stats legs; DcEndpoint.linkStats (JS) and DcEndpoint.LinkStats (Go) mirror the shape"
+     "One snapshot for packet-loss instrumentation on any wrapper path: SCTP counters from the DataChannel leg, TCP counters from the smoltcp sidecar (or kernel leg where available), HTTP/2 frame/stream counters")))
 
 ;; How each surface reaches the other through the proxy.
 (define proxy-client-notes

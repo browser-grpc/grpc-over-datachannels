@@ -308,6 +308,11 @@ export class DcEndpoint {
     return this.assoc.stats();
   }
 
+  /** Unified LinkStats snapshot: SCTP leg filled, TCP/HTTP2 legs null on a plain DataChannel. */
+  linkStats() {
+    return { sctp: this.stats(), tcp: null, http2: null };
+  }
+
   async close() {
     this._closed = true;
     const packets = this.assoc.close(this._now());
