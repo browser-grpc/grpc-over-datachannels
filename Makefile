@@ -327,6 +327,7 @@ test-proxy:
 	node --test proxy/proxy.test.mjs
 	node --test proxy/rust_proxy.test.mjs
 	node --test proxy/http2_corpus.test.mjs
+	cd proxy/tcp-sidecar && cargo test --offline
 
 test-webrtc-go:
 	cd webrtc/go && go test -race ./...

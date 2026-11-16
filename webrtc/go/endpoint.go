@@ -232,6 +232,13 @@ type TcpStats struct {
 	BytesReceived        int64
 	TcpRetransmits       int64
 	TcpRetransmitBytes   int64
+	FastRetransmits      int64
+	TimeoutRetransmits   int64
+	HandshakeRttMs       int64
+	RttSamples           int64
+	SynCount             int64
+	FinCount             int64
+	RstCount             int64
 }
 
 // H2Stats mirrors the HTTP/2 connection counters.

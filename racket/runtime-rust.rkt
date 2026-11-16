@@ -4478,6 +4478,13 @@ pub struct TcpStats {
     pub bytes_received: u64,
     pub tcp_retransmits: u64,
     pub tcp_retransmit_bytes: u64,
+    pub fast_retransmits: u64,
+    pub timeout_retransmits: u64,
+    pub handshake_rtt_ms: u64,
+    pub rtt_samples: u64,
+    pub syn_count: u64,
+    pub fin_count: u64,
+    pub rst_count: u64,
 }
 
 /// One link snapshot: SCTP (DataChannel leg), TCP (stock

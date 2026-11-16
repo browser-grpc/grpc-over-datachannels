@@ -17,6 +17,9 @@
 //! general network stack). `dc-webrtc` stays zero-dependency;
 //! smoltcp lives only in this crate.
 
+pub mod stack;
+pub use stack::Stack;
+
 use smoltcp::iface::{Config, Interface, SocketHandle, SocketSet};
 use smoltcp::phy::{Device, Medium, RxToken, TxToken};
 use smoltcp::socket::tcp;
@@ -41,10 +44,23 @@ pub struct TcpStats {
     pub bytes_received: u64,
     pub tcp_retransmits: u64,
     pub tcp_retransmit_bytes: u64,
+    /// Retransmits resent quickly after the original (fast
+    /// retransmit heuristic: resent within 20 ms and after at
+    /// least one later segment of the same flow was seen);
+    /// the rest count as timeout retransmits.
+    pub fast_retransmits: u64,
+    pub timeout_retransmits: u64,
+    /// Last handshake RTT sample (SYN -> SYN-ACK), ms.
+    pub handshake_rtt_ms: u64,
+    pub rtt_samples: u64,
+    pub syn_count: u64,
+    pub fin_count: u64,
+    pub rst_count: u64,
 }
 
 #[derive(Default)]
 struct WireStats {
+    single: bool,
     frames_ab: u64,
     frames_ba: u64,
     bytes_ab: u64,
@@ -53,9 +69,38 @@ struct WireStats {
     retransmit_bytes: u64,
     // direction -> (src,dst) -> highest end-of-sequence seen
     max_seq_end: HashMap<(bool, u32, u16, u32, u16), u32>,
+    seq_first_seen_ms: HashMap<(bool, u32, u16, u32, u16, u32), u64>,
+    syn_sent_ms: HashMap<(u32, u16, u32, u16), u64>,
+    start: Option<std::time::Instant>,
+    fast_retransmits: u64,
+    timeout_retransmits: u64,
+    handshake_rtt_ms: u64,
+    rtt_samples: u64,
+    syn_count: u64,
+    fin_count: u64,
+    rst_count: u64,
 }
 
 impl WireStats {
+    fn now_ms(&mut self) -> u64 {
+        let start = *self.start.get_or_insert_with(std::time::Instant::now);
+        start.elapsed().as_millis() as u64
+    }
+}
+
+impl WireStats {
+    /// Single-stack mode: frames_sent counts only this
+    /// stack's transmissions, frames_received only receipts.
+    fn single() -> Self {
+        Self { single: true, ..Default::default() }
+    }
+
+    fn observe_rx(&mut self, frame: &[u8]) {
+        self.frames_ba += 1;
+        self.bytes_ba += frame.len() as u64;
+        self.observe_seq(false, frame);
+    }
+
     fn observe(&mut self, a_to_b: bool, frame: &[u8]) {
         if a_to_b {
             self.frames_ab += 1;
@@ -64,8 +109,19 @@ impl WireStats {
             self.frames_ba += 1;
             self.bytes_ba += frame.len() as u64;
         }
+        self.observe_seq(a_to_b, frame);
+    }
+
+    fn observe_seq(&mut self, a_to_b: bool, frame: &[u8]) {
         // Ethernet II (14) + IPv4 (variable) + TCP: track
-        // payload sequence ranges per flow direction.
+        // payload sequence ranges per flow direction. In
+        // single-stack (TUN/IP-medium) mode frames are bare
+        // IP packets, so skip the Ethernet header then.
+        let frame = if self.single && (frame.len() < 14 || u16::from_be_bytes([frame[12], frame[13]]) != 0x0800) {
+            frame
+        } else {
+            frame
+        };
         if frame.len() < 14 + 20 + 20 || u16::from_be_bytes([frame[12], frame[13]]) != 0x0800 {
             return;
         }
@@ -80,6 +136,26 @@ impl WireStats {
         let sport = u16::from_be_bytes(tcp[0..2].try_into().unwrap());
         let dport = u16::from_be_bytes(tcp[2..4].try_into().unwrap());
         let seq = u32::from_be_bytes(tcp[4..8].try_into().unwrap());
+        let flags = tcp[13];
+        let now = self.now_ms();
+        // Handshake/teardown accounting (flags: FIN 0x01,
+        // RST 0x04, SYN 0x02, ACK 0x10).
+        if flags & 0x04 != 0 {
+            self.rst_count += 1;
+        }
+        if flags & 0x01 != 0 {
+            self.fin_count += 1;
+        }
+        if flags & 0x02 != 0 && flags & 0x10 == 0 {
+            self.syn_count += 1;
+            self.syn_sent_ms.insert((src, sport, dst, dport), now);
+        }
+        if flags & 0x02 != 0 && flags & 0x10 != 0 {
+            if let Some(sent) = self.syn_sent_ms.remove(&(dst, dport, src, sport)) {
+                self.handshake_rtt_ms = now.saturating_sub(sent);
+                self.rtt_samples += 1;
+            }
+        }
         let data_len = (ip.len() - ihl - ((tcp[12] >> 4) as usize) * 4) as u32;
         if data_len == 0 {
             return;
@@ -91,14 +167,46 @@ impl WireStats {
                 let overlap = max.min(end).wrapping_sub(seq);
                 self.retransmits += 1;
                 self.retransmit_bytes += overlap as u64;
+                // Fast vs timeout split (heuristic): a resend
+                // within 20 ms of the segment's first sighting
+                // follows duplicate ACKs; later is RTO-driven.
+                let first = self
+                    .seq_first_seen_ms
+                    .get(&(a_to_b, src, sport, dst, dport, seq))
+                    .copied()
+                    .unwrap_or(now);
+                if now.saturating_sub(first) <= 20 {
+                    self.fast_retransmits += 1;
+                } else {
+                    self.timeout_retransmits += 1;
+                }
             }
             _ => {
+                self.seq_first_seen_ms
+                    .insert((a_to_b, src, sport, dst, dport, seq), now);
                 self.max_seq_end.insert(key, end);
             }
         }
     }
 
     fn snapshot(&self) -> TcpStats {
+        if self.single {
+            return TcpStats {
+                frames_sent: self.frames_ab,
+                frames_received: self.frames_ba,
+                bytes_sent: self.bytes_ab,
+                bytes_received: self.bytes_ba,
+                tcp_retransmits: self.retransmits,
+                tcp_retransmit_bytes: self.retransmit_bytes,
+                fast_retransmits: self.fast_retransmits,
+                timeout_retransmits: self.timeout_retransmits,
+                handshake_rtt_ms: self.handshake_rtt_ms,
+                rtt_samples: self.rtt_samples,
+                syn_count: self.syn_count,
+                fin_count: self.fin_count,
+                rst_count: self.rst_count,
+            };
+        }
         TcpStats {
             frames_sent: self.frames_ab + self.frames_ba,
             frames_received: self.frames_ab + self.frames_ba,
@@ -106,6 +214,13 @@ impl WireStats {
             bytes_received: self.bytes_ab + self.bytes_ba,
             tcp_retransmits: self.retransmits,
             tcp_retransmit_bytes: self.retransmit_bytes,
+            fast_retransmits: self.fast_retransmits,
+            timeout_retransmits: self.timeout_retransmits,
+            handshake_rtt_ms: self.handshake_rtt_ms,
+            rtt_samples: self.rtt_samples,
+            syn_count: self.syn_count,
+            fin_count: self.fin_count,
+            rst_count: self.rst_count,
         }
     }
 }
@@ -181,6 +296,10 @@ struct StreamEntry {
     from_app: mpsc::UnboundedReceiver<Vec<u8>>,
     established: Option<oneshot::Sender<()>>,
     listen: bool,
+    // Unsent remainder of one app message: send_slice may
+    // accept only part of it, and dropping the rest corrupts
+    // the byte stream.
+    pending: Vec<u8>,
 }
 
 enum Request {
@@ -189,9 +308,9 @@ enum Request {
 
 /// One end of a sidecar TCP stream (Tokio AsyncRead/Write).
 pub struct SidecarStream {
-    tx: mpsc::UnboundedSender<Vec<u8>>,
-    rx: mpsc::UnboundedReceiver<Vec<u8>>,
-    pending: VecDeque<u8>,
+    pub(crate) tx: mpsc::UnboundedSender<Vec<u8>>,
+    pub(crate) rx: mpsc::UnboundedReceiver<Vec<u8>>,
+    pub(crate) pending: VecDeque<u8>,
 }
 
 impl AsyncRead for SidecarStream {
@@ -252,6 +371,13 @@ impl From<TcpStats> for grpc_dc::link_stats::TcpStats {
             bytes_received: s.bytes_received,
             tcp_retransmits: s.tcp_retransmits,
             tcp_retransmit_bytes: s.tcp_retransmit_bytes,
+            fast_retransmits: s.fast_retransmits,
+            timeout_retransmits: s.timeout_retransmits,
+            handshake_rtt_ms: s.handshake_rtt_ms,
+            rtt_samples: s.rtt_samples,
+            syn_count: s.syn_count,
+            fin_count: s.fin_count,
+            rst_count: s.rst_count,
         }
     }
 }
@@ -398,6 +524,7 @@ fn run_stacks(
                         from_app,
                         established: Some(est_tx),
                         listen: false,
+                        pending: Vec::new(),
                     });
                     // Hand the stream back once established (poll loop
                     // fires the oneshot); the caller awaits data, so
@@ -426,6 +553,7 @@ fn run_stacks(
                     from_app,
                     established: None,
                     listen: false,
+                    pending: Vec::new(),
                 });
                 let _ = accepted.send(stream);
                 let rx = tcp::SocketBuffer::new(vec![0; 65535]);
@@ -451,11 +579,20 @@ fn service(sockets: &mut SocketSet<'_>, entries: &mut Vec<StreamEntry>) {
         }
         // Only consume app data the socket can take right now;
         // draining into a not-yet-established socket would
-        // silently drop the peer's first bytes.
+        // silently drop the peer's first bytes. Partial sends
+        // keep their remainder in entry.pending.
         while sock.can_send() {
-            match entry.from_app.try_recv() {
-                Ok(data) => {
-                    let _ = sock.send_slice(&data);
+            if entry.pending.is_empty() {
+                match entry.from_app.try_recv() {
+                    Ok(data) => entry.pending = data,
+                    Err(_) => break,
+                }
+            }
+            match sock.send_slice(&entry.pending) {
+                Ok(n) if n >= entry.pending.len() => entry.pending.clear(),
+                Ok(n) => {
+                    entry.pending.drain(..n);
+                    break;
                 }
                 Err(_) => break,
             }

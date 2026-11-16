@@ -54,3 +54,48 @@ async fn loss_injection_counts_retransmits() {
     let stats = sidecar.stats();
     assert!(stats.tcp_retransmits > 0, "expected retransmits under drop: {stats:?}");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn udp_frontend_echo_between_two_stacks() {
+    use tcp_sidecar::Stack;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    // Bind UDP tunnel endpoints first so addresses are known.
+    let a_bind: std::net::SocketAddr = "127.0.0.1:0".parse().unwrap();
+    let b_bind: std::net::SocketAddr = "127.0.0.1:0".parse().unwrap();
+    // Use fixed tunnel ports to cross-wire peers.
+    let a_tun: std::net::SocketAddr = "127.0.0.1:48101".parse().unwrap();
+    let b_tun: std::net::SocketAddr = "127.0.0.1:48102".parse().unwrap();
+    let _ = (a_bind, b_bind);
+    let server = Stack::udp(b_tun, a_tun, [10, 0, 0, 2], [0x02, 0, 0, 0, 0, 2]).unwrap();
+    let client = Stack::udp(a_tun, b_tun, [10, 0, 0, 1], [0x02, 0, 0, 0, 0, 1]).unwrap();
+    let server_task = tokio::spawn(async move {
+        let mut s = server.accept().await.unwrap();
+        let mut buf = [0u8; 5];
+        s.read_exact(&mut buf).await.unwrap();
+        assert_eq!(&buf, b"hello");
+        s.write_all(b"world").await.unwrap();
+        server
+    });
+    let mut c = client.connect([10, 0, 0, 2], tcp_sidecar::LISTEN_PORT).await.unwrap();
+    c.write_all(b"hello").await.unwrap();
+    let mut back = [0u8; 5];
+    c.read_exact(&mut back).await.unwrap();
+    assert_eq!(&back, b"world");
+    let server = server_task.await.unwrap();
+    let stats = server.stats();
+    assert!(stats.frames_received > 0, "{stats:?}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn tun_frontend_opens_or_skips() {
+    use tcp_sidecar::Stack;
+    match Stack::tun("", [10, 0, 0, 1]) {
+        Ok(stack) => {
+            let _ = stack.stats();
+            println!("tun opened");
+        }
+        Err(e) => {
+            println!("tun unavailable (expected without CAP_NET_ADMIN): {e}");
+        }
+    }
+}

@@ -33,9 +33,11 @@ test("proxy: generated mode table matches implementation", async () => {
   assert.equal(byId["http2-ingress"]?.status, "shipped");
   assert.deepEqual(
     Object.keys(byId),
-    ["http2-ingress", "http2-ingress-rust", "dc-egress-rust"],
-    "proxy supports only HTTP/2 over TCP",
+    ["http2-ingress", "http2-ingress-rust", "dc-egress-rust", "smoltcp-sidecar", "link-stats"],
+    "proxy modes: HTTP/2 over TCP ingress/egress plus the native-wrapper legs",
   );
+  assert.equal(byId["smoltcp-sidecar"]?.status, "shipped");
+  assert.equal(byId["link-stats"]?.status, "shipped");
   assert.equal(byId["dc-egress"], undefined, "Node egress mode stays removed; egress is the Rust proxy");
   const proxySource = await readFile(new URL("./grpc-dc-proxy.mjs", import.meta.url), "utf8");
   assert.match(proxySource, /serveHttp2ToDc/, "http2-ingress must use the bridge server");

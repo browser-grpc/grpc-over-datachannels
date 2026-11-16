@@ -262,6 +262,12 @@ type Http2Transport struct {
 	buffers   map[uint32][]byte
 	blocks    map[uint32][]byte
 	headersSeen map[uint32]bool
+	// HTTP/2 leg counters for LinkStats: framesSent counts
+	// frames written by sendFrame, framesReceived frames
+	// parsed by reader, streamsOpened HEADERS streams.
+	framesSent     int64
+	framesReceived int64
+	streamsOpened  int64
 	// Per-stream gzip state: requests compress when the call
 	// metadata carries grpc-encoding: gzip; responses decompress
 	// when the response headers do. Streams advertise gzip via
@@ -352,10 +358,26 @@ func (t *Http2Transport) sendFrame(ftype byte, streamID uint32, flags byte, payl
 		return err
 	}
 	if len(payload) > 0 {
-		_, err := t.conn.Write(payload)
-		return err
+		if _, err := t.conn.Write(payload); err != nil {
+			return err
+		}
 	}
+	t.framesSent++
 	return nil
+}
+
+// H2Stats is the HTTP/2 leg of the unified LinkStats
+// snapshot (see webrtc LinkStats): frame and stream
+// counters over this connection's life.
+type H2Stats struct {
+	FramesSent     int64
+	FramesReceived int64
+	StreamsOpened  int64
+}
+
+// Stats returns the HTTP/2 counters snapshot.
+func (t *Http2Transport) Stats() H2Stats {
+	return H2Stats{FramesSent: t.framesSent, FramesReceived: t.framesReceived, StreamsOpened: t.streamsOpened}
 }
 
 func (t *Http2Transport) emit(frameType FrameType, streamID uint32, payload []byte) {
@@ -381,6 +403,7 @@ func (t *Http2Transport) reader() {
 			return
 		}
 		streamID := binary.BigEndian.Uint32(header[5:9]) & 0x7fffffff
+		t.framesReceived++
 		t.onFrame(header[3], header[4], streamID, payload)
 	}
 }
@@ -577,6 +600,7 @@ func (t *Http2Transport) Send(data []byte) error {
 			t.windows[streamID] = t.peerInitial
 		}
 		t.winMu.Unlock()
+		t.streamsOpened++
 		return t.sendFrame(h2Headers, streamID, 0x4, block)
 	case FrameData:
 		if t.compressOut[streamID] {
