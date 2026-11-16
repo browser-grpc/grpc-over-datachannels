@@ -82,9 +82,10 @@ type ServiceDesc struct {
 // or unregistered at runtime (host/plugin hosts) while calls
 // are in flight.
 type Server struct {
-	mu      sync.RWMutex
-	methods map[string]Method
-	auth    *RendezvousAuth
+	mu           sync.RWMutex
+	methods      map[string]Method
+	auth         *RendezvousAuth
+	interceptors []Interceptor
 }
 
 // NewServer builds an empty server.
@@ -162,6 +163,26 @@ type callStateKey struct{}
 
 type claimsKey struct{}
 
+// CallInfo describes one inbound call to interceptors.
+type CallInfo struct {
+	Path     string
+	Metadata map[string]string
+}
+
+// Interceptor runs before dispatch (in install order, after
+// rendezvous auth when set). Returning a status ends the
+// call with it and the handler never runs; returning a
+// non-nil context replaces the call context (claims,
+// values) for downstream interceptors and the handler.
+type Interceptor func(ctx context.Context, info CallInfo) (context.Context, *StatusError)
+
+// AddInterceptor installs a server interceptor (see Interceptor).
+func (s *Server) AddInterceptor(interceptor Interceptor) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.interceptors = append(s.interceptors, interceptor)
+}
+
 // ClaimsFromContext returns the verified rendezvous claims
 // for the call, or nil when the call was not authenticated.
 func ClaimsFromContext(ctx context.Context) *RendezvousClaims {
@@ -215,6 +236,18 @@ func (s *Server) dispatch(ctx context.Context, headers Headers, in *streamInput,
 			return st
 		}
 		ctx = context.WithValue(ctx, claimsKey{}, claims)
+	}
+	// Server interceptors (after auth): any status ends the
+	// call and the handler never runs.
+	s.mu.RLock()
+	chain := append([]Interceptor(nil), s.interceptors...)
+	s.mu.RUnlock()
+	for _, interceptor := range chain {
+		next, st := interceptor(ctx, CallInfo{Path: *headers.Path, Metadata: headers.Metadata})
+		if st != nil {
+			return st
+		}
+		ctx = next
 	}
 	ctx = context.WithValue(ctx, callStateKey{}, sink)
 	traceCtx := traceStart("server", *headers.Path, ParseTraceparent(headers.Metadata["traceparent"]))
