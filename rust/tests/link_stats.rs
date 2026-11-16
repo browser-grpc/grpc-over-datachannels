@@ -1,7 +1,6 @@
 //! LinkStats: one snapshot shape over the wrapper legs.
 
-use grpc_dc::http2::H2Stats;
-use grpc_dc::link_stats::{LinkStats, SctpStats, TcpStats};
+use grpc_dc::link_stats::{H2Stats, LinkStats, SctpStats, TcpStats};
 
 #[test]
 fn link_stats_aggregates_legs() {

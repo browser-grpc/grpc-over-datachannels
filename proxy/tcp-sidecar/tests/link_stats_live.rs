@@ -147,7 +147,7 @@ async fn link_stats_all_legs_on_one_wrapper_call() {
     let stats = LinkStats::new()
         .with_sctp(sctp.into())
         .with_tcp(sidecar.stats().into())
-        .with_http2(h2.stats());
+        .with_http2(h2.stats().into());
     let s = stats.sctp.expect("sctp leg filled");
     assert!(s.chunks_sent > 0 && s.chunks_received > 0, "{s:?}");
     let t = stats.tcp.expect("tcp leg filled");

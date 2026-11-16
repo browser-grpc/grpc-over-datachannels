@@ -4437,7 +4437,26 @@ GRPC_RUNTIME_EOF
 //! the caller's to fill where the OS leg is used; the smoltcp
 //! sidecar reports its own TcpStats) and the HTTP/2 leg.
 
-use crate::http2::H2Stats;
+/// HTTP/2-leg counters (field-for-field mirror of
+/// crate::http2::H2Stats, duplicated here so this module
+/// builds on wasm32 where the http2 module is absent).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct H2Stats {
+    pub frames_sent: u64,
+    pub frames_received: u64,
+    pub streams_opened: u64,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl From<crate::http2::H2Stats> for H2Stats {
+    fn from(s: crate::http2::H2Stats) -> Self {
+        Self {
+            frames_sent: s.frames_sent,
+            frames_received: s.frames_received,
+            streams_opened: s.streams_opened,
+        }
+    }
+}
 
 /// SCTP-leg counters (field-for-field mirror of
 /// dc_webrtc::sctp::AssociationStats, duplicated here so
