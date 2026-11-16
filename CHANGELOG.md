@@ -3,6 +3,44 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.43.0 — 2026-11-16
+
+- Host/plugin support (GitHub issue #2): one public endpoint
+  with out-of-process plugins behind it. IPC transports
+  (stdio + Unix domain socket, one length-prefixed framing)
+  in the Rust, JS, and Go runtimes; runtime service
+  registration/unregistration after serve in all three;
+  server interceptor chains (rendezvous auth is the built-in
+  first one; JS interceptors can supply claims, Go can
+  replace the call context); DC-to-DC routing by path prefix
+  (`route_prefix`); and the well-known
+  `grpcdc.registry.v1.Registry` discovery service
+  (ListServices + GetDescriptor for dynamic calls without
+  codegen). Reference deployment: examples/plugin-host
+  (Rust host, Node plugin). SPEC.md documents the model.
+- Packet-loss instrumentation: `AssociationStats` on every
+  SCTP association (packets/chunks, retransmits split fast
+  vs timeout, duplicates) in the Rust, JS, and Go stacks,
+  unified with TCP and HTTP/2 legs in one `LinkStats`
+  snapshot; the smoltcp sidecar leg (proxy/tcp-sidecar)
+  reports wire-level TCP counters, with TUN and UDP-tunnel
+  front ends.
+- Rendezvous permutation coverage: TURN (real coturn) and
+  STUN browser legs for the Go listener, rendezvous over
+  IPv6, and browser auth against Go and Rust servers;
+  adversarial listener tests (garbage resilience, 12-peer
+  demux). Coturn loopback note: loopback listeners also
+  need `--allow-loopback-peers` (issue #1, fixed by config).
+- Kafka differentials now in five languages (Python, JS, Go,
+  Dart, C#): transactional produce through one form factor,
+  read_committed consume through the other.
+- Crypto cross-checks vs OpenSSL (P-256 signatures both
+  directions, P-384 ECDH, TLS 1.2 client handshake), and
+  release tooling tests: black-box releasegen rule tests in
+  `make test-racket`, community standard files
+  (CONTRIBUTING/SECURITY) in every export, and the
+  kafka-native Cargo.lock version stamping fix.
+
 ## v0.42.0 — 2026-11-12 (published to GitHub/npm/PyPI/GHCR/NuGet/Maven Central/GitHub Maven/pub.dev/crates.io/RubyGems/LuaRocks/JSR)
 
 - Rendezvous auth: the generated JS, Go, and Rust rendezvous
