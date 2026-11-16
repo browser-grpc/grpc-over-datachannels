@@ -35,6 +35,17 @@ WebRTC library underneath it.
 | SCTP | 9260/7496/6951/6525 | INIT/COOKIE handshake with state cookie, DATA/SACK with gap reports, retransmission, ordered + unordered streams, fragmentation/reassembly, PR-SCTP FORWARD-TSN, RE-CONFIG stream reset for datachannel close (RFC 8831 §6.4: outgoing reset, peer resets its side in turn, deferred until the sender's last assigned TSN is cumulative), HEARTBEAT, graceful SHUTDOWN |
 | DCEP | 8832/8831 | DATA_CHANNEL_OPEN/ACK, reliable + partially-reliable channel types, PPIDs 50/51/53/56/57, DTLS-client=even streams rule |
 
+Packet-loss instrumentation: every association maintains an
+`AssociationStats` snapshot (packets/chunks sent and received,
+retransmitted chunks split into total vs fast-retransmit, and
+duplicate chunks received), readable without touching the wire:
+`Association::stats()` / `DcEndpoint::stats()` /
+`WebRtcDc::stats()` in Rust, `Association.stats()` /
+`DcEndpoint.stats()` in JS, and `Association.Stats()` /
+`DcEndpoint.Stats()` / `DataChannel.Stats()` in Go. Counters are
+snapshotted at the endpoint, so callers read them on their own
+schedule; they are not exported over the wire.
+
 Demultiplexing on the single UDP socket follows RFC 7983: first byte
 0–3 → STUN, 20–63 → DTLS. SCTP rides inside DTLS application data.
 

@@ -2619,7 +2619,7 @@ use std::sync::Arc;
 pub struct WebRtcDc {
     channel: ChannelHandle,
     inbox: tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>>,
-    _endpoint: Arc<DcEndpoint>,
+    endpoint: Arc<DcEndpoint>,
 }
 
 impl WebRtcDc {
@@ -2642,8 +2642,14 @@ impl WebRtcDc {
         Self {
             channel,
             inbox: tokio::sync::Mutex::new(rx),
-            _endpoint: endpoint,
+            endpoint,
         }
+    }
+
+    /// SCTP association counter snapshot for the endpoint
+    /// carrying this channel (packet-loss instrumentation).
+    pub fn stats(&self) -> Option<dc_webrtc::sctp::AssociationStats> {
+        self.endpoint.stats()
     }
 }
 

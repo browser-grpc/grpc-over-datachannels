@@ -34,6 +34,22 @@ const initialRtoMs = 1000
 const rtoMinMs = 200
 const rtoMaxMs = 60000
 
+// AssociationStats holds counters for one association,
+// exposed for packet-loss instrumentation. Retransmits
+// increments on every retransmitted DATA chunk (fast
+// retransmit and timeout alike), FastRetransmits only on
+// gap-triggered fast retransmit, DupChunks on every DATA
+// chunk whose TSN had already been seen.
+type AssociationStats struct {
+	PacketsSent     int64
+	PacketsReceived int64
+	ChunksSent      int64
+	ChunksReceived  int64
+	Retransmits     int64
+	FastRetransmits int64
+	DupChunks       int64
+}
+
 // Crc32c computes the SCTP checksum (Castagnoli, reflected).
 func Crc32c(buf []byte) uint32 {
 	crc := uint32(0xffffffff)
@@ -212,6 +228,7 @@ type Association struct {
 	peerInitialTsn    uint32
 	lastPeerReconfSeq uint32
 	hasPeerReconfSeq  bool
+	stats             AssociationStats
 }
 
 type streamResetState struct {
@@ -276,6 +293,10 @@ func NewServerAssociation(localPort, peerPort uint16) *Association {
 
 // IsEstablished reports whether data may flow.
 func (a *Association) IsEstablished() bool { return a.state == "established" }
+
+// Stats returns a snapshot of this association's counters
+// (loss instrumentation; see AssociationStats).
+func (a *Association) Stats() AssociationStats { return a.stats }
 
 func (a *Association) packet(vtag uint32, chunks []byte) []byte {
 	out := make([]byte, 12+len(chunks))
@@ -628,6 +649,8 @@ func (a *Association) flushOut(nowMs int64) [][]byte {
 		packets = append(packets, a.packet(a.peerTag, dataChunkBytes(c)))
 		a.unacked[c.tsn] = c
 	}
+	a.stats.PacketsSent += int64(len(packets))
+	a.stats.ChunksSent += int64(len(packets))
 	if len(packets) > 0 {
 		a.lastPacketOutMs = nowMs
 	}
@@ -677,6 +700,7 @@ func (a *Association) HandlePacket(packet []byte, nowMs int64) ([][]byte, []Sctp
 		return packets, events
 	}
 	vtag := binary.BigEndian.Uint32(packet[4:8])
+	a.stats.PacketsReceived++
 	for _, view := range parseSctpChunks(packet[12:]) {
 		switch view.typ {
 		case SctpChunkInit:
@@ -780,6 +804,7 @@ func (a *Association) handleData(flags byte, body []byte) []SctpEvent {
 	if len(body) < 12 {
 		return nil
 	}
+	a.stats.ChunksReceived++
 	tsn := binary.BigEndian.Uint32(body[0:4])
 	stream := binary.BigEndian.Uint16(body[4:6])
 	ssn := binary.BigEndian.Uint16(body[6:8])
@@ -793,6 +818,11 @@ func (a *Association) handleData(flags byte, body []byte) []SctpEvent {
 	// accounting: count each newly seen TSN above cum once,
 	// release its bytes as cum passes it.
 	cumBefore := a.sack.cum()
+	if diff32(tsn, cumBefore) <= 0 {
+		a.stats.DupChunks++
+	} else if _, seen := a.recvBuffered[tsn]; seen {
+		a.stats.DupChunks++
+	}
 	if diff32(tsn, cumBefore) > 0 {
 		if _, seen := a.recvBuffered[tsn]; !seen {
 			a.recvBuffered[tsn] = len(payload)
@@ -901,6 +931,8 @@ func (a *Association) handleSack(body []byte, nowMs int64) [][]byte {
 			continue
 		}
 		packets = append(packets, a.packet(a.peerTag, dataChunkBytes(c)))
+		a.stats.Retransmits++
+		a.stats.FastRetransmits++
 		c.retransmits++
 		c.lastSentMs = nowMs
 	}
@@ -1011,6 +1043,7 @@ func (a *Association) Tick(nowMs int64) ([][]byte, []SctpEvent) {
 		}
 		for _, c := range toRetransmit {
 			packets = append(packets, a.packet(a.peerTag, dataChunkBytes(c)))
+			a.stats.Retransmits++
 			c.retransmits++
 			c.lastSentMs = nowMs
 		}

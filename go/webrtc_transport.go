@@ -29,6 +29,11 @@ func NewDcTransport(channel *dcwebrtc.DataChannel) *DcTransport {
 	return transport
 }
 
+// Stats returns a snapshot of the SCTP association counters
+// for the endpoint carrying this channel (packet-loss
+// instrumentation).
+func (t *DcTransport) Stats() dcwebrtc.AssociationStats { return t.channel.Stats() }
+
 // Send sends one frame as one DataChannel message.
 func (t *DcTransport) Send(payload []byte) error {
 	if t.channel.ReadyState() != "open" {

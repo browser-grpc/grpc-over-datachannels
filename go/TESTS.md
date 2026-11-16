@@ -29,6 +29,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`interop_oracle_test.go`](interop_oracle_test.go) — Official-implementation oracle, via the proxy
 - [`interop_server_oracle_test.go`](interop_server_oracle_test.go) — Official-implementation oracle, via the proxy
 - [`interop_test.go`](interop_test.go) — Cross-language interop
+- [`kafka_differential_test.go`](kafka_differential_test.go) — Kafka end-to-end (broker legs env-gated)
 - [`kafka_e2e_test.go`](kafka_e2e_test.go) — Kafka end-to-end (broker legs env-gated)
 - [`kafka_native_test.go`](kafka_native_test.go) — Kafka end-to-end (broker legs env-gated)
 - [`oracle_driver_generated_test.go`](oracle_driver_generated_test.go) — Official-implementation oracle, via the proxy

@@ -146,3 +146,24 @@ test("partial reliability abandons and unblocks stream", () => {
   const events = link.toServer(packets);
   assert.deepEqual(events.map((e) => e.payload?.toString()), ["survivor"]);
 });
+
+test("stats count retransmits and duplicates", () => {
+  const link = new Link();
+  link.handshake();
+  link.client.sendData(0, 63, Buffer.from("lost once"), {}, link.now); // dropped
+  const sent = link.client.stats();
+  assert.ok(sent.chunksSent >= 1 && sent.packetsSent >= 1, JSON.stringify(sent));
+  link.now += 1500;
+  const { packets } = link.client.tick(link.now);
+  assert.ok(packets.length > 0);
+  const afterTick = link.client.stats();
+  assert.ok(afterTick.retransmits >= 1, JSON.stringify(afterTick));
+  assert.equal(afterTick.fastRetransmits, 0);
+  const events = link.toServer(packets);
+  assert.equal(events.length, 1);
+  link.toServer(packets); // duplicate delivery of the same packets
+  const server = link.server.stats();
+  assert.ok(server.chunksReceived >= 2, JSON.stringify(server));
+  assert.ok(server.dupChunks >= 1, `duplicate delivery must count: ${JSON.stringify(server)}`);
+  assert.ok(server.packetsReceived >= 1);
+});

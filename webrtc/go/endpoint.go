@@ -96,6 +96,10 @@ type DataChannel struct {
 	reasm dcChunkReassembler
 }
 
+// Stats returns a snapshot of the SCTP association counters
+// for this channel's endpoint (packet-loss instrumentation).
+func (c *DataChannel) Stats() AssociationStats { return c.endpoint.Stats() }
+
 // OnMessage registers the message handler; queued messages flush.
 func (c *DataChannel) OnMessage(fn func(data []byte, isText bool)) {
 	c.deliverMu.Lock()
@@ -209,6 +213,14 @@ type DcEndpoint struct {
 // RTCDataChannel max-message-size (browsers: 256 KiB).
 func (e *DcEndpoint) SetChunkMessages(enabled bool) {
 	e.chunking.Store(enabled)
+}
+
+// Stats returns a snapshot of the SCTP association counters
+// for this endpoint (packet-loss instrumentation).
+func (e *DcEndpoint) Stats() AssociationStats {
+	e.assocMu.Lock()
+	defer e.assocMu.Unlock()
+	return e.assoc.Stats()
 }
 
 // NewDcEndpoint wraps an established DTLS connection. Role "client"

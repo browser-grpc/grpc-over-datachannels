@@ -83,6 +83,24 @@ struct OutChunk {
     last_sent_ms: u64,
 }
 
+/// Counters for one association, exposed for packet-loss
+/// instrumentation. `retransmits` increments on every
+/// retransmitted DATA chunk (fast retransmit and timeout
+/// alike), `fast_retransmits` only on gap-triggered fast
+/// retransmit, `dup_chunks` on every DATA chunk whose TSN had
+/// already been seen. Passed through Endpoint/Peer stats
+/// plumbing, not part of the wire protocol.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct AssociationStats {
+    pub packets_sent: u64,
+    pub packets_received: u64,
+    pub chunks_sent: u64,
+    pub chunks_received: u64,
+    pub retransmits: u64,
+    pub fast_retransmits: u64,
+    pub dup_chunks: u64,
+}
+
 pub struct Association {
     is_client: bool,
     local_port: u16,
@@ -134,6 +152,7 @@ pub struct Association {
     out_reset_done: HashSet<u16>,
     peer_initial_tsn: u32,
     last_peer_reconf_seq: Option<u32>,
+    stats: AssociationStats,
 }
 
 #[derive(Default)]
@@ -257,6 +276,7 @@ impl Association {
             out_reset_done: HashSet::new(),
             peer_initial_tsn: 0,
             last_peer_reconf_seq: None,
+            stats: AssociationStats::default(),
         }
     }
 
@@ -265,6 +285,12 @@ impl Association {
         let mut a = Self::new_client(local_port, peer_port);
         a.is_client = false;
         a
+    }
+
+    /// Snapshot of this association's counters (loss
+    /// instrumentation; see AssociationStats).
+    pub fn stats(&self) -> AssociationStats {
+        self.stats
     }
 
     pub fn is_established(&self) -> bool {
@@ -614,6 +640,8 @@ impl Association {
             packets.push(self.packet(self.peer_tag, &data_chunk_bytes(&c)));
             self.unacked.insert(c.tsn, c);
         }
+        self.stats.packets_sent += packets.len() as u64;
+        self.stats.chunks_sent += packets.len() as u64;
         if !packets.is_empty() {
             self.last_packet_out_ms = now_ms;
         }
@@ -670,6 +698,7 @@ impl Association {
             return (packets, events);
         }
         let vtag = u32::from_be_bytes(packet[4..8].try_into().unwrap());
+        self.stats.packets_received += 1;
         for view in parse_chunks(&packet[12..]) {
             match view.chunk_type {
                 t if t == sctp_chunk::INIT => {
@@ -801,6 +830,7 @@ impl Association {
         if body.len() < 12 {
             return;
         }
+        self.stats.chunks_received += 1;
         let tsn = u32::from_be_bytes(body[0..4].try_into().unwrap());
         let stream = u16::from_be_bytes(body[4..6].try_into().unwrap());
         let ssn = u16::from_be_bytes(body[6..8].try_into().unwrap());
@@ -815,6 +845,9 @@ impl Association {
         // cum once, release its bytes as cum passes it.
         fn diff32v(a: u32, b: u32) -> i32 { a.wrapping_sub(b) as i32 }
         let cum_before = self.sack.cum_tsn();
+        if diff32v(tsn, cum_before) <= 0 || self.recv_buffered.contains_key(&tsn) {
+            self.stats.dup_chunks += 1;
+        }
         if diff32v(tsn, cum_before) > 0 && !self.recv_buffered.contains_key(&tsn) {
             self.recv_buffered.insert(tsn, payload.len());
             self.recv_buffered_bytes += payload.len();
@@ -910,6 +943,8 @@ impl Association {
         for tsn in retransmit {
             if let Some(c) = self.unacked.get(&tsn).cloned() {
                 packets.push(self.packet(self.peer_tag, &data_chunk_bytes(&c)));
+                self.stats.retransmits += 1;
+                self.stats.fast_retransmits += 1;
                 if let Some(stored) = self.unacked.get_mut(&tsn) {
                     stored.retransmits += 1;
                     stored.last_sent_ms = now_ms;
@@ -982,6 +1017,7 @@ impl Association {
             }
             for c in &to_retransmit {
                 packets.push(self.packet(self.peer_tag, &data_chunk_bytes(c)));
+                self.stats.retransmits += 1;
             }
             for c in to_retransmit {
                 if let Some(stored) = self.unacked.get_mut(&c.tsn) {

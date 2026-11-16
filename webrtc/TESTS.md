@@ -24,6 +24,7 @@ Stack suites run via `make test-webrtc-go`, `make test-webrtc-js`, `make test-we
 - [`sctp_reassembly_test.go`](go/sctp_reassembly_test.go) — Generated suite/example
 - [`sctp_rwnd_test.go`](go/sctp_rwnd_test.go) — Generated suite/example
 - [`sctp_sack_vectors_test.go`](go/sctp_sack_vectors_test.go) — Generated suite/example
+- [`sctp_stats_test.go`](go/sctp_stats_test.go) — Generated suite/example
 - [`sctp_vectors_test.go`](go/sctp_vectors_test.go) — Generated suite/example
 - [`srflx_test.go`](go/srflx_test.go) — Generated suite/example
 - [`streamreset_test.go`](go/streamreset_test.go) — Generated suite/example

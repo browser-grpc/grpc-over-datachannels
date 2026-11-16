@@ -265,3 +265,31 @@ fn shutdown_handshake() {
     assert!(server_events.contains(&Event::Closed));
     assert!(!link.client.is_established());
 }
+
+#[test]
+fn stats_count_retransmits_and_duplicates() {
+    let mut link = Link::new();
+    link.handshake();
+    let packets = link.client.send_data(0, 63, b"lost once", SendOptions::default(), link.now);
+    assert!(!packets.is_empty());
+    let sent = link.client.stats();
+    assert!(sent.chunks_sent >= 1 && sent.packets_sent >= 1, "{sent:?}");
+
+    // Drop the first transmission; RTO retransmit must count.
+    link.now += 1500;
+    let (retransmitted, _) = link.client.tick(link.now);
+    assert!(!retransmitted.is_empty());
+    let after_tick = link.client.stats();
+    assert!(after_tick.retransmits >= 1, "{after_tick:?}");
+    assert_eq!(after_tick.fast_retransmits, 0, "timeout path is not fast retransmit: {after_tick:?}");
+
+    // Deliver the retransmission, then the same packet again:
+    // the second delivery is a duplicate chunk at the receiver.
+    let events = link.deliver_to_server(retransmitted.clone());
+    assert_eq!(events.len(), 1);
+    let _ = link.deliver_to_server(retransmitted);
+    let server = link.server.stats();
+    assert!(server.chunks_received >= 2, "{server:?}");
+    assert!(server.dup_chunks >= 1, "duplicate delivery must count: {server:?}");
+    assert!(server.packets_received >= 1);
+}

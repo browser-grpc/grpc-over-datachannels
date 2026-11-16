@@ -303,6 +303,11 @@ export class DcEndpoint {
     channel._emitMessage(payload, isText);
   }
 
+  /** SCTP association counter snapshot (loss instrumentation). */
+  stats() {
+    return this.assoc.stats();
+  }
+
   async close() {
     this._closed = true;
     const packets = this.assoc.close(this._now());
