@@ -15,6 +15,7 @@ use dc_webrtc::rendezvous::{RendezvousListener, RendezvousOptions};
 use dc_webrtc::sdp::{generate, SessionDescription};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::mpsc::channel;
+use std::sync::Arc;
 use std::time::Duration;
 
 fn echo_endpoint(endpoint: DcEndpoint) {
@@ -169,3 +170,129 @@ fn rendezvous_dial_and_echo() {
     }
     listener.close();
 }
+
+fn dial_and_echo(listener: &RendezvousListener, tag: &str) {
+    let desc = listener.descriptor("127.0.0.1");
+    let mut dialer = Peer::new(PeerConfig {
+        local_ips: vec![IpAddr::V4(Ipv4Addr::LOCALHOST)],
+        require_peer_certificate: true,
+        ..Default::default()
+    })
+    .unwrap();
+    let remote = SessionDescription {
+        ufrag: desc.ice_ufrag.clone(),
+        pwd: desc.ice_pwd.clone(),
+        fingerprint: desc.fingerprint.clone(),
+        setup: "passive".to_string(),
+        candidates: vec![Candidate::host(
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), desc.port),
+            "1",
+        )],
+        sctp_port: 5000,
+    };
+    dialer.handle_answer(&generate(&remote, false)).unwrap();
+    let endpoint = dialer.connect().expect("dialer connect");
+    let channel = endpoint
+        .open_channel(ChannelParams { label: "grpc".into(), ..Default::default() })
+        .unwrap();
+    channel.send_binary(tag.as_bytes()).unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    loop {
+        match endpoint.recv_event_timeout(Duration::from_secs(1)) {
+            Some(EndpointEvent::Message { data, .. }) => {
+                assert_eq!(data, format!("re:{tag}").into_bytes());
+                return;
+            }
+            Some(_) => {
+                assert!(std::time::Instant::now() < deadline, "echo timeout for {tag}");
+            }
+            None => panic!("echo timeout for {tag}"),
+        }
+    }
+}
+
+#[test]
+fn rendezvous_survives_garbage_then_serves() {
+    // Malformed traffic at the listener socket (random bytes,
+    // truncated STUN, a Binding request with a wrong password,
+    // an oversized datagram) must not kill or wedge the
+    // listener: a legitimate dialer still connects afterwards.
+    let (endpoint_tx, endpoint_rx) = channel::<DcEndpoint>();
+    let listener = RendezvousListener::bind(
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+        RendezvousOptions {
+            on_endpoint: Box::new(move |endpoint| {
+                let _ = endpoint_tx.send(endpoint);
+            }),
+            on_error: Box::new(|_| {}),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let port = listener.descriptor("127.0.0.1").port;
+    let attacker = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+    let target = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
+    let mut junk: Vec<Vec<u8>> = vec![
+        vec![0xFF; 1],
+        vec![0x00, 0x01, 0x00, 0x00], // truncated STUN header
+        b"not a stun packet at all, just text".to_vec(),
+        vec![0xAB; 65507], // max-size garbage datagram
+    ];
+    // A syntactically plausible Binding request with a wrong
+    // ICE password for the listener's ufrag.
+    {
+        let desc = listener.descriptor("127.0.0.1");
+        let mut req = dc_webrtc::stun::Message::new(0x0001);
+        req.attrs.push((0x0006, format!("{}:x", desc.ice_ufrag).into_bytes()));
+        req.attrs.push((0x0025, Vec::new())); // USE-CANDIDATE
+        junk.push(req.encode(Some(b"wrong-password-wrong")));
+    }
+    for packet in &junk {
+        let _ = attacker.send_to(packet, target);
+    }
+    std::thread::sleep(Duration::from_millis(300));
+
+    // Spawn the echo handler for whatever endpoint arrives.
+    std::thread::spawn(move || {
+        if let Ok(endpoint) = endpoint_rx.recv_timeout(Duration::from_secs(20)) {
+            echo_endpoint(endpoint);
+        }
+    });
+    dial_and_echo(&listener, "after-garbage");
+}
+
+#[test]
+fn rendezvous_many_peers_demux() {
+    // 12 concurrent dialers, unique messages each: sessions
+    // must stay apart on the one listener socket (no
+    // cross-talk, no lost echoes).
+    let (endpoint_tx, endpoint_rx) = channel::<DcEndpoint>();
+    let listener = RendezvousListener::bind(
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+        RendezvousOptions {
+            on_endpoint: Box::new(move |endpoint| {
+                let _ = endpoint_tx.send(endpoint);
+            }),
+            on_error: Box::new(|_| {}),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let listener = Arc::new(listener);
+    std::thread::spawn(move || {
+        while let Ok(endpoint) = endpoint_rx.recv_timeout(Duration::from_secs(60)) {
+            echo_endpoint(endpoint);
+        }
+    });
+    let mut handles = Vec::new();
+    for i in 0..12 {
+        let listener = listener.clone();
+        handles.push(std::thread::spawn(move || {
+            dial_and_echo(&listener, &format!("peer-{i}"));
+        }));
+    }
+    for h in handles {
+        h.join().unwrap();
+    }
+}
+
