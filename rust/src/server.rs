@@ -608,6 +608,89 @@ pub struct ServiceDef {
     pub methods: Vec<MethodDef>,
 }
 
+
+/// Descriptor set for grpcdc.registry.v1.Registry
+/// (proto/registry.proto), embedded so hosts can serve
+/// discovery without codegen for the registry itself.
+pub const REGISTRY_DESCRIPTOR_SET: &[u8] = &[10,185,3,10,14,114,101,103,105,115,116,114,121,46,112,114,111,116,111,18,18,103,114,112,99,100,99,46,114,101,103,105,115,116,114,121,46,118,49,34,21,10,19,76,105,115,116,83,101,114,118,105,99,101,115,82,101,113,117,101,115,116,34,50,10,20,76,105,115,116,83,101,114,118,105,99,101,115,82,101,115,112,111,110,115,101,18,26,10,8,115,101,114,118,105,99,101,115,24,1,32,3,40,9,82,8,115,101,114,118,105,99,101,115,34,42,10,20,71,101,116,68,101,115,99,114,105,112,116,111,114,82,101,113,117,101,115,116,18,18,10,4,110,97,109,101,24,1,32,1,40,9,82,4,110,97,109,101,34,62,10,21,71,101,116,68,101,115,99,114,105,112,116,111,114,82,101,115,112,111,110,115,101,18,37,10,14,100,101,115,99,114,105,112,116,111,114,95,115,101,116,24,1,32,1,40,12,82,13,100,101,115,99,114,105,112,116,111,114,83,101,116,50,211,1,10,8,82,101,103,105,115,116,114,121,18,97,10,12,76,105,115,116,83,101,114,118,105,99,101,115,18,39,46,103,114,112,99,100,99,46,114,101,103,105,115,116,114,121,46,118,49,46,76,105,115,116,83,101,114,118,105,99,101,115,82,101,113,117,101,115,116,26,40,46,103,114,112,99,100,99,46,114,101,103,105,115,116,114,121,46,118,49,46,76,105,115,116,83,101,114,118,105,99,101,115,82,101,115,112,111,110,115,101,18,100,10,13,71,101,116,68,101,115,99,114,105,112,116,111,114,18,40,46,103,114,112,99,100,99,46,114,101,103,105,115,116,114,121,46,118,49,46,71,101,116,68,101,115,99,114,105,112,116,111,114,82,101,113,117,101,115,116,26,41,46,103,114,112,99,100,99,46,114,101,103,105,115,116,114,121,46,118,49,46,71,101,116,68,101,115,99,114,105,112,116,111,114,82,101,115,112,111,110,115,101,98,6,112,114,111,116,111,51];
+
+/// Host-side service registry for discovery: descriptor
+/// bytes by service name, served through the well-known
+/// grpcdc.registry.v1.Registry service. ListServices answers
+/// from the host endpoint's live registrations (plus any
+/// descriptor-only names registered here); GetDescriptor
+/// returns the bytes registered for a name.
+pub struct Registry {
+    descriptors: std::sync::RwLock<std::collections::BTreeMap<String, Vec<u8>>>,
+}
+
+impl Registry {
+    pub fn new() -> Self {
+        Self { descriptors: std::sync::RwLock::new(std::collections::BTreeMap::new()) }
+    }
+
+    /// Record the FileDescriptorSet bytes for a service
+    /// (from codegen or a descriptor file) so discovery
+    /// clients can fetch and call it dynamically.
+    pub fn register_descriptor(&self, name: impl Into<String>, descriptor_set: Vec<u8>) {
+        self.descriptors.write().unwrap().insert(name.into(), descriptor_set);
+    }
+
+    /// The Registry ServiceDef for `host`. Register it like
+    /// any service; it answers ListServices/GetDescriptor
+    /// from the host's live registry plus this store.
+    pub fn service(self: &Arc<Self>, host: Arc<crate::endpoint::Endpoint>) -> ServiceDef {
+        let model = crate::dynamic::parse_descriptor_set(REGISTRY_DESCRIPTOR_SET)
+            .expect("embedded registry descriptor parses");
+        let handler = RegistryHandler { registry: self.clone(), host };
+        crate::dynamic::dynamic_service(&Arc::new(model), "grpcdc.registry.v1.Registry", Arc::new(handler))
+            .expect("registry service builds")
+    }
+}
+
+struct RegistryHandler {
+    registry: Arc<Registry>,
+    host: Arc<crate::endpoint::Endpoint>,
+}
+
+#[async_trait::async_trait]
+impl crate::dynamic::DynamicHandler for RegistryHandler {
+    async fn unary(
+        &self,
+        _ctx: CallCtx,
+        method: &crate::dynamic::MethodModel,
+        request: crate::dynamic::GenericMessage,
+    ) -> Result<crate::dynamic::GenericMessage, Status> {
+        let mut resp = crate::dynamic::GenericMessage::new();
+        match method.name.as_str() {
+            "ListServices" => {
+                let mut names = self.host.registered_services();
+                for name in self.registry.descriptors.read().unwrap().keys() {
+                    if !names.contains(name) {
+                        names.push(name.clone());
+                    }
+                }
+                names.sort();
+                for name in names {
+                    resp.add(1, name);
+                }
+                Ok(resp)
+            }
+            "GetDescriptor" => {
+                let name = request.get_string(1);
+                match self.registry.descriptors.read().unwrap().get(&name) {
+                    Some(bytes) => {
+                        resp.set(1, bytes.clone());
+                        Ok(resp)
+                    }
+                    None => Err(Status::new(crate::status::Code::NotFound, format!("no descriptor for {name}"))),
+                }
+            }
+            _ => Err(Status::unimplemented("registry method")),
+        }
+    }
+}
+
 /// Route every otherwise-unmatched call under `prefix`
 /// (a path prefix such as "/plugin.Service/") from `host`
 /// to the plugin endpoint `target`, frame by frame: headers

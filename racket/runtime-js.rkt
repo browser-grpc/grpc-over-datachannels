@@ -3167,7 +3167,60 @@ GRPC_RUNTIME_EOF
    (cons "signaling_server.js" js-signaling-server-body)
    (cons "rendezvous.js" js-rendezvous-body)
    (cons "rendezvous_server.js" js-rendezvous-server-body)
-   (cons "stdio.js" js-stdio-body)))
+   (cons "stdio.js" js-stdio-body)
+   (cons "registry.js" js-registry-body)))
+
+(define js-registry-body
+#<<GRPC_RUNTIME_EOF
+// Registry discovery service (grpcdc.registry.v1.Registry):
+// ListServices answers from the host Server's live
+// registrations plus descriptor-only names recorded here;
+// GetDescriptor returns FileDescriptorSet bytes registered
+// for a name. The service's own descriptor set is embedded
+// (proto/registry.proto), so no codegen is needed to serve
+// or call it: parse it with parseDescriptorSet and use a
+// DynamicClient.
+
+import { GenericMessage, createDynamicService, parseDescriptorSet } from "./dynamic.js";
+import { StatusCode, StatusError } from "./codec.js";
+
+export const REGISTRY_DESCRIPTOR_SET = Uint8Array.from(
+  atob("CrkDCg5yZWdpc3RyeS5wcm90bxISZ3JwY2RjLnJlZ2lzdHJ5LnYxIhUKE0xpc3RTZXJ2aWNlc1JlcXVlc3QiMgoUTGlzdFNlcnZpY2VzUmVzcG9uc2USGgoIc2VydmljZXMYASADKAlSCHNlcnZpY2VzIioKFEdldERlc2NyaXB0b3JSZXF1ZXN0EhIKBG5hbWUYASABKAlSBG5hbWUiPgoVR2V0RGVzY3JpcHRvclJlc3BvbnNlEiUKDmRlc2NyaXB0b3Jfc2V0GAEgASgMUg1kZXNjcmlwdG9yU2V0MtMBCghSZWdpc3RyeRJhCgxMaXN0U2VydmljZXMSJy5ncnBjZGMucmVnaXN0cnkudjEuTGlzdFNlcnZpY2VzUmVxdWVzdBooLmdycGNkYy5yZWdpc3RyeS52MS5MaXN0U2VydmljZXNSZXNwb25zZRJkCg1HZXREZXNjcmlwdG9yEiguZ3JwY2RjLnJlZ2lzdHJ5LnYxLkdldERlc2NyaXB0b3JSZXF1ZXN0GikuZ3JwY2RjLnJlZ2lzdHJ5LnYxLkdldERlc2NyaXB0b3JSZXNwb25zZWIGcHJvdG8z"),
+  (c) => c.charCodeAt(0),
+);
+
+/**
+ * Create the Registry service definition for `server`.
+ * `descriptors` is a Map<string, Uint8Array> of service
+ * name to FileDescriptorSet bytes. Serve the result with
+ * server.addService(...) like any generated service.
+ */
+export function createRegistryService(server, descriptors = new Map()) {
+  const model = parseDescriptorSet(REGISTRY_DESCRIPTOR_SET);
+  return createDynamicService(model, "grpcdc.registry.v1.Registry", {
+    async unary(ctx, method, req) {
+      const resp = new GenericMessage(method.output);
+      if (method.name === "ListServices") {
+        const names = new Set(server.registeredServices());
+        for (const name of descriptors.keys()) names.add(name);
+        for (const name of [...names].sort()) resp.add(1, name);
+        return resp;
+      }
+      if (method.name === "GetDescriptor") {
+        const name = req.getString(1);
+        const bytes = descriptors.get(name);
+        if (!bytes) {
+          throw new StatusError(StatusCode.NOT_FOUND, `no descriptor for ${name}`);
+        }
+        resp.set(1, bytes);
+        return resp;
+      }
+      throw new StatusError(StatusCode.UNIMPLEMENTED, "registry method");
+    },
+  });
+}
+GRPC_RUNTIME_EOF
+)
 
 (define js-stdio-body
 #<<GRPC_RUNTIME_EOF

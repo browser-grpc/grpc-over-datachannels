@@ -52,8 +52,8 @@ pub use message::Message;
 pub use server::{
     bidi_method, client_stream_method, decode_rendezvous_claims, encode_rendezvous_claims,
     issue_rendezvous_token, route_prefix, server_stream_method, unary_method, CallCtx, MethodDef,
-    MethodKind, RendezvousAuth, RendezvousClaims, RequestStream, ResponseStream, Server,
-    ServiceDef,
+    MethodKind, RendezvousAuth, RendezvousClaims, Registry, RequestStream, ResponseStream,
+    Server, ServiceDef, REGISTRY_DESCRIPTOR_SET,
 };
 pub use dynamic::{
     decode_generic, dynamic_service, encode_generic, parse_descriptor_set, DynamicClient,
