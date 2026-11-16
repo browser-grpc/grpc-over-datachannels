@@ -176,6 +176,14 @@ reachable UDP address: no ICE negotiation, no SDP exchange.
   real coturn (`direct_over_real_turn_coturn` in Rust,
   `direct_coturn.test.js` in JS; both skip without
   `turnserver`, which `Dockerfile.ci` installs).
+  Coturn configuration note: when the listener itself is a
+  loopback peer (development and test setups), coturn also
+  needs `--allow-loopback-peers`; `--allowed-peer-ip` alone
+  does not lift coturn's loopback protection, and without it
+  allocations and STUN succeed while relayed ICE checks are
+  silently dropped (GitHub issue #1;
+  `browser-test/rendezvous_turn_coturn.test.mjs` covers the
+  Rust rendezvous listener through real coturn).
 - **Implementations**: Rust `webrtc/rust/src/direct.rs`
   (`DirectListener`, `direct_dial(_multiaddr)`,
   `direct_dial_turn(_multiaddr)`), JS `webrtc/js/direct.js`
