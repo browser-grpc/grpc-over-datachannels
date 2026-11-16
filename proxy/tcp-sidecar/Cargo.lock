@@ -44,6 +44,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 
 [[package]]
+name = "dc-webrtc"
+version = "0.1.0"
+
+[[package]]
 name = "defmt"
 version = "0.3.101"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -134,6 +138,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "bytes",
+ "dc-webrtc",
  "futures-channel",
  "futures-core",
  "futures-util",
@@ -341,6 +346,7 @@ name = "tcp-sidecar"
 version = "0.1.0"
 dependencies = [
  "bytes",
+ "dc-webrtc",
  "futures-util",
  "grpc-dc",
  "smoltcp",
