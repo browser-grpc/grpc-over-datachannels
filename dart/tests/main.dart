@@ -18,6 +18,7 @@ import 'test_sidecar.dart';
 import 'test_kafka_e2e.dart';
 import 'test_kafka_native.dart';
 import 'test_kafka_share_e2e.dart';
+import 'test_kafka_differential.dart';
 
 // Test runner: ./tests <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic>
 Future<void> main(List<String> args) async {
@@ -80,6 +81,9 @@ Future<void> main(List<String> args) async {
         break;
       case 'TestKafkaNative':
         await testKafkaNative();
+        break;
+      case 'TestKafkaDifferential':
+        await testKafkaDifferential();
         break;
       default:
         stderr.writeln('unknown test: ${args[0]}');
