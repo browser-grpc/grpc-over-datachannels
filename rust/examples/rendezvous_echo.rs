@@ -98,10 +98,25 @@ fn outward_ip() -> String {
 #[cfg(feature = "webrtc")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let listener = grpc_dc::rendezvous::serve_rendezvous(
-        "0.0.0.0:0",
-        vec![echo_service(Arc::new(EchoService))],
-    )?;
+    // RENDEZVOUS_SECRET turns on rendezvous bearer auth
+    // (Unary requires the "read" scope) for browser auth tests.
+    let services = vec![echo_service(Arc::new(EchoService))];
+    let listener = match std::env::var("RENDEZVOUS_SECRET") {
+        Ok(secret) if !secret.is_empty() => {
+            let mut auth = grpc_dc::RendezvousAuth::new(secret.into_bytes());
+            auth.scopes.insert(
+                "/echo.Echo/Unary".to_string(),
+                vec!["read".to_string()],
+            );
+            grpc_dc::rendezvous::serve_rendezvous_with_auth(
+                "0.0.0.0:0",
+                services,
+                auth,
+                dc_webrtc::rendezvous::RendezvousOptions::default,
+            )?
+        }
+        _ => grpc_dc::rendezvous::serve_rendezvous("0.0.0.0:0", services)?,
+    };
     println!("{}", listener.descriptor(&outward_ip()).to_json());
     std::future::pending::<()>().await;
     Ok(())

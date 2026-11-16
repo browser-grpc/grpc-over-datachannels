@@ -1,6 +1,6 @@
 // Real-browser test: Rendezvous over a real TURN server
-// (coturn) against the Rust rendezvous listener
-// (rust/examples/rendezvous_echo). The fake-TURN leg
+// (coturn) against the Rust and Go rendezvous listeners
+// (rust/examples/rendezvous_echo, go/cmd/rendezvous_server). The fake-TURN leg
 // (rendezvous_turn.test.mjs) covers the JS listener with an
 // in-process fake; this leg covers the production pairing
 // from GitHub issue #1: coturn + serve_rendezvous, browser
@@ -56,6 +56,12 @@ execFileSync("cargo", ["build", "--features", "webrtc", "--example", "rendezvous
   stdio: "inherit",
 });
 const rustBin = join(ROOT, "rust", "target", "debug", "examples", "rendezvous_echo");
+const goBin = join(ROOT, "browser-test", ".rendezvous-go-server");
+execFileSync("go", ["build", "-o", goBin, "./cmd/rendezvous_server"], {
+  cwd: join(ROOT, "go"),
+  stdio: "inherit",
+  env: { ...process.env, GOFLAGS: "-buildvcs=false" },
+});
 
 const turnPort = await freePort();
 const turn = spawn("turnserver", [
@@ -75,11 +81,12 @@ const turn = spawn("turnserver", [
 await sleep(800);
 assert.equal(turn.exitCode, null, "coturn died at startup");
 
-const proc = spawn(rustBin, [], { stdio: ["ignore", "pipe", "inherit"] });
-try {
-  const descriptor = JSON.parse(await firstStdoutLine(proc));
-  descriptor.host = "127.0.0.1"; // issue #1 publishes loopback
-  console.log("rust rendezvous descriptor:", descriptor, "coturn at", turnPort);
+async function runStack(stackName, bin) {
+  const proc = spawn(bin, [], { stdio: ["ignore", "pipe", "inherit"] });
+  try {
+    const descriptor = JSON.parse(await firstStdoutLine(proc));
+    descriptor.host = "127.0.0.1"; // issue #1 publishes loopback
+    console.log(`${stackName} rendezvous descriptor:`, descriptor, "coturn at", turnPort);
 
   const server = createServer(async (req, res) => {
     if (req.url.startsWith("/rendezvous.json")) {
@@ -103,7 +110,7 @@ try {
     `http://127.0.0.1:${server.address().port}/browser-test/rendezvous_turn_page.html` +
     `?turn=${encodeURIComponent(`127.0.0.1:${turnPort}`)}`;
 
-  async function runBrowser(name, engine) {
+  async function runBrowser(name, engine, stackName) {
     const launchOptions = { args: ["--no-sandbox", "--disable-dev-shm-usage"] };
     if (name === "firefox") {
       launchOptions.firefoxUserPrefs = { "media.peerconnection.ice.obfuscate_host_addresses": false };
@@ -125,19 +132,26 @@ try {
       }
       assert.equal(result.unary, "echo: hello-turn");
       assert.equal(result.localType, "relay", `nominated local candidate is not relay: ${JSON.stringify(result)}`);
-      console.log(`${name}: browser rendezvous over coturn (rust listener) OK`, result);
+      console.log(`${name}: browser rendezvous over coturn (${stackName} listener) OK`, result);
     } finally {
       await browser.close();
     }
   }
 
-  const which = process.argv[2] ?? "chromium";
-  if (which === "chromium" || which === "all") await runBrowser("chromium", chromium);
-  if (which === "firefox" || which === "all") await runBrowser("firefox", firefox);
-  if (which === "webkit" || which === "all") await runBrowser("webkit", webkit);
-  server.close();
-  console.log("rendezvous-over-coturn (rust listener) browser test passed");
+    const which = process.argv[2] ?? "chromium";
+    if (which === "chromium" || which === "all") await runBrowser("chromium", chromium, stackName);
+    if (which === "firefox" || which === "all") await runBrowser("firefox", firefox, stackName);
+    if (which === "webkit" || which === "all") await runBrowser("webkit", webkit, stackName);
+    server.close();
+  } finally {
+    proc.kill();
+  }
+}
+
+try {
+  await runStack("rust", rustBin);
+  await runStack("go", goBin);
+  console.log("rendezvous-over-coturn browser test passed");
 } finally {
-  proc.kill();
   turn.kill();
 }
