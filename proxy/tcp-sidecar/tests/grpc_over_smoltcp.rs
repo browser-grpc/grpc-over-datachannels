@@ -116,3 +116,69 @@ async fn grpc_over_smoltcp_leg_calls_go_reference_server() {
     wrapper.abort();
     bridge.abort();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn grpc_over_dropping_link_exactly_once() {
+    // Chaos leg: every 25th frame on the virtual wire is
+    // dropped (~4% loss; smoltcp's RTO backoff makes much
+    // higher rates a minutes-long slog, which is a TCP
+    // behavior fact, not a stall). TCP retransmission must
+    // deliver the gRPC call exactly once and intact (large
+    // payload both ways), and the bridge must count the
+    // retransmits it caused.
+    let root = root();
+    let binary = format!("{root}/oracle/go-interop/interop-server");
+    if !std::path::Path::new(&binary).exists() {
+        eprintln!("skip: go interop server not built (oracle/go-interop)");
+        return;
+    }
+    let port = free_port();
+    let _server = KillOnDrop(
+        Command::new(&binary)
+            .args(["-port", &port.to_string()])
+            .stdout(Stdio::null())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .expect("spawn go interop server"),
+    );
+    wait_port(port, "go interop server");
+    let authority = format!("127.0.0.1:{port}");
+
+    let sidecar = Arc::new(Sidecar::with_drop(25));
+    let bridge_sidecar = sidecar.clone();
+    let bridge_authority = authority.clone();
+    let bridge = tokio::spawn(async move {
+        let mut smol = bridge_sidecar.accept().await.unwrap();
+        let mut os = tokio::net::TcpStream::connect(&bridge_authority).await.unwrap();
+        let _ = tokio::io::copy_bidirectional(&mut smol, &mut os).await;
+    });
+    let smol_client = sidecar.connect().await.unwrap();
+    let h2 = Arc::new(H2ClientConn::from_stream(smol_client).await.unwrap());
+
+    let (client_dc, wrapper_dc) = loopback_pair();
+    let client_transport: Arc<dyn DcTransport> = Arc::new(client_dc);
+    let wrapper_transport: Arc<dyn DcTransport> = Arc::new(wrapper_dc);
+    let auth2 = authority.clone();
+    let wrapper = tokio::spawn(async move {
+        let _ = serve_dc_to_http2_conn(wrapper_transport, h2, &auth2).await;
+    });
+
+    let client = TestServiceClient::new(Channel::new(client_transport));
+    let large = client
+        .unary_call(pb::SimpleRequest {
+            response_size: 314_159,
+            payload: Some(Box::new(pb::Payload {
+                body: vec![0u8; 271_828],
+                ..Default::default()
+            })),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(large.payload.unwrap().body.len(), 314_159);
+    let stats = sidecar.stats();
+    assert!(stats.tcp_retransmits > 0, "expected retransmits under drop: {stats:?}");
+
+    wrapper.abort();
+    bridge.abort();
+}
