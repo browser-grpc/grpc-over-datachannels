@@ -6,7 +6,8 @@ description = "Userspace TCP leg (smoltcp) for the grpc-dc native wrapper: dc <-
 license = "Apache-2.0"
 
 [dependencies]
-grpc-dc = { path = "../../rust" }
+grpc-dc = { path = "../../rust", features = ["webrtc"] }
+dc-webrtc = { path = "../../webrtc/rust" }
 smoltcp = { version = "0.12", default-features = false, features = ["std", "medium-ethernet", "proto-ipv4", "socket-tcp", "socket-udp", "medium-ip"] }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "sync", "time", "io-util"] }
 bytes = "1"
