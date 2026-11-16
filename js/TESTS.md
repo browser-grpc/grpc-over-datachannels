@@ -22,6 +22,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`echo.test.js`](test/echo.test.js) — Echo: all four call shapes
 - [`eventbus.test.js`](test/eventbus.test.js) — Event bus end-to-end
 - [`http2_oracle.test.js`](test/http2_oracle.test.js) — Official-implementation oracle, via the proxy
+- [`http2_stats.test.js`](test/http2_stats.test.js) — HTTP/2 transport
 - [`http2_tls_fixture.mjs`](test/http2_tls_fixture.mjs) — HTTP/2 transport
 - [`interop-matrix.mjs`](test/interop-matrix.mjs) — Cross-language interop
 - [`interop.test.js`](test/interop.test.js) — Cross-language interop

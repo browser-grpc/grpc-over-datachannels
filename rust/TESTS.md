@@ -24,12 +24,15 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`http2_robustness.rs`](tests/http2_robustness.rs) — HTTP/2 transport
 - [`http_signaling.rs`](tests/http_signaling.rs) — Generated suite/example
 - [`interop_oracle.rs`](tests/interop_oracle.rs) — Official-implementation oracle, via the proxy
+- [`interop_wrapper.rs`](tests/interop_wrapper.rs) — Cross-language interop
+- [`interop_wrapper_server.rs`](tests/interop_wrapper_server.rs) — Cross-language interop
 - [`kafka_admin_e2e.rs`](tests/kafka_admin_e2e.rs) — Kafka end-to-end (broker legs env-gated)
 - [`kafka_direct_e2e.rs`](tests/kafka_direct_e2e.rs) — Kafka end-to-end (broker legs env-gated)
 - [`kafka_kip848_e2e.rs`](tests/kafka_kip848_e2e.rs) — Kafka end-to-end (broker legs env-gated)
 - [`kafka_native_ffi_e2e.rs`](tests/kafka_native_ffi_e2e.rs) — Kafka end-to-end (broker legs env-gated)
 - [`kafka_proxy_e2e.rs`](tests/kafka_proxy_e2e.rs) — Kafka end-to-end (broker legs env-gated)
 - [`kafka_share_e2e.rs`](tests/kafka_share_e2e.rs) — Kafka end-to-end (broker legs env-gated)
+- [`link_stats.rs`](tests/link_stats.rs) — Generated suite/example
 - [`oracle.rs`](tests/oracle.rs) — Official-implementation oracle, via the proxy
 - [`mod.rs`](tests/oracle_scenarios/mod.rs) — Generated suite/example
 - [`pb_messages.rs`](tests/pb_messages.rs) — Generated suite/example
