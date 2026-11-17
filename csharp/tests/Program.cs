@@ -32,6 +32,7 @@ public static class Program
                 case "TestKafkaE2E": TestKafkaE2E.Run(); break;
                 case "TestKafkaShareE2E": TestKafkaShareE2E.Run(); break;
                 case "TestKafkaNative": TestKafkaNative.Run(); break;
+                case "TestKafkaDifferential": TestKafkaDifferential.Run(); break;
                 default:
                     Console.Error.WriteLine($"unknown test: {args[0]}");
                     return 2;

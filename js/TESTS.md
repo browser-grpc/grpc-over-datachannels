@@ -22,12 +22,15 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`echo.test.js`](test/echo.test.js) — Echo: all four call shapes
 - [`eventbus.test.js`](test/eventbus.test.js) — Event bus end-to-end
 - [`http2_oracle.test.js`](test/http2_oracle.test.js) — Official-implementation oracle, via the proxy
+- [`http2_stats.test.js`](test/http2_stats.test.js) — HTTP/2 transport
 - [`http2_tls_fixture.mjs`](test/http2_tls_fixture.mjs) — HTTP/2 transport
+- [`interceptors.test.js`](test/interceptors.test.js) — Generated suite/example
 - [`interop-matrix.mjs`](test/interop-matrix.mjs) — Cross-language interop
 - [`interop.test.js`](test/interop.test.js) — Cross-language interop
 - [`interop_oracle.test.js`](test/interop_oracle.test.js) — Official-implementation oracle, via the proxy
 - [`interop_server_oracle.test.js`](test/interop_server_oracle.test.js) — Official-implementation oracle, via the proxy
 - [`interop_service.js`](test/interop_service.js) — Cross-language interop
+- [`ipc.test.js`](test/ipc.test.js) — Generated suite/example
 - [`kafka.test.js`](test/kafka.test.js) — Kafka end-to-end (broker legs env-gated)
 - [`kafka_native.test.js`](test/kafka_native.test.js) — Kafka end-to-end (broker legs env-gated)
 - [`kafka_native_differential.test.js`](test/kafka_native_differential.test.js) — Kafka end-to-end (broker legs env-gated)
@@ -36,6 +39,8 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`otlp_example.test.js`](test/otlp_example.test.js) — Generated suite/example
 - [`pb_messages.test.js`](test/pb_messages.test.js) — Generated suite/example
 - [`plugin_parity.test.js`](test/plugin_parity.test.js) — Generated suite/example
+- [`registration.test.js`](test/registration.test.js) — Generated suite/example
+- [`registry.test.js`](test/registry.test.js) — Generated suite/example
 - [`rendezvous.test.js`](test/rendezvous.test.js) — Generated suite/example
 - [`signaling.test.js`](test/signaling.test.js) — Generated suite/example
 - [`tracing.test.js`](test/tracing.test.js) — Tracing: traceparent propagation, span observers, nested calls

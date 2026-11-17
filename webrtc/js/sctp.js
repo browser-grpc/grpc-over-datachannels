@@ -164,6 +164,14 @@ export class Association {
     this.outResetDone = new Set();
     this.peerInitialTsn = 0;
     this.lastPeerReconfSeq = null;
+    // Loss instrumentation (see Association.stats): updated by
+    // #flushOut / handlePacket / #handleData / retransmit paths.
+    this._stats = { packetsSent: 0, packetsReceived: 0, chunksSent: 0, chunksReceived: 0, retransmits: 0, fastRetransmits: 0, dupChunks: 0 };
+  }
+
+  /** Snapshot of this association's counters. */
+  stats() {
+    return { ...this._stats };
   }
 
   static newClient(localPort = SCTP_PORT, peerPort = SCTP_PORT) {
@@ -451,6 +459,8 @@ export class Association {
       strace(`data out tsn=${c.tsn} stream=${c.stream} len=${c.payload.length}`);
       packets.push(this.#packet(this.peerTag, dataChunkBytes(c)));
     }
+    this._stats.packetsSent += packets.length;
+    this._stats.chunksSent += packets.length;
     if (packets.length) this.lastPacketOutMs = nowMs;
     return packets;
   }
@@ -488,6 +498,7 @@ export class Association {
     check.writeUInt32LE(0, 8);
     if (crc32c(check) !== packet.readUInt32LE(8)) return { packets, events };
     const vtag = packet.readUInt32BE(4);
+    this._stats.packetsReceived += 1;
     for (const view of parseChunks(packet.subarray(12))) {
       switch (view.type) {
         case SctpChunk.INIT: {
@@ -587,6 +598,7 @@ export class Association {
 
   #handleData(flags, body, events) {
     if (body.length < 12) return;
+    this._stats.chunksReceived += 1;
     const tsn = body.readUInt32BE(0);
     const stream = body.readUInt16BE(4);
     const ssn = body.readUInt16BE(6);
@@ -600,6 +612,9 @@ export class Association {
     // accounting: count each newly seen TSN above cum once,
     // release its bytes as cum passes it.
     const cumBefore = this.sack.cum();
+    if (diff32(tsn, cumBefore) <= 0 || this.recvBuffered.has(tsn)) {
+      this._stats.dupChunks += 1;
+    }
     if (diff32(tsn, cumBefore) > 0 && !this.recvBuffered.has(tsn)) {
       this.recvBuffered.set(tsn, payload.length);
       this.recvBufferedBytes += payload.length;
@@ -677,6 +692,8 @@ export class Association {
       const c = this.unacked.get(tsn);
       if (!c) continue;
       packets.push(this.#packet(this.peerTag, dataChunkBytes(c)));
+      this._stats.retransmits += 1;
+      this._stats.fastRetransmits += 1;
       c.retransmits += 1;
       c.lastSentMs = nowMs;
     }
@@ -757,6 +774,7 @@ export class Association {
       for (const c of toRetransmit) {
         strace(`rexmit tsn=${c.tsn} stream=${c.stream} len=${c.payload.length}`);
         packets.push(this.#packet(this.peerTag, dataChunkBytes(c)));
+        this._stats.retransmits += 1;
         c.retransmits += 1;
         c.lastSentMs = nowMs;
       }

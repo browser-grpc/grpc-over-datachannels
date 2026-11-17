@@ -29,6 +29,7 @@ pub mod eventbus_git;
 pub mod message;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod http2;
+pub mod link_stats;
 pub mod server;
 pub mod status;
 pub mod transport;
@@ -50,8 +51,9 @@ pub use endpoint::{Endpoint, StreamIdParity};
 pub use message::Message;
 pub use server::{
     bidi_method, client_stream_method, decode_rendezvous_claims, encode_rendezvous_claims,
-    issue_rendezvous_token, server_stream_method, unary_method, CallCtx, MethodDef, MethodKind,
-    RendezvousAuth, RendezvousClaims, RequestStream, ResponseStream, Server, ServiceDef,
+    issue_rendezvous_token, route_prefix, server_stream_method, unary_method, CallCtx, MethodDef,
+    MethodKind, RendezvousAuth, RendezvousClaims, Registry, RequestStream, ResponseStream,
+    Server, ServiceDef, REGISTRY_DESCRIPTOR_SET,
 };
 pub use dynamic::{
     decode_generic, dynamic_service, encode_generic, parse_descriptor_set, DynamicClient,
@@ -211,6 +213,10 @@ where
     wasm_bindgen_futures::spawn_local(future);
 }
 pub use transport::{loopback_pair, DcTransport, InboxDc};
+#[cfg(not(target_arch = "wasm32"))]
+pub use transport::{stdio_dc, StreamDc};
+#[cfg(all(unix, not(target_arch = "wasm32")))]
+pub use transport::{uds_dc, uds_dc_accept};
 #[cfg(feature = "webrtc")]
 pub use transport::{EthDc, EthFramePort};
 

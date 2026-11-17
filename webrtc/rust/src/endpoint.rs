@@ -97,6 +97,9 @@ enum Cmd {
     SetChunking {
         enabled: bool,
     },
+    Stats {
+        respond: Sender<crate::sctp::AssociationStats>,
+    },
     CloseChannel {
         stream: u16,
     },
@@ -223,6 +226,15 @@ impl DcEndpoint {
     /// max-message-size (browsers: 256 KiB).
     pub fn set_chunk_messages(&self, enabled: bool) {
         let _ = self.cmd_tx.send(Cmd::SetChunking { enabled });
+    }
+
+    /// Snapshot of the SCTP association counters for this
+    /// endpoint (packet-loss instrumentation). None once the
+    /// endpoint thread has exited.
+    pub fn stats(&self) -> Option<crate::sctp::AssociationStats> {
+        let (tx, rx) = channel();
+        self.cmd_tx.send(Cmd::Stats { respond: tx }).ok()?;
+        rx.recv().ok()
     }
 }
 
@@ -358,6 +370,9 @@ fn run_loop<I: DtlsIo>(
                 }
                 Ok(Cmd::SetChunking { enabled }) => {
                     chunking = enabled;
+                }
+                Ok(Cmd::Stats { respond }) => {
+                    let _ = respond.send(assoc.stats());
                 }
                 Ok(Cmd::SendData { stream, text, data }) => {
                     if let Some(state) = channels.get(&stream) {

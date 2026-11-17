@@ -96,6 +96,10 @@ type DataChannel struct {
 	reasm dcChunkReassembler
 }
 
+// Stats returns a snapshot of the SCTP association counters
+// for this channel's endpoint (packet-loss instrumentation).
+func (c *DataChannel) Stats() AssociationStats { return c.endpoint.Stats() }
+
 // OnMessage registers the message handler; queued messages flush.
 func (c *DataChannel) OnMessage(fn func(data []byte, isText bool)) {
 	c.deliverMu.Lock()
@@ -209,6 +213,54 @@ type DcEndpoint struct {
 // RTCDataChannel max-message-size (browsers: 256 KiB).
 func (e *DcEndpoint) SetChunkMessages(enabled bool) {
 	e.chunking.Store(enabled)
+}
+
+// LinkStats is the unified wrapper snapshot (SCTP + TCP +
+// HTTP/2 legs); legs a plain DataChannel does not have stay
+// nil.
+type LinkStats struct {
+	Sctp  *AssociationStats
+	Tcp   *TcpStats
+	Http2 *H2Stats
+}
+
+// TcpStats mirrors the smoltcp sidecar's wire counters.
+type TcpStats struct {
+	FramesSent           int64
+	FramesReceived       int64
+	BytesSent            int64
+	BytesReceived        int64
+	TcpRetransmits       int64
+	TcpRetransmitBytes   int64
+	FastRetransmits      int64
+	TimeoutRetransmits   int64
+	HandshakeRttMs       int64
+	RttSamples           int64
+	SynCount             int64
+	FinCount             int64
+	RstCount             int64
+}
+
+// H2Stats mirrors the HTTP/2 connection counters.
+type H2Stats struct {
+	FramesSent     int64
+	FramesReceived int64
+	StreamsOpened  int64
+}
+
+// LinkStats returns the unified snapshot for this endpoint:
+// SCTP leg filled, TCP/HTTP2 legs nil.
+func (e *DcEndpoint) LinkStats() LinkStats {
+	s := e.Stats()
+	return LinkStats{Sctp: &s}
+}
+
+// Stats returns a snapshot of the SCTP association counters
+// for this endpoint (packet-loss instrumentation).
+func (e *DcEndpoint) Stats() AssociationStats {
+	e.assocMu.Lock()
+	defer e.assocMu.Unlock()
+	return e.assoc.Stats()
 }
 
 // NewDcEndpoint wraps an established DTLS connection. Role "client"

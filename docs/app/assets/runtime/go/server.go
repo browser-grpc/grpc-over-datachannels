@@ -5,6 +5,9 @@ package grpcdc
 import (
 	"context"
 	"io"
+	"sort"
+	"strings"
+	"sync"
 )
 
 // Method kinds (values match the grpc-dc specification's streaming-kind names).
@@ -75,9 +78,14 @@ type ServiceDesc struct {
 }
 
 // Server dispatches inbound calls to registered methods.
+// The registry is mutex-guarded: services may be registered
+// or unregistered at runtime (host/plugin hosts) while calls
+// are in flight.
 type Server struct {
-	methods map[string]Method
-	auth    *RendezvousAuth
+	mu           sync.RWMutex
+	methods      map[string]Method
+	auth         *RendezvousAuth
+	interceptors []Interceptor
 }
 
 // NewServer builds an empty server.
@@ -87,9 +95,44 @@ func NewServer() *Server {
 
 // RegisterService adds a service's methods (generated code calls it).
 func (s *Server) RegisterService(desc ServiceDesc) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	for _, m := range desc.Methods {
 		s.methods[m.Path] = m
 	}
+}
+
+// UnregisterService removes every method of the named
+// service (later calls fail UNIMPLEMENTED).
+func (s *Server) UnregisterService(name string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	prefix := "/" + name + "/"
+	for path := range s.methods {
+		if strings.HasPrefix(path, prefix) {
+			delete(s.methods, path)
+		}
+	}
+}
+
+// RegisteredServices lists services with at least one
+// registered method, sorted (registry/discovery source).
+func (s *Server) RegisteredServices() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	seen := map[string]bool{}
+	for path := range s.methods {
+		parts := strings.SplitN(path, "/", 3)
+		if len(parts) >= 2 {
+			seen[parts[1]] = true
+		}
+	}
+	names := make([]string, 0, len(seen))
+	for name := range seen {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // ServeTransport attaches the server to a transport (even stream ids).
@@ -119,6 +162,26 @@ func (s *Server) SetRendezvousAuth(auth *RendezvousAuth) {
 type callStateKey struct{}
 
 type claimsKey struct{}
+
+// CallInfo describes one inbound call to interceptors.
+type CallInfo struct {
+	Path     string
+	Metadata map[string]string
+}
+
+// Interceptor runs before dispatch (in install order, after
+// rendezvous auth when set). Returning a status ends the
+// call with it and the handler never runs; returning a
+// non-nil context replaces the call context (claims,
+// values) for downstream interceptors and the handler.
+type Interceptor func(ctx context.Context, info CallInfo) (context.Context, *StatusError)
+
+// AddInterceptor installs a server interceptor (see Interceptor).
+func (s *Server) AddInterceptor(interceptor Interceptor) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.interceptors = append(s.interceptors, interceptor)
+}
 
 // ClaimsFromContext returns the verified rendezvous claims
 // for the call, or nil when the call was not authenticated.
@@ -158,7 +221,9 @@ func SetTrailer(ctx context.Context, md map[string]string) {
 }
 
 func (s *Server) dispatch(ctx context.Context, headers Headers, in *streamInput, sink *responseSink) *StatusError {
+	s.mu.RLock()
 	method, ok := s.methods[*headers.Path]
+	s.mu.RUnlock()
 	if !ok {
 		return NewStatus(CodeUnimplemented, "unknown method "+*headers.Path)
 	}
@@ -171,6 +236,18 @@ func (s *Server) dispatch(ctx context.Context, headers Headers, in *streamInput,
 			return st
 		}
 		ctx = context.WithValue(ctx, claimsKey{}, claims)
+	}
+	// Server interceptors (after auth): any status ends the
+	// call and the handler never runs.
+	s.mu.RLock()
+	chain := append([]Interceptor(nil), s.interceptors...)
+	s.mu.RUnlock()
+	for _, interceptor := range chain {
+		next, st := interceptor(ctx, CallInfo{Path: *headers.Path, Metadata: headers.Metadata})
+		if st != nil {
+			return st
+		}
+		ctx = next
 	}
 	ctx = context.WithValue(ctx, callStateKey{}, sink)
 	traceCtx := traceStart("server", *headers.Path, ParseTraceparent(headers.Metadata["traceparent"]))

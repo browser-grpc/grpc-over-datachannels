@@ -303,6 +303,16 @@ export class DcEndpoint {
     channel._emitMessage(payload, isText);
   }
 
+  /** SCTP association counter snapshot (loss instrumentation). */
+  stats() {
+    return this.assoc.stats();
+  }
+
+  /** Unified LinkStats snapshot: SCTP leg filled, TCP/HTTP2 legs null on a plain DataChannel. */
+  linkStats() {
+    return { sctp: this.stats(), tcp: null, http2: null };
+  }
+
   async close() {
     this._closed = true;
     const packets = this.assoc.close(this._now());

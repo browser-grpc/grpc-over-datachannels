@@ -1,0 +1,24 @@
+syntax = "proto3";
+package grpcdc.registry.v1;
+
+// Discovery for host/plugin deployments: what is served
+// here, and the descriptors to call it dynamically.
+service Registry {
+  rpc ListServices(ListServicesRequest) returns (ListServicesResponse);
+  rpc GetDescriptor(GetDescriptorRequest) returns (GetDescriptorResponse);
+}
+
+message ListServicesRequest {}
+
+message ListServicesResponse {
+  repeated string services = 1;
+}
+
+message GetDescriptorRequest {
+  string name = 1;
+}
+
+message GetDescriptorResponse {
+  // FileDescriptorSet bytes for the named service's file.
+  bytes descriptor_set = 1;
+}

@@ -34,6 +34,31 @@ func outwardIP() string {
 func main() {
 	server := grpcdc.NewServer()
 	echo.RegisterEchoServer(server, echo.EchoService{})
+	// RENDEZVOUS_SECRET turns on rendezvous bearer auth
+	// (Unary requires the "read" scope) for browser auth tests.
+	if secret := os.Getenv("RENDEZVOUS_SECRET"); secret != "" {
+		listener, err := grpcdc.ServeRendezvousWithAuth(server,
+			&net.UDPAddr{IP: net.IPv4zero, Port: 0},
+			dcwebrtc.RendezvousOptions{OnError: func(err error) {
+				fmt.Fprintln(os.Stderr, "rendezvous:", err)
+			}},
+			&grpcdc.RendezvousAuth{
+				Secret: []byte(secret),
+				Scopes: map[string][]string{"/echo.Echo/Unary": {"read"}},
+			})
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "rendezvous_server:", err)
+			os.Exit(1)
+		}
+		defer listener.Close()
+		line, err := json.Marshal(listener.Descriptor(outwardIP()))
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "rendezvous_server:", err)
+			os.Exit(1)
+		}
+		fmt.Println(string(line))
+		select {}
+	}
 	listener, err := grpcdc.ServeRendezvous(server,
 		&net.UDPAddr{IP: net.IPv4zero, Port: 0},
 		dcwebrtc.RendezvousOptions{OnError: func(err error) {

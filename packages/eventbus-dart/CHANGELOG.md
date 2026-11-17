@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.42.0
+## 0.43.0
 
 - First pub.dev release: generated `grpcdc.events.v1`
-  Dart stubs from grpc-over-datachannels v0.42.0.
+  Dart stubs from grpc-over-datachannels v0.43.0.

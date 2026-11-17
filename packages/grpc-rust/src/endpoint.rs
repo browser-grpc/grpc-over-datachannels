@@ -47,6 +47,7 @@ pub struct Endpoint {
     send_lock: AsyncMutex<()>,
     traces: Mutex<HashMap<u32, (crate::status::TraceContext, String)>>,
     rendezvous_auth: RwLock<Option<Arc<crate::server::RendezvousAuth>>>,
+    interceptors: RwLock<Vec<Arc<dyn Fn(&str, &crate::status::Metadata) -> Result<(), Status> + Send + Sync>>>,
 }
 
 impl Endpoint {
@@ -63,6 +64,7 @@ impl Endpoint {
             send_lock: AsyncMutex::new(()),
             traces: Mutex::new(HashMap::new()),
             rendezvous_auth: RwLock::new(None),
+            interceptors: RwLock::new(Vec::new()),
         })
     }
 
@@ -86,11 +88,44 @@ impl Endpoint {
         }
     }
 
+    /// Remove every method of `name` (runtime unregistration:
+    /// later calls to those paths fail UNIMPLEMENTED).
+    pub fn unregister_service(&self, name: &str) {
+        let prefix = format!("/{name}/");
+        self.services.write().unwrap().retain(|path, _| !path.starts_with(&prefix));
+    }
+
+    /// Names of services with at least one registered method,
+    /// sorted (registry/discovery source).
+    pub fn registered_services(&self) -> Vec<String> {
+        let mut names: Vec<String> = self
+            .services
+            .read()
+            .unwrap()
+            .keys()
+            .filter_map(|path| path[1..].split('/').next().map(str::to_string))
+            .collect();
+        names.sort();
+        names.dedup();
+        names
+    }
+
     /// Require rendezvous bearer auth on every inbound call
     /// (see crate::server::RendezvousAuth): verified claims
     /// land on CallCtx.claims.
     pub fn set_rendezvous_auth(&self, auth: Arc<crate::server::RendezvousAuth>) {
         *self.rendezvous_auth.write().unwrap() = Some(auth);
+    }
+
+    /// Install a server interceptor: run in install order
+    /// before dispatch (after rendezvous auth when set). An
+    /// Err status ends the call trailers-only; handlers never
+    /// run. The closure receives the path and call metadata.
+    pub fn add_interceptor(
+        &self,
+        interceptor: Arc<dyn Fn(&str, &crate::status::Metadata) -> Result<(), Status> + Send + Sync>,
+    ) {
+        self.interceptors.write().unwrap().push(interceptor);
     }
 
     /// Install a raw handler for paths with no registered
@@ -225,6 +260,19 @@ impl Endpoint {
                         },
                     }
                 };
+                // Server interceptors (after auth): any Err
+                // ends the call before the handler runs.
+                {
+                    let chain = self.interceptors.read().unwrap().clone();
+                    for interceptor in &chain {
+                        if let Err(status) = interceptor(&path, &headers.metadata) {
+                            let _ = self
+                                .send_frame(Frame::trailers(frame.stream_id, &status).unwrap())
+                                .await;
+                            return;
+                        }
+                    }
+                }
                 let (tx, rx) = mpsc::unbounded();
                 self.streams.lock().unwrap().insert(frame.stream_id, tx);
                 // No eager HEADERS: initial metadata flushes

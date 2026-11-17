@@ -319,7 +319,18 @@ impl Flow {
     }
 }
 
+/// HTTP/2 connection counters for the unified LinkStats
+/// snapshot (see crate::link_stats): frames in/out and
+/// streams registered over the connection's life.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct H2Stats {
+    pub frames_sent: u64,
+    pub frames_received: u64,
+    pub streams_opened: u64,
+}
+
 struct Conn {
+    stats: std::sync::Mutex<H2Stats>,
     out: UnboundedSender<Out>,
     streams: Mutex<HashMap<u32, UnboundedSender<H2Event>>>,
     flow: AsyncMutex<Flow>,
@@ -340,6 +351,7 @@ impl Conn {
     }
 
     fn register(&self, id: u32) -> UnboundedReceiver<H2Event> {
+        self.stats.lock().unwrap().streams_opened += 1;
         let (tx, rx) = mpsc::unbounded();
         if self.closed.load(Ordering::Relaxed) {
             let _ = tx.unbounded_send(H2Event::Closed);
@@ -350,6 +362,18 @@ impl Conn {
 
     fn forget(&self, id: u32) {
         self.streams.lock().unwrap().remove(&id);
+    }
+
+    fn stats(&self) -> H2Stats {
+        *self.stats.lock().unwrap()
+    }
+
+    fn count_sent(&self) {
+        self.stats.lock().unwrap().frames_sent += 1;
+    }
+
+    fn count_received(&self) {
+        self.stats.lock().unwrap().frames_received += 1;
     }
 }
 
@@ -464,7 +488,7 @@ fn window_update(id: u32, increment: i64) -> Out {
     }
 }
 
-async fn writer_loop<W: tokio::io::AsyncWrite + Unpin>(mut write: WriteHalf<W>, mut rx: UnboundedReceiver<Out>) {
+async fn writer_loop<W: tokio::io::AsyncWrite + Unpin>(mut write: WriteHalf<W>, mut rx: UnboundedReceiver<Out>, conn: Arc<Conn>) {
     use futures_util::StreamExt;
     while let Some(out) = rx.next().await {
         let bytes: Vec<Bytes> = match out {
@@ -500,6 +524,7 @@ async fn writer_loop<W: tokio::io::AsyncWrite + Unpin>(mut write: WriteHalf<W>, 
             }
         };
         for frame in bytes {
+            conn.count_sent();
             if write.write_all(&frame).await.is_err() { return; }
         }
         if write.flush().await.is_err() { return; }
@@ -524,6 +549,7 @@ async fn reader_loop<R: tokio::io::AsyncRead + Unpin>(
         let stream_id = u32::from_be_bytes([head[5], head[6], head[7], head[8]]) & 0x7fff_ffff;
         let mut payload = vec![0u8; len];
         if read.read_exact(&mut payload).await.is_err() { break; }
+        conn.count_received();
         // While a header block is open only CONTINUATION (and a
         // HEADERS, rejected in its arm below) may arrive; any
         // other frame interleaved into the block is a
@@ -709,6 +735,7 @@ where
     let (read, write) = tokio::io::split(socket);
     let (out_tx, out_rx) = mpsc::unbounded::<Out>();
     let conn = Arc::new(Conn {
+        stats: std::sync::Mutex::new(H2Stats::default()),
         out: out_tx,
         streams: Mutex::new(HashMap::new()),
         flow: AsyncMutex::new(Flow::new()),
@@ -716,7 +743,7 @@ where
         next_id: AtomicU32::new(if client_ids { 1 } else { 2 }),
         closed: AtomicBool::new(false),
     });
-    crate::spawn_task(writer_loop(write, out_rx));
+    crate::spawn_task(writer_loop(write, out_rx, conn.clone()));
     // SETTINGS must be the first frame sent (RFC 7540 3.2);
     // then raise the connection receive window past 64KiB.
     let _ = conn.out.unbounded_send(Out::Frame {
@@ -731,8 +758,14 @@ where
 
 pub struct H2ServerConn {
     pub incoming: UnboundedReceiver<H2Stream>,
-    #[allow(dead_code)]
     conn: Arc<Conn>,
+}
+
+impl H2ServerConn {
+    /// HTTP/2 connection counters (LinkStats HTTP/2 leg).
+    pub fn stats(&self) -> H2Stats {
+        self.conn.stats()
+    }
 }
 
 pub async fn accept_h2<S>(socket: S) -> Result<H2ServerConn, Status>
@@ -776,6 +809,11 @@ impl H2ClientConn {
         let id = self.conn.next_id.fetch_add(2, Ordering::Relaxed);
         let rx = self.conn.register(id);
         H2Stream::new(self.conn.clone(), id, rx)
+    }
+
+    /// HTTP/2 connection counters (LinkStats HTTP/2 leg).
+    pub fn stats(&self) -> H2Stats {
+        self.conn.stats()
     }
 }
 

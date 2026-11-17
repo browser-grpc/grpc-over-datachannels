@@ -39,6 +39,7 @@ export class Server {
   #methods = new Map();
   #authVerifier = null;
   #authScopes = {};
+  #interceptors = [];
 
   addService(definition) {
     for (const [name, method] of Object.entries(definition.methods)) {
@@ -59,6 +60,34 @@ export class Server {
    * serveRendezvous when options.auth is set; rendezvous-only
    * by design (no protoc plugin option).
    */
+  /** Remove every method of `name` (runtime unregistration). */
+  removeService(name) {
+    const prefix = `/${name}/`;
+    for (const path of [...this.#methods.keys()]) {
+      if (path.startsWith(prefix)) this.#methods.delete(path);
+    }
+    return this;
+  }
+
+  /** Names of registered services, sorted (discovery source). */
+  registeredServices() {
+    const names = new Set();
+    for (const { service } of this.#methods.values()) names.add(service);
+    return [...names].sort();
+  }
+
+  /**
+   * Install a server interceptor: `fn({path, metadata})` runs
+   * in install order before dispatch (after rendezvous auth
+   * when set). Throwing a StatusError ends the call with that
+   * status and the handler never runs. Return a claims object
+   * to expose it as ctx.claims when no auth claims are set.
+   */
+  addInterceptor(fn) {
+    this.#interceptors.push(fn);
+    return this;
+  }
+
   requireRendezvousAuth(verifier, scopes = {}) {
     this.#authVerifier = verifier;
     this.#authScopes = scopes ?? {};
@@ -106,6 +135,12 @@ export class Server {
             `missing required scope ${scope}`,
           );
         }
+      }
+    }
+    for (const interceptor of this.#interceptors) {
+      const extra = await interceptor({ path, metadata });
+      if (claims === null && extra !== null && typeof extra === "object") {
+        claims = extra;
       }
     }
     const timeoutMs = parseTimeout(metadata["grpc-timeout"]);

@@ -14,6 +14,7 @@ Stack suites run via `make test-webrtc-go`, `make test-webrtc-js`, `make test-we
 - [`direct_test.go`](go/direct_test.go) — WebRTC-Direct example/test
 - [`dtls_test.go`](go/dtls_test.go) — Generated suite/example
 - [`ipv6_test.go`](go/ipv6_test.go) — Generated suite/example
+- [`linkstats_test.go`](go/linkstats_test.go) — Generated suite/example
 - [`live_stun_test.go`](go/live_stun_test.go) — Generated suite/example
 - [`mdns_test.go`](go/mdns_test.go) — Generated suite/example
 - [`mux_test.go`](go/mux_test.go) — Generated suite/example
@@ -24,6 +25,7 @@ Stack suites run via `make test-webrtc-go`, `make test-webrtc-js`, `make test-we
 - [`sctp_reassembly_test.go`](go/sctp_reassembly_test.go) — Generated suite/example
 - [`sctp_rwnd_test.go`](go/sctp_rwnd_test.go) — Generated suite/example
 - [`sctp_sack_vectors_test.go`](go/sctp_sack_vectors_test.go) — Generated suite/example
+- [`sctp_stats_test.go`](go/sctp_stats_test.go) — Generated suite/example
 - [`sctp_vectors_test.go`](go/sctp_vectors_test.go) — Generated suite/example
 - [`srflx_test.go`](go/srflx_test.go) — Generated suite/example
 - [`streamreset_test.go`](go/streamreset_test.go) — Generated suite/example
@@ -44,6 +46,7 @@ Stack suites run via `make test-webrtc-go`, `make test-webrtc-js`, `make test-we
 - [`grpc.test.js`](js/test/grpc.test.js) — Generated suite/example
 - [`interop_matrix.test.js`](js/test/interop_matrix.test.js) — Cross-language interop
 - [`ipv6.test.js`](js/test/ipv6.test.js) — Generated suite/example
+- [`linkstats.test.js`](js/test/linkstats.test.js) — Generated suite/example
 - [`live_stun.test.js`](js/test/live_stun.test.js) — Generated suite/example
 - [`mdns.test.js`](js/test/mdns.test.js) — Generated suite/example
 - [`mux.test.js`](js/test/mux.test.js) — Generated suite/example
@@ -65,6 +68,7 @@ Stack suites run via `make test-webrtc-go`, `make test-webrtc-js`, `make test-we
 - [`chunking.rs`](rust/tests/chunking.rs) — Generated suite/example
 - [`cid_test.rs`](rust/tests/cid_test.rs) — Generated suite/example
 - [`consent.rs`](rust/tests/consent.rs) — Generated suite/example
+- [`crypto_openssl.rs`](rust/tests/crypto_openssl.rs) — Generated suite/example
 - [`datachannel.rs`](rust/tests/datachannel.rs) — Generated suite/example
 - [`dtls_openssl.rs`](rust/tests/dtls_openssl.rs) — Generated suite/example
 - [`dtls_resumption.rs`](rust/tests/dtls_resumption.rs) — Generated suite/example

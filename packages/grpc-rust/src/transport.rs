@@ -146,6 +146,88 @@ impl EthDc {
     }
 }
 
+/// IPC transport over a byte stream (stdio pipes or a Unix
+/// domain socket): one message is a 4-byte big-endian length
+/// prefix plus the frame bytes — the same framing the stdio
+/// examples have always used, promoted into the runtime so a
+/// plugin process in any language can speak grpc-dc to a host
+/// without a WebRTC stack. `R`/`W` are the stream halves
+/// (tokio stdin/stdout, or a split UnixStream).
+#[cfg(not(target_arch = "wasm32"))]
+pub struct StreamDc<R, W> {
+    tx: tokio::sync::Mutex<W>,
+    rx: tokio::sync::Mutex<R>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl<R, W> StreamDc<R, W> {
+    pub fn new(reader: R, writer: W) -> Self {
+        Self { tx: tokio::sync::Mutex::new(writer), rx: tokio::sync::Mutex::new(reader) }
+    }
+}
+
+/// DcTransport over the process's stdin/stdout (host/plugin
+/// IPC). Pair with a plugin that does the inverse.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn stdio_dc() -> StreamDc<tokio::io::Stdin, tokio::io::Stdout> {
+    StreamDc::new(tokio::io::stdin(), tokio::io::stdout())
+}
+
+/// Connect a Unix domain socket and frame it as a DcTransport.
+#[cfg(all(unix, not(target_arch = "wasm32")))]
+pub async fn uds_dc(path: impl AsRef<std::path::Path>) -> Result<StreamDc<tokio::io::ReadHalf<tokio::net::UnixStream>, tokio::io::WriteHalf<tokio::net::UnixStream>>, Status> {
+    let stream = tokio::net::UnixStream::connect(path.as_ref())
+        .await
+        .map_err(|e| Status::unavailable(format!("uds connect: {e}")))?;
+    let (rx, tx) = tokio::io::split(stream);
+    Ok(StreamDc::new(rx, tx))
+}
+
+/// Accept one Unix domain socket connection as a DcTransport
+/// (host side; bind with tokio::net::UnixListener).
+#[cfg(all(unix, not(target_arch = "wasm32")))]
+pub fn uds_dc_accept(stream: tokio::net::UnixStream) -> StreamDc<tokio::io::ReadHalf<tokio::net::UnixStream>, tokio::io::WriteHalf<tokio::net::UnixStream>> {
+    let (rx, tx) = tokio::io::split(stream);
+    StreamDc::new(rx, tx)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[async_trait]
+impl<R, W> DcTransport for StreamDc<R, W>
+where
+    R: tokio::io::AsyncRead + Unpin + Send,
+    W: tokio::io::AsyncWrite + Unpin + Send,
+{
+    async fn send(&self, msg: Bytes) -> Result<(), Status> {
+        use tokio::io::AsyncWriteExt;
+        let mut tx = self.tx.lock().await;
+        tx.write_u32(msg.len() as u32)
+            .await
+            .map_err(|e| Status::unavailable(format!("stream write: {e}")))?;
+        tx.write_all(&msg)
+            .await
+            .map_err(|e| Status::unavailable(format!("stream write: {e}")))?;
+        tx.flush()
+            .await
+            .map_err(|e| Status::unavailable(format!("stream write: {e}")))?;
+        Ok(())
+    }
+
+    async fn next(&self) -> Option<Result<Bytes, Status>> {
+        use tokio::io::AsyncReadExt;
+        let mut rx = self.rx.lock().await;
+        let len = match rx.read_u32().await {
+            Ok(n) => n as usize,
+            Err(_) => return None,
+        };
+        let mut buf = vec![0u8; len];
+        match rx.read_exact(&mut buf).await {
+            Ok(_) => Some(Ok(Bytes::from(buf))),
+            Err(e) => Some(Err(Status::unavailable(format!("stream read: {e}")))),
+        }
+    }
+}
+
 #[cfg(feature = "webrtc")]
 #[async_trait]
 impl DcTransport for EthDc {

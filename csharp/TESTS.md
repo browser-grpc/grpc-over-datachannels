@@ -29,6 +29,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`TestInterop.cs`](tests/TestInterop.cs) — Cross-language interop
 - [`TestInteropOracle.cs`](tests/TestInteropOracle.cs) — Official-implementation oracle, via the proxy
 - [`TestInteropServerOracle.cs`](tests/TestInteropServerOracle.cs) — Official-implementation oracle, via the proxy
+- [`TestKafkaDifferential.cs`](tests/TestKafkaDifferential.cs) — Kafka end-to-end (broker legs env-gated)
 - [`TestKafkaE2E.cs`](tests/TestKafkaE2E.cs) — Kafka end-to-end (broker legs env-gated)
 - [`TestKafkaNative.cs`](tests/TestKafkaNative.cs) — Kafka end-to-end (broker legs env-gated)
 - [`TestKafkaShareE2E.cs`](tests/TestKafkaShareE2E.cs) — Kafka end-to-end (broker legs env-gated)

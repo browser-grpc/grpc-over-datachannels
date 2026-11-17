@@ -27,6 +27,9 @@ export class Http2DataChannel {
   // still follows the LPM compressed flag.
   #compressOut = new Map();
   #decompressIn = new Map();
+  // HTTP/2 leg counters for LinkStats: translated
+  // HEADERS/DATA frames in each direction plus streams.
+  #stats = { framesSent: 0, framesReceived: 0, streamsOpened: 0 };
 
   constructor(authority, { secure = false, ...connectOptions } = {}) {
     this.readyState = "open";
@@ -78,9 +81,12 @@ export class Http2DataChannel {
         ...metadata,
       });
       this.#streams.set(id, stream);
+      this.#stats.streamsOpened += 1;
+      this.#stats.framesSent += 1;
       this.#buffers.set(id, Buffer.alloc(0));
       this.#compressOut.set(id, metadata["grpc-encoding"] === "gzip");
       stream.on("response", (headers, flags) => {
+        this.#stats.framesReceived += 1;
         this.#decompressIn.set(id, headers["grpc-encoding"] === "gzip");
         const trailersOnly =
           (flags & http2.constants.NGHTTP2_FLAG_END_STREAM) !== 0 && headers["grpc-status"] !== undefined;
@@ -102,6 +108,7 @@ export class Http2DataChannel {
         }));
       });
       stream.on("data", (chunk) => {
+        this.#stats.framesReceived += 1;
         let buf = Buffer.concat([this.#buffers.get(id), chunk]);
         while (buf.length >= 5) {
           const len = buf.readUInt32BE(1);
@@ -125,6 +132,7 @@ export class Http2DataChannel {
         this.#emitFrame(FrameType.RST, id, JSON.stringify({ code: 8, message: "h2 stream error" }));
       });
     } else if (frame.type === FrameType.DATA) {
+      this.#stats.framesSent += 1;
       const stream = this.#streams.get(id);
       if (stream) {
         let payload = frame.payload;
@@ -146,6 +154,11 @@ export class Http2DataChannel {
     }
   }
 
+  /** HTTP/2 leg counter snapshot (LinkStats). */
+  stats() {
+    return { ...this.#stats };
+  }
+
   close() {
     this.session.close();
   }
@@ -153,5 +166,8 @@ export class Http2DataChannel {
 
 /** Channel over HTTP/2 to an official gRPC server. */
 export function http2Channel(authority, options) {
-  return new Channel(new Http2DataChannel(authority, options));
+  const dc = new Http2DataChannel(authority, options);
+  const channel = new Channel(dc);
+  channel.http2Stats = () => dc.stats();
+  return channel;
 }
