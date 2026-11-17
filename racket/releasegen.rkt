@@ -4042,8 +4042,8 @@
     (make-directory* (path-only dest))
     (copy-file src dest #t)))
 (for ([f (in-list '("channel" "codec" "dynamic" "endpoint" "eventbus"
-                    "eventbus_git" "http2" "lib" "message" "server" "status"
-                    "transport" "wire_gen"))])
+                    "eventbus_git" "http2" "lib" "link_stats" "message" "server"
+                    "status" "transport" "wire_gen"))])
   (copy-rust-pub (string-append "rust/src/" f ".rs")
                  (string-append "grpc-rust/src/" f ".rs")))
 ;; src/eventbus.rs includes its messages via ../gen/events_pb.rs.
