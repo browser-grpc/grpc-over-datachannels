@@ -19,6 +19,7 @@ Stack suites run via `make test-webrtc-go`, `make test-webrtc-js`, `make test-we
 - [`mdns_test.go`](go/mdns_test.go) — Generated suite/example
 - [`mux_test.go`](go/mux_test.go) — Generated suite/example
 - [`nomination_test.go`](go/nomination_test.go) — Generated suite/example
+- [`pair_bench_test.go`](go/pair_bench_test.go) — Generated suite/example
 - [`peer_test.go`](go/peer_test.go) — Generated suite/example
 - [`rendezvous_test.go`](go/rendezvous_test.go) — Generated suite/example
 - [`restart_test.go`](go/restart_test.go) — Generated suite/example

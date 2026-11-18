@@ -108,3 +108,4 @@ generated_images/
 /crates/dc-sctp-ffi/target/
 /crates/dc-bridge-wasm/target/
 /crates/dc-bridge-wasm/pkg/
+/browser-test/dc_bridge_gen/

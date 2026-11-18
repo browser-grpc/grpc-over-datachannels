@@ -704,6 +704,8 @@ test-wasm:
 	$(WASM_BINDGEN) --target web --out-dir browser-test/wasm_rust_gen wasm/rust/target/wasm32-unknown-unknown/release/grpc_dc_wasm_rust.wasm
 	cd browser-test && node wasm.test.mjs all && node wasm_rust.test.mjs all
 	cd browser-test && node wasm_rust_server.test.mjs all
+	cd crates/dc-bridge-wasm && wasm-pack build --release --target web --out-dir ../../browser-test/dc_bridge_gen
+	cd browser-test && node wasm_rust_bridge.test.mjs all
 	cd browser-test && node wasm_rust_tracing.test.mjs all
 
 test-zig-wasm-native-browser:

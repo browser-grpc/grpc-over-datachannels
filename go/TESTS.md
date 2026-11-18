@@ -43,6 +43,8 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`registry_test.go`](registry_test.go) — Generated suite/example
 - [`rendezvous_auth_test.go`](rendezvous_auth_test.go) — Generated suite/example
 - [`rendezvous_test.go`](rendezvous_test.go) — Generated suite/example
+- [`sctpffi_bench_test.go`](sctpffi/sctpffi_bench_test.go) — Generated suite/example
+- [`sctpffi_test.go`](sctpffi/sctpffi_test.go) — Generated suite/example
 - [`sidecar_test.go`](sidecar_test.go) — Sidecar transport
 - [`tracing_test.go`](tracing_test.go) — Tracing: traceparent propagation, span observers, nested calls
 - [`webrtc_direct_test.go`](webrtc_direct_test.go) — WebRTC-Direct example/test
