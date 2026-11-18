@@ -43,7 +43,7 @@ class Reader {
     }
   }
   take(n) {
-    const value = this.bytes.slice(this.pos, this.pos + n);
+    const value = this.bytes.subarray(this.pos, this.pos + n);
     if (value.length !== n) throw new Error("truncated field");
     this.pos += n;
     return value;

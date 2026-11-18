@@ -216,7 +216,7 @@ func (m *Header) UnmarshalDC(data []byte) error {
 			}
 		case 2:
 			if b, ok := value.([]byte); ok {
-				m.Value = append([]byte(nil), b...)
+				m.Value = b
 			}
 		default:
 			m.UnknownFields = append(m.UnknownFields, raw...)
@@ -276,11 +276,11 @@ func (m *Record) UnmarshalDC(data []byte) error {
 		switch num {
 		case 1:
 			if b, ok := value.([]byte); ok {
-				m.Key = append([]byte(nil), b...)
+				m.Key = b
 			}
 		case 2:
 			if b, ok := value.([]byte); ok {
-				m.Value = append([]byte(nil), b...)
+				m.Value = b
 			}
 		case 3:
 			if b, ok := value.([]byte); ok {
@@ -371,11 +371,11 @@ func (m *FetchedRecord) UnmarshalDC(data []byte) error {
 			}
 		case 3:
 			if b, ok := value.([]byte); ok {
-				m.Key = append([]byte(nil), b...)
+				m.Key = b
 			}
 		case 4:
 			if b, ok := value.([]byte); ok {
-				m.Value = append([]byte(nil), b...)
+				m.Value = b
 			}
 		case 5:
 			if b, ok := value.([]byte); ok {
@@ -4750,11 +4750,11 @@ func (m *SharePollRecord) UnmarshalDC(data []byte) error {
 			}
 		case 4:
 			if b, ok := value.([]byte); ok {
-				m.Key = append([]byte(nil), b...)
+				m.Key = b
 			}
 		case 5:
 			if b, ok := value.([]byte); ok {
-				m.Value = append([]byte(nil), b...)
+				m.Value = b
 			}
 		case 6:
 			if b, ok := value.([]byte); ok {

@@ -514,7 +514,7 @@
        ("string"
         (fmt "~a~a = string(~a)\n" (arg 2) (arg 0) (arg 1)))
        ("bytes"
-        (fmt "~a~a = append([]byte(nil), ~a...)\n" (arg 2) (arg 0) (arg 1)))
+        (fmt "~a~a = ~a\n" (arg 2) (arg 0) (arg 1)))
        ("message"
         (fmt "~atmp~a := new(~a)\n" (arg 2) (ref number) (entry-type))
         (fmt "~aif err := tmp~a.UnmarshalDC(~a); err != nil {\n~a\t~a\n~a}\n"
@@ -568,7 +568,7 @@
                        (fmt "\t\t\tif b, ok := value.([]byte); ok {\n\t\t\t\t~a = append(~a, string(b))\n\t\t\t}\n"
                             (fmt "m.~a" (pascal (ref name))) (fmt "m.~a" (pascal (ref name)))))
                       ("bytes"
-                       (fmt "\t\t\tif b, ok := value.([]byte); ok {\n\t\t\t\t~a = append(~a, append([]byte(nil), b...))\n\t\t\t}\n"
+                       (fmt "\t\t\tif b, ok := value.([]byte); ok {\n\t\t\t\t~a = append(~a, b...)\n\t\t\t}\n"
                             (fmt "m.~a" (pascal (ref name))) (fmt "m.~a" (pascal (ref name)))))
                       ("message"
                        "\t\t\tif b, ok := value.([]byte); ok {\n"

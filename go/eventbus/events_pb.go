@@ -311,7 +311,7 @@ func (m *PublishRequest) UnmarshalDC(data []byte) error {
 			}
 		case 2:
 			if b, ok := value.([]byte); ok {
-				m.Payload = append([]byte(nil), b...)
+				m.Payload = b
 			}
 		case 3:
 			if b, ok := value.([]byte); ok {
@@ -474,7 +474,7 @@ func (m *Event) UnmarshalDC(data []byte) error {
 			}
 		case 2:
 			if b, ok := value.([]byte); ok {
-				m.Payload = append([]byte(nil), b...)
+				m.Payload = b
 			}
 		case 3:
 			if v, ok := value.(uint64); ok {
