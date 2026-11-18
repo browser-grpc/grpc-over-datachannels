@@ -269,7 +269,7 @@ func (l *DirectListener) Multiaddr() string { return DirectMultiaddr(l.Addr(), l
 // and returns its datachannel endpoint.
 func (l *DirectListener) Accept() (*DcEndpoint, error) {
 	io := l.claim()
-	dtls, err := newDtlsServer(io, DtlsConfig{Certificate: l.cert})
+	dtls, err := DtlsAccept(io, DtlsConfig{Certificate: l.cert})
 	if err != nil {
 		return nil, err
 	}
@@ -311,7 +311,7 @@ func DirectDial(remote *net.UDPAddr, certhash string, cert *Certificate) (*DcEnd
 	}
 	_ = conn.SetReadBuffer(4 * 1024 * 1024)
 	_ = conn.SetWriteBuffer(4 * 1024 * 1024)
-	dtls, err := newDtlsClient(UDPPacketIO(conn), directClientConfig(cert, digest))
+	dtls, err := DtlsConnect(UDPPacketIO(conn), directClientConfig(cert, digest))
 	if err != nil {
 		_ = conn.Close()
 		return nil, err
@@ -391,7 +391,7 @@ func DirectDialTurn(remote *net.UDPAddr, certhash string, cert *Certificate, tur
 	// allocation's first lifetime.
 	peer.turnAddPeer(remote, timeout)
 	peer.relayActive = true
-	dtls, err := newDtlsClient(&peerPacketIO{peer: peer, remote: remote}, directClientConfig(cert, digest))
+	dtls, err := DtlsConnect(&peerPacketIO{peer: peer, remote: remote}, directClientConfig(cert, digest))
 	if err != nil {
 		peer.Close()
 		return nil, err

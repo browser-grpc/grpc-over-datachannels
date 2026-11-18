@@ -200,11 +200,11 @@ type sctpAssoc interface {
 	IsEstablished() bool
 }
 
-// dtlsConn is the DTLS backend seam: the shared Rust
+// DtlsConn is the DTLS backend seam: the shared Rust
 // core (crates/dc-dtls-ffi) by default, or the mirrored
 // Go stack under the dc_native tag. All
 // endpoint DTLS access goes through this interface.
-type dtlsConn interface {
+type DtlsConn interface {
 	SendApp(data []byte) error
 	RecvAppTimeout(timeoutMs int) ([]byte, error)
 	PeerFingerprint() string
@@ -215,7 +215,7 @@ type DcEndpoint struct {
 	// onChannel fires for inbound channels.
 	onChannel atomic.Value // func(*DataChannel)
 
-	dtls       dtlsConn
+	dtls       DtlsConn
 	assoc      sctpAssoc
 	role       string
 	channels   map[uint16]*DataChannel
@@ -291,7 +291,7 @@ func (e *DcEndpoint) Stats() AssociationStats {
 // NewDcEndpoint wraps an established DTLS connection. Role "client"
 // sends the SCTP INIT and opens even streams; "server" answers and
 // opens odd streams.
-func NewDcEndpoint(dtls dtlsConn, role string) *DcEndpoint {
+func NewDcEndpoint(dtls DtlsConn, role string) *DcEndpoint {
 	isClient := role == "client"
 	assoc := newSctpAssoc(isClient)
 	endpoint := &DcEndpoint{

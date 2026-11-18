@@ -40,7 +40,7 @@ func TestDtlsLoopbackPair(t *testing.T) {
 		t.Fatal(err)
 	}
 	type res struct {
-		conn *DtlsConnection
+		conn DtlsConn
 		err  error
 		role string
 	}
@@ -53,14 +53,14 @@ func TestDtlsLoopbackPair(t *testing.T) {
 		conn, err := DtlsConnect(clientIO, DtlsConfig{Certificate: clientCert})
 		results <- res{conn, err, "client"}
 	}()
-	var conns []*DtlsConnection
+	var conns []DtlsConn
 	for i := 0; i < 2; i++ {
 		select {
 		case r := <-results:
 			if r.err != nil {
 				t.Fatalf("%s: %v", r.role, r.err)
 			}
-			t.Logf("%s ok, srtp=%d", r.role, r.conn.SrtpProfile())
+			t.Logf("%s ok, peer fp=%.8s", r.role, r.conn.PeerFingerprint())
 			conns = append(conns, r.conn)
 		case <-time.After(20 * time.Second):
 			t.Fatal("timeout")

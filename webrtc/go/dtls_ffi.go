@@ -1,5 +1,3 @@
-//go:build !dc_native
-
 package dcwebrtc
 
 import (
@@ -11,11 +9,11 @@ import (
 	"github.com/browser-grpc/grpc-over-datachannels/webrtc/go/dtlsffi"
 )
 
-// DTLS backend (default): the shared Rust core
-// (crates/dc-dtls-ffi) instead of the mirrored Go stack.
-// The core is sans-io; this seam pumps it over the same
-// PacketIO the native handshake drives, then serves the
-// established phase through EncryptApp/HandleApp.
+// DTLS backend: the shared Rust core
+// (crates/dc-dtls-ffi). The core is sans-io; this seam
+// pumps it over the same PacketIO a driven handshake
+// would use, then serves the established phase through
+// EncryptApp/HandleApp.
 
 type ffiDtls struct {
 	// sendMu serializes EncryptApp: record sequence and
@@ -99,7 +97,7 @@ func (f *ffiDtls) handshake() error {
 	return nil
 }
 
-func newFfiDtls(io PacketIO, config DtlsConfig, server bool) (dtlsConn, error) {
+func newFfiDtls(io PacketIO, config DtlsConfig, server bool) (DtlsConn, error) {
 	cfg, err := ffiDtlsConfig(config)
 	if err != nil {
 		return nil, err
@@ -120,11 +118,11 @@ func newFfiDtls(io PacketIO, config DtlsConfig, server bool) (dtlsConn, error) {
 	return f, nil
 }
 
-func newDtlsClient(io PacketIO, config DtlsConfig) (dtlsConn, error) {
+func DtlsConnect(io PacketIO, config DtlsConfig) (DtlsConn, error) {
 	return newFfiDtls(io, config, false)
 }
 
-func newDtlsServer(io PacketIO, config DtlsConfig) (dtlsConn, error) {
+func DtlsAccept(io PacketIO, config DtlsConfig) (DtlsConn, error) {
 	return newFfiDtls(io, config, true)
 }
 
