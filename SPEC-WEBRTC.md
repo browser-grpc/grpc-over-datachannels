@@ -651,6 +651,39 @@ is the handshake, by design of its current shape:
   this: an FFI host cannot be handed a finished core until
   the handshake itself is pump-driven, since cores are
   only born from driven handshakes today.
+
+  Lift plan (derived from the driven code, 2026-11-17, so
+  the follow-on needs no re-derivation). Client stages:
+  `SendClientHello` (cookie restart clears transcript +
+  seqs) → `AwaitServerHello` → `ClassifyResumption`
+  (own 1500 ms deadline; an epoch-1 handshake record means
+  abbreviated) → resumed: `AwaitServerFinishedResume`
+  (verify against the pre-Finished transcript snapshot) →
+  send CCS+Finished; full: `AwaitServerFlight`
+  (Certificate / ServerKeyExchange / optional
+  CertificateRequest / ServerHelloDone; verify SKE
+  signature + fingerprint at HelloDone) → send client
+  flight (optional Certificate, CKE, optional
+  CertificateVerify with the EMS snapshot taken through
+  CKE, CCS, Finished) → `AwaitServerFinished` →
+  `CaptureTicket` (250 ms poll window, best-effort).
+  Server stages mirror: `AwaitClientHello` (ticket →
+  `finish_resumed_accept` abbreviated path) → send server
+  flight → `AwaitClientFlight` (verify CertificateVerify
+  against the through-CKE transcript hash) → send CCS +
+  Finished (+ optional ticket) → established. Every stage
+  carries: current flight bytes (retransmit verbatim),
+  retries left (6), next deadline = last send + 1000 ms,
+  and the shared `Hs` (transcript, send/expect seq,
+  deferred `pending` datagrams, `ready` queue) plus the
+  one-message `peeked` slot. `handle_datagram` =
+  parse-partial + feed + step as far as possible;
+  `tick(now)` = retransmit-or-fail at deadlines, and the
+  two timed windows above. Drivers keep bit-identical
+  wire behavior by construction: they send the initial
+  flight, then loop recv-until-`next_timeout` → handle →
+  tick. Do not land this without the OpenSSL suites and
+  the resumption/CID suites green at every step.
 - The FFI shape, when it comes, should copy SCTP's exactly
   (opaque handle, length-prefixed buffers, outputs stashed
   in the handle with a `drain` re-read: a too-small buffer
