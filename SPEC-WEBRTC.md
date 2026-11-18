@@ -629,8 +629,18 @@ vectors through every surface. Measured FFI tax: ~311 ns /
 mirrored Go stack — the price of one conformance-tested
 implementation, not a speedup.
 
-DTLS is **partially** extracted (2026-11-17): the
-established-phase state now lives in `DtlsCore`
+DTLS extraction status (2026-11-17): the handshake is
+lifted. `DtlsHandshake` is the resumable flight machine
+(client cookie loop, resumption classification window,
+server flight, ticket capture — stage-for-stage the
+driven code's semantics), `connect`/`accept` are drivers
+over it, and the OpenSSL differentials, resumption/CID
+suites, and sans-io pump tests
+(`tests/dtls_handshake.rs`: virtual clock, dropped-flight
+retransmit via `tick`) are green. `crates/dc-dtls-ffi`
+exposes the machine + established core in the SCTP FFI
+shape, with FFI↔FFI and FFI↔driven interop tests. The
+established-phase state lives in `DtlsCore`
 (`handle_datagram` / `encrypt_app`, replay window, session
 state), pumped sans-io by any driver; `Dtls<I: DtlsIo>` is
 that driver and its public API is unchanged, so every

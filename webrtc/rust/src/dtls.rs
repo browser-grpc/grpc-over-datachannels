@@ -918,6 +918,46 @@ impl DtlsHandshake {
         self.failure.as_deref()
     }
 
+    /// Encrypt app data (established phase only).
+    pub fn encrypt_app(&mut self, data: &[u8]) -> Option<Vec<u8>> {
+        if self.established() {
+            self.core.encrypt_app(data).ok()
+        } else {
+            None
+        }
+    }
+
+    /// Decrypt one app datagram (established phase only):
+    /// Some(Ok(Some(payload))) for app data, Some(Ok(None))
+    /// for other records, Some(Err) on alert/crypto failure,
+    /// None before establishment.
+    pub fn handle_app_datagram(&mut self, packet: &[u8]) -> Option<io::Result<Option<Vec<u8>>>> {
+        if self.established() {
+            Some(self.core.handle_datagram(packet))
+        } else {
+            None
+        }
+    }
+
+    /// Captured resumption state (established phase).
+    pub fn take_session(&mut self) -> Option<DtlsSession> {
+        if self.established() {
+            self.core.take_session()
+        } else {
+            None
+        }
+    }
+
+    /// Peer certificate fingerprint, once known.
+    pub fn peer_fingerprint(&self) -> Option<String> {
+        self.core.peer_fingerprint()
+    }
+
+    /// Whether this handshake resumed a prior session.
+    pub fn was_resumed(&self) -> bool {
+        self.core.was_resumed()
+    }
+
     /// The finished connection, once established.
     pub fn into_core(self) -> Option<DtlsCore> {
         if self.stage == HsStage::Established {
