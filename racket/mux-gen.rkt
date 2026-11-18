@@ -5,9 +5,9 @@
 ;;; (webrtc/rust/tests/mux.rs), Go (webrtc/go/mux_test.go),
 ;;; JS Node (webrtc/js/test/mux.test.js). Invoked from
 ;;; metagen.rkt so `make generate` regenerates everything in
-;;; one pass. The stacks' PeerMux implementations are
-;;; hand-mirrored (like the stacks themselves); the parity
-;;; scenario is generated so it cannot drift.
+;;; one pass. The stacks' PeerMux drivers are hand-written
+;;; over the shared Rust cores; the parity scenario is
+;;; generated so it cannot drift.
 
 (require "mux-spec.rkt" racket/runtime-path)
 (provide generate-mux-tests)
