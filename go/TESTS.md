@@ -21,6 +21,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`deadline_test.go`](deadline_test.go) — Deadline propagation and enforcement
 - [`dynamic_test.go`](dynamic_test.go) — Generated suite/example
 - [`echo_e2e_test.go`](echo_e2e_test.go) — Echo: all four call shapes
+- [`pb_bench_test.go`](eventbus/pb_bench_test.go) — Generated suite/example
 - [`eventbus_test.go`](eventbus_test.go) — Event bus end-to-end
 - [`echo_pb_test.go`](examples/echo_pb_test.go) — Echo: all four call shapes
 - [`otlp_tracer_test.go`](examples/otlp_tracer_test.go) — Tracing: traceparent propagation, span observers, nested calls
