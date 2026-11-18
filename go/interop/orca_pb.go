@@ -143,6 +143,12 @@ type OrcaLoadReportRequest struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *OrcaLoadReportRequest) Reset() {
+	*m = OrcaLoadReportRequest{}
+}
+
 func (m *OrcaLoadReportRequest) MarshalDC() []byte {
 	var out []byte
 	out = append(out, m.UnknownFields...)

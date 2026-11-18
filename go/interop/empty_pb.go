@@ -143,6 +143,12 @@ type Empty struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *Empty) Reset() {
+	*m = Empty{}
+}
+
 func (m *Empty) MarshalDC() []byte {
 	var out []byte
 	out = append(out, m.UnknownFields...)
