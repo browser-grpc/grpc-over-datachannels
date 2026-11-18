@@ -372,6 +372,15 @@ RUN cd zig && zig build --prefix build
 # The rest of the repo.
 COPY . .
 
+# Tests shell out to git (releasegen exports from
+# `git ls-files`; several suites call `git describe` /
+# `git rev-parse`), but the build context excludes .git.
+# Synthesize a repo over the copied tree so those work
+# exactly as in a checkout.
+RUN git init -q && git add -A \
+  && git -c user.email=ci@localhost -c user.name=ci commit -qm "ci snapshot" \
+  && git tag v0.0.0-ci
+
 # Reproduce every generated artifact in-image (plugins, wire tables,
 # fixtures, stubs) — this is also the toolchain smoke test.
 RUN make generate
