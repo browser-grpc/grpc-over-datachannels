@@ -94,7 +94,10 @@ class WasmDtlsConnection {
       const packet = await this.#io.recv(remaining);
       if (packet === null) return null;
       const payload = this.#inner.handleApp(packet);
-      if (payload !== null) return asBuffer(payload);
+      // wasm-bindgen maps None to undefined (not null):
+      // a non-app record (ticket, alert-free control) must
+      // be skipped, never dereferenced.
+      if (payload != null) return asBuffer(payload);
     }
   }
 }

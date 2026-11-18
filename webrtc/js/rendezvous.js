@@ -182,18 +182,32 @@ export class RendezvousListener {
     const session = { remoteUfrag, peer: null, endpoint: null };
     const endpoint = new RendezvousEndpoint(this, session);
     session.endpoint = endpoint;
-    const peer = await Peer.createWithSocket(endpoint, {
-      localIps: this.#localIps,
-      requirePeerCertificate: false,
-      iceUfrag: this.#iceUfrag,
-      icePwd: this.#icePwd,
-      certificate: this.#certificate,
-      consentIntervalMs: this.#consentIntervalMs,
-      consentExpiryMs: this.#consentExpiryMs,
-    });
-    session.peer = peer;
+    // Register before the (async) peer creation: with the
+    // Rust-core Wasm load inside createWithSocket, the gap
+    // is wide enough that a second packet for the same
+    // ufrag would otherwise spawn a duplicate session and
+    // split the dial across two agents. Packets arriving
+    // meanwhile are dropped by the peer==null guards in
+    // #route/#deliver; browsers retransmit checks and the
+    // first DTLS flight, so the dial still completes.
     this.#sessionsByRemote.set(remoteUfrag, session);
     this.#sessionsBySrc.set(`${rinfo.address}:${rinfo.port}`, session);
+    let peer;
+    try {
+      peer = await Peer.createWithSocket(endpoint, {
+        localIps: this.#localIps,
+        requirePeerCertificate: false,
+        iceUfrag: this.#iceUfrag,
+        icePwd: this.#icePwd,
+        certificate: this.#certificate,
+        consentIntervalMs: this.#consentIntervalMs,
+        consentExpiryMs: this.#consentExpiryMs,
+      });
+    } catch (e) {
+      this.dropSession(session);
+      throw e;
+    }
+    session.peer = peer;
     peer.handleRendezvousOffer(synthesizedOffer(rinfo, remoteUfrag));
     endpoint.deliver(firstPacket, rinfo);
     void (async () => {
