@@ -150,5 +150,34 @@ await client2.bidi("/echo.Echo/Bidi", [req("x"), req("y")], (bytes) =>
 console.log("server-bridge bidi:", sechoed.join(","));
 if (sechoed.join(",") !== "x,y") throw new Error("server-bridge bidi mismatch");
 
+// --- incremental server handlers (pull-based source) ---
+const [e, f] = memoryDataChannelPair();
+const incServer = createRustGrpcDcServerBridge(f, BridgeServer);
+incServer.registerClientStreamInc("/echo.Echo/ClientStream", async (source) => {
+  const parts = [];
+  let bytes;
+  while ((bytes = await source.next()) !== null) parts.push(decReq(bytes).message);
+  return encResp(new EchoResponse({ message: parts.join("+"), index: parts.length }));
+});
+incServer.registerBidiInc("/echo.Echo/Bidi", async (source, _meta, onMessage) => {
+  let bytes;
+  let index = 0;
+  while ((bytes = await source.next()) !== null) {
+    onMessage(encResp(new EchoResponse({ message: decReq(bytes).message, index: index++ })));
+  }
+});
+incServer.start("echo.Echo");
+
+const client3 = createRustGrpcDcBridge(e, BridgeCore);
+const ijoined = dec(await client3.clientStream("/echo.Echo/ClientStream", [req("a"), req("b")]));
+console.log("inc clientStream:", ijoined.message);
+if (ijoined.message !== "a+b") throw new Error("inc clientStream mismatch");
+const iechoed = [];
+await client3.bidi("/echo.Echo/Bidi", [req("x"), req("y")], (bytes) =>
+  iechoed.push(dec(bytes).message)
+);
+console.log("inc bidi:", iechoed.join(","));
+if (iechoed.join(",") !== "x,y") throw new Error("inc bidi mismatch");
+
 console.log("SMOKE OK");
 process.exit(0);

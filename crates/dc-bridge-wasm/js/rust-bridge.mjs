@@ -67,6 +67,9 @@ export function createRustGrpcDcServerBridge(dc, BridgeServer) {
     registerClientStream: (path, handler) =>
       server.registerClientStream(path, handler),
     registerBidi: (path, handler) => server.registerBidi(path, handler),
+    registerClientStreamInc: (path, handler) =>
+      server.registerClientStreamInc(path, handler),
+    registerBidiInc: (path, handler) => server.registerBidiInc(path, handler),
     start: (serviceName) => server.start(serviceName),
   };
 }

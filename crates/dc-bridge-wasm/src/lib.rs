@@ -182,8 +182,40 @@ async fn next_request(
 use grpc_dc::server::{MethodHandler, ServerCall};
 use grpc_dc::{MethodDef, MethodKind, Server, ServiceDef};
 
+/// Build the JS `source` object for incremental handlers:
+/// { next(): Promise<Uint8Array|null> } pulling requests
+/// one at a time from the call's request stream.
+fn request_source(
+    requests: grpc_dc::RequestStream<bytes::Bytes>,
+) -> js_sys::Object {
+    let cell = std::rc::Rc::new(std::cell::RefCell::new(requests));
+    let next = Closure::wrap(Box::new(move || {
+        let cell = cell.clone();
+        wasm_bindgen_futures::future_to_promise(async move {
+            use futures_util::StreamExt;
+            let item = {
+                let mut stream = cell.borrow_mut();
+                stream.next().await
+            };
+            match item {
+                Some(Ok(bytes)) => Ok(js_sys::Uint8Array::from(&bytes[..]).into()),
+                _ => Ok(JsValue::NULL),
+            }
+        })
+    }) as Box<dyn FnMut() -> js_sys::Promise>);
+    let source = js_sys::Object::new();
+    let _ = js_sys::Reflect::set(
+        &source,
+        &JsValue::from_str("next"),
+        next.as_ref().unchecked_ref(),
+    );
+    next.forget();
+    source
+}
+
 fn make_handler(
     kind: MethodKind,
+    inc: bool,
     handler: js_sys::Function,
 ) -> MethodHandler {
     let handler = std::sync::Arc::new(JsHandler(handler));
@@ -191,6 +223,49 @@ fn make_handler(
         let handler = handler.clone();
         let fut = SendFuture(async move {
             let meta = meta_pairs(&call.ctx.metadata);
+            if inc && matches!(kind, MethodKind::ClientStreaming | MethodKind::BidiStreaming) {
+                let grpc_dc::server::ServerCall {
+                    ctx: _ctx,
+                    requests,
+                    sink,
+                } = call;
+                let source = request_source(requests);
+                return match kind {
+                    MethodKind::ClientStreaming => {
+                        let promise = handler
+                            .0
+                            .call2(&JsValue::NULL, &source.into(), &meta.into())
+                            .map_err(js_status)?;
+                        let resp = await_js(promise).await?;
+                        let bytes = js_sys::Uint8Array::from(resp).to_vec();
+                        sink.send(bytes).await
+                    }
+                    _ => {
+                        let sink2 = sink.clone();
+                        let sink = sink2;
+                        let on_message = Closure::wrap(Box::new(move |data: JsValue| {
+                            let bytes = js_sys::Uint8Array::from(data).to_vec();
+                            let sink = sink.clone();
+                            wasm_bindgen_futures::spawn_local(async move {
+                                let _ = sink.send(bytes).await;
+                            });
+                        })
+                            as Box<dyn FnMut(JsValue)>);
+                        let promise = handler
+                            .0
+                            .call3(
+                                &JsValue::NULL,
+                                &source.into(),
+                                &meta.into(),
+                                on_message.as_ref().unchecked_ref(),
+                            )
+                            .map_err(js_status)?;
+                        let result = await_js(promise).await;
+                        on_message.forget();
+                        result.map(|_| ())
+                    }
+                };
+            }
             match kind {
                 MethodKind::Unary => {
                     let req = next_request(&mut call).await;
@@ -295,7 +370,7 @@ fn make_handler(
 #[wasm_bindgen]
 pub struct BridgeServer {
     transport: Arc<WasmTransport>,
-    handlers: Vec<(String, MethodKind, js_sys::Function)>,
+    handlers: Vec<(String, MethodKind, bool, js_sys::Function)>,
     started: bool,
 }
 
@@ -321,24 +396,36 @@ impl BridgeServer {
 
     #[wasm_bindgen(js_name = registerUnary)]
     pub fn register_unary(&mut self, path: String, handler: js_sys::Function) {
-        self.handlers.push((path, MethodKind::Unary, handler));
+        self.handlers.push((path, MethodKind::Unary, false, handler));
     }
 
     #[wasm_bindgen(js_name = registerServerStream)]
     pub fn register_server_stream(&mut self, path: String, handler: js_sys::Function) {
         self.handlers
-            .push((path, MethodKind::ServerStreaming, handler));
+            .push((path, MethodKind::ServerStreaming, false, handler));
     }
 
     #[wasm_bindgen(js_name = registerClientStream)]
     pub fn register_client_stream(&mut self, path: String, handler: js_sys::Function) {
         self.handlers
-            .push((path, MethodKind::ClientStreaming, handler));
+            .push((path, MethodKind::ClientStreaming, false, handler));
     }
 
     #[wasm_bindgen(js_name = registerBidi)]
     pub fn register_bidi(&mut self, path: String, handler: js_sys::Function) {
-        self.handlers.push((path, MethodKind::BidiStreaming, handler));
+        self.handlers.push((path, MethodKind::BidiStreaming, false, handler));
+    }
+
+    #[wasm_bindgen(js_name = registerClientStreamInc)]
+    pub fn register_client_stream_inc(&mut self, path: String, handler: js_sys::Function) {
+        self.handlers
+            .push((path, MethodKind::ClientStreaming, true, handler));
+    }
+
+    #[wasm_bindgen(js_name = registerBidiInc)]
+    pub fn register_bidi_inc(&mut self, path: String, handler: js_sys::Function) {
+        self.handlers
+            .push((path, MethodKind::BidiStreaming, true, handler));
     }
 
     /// Group registered paths by service ("/svc/Method") and
@@ -351,7 +438,7 @@ impl BridgeServer {
         }
         self.started = true;
         let mut services: Vec<(String, Vec<MethodDef>)> = Vec::new();
-        for (path, kind, handler) in std::mem::take(&mut self.handlers) {
+        for (path, kind, inc, handler) in std::mem::take(&mut self.handlers) {
             let trimmed = path.trim_start_matches('/');
             let (service, method) = match trimmed.rsplit_once('/') {
                 Some((s, m)) => (s.to_string(), m.to_string()),
@@ -364,7 +451,7 @@ impl BridgeServer {
             let def = MethodDef {
                 name,
                 kind,
-                handler: make_handler(kind, handler),
+                handler: make_handler(kind, inc, handler),
             };
             match services.iter_mut().find(|(n, _)| *n == service) {
                 Some((_, methods)) => methods.push(def),
