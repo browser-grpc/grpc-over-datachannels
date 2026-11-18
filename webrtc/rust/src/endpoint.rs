@@ -285,26 +285,36 @@ fn run_loop<I: DtlsIo>(
     let mut chunking = false;
     let mut reassemblers: HashMap<u16, DcChunkReassembler> = HashMap::new();
 
+    // Idle strategy: the pump is a single thread (DTLS send/recv
+    // share one state), so application commands and SCTP timers
+    // wait out the current receive slice. Inbound packets wake
+    // the receive instantly; the slice only caps how long a
+    // queued command or timer can wait. While the endpoint is
+    // active (traffic within IDLE_WINDOW) the slice is 50 us,
+    // so request/response exchanges do not pay it; once quiet,
+    // it relaxes to 1 ms (1k wakeups/s per endpoint, negligible).
+    // History: a flat 5 ms slice gave 19 ms loopback RTT; the
+    // adaptive slice is what the ~2 ms -> sub-ms step is made of.
+    let mut last_activity = Instant::now();
     loop {
-        // 1) Inbound SCTP packets from DTLS. The pump is a single
-        // thread (DTLS send/recv share one state), so application
-        // commands and SCTP timers wait out the current receive
-        // slice; 1 ms bounds that latency to ~1 ms per side while
-        // idle wakeups stay negligible (1k/s per endpoint). This
-        // slice dominated loopback RTT at 5 ms (bench-mux: 19 ms
-        // mean before, ~2 ms after).
+        // 1) Inbound SCTP packets from DTLS.
         // Drain every queued inbound packet before moving on, so
         // bursts do not serialize one packet per pump iteration.
         let mut first = true;
         loop {
             let timeout = if first {
-                Duration::from_millis(1)
+                if last_activity.elapsed() < Duration::from_millis(5) {
+                    Duration::from_micros(50)
+                } else {
+                    Duration::from_millis(1)
+                }
             } else {
                 Duration::ZERO
             };
             first = false;
             match dtls.recv_app_timeout(timeout) {
                 Ok(Some(packet)) => {
+                    last_activity = Instant::now();
                     let (out, events) = assoc.handle_packet(&packet, now(start));
                     for p in out {
                         let _ = dtls.send_app(&p);
@@ -331,6 +341,9 @@ fn run_loop<I: DtlsIo>(
 
         // 2) SCTP timers.
         let (out, events) = assoc.tick(now(start));
+        if !out.is_empty() || !events.is_empty() {
+            last_activity = Instant::now();
+        }
         for p in out {
             let _ = dtls.send_app(&p);
         }
@@ -351,7 +364,11 @@ fn run_loop<I: DtlsIo>(
 
         // 3) Application commands (non-blocking drain).
         loop {
-            match cmd_rx.try_recv() {
+            let received = cmd_rx.try_recv();
+            if received.is_ok() {
+                last_activity = Instant::now();
+            }
+            match received {
                 Ok(Cmd::Open { params, respond }) => {
                     let stream = next_stream;
                     next_stream = next_stream.wrapping_add(2);

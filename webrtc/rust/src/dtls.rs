@@ -833,12 +833,13 @@ impl<I: DtlsIo> Dtls<I> {
     }
 
     pub fn recv_app_timeout(&mut self, timeout: Duration) -> io::Result<Option<Vec<u8>>> {
-        let clock = crate::platform::clock();
-        let deadline_ms = clock.now_ms() + timeout.as_millis() as u64;
+        // Sub-millisecond timeouts must survive: the endpoint
+        // pump passes 50 us receive slices while active, and a
+        // whole-ms deadline would truncate those to zero (the
+        // receive then never waits and packets stall).
+        let deadline = std::time::Instant::now() + timeout;
         loop {
-            let remaining = Duration::from_millis(
-                deadline_ms.saturating_sub(clock.now_ms()),
-            );
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
             if remaining.is_zero() {
                 return Ok(None);
             }
