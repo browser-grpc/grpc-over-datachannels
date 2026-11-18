@@ -1,0 +1,56 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>grpc-dc Scala.js client test</title>
+<script type="module">
+import initBridge, { BridgeCore } from "/browser-test/dc_bridge_gen/dc_bridge_wasm.js";
+import { createRustGrpcDcBridge } from "/crates/dc-bridge-wasm/js/rust-bridge.mjs";
+import { setTracer } from "/js/index.js";
+
+// Matrix tracing (?trace=1): record JS-runtime spans (the wire
+// owner for facade calls) for the Playwright driver.
+if (new URLSearchParams(location.search).has("trace")) {
+  window.__spans = { starts: [], ends: [] };
+  setTracer({
+    onStart: (kind, method, traceId, spanId, parentSpanId) =>
+      window.__spans.starts.push({ kind, method, traceId, spanId, parentSpanId }),
+    onEnd: (kind, method, traceId, spanId, status, durationMs) =>
+      window.__spans.ends.push({ kind, method, traceId, spanId, status, durationMs }),
+  });
+}
+import { runScalaJsEcho } from "/browser-test/scalajs_gen/echo_scalajs_client.mjs";
+
+// The calls originate in Scala.js (generated facade:
+// wasm/scalajs/EchoScalaJsGrpcDc.scala over
+// wasm/scalajs/bridge.scala); the JS grpc-dc implementation
+// owns the wire. Scala.js interop passes the bridge object
+// directly, unlike the env-import facades on
+// wasm_facade_page.html.
+const pc = new RTCPeerConnection();
+window.__pc = pc;
+const dc = pc.createDataChannel("grpc");
+window.__dc = dc;
+
+window.__acceptAnswer = async (sdp) => {
+  await pc.setRemoteDescription({ type: "answer", sdp });
+};
+
+window.__runWasm = async () => {
+  if (dc.readyState !== "open") {
+    await new Promise((resolve) => dc.addEventListener("open", resolve, { once: true }));
+  }
+  await initBridge(await (await fetch("/browser-test/dc_bridge_gen/dc_bridge_wasm_bg.wasm")).arrayBuffer());
+  const bridge = createRustGrpcDcBridge(dc, BridgeCore);
+  const json = await runScalaJsEcho(bridge);
+  return JSON.parse(json);
+};
+
+const offer = await pc.createOffer();
+await pc.setLocalDescription(offer);
+await new Promise((resolve) => {
+  if (pc.iceGatheringState === "complete") resolve();
+  else pc.addEventListener("icegatheringstatechange", () => {
+    if (pc.iceGatheringState === "complete") resolve();
+  });
+});
+window.__offer = pc.localDescription.sdp;
+</script>

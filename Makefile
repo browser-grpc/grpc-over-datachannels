@@ -907,6 +907,8 @@ test-swift-wasm-browser:
 		$(SWIFT_WASM_LIBDIR)/libswiftExclusivitySingleThreaded.a \
 		-o browser-test/echo_swift.wasm
 	cd browser-test && node wasm_facade.test.mjs Swift "wasm_facade_page.html?wasm=/browser-test/echo_swift.wasm" all
+	cd crates/dc-bridge-wasm && wasm-pack build --release --target web --out-dir ../../browser-test/dc_bridge_gen
+	cd browser-test && node wasm_facade.test.mjs Swift "wasm_facade_rust_page.html?wasm=/browser-test/echo_swift.wasm" all
 
 # Native Swift WASM runtime: the real grpcdc runtime +
 # native generated stub as Embedded Swift
@@ -969,6 +971,8 @@ test-kotlin-wasm-browser:
 		-ir-output-name echo_kotlin \
 		-module-kind es -target es2015 -main noCall -Xir-produce-js
 	cd browser-test && node wasm_facade.test.mjs Kotlin wasm_kotlin_page.html all
+	cd crates/dc-bridge-wasm && wasm-pack build --release --target web --out-dir ../../browser-test/dc_bridge_gen
+	cd browser-test && node wasm_facade.test.mjs Kotlin wasm_kotlin_rust_page.html all
 	cd browser-test && node wasm_kotlin_facade_server.test.mjs all
 	cd browser-test && node wasm_kotlin_stream_server.test.mjs all
 
@@ -1036,6 +1040,8 @@ scalajs-gen:
 
 test-scalajs-browser: scalajs-gen
 	cd browser-test && node wasm_facade.test.mjs ScalaJS wasm_scalajs_page.html all
+	cd crates/dc-bridge-wasm && wasm-pack build --release --target web --out-dir ../../browser-test/dc_bridge_gen
+	cd browser-test && node wasm_facade.test.mjs ScalaJS wasm_scalajs_rust_page.html all
 	cd browser-test && node wasm_scalajs_facade_server.test.mjs all
 	cd browser-test && node wasm_scalajs_stream_server.test.mjs all
 
