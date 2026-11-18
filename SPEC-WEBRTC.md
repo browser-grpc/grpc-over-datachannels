@@ -616,3 +616,51 @@ found by running real browsers (`browser-test/`) and fixed:
   nominated pair, media drifts mid-session. The destination is pinned
   to the connect-time pair and switches only at an ICE restart's
   renomination.
+
+## Shared-core extraction (assessed 2026-11-17)
+
+SCTP is unified: the Rust association is the single core
+(`crates/dc-sctp-ffi`, C ABI, sans-io `handle_packet`/`tick`),
+consumed in production by the Go endpoint behind the
+`sctpAssoc` seam (`dc_sctp` build tag; the whole webrtc/go
+suite passes on either backend) and proven by the shared
+vectors through every surface. Measured FFI tax: ~311 ns /
+0 allocs per 200-byte delivery vs 173 ns / 3 allocs for the
+mirrored Go stack — the price of one conformance-tested
+implementation, not a speedup.
+
+DTLS and ICE are **not** yet extractable, by design of their
+current APIs, and this section records why so the work is
+not half-started:
+
+- `Dtls<I: DtlsIo>` bakes I/O into the type: `send_packet` /
+  `recv_packet(timeout)` are called from inside handshake
+  and record code, flight retransmit is driven by receive
+  timeouts, and clock/entropy arrive via the platform
+  trait. A shared core needs the SCTP treatment first: a
+  sans-io `DtlsConn` (`handle_datagram(bytes, now) ->
+  (datagrams, events)`, `tick(now)`, app-data in/out queues)
+  with the existing `DtlsIo` kept as its driver for current
+  hosts. Handshake timing — not record crypto — is the
+  subtle part; the OpenSSL cross-checks
+  (`crypto_openssl` / `dtls_openssl` suites) are the oracle
+  any refactor must stay green against.
+- The FFI shape, when it comes, should copy SCTP's exactly
+  (opaque handle, length-prefixed buffers, outputs stashed
+  in the handle with a `drain` re-read: a too-small buffer
+  must never re-run a state-advancing call). Host callbacks
+  (fingerprint verification, ticket keys) cross as data,
+  never as function pointers, matching the rendezvous-auth
+  split.
+- ICE is closer (agent state + `due_checks`), but candidate
+  gathering, TURN allocations, and mDNS resolution perform
+  network I/O from inside agent code; those need I/O seams
+  before the agent is pump-driven like the association.
+
+Sequencing, when scheduled: sans-io DTLS in dc-webrtc
+(driver-compatible) → OpenSSL differential green → FFI +
+Go seam consumption (same pattern as `sctpAssoc`) → JS via
+the bridge transport. Estimate: multi-week. Until then the
+three DTLS/ICE implementations stay mirrored, with the
+OpenSSL differentials and the interop matrix as their
+conformance net.
