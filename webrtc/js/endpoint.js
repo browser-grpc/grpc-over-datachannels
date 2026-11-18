@@ -16,7 +16,10 @@ import {
   isAck,
   sendOptionsOf,
 } from "./dcep.js";
-import { Association, SCTP_PORT } from "./sctp.js";
+// The SCTP association is supplied by the caller
+// (assocFactory): the shared Rust core via sctp_wasm.js.
+// There is no JS SCTP stack anymore.
+export const SCTP_PORT = 5000;
 
 // DC message chunking (mirrors js/src/chunking.js and the
 // Rust/Go stacks): browsers cap one RTCDataChannel message at
@@ -156,13 +159,9 @@ export class DcEndpoint {
     this.dtls = dtls;
     this.role = role;
     // assocFactory(role, localPort) supplies the SCTP
-    // association (e.g. the shared Rust core via
-    // sctp_wasm.js); default is the mirrored JS stack.
-    this.assoc = assocFactory
-      ? assocFactory(role, localPort)
-      : role === "client"
-        ? Association.newClient(localPort)
-        : Association.newServer(localPort);
+    // association (the shared Rust core via sctp_wasm.js).
+    if (!assocFactory) throw new Error("DcEndpoint requires an assocFactory (Rust SCTP core)");
+    this.assoc = assocFactory(role, localPort);
     this.channels = new Map();
     this.nextStream = role === "client" ? 0 : 1;
     // Channels opened by the peer before a handler is registered

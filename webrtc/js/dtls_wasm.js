@@ -79,6 +79,12 @@ class WasmDtlsConnection {
     await this.#io.send(asBuffer(this.#inner.encryptApp(Buffer.from(data))));
   }
 
+  async recvApp(timeoutMs = 60000) {
+    const payload = await this.recvAppTimeout(timeoutMs);
+    if (payload === null) throw new Error("timed out waiting for application data");
+    return payload;
+  }
+
   /** Returns null on timeout instead of throwing. */
   async recvAppTimeout(timeoutMs) {
     const deadline = Date.now() + timeoutMs;

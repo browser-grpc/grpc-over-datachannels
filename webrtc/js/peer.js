@@ -7,11 +7,11 @@
 import dgram from "node:dgram";
 import net from "node:net";
 import os from "node:os";
-import { DtlsConnection } from "./dtls.js";
 import { emitStackEvent } from "./trace.js";
 import { resolveMdns } from "./mdns.js";
 import { DcEndpoint } from "./endpoint.js";
-import { Candidate, IceAgent } from "./ice.js";
+import { Candidate } from "./candidate.js";
+import { loadRustCores } from "./rust_cores.js";
 import { StunAttribute, StunMessageType } from "./proto_gen.js";
 import { StunMessage, decodeMappedAddress, isIpv6, normalizeIp, parseHostPort, parseIp } from "./stun.js";
 import { generate, parse } from "./sdp.js";
@@ -26,44 +26,6 @@ import {
   wrapSendIndication,
 } from "./turn.js";
 import { Certificate } from "./x509.js";
-import { readFileSync } from "node:fs";
-
-// The shared Rust cores (SCTP/DTLS/ICE compiled to Wasm)
-// are the default backends. Loading is async and cached;
-// explicit factories or rustCores:false select the
-// mirrored JS stacks instead. The .wasm binaries are
-// build artifacts (wasm-pack output, gitignored); a
-// missing file fails create() with the path in the error.
-let rustCoresPromise = null;
-function loadRustCores() {
-  if (!rustCoresPromise) {
-    rustCoresPromise = (async () => {
-      const [{ loadSctpWasm }, { loadDtlsWasm }, { loadIceWasm }] = await Promise.all([
-        import("./sctp_wasm.js"),
-        import("./dtls_wasm.js"),
-        import("./ice_wasm.js"),
-      ]);
-      const bytes = (rel) => readFileSync(new URL(rel, import.meta.url));
-      const [sctp, dtls, ice] = await Promise.all([
-        loadSctpWasm(bytes("../../browser-test/dc_sctp_gen/dc_sctp_wasm_bg.wasm")),
-        loadDtlsWasm(bytes("../../browser-test/dc_dtls_gen/dc_dtls_wasm_bg.wasm")),
-        loadIceWasm(bytes("../../browser-test/dc_ice_gen/dc_ice_wasm_bg.wasm")),
-      ]);
-      return {
-        assocFactory: (role, localPort) =>
-          role === "client"
-            ? sctp.Association.newClient(localPort)
-            : sctp.Association.newServer(localPort),
-        dtlsFactory: (io, config, role) =>
-          role === "client"
-            ? dtls.DtlsConnection.connect(io, config)
-            : dtls.DtlsConnection.accept(io, config),
-        iceAgentFactory: (controlling) => new ice.IceAgent(controlling),
-      };
-    })();
-  }
-  return rustCoresPromise;
-}
 
 function defaultLocalIps() {
   const ips = ["127.0.0.1"];
@@ -141,7 +103,6 @@ export class Peer {
     assocFactory = null,
     iceAgentFactory = null,
     dtlsFactory = null,
-    rustCores = true,
   } = {}) {
     const effectiveIps = localIps ?? defaultLocalIps();
     // A dual-stack udp6 socket serves IPv6 candidates (and IPv4
@@ -169,7 +130,6 @@ export class Peer {
       assocFactory,
       iceAgentFactory,
       dtlsFactory,
-      rustCores,
     });
   }
 
@@ -202,16 +162,10 @@ export class Peer {
     const effectiveIps = localIps ?? defaultLocalIps();
     const { port } = socket.address();
     // Resolve the shared Rust cores unless every factory
-    // was supplied or the mirrors were requested.
+    // was supplied explicitly.
     const rust =
-      rustCores && !(assocFactory && dtlsFactory && iceAgentFactory)
-        ? await loadRustCores()
-        : null;
-    const agent = iceAgentFactory
-      ? iceAgentFactory(true)
-      : rust
-        ? rust.iceAgentFactory(true)
-        : new IceAgent(true);
+      assocFactory && dtlsFactory && iceAgentFactory ? null : await loadRustCores();
+    const agent = iceAgentFactory ? iceAgentFactory(true) : rust.iceAgentFactory(true);
     if (iceUfrag) agent.localUfrag = iceUfrag;
     if (icePwd) agent.localPwd = icePwd;
     agent.localCandidates = effectiveIps.map((ip, i) =>
@@ -728,11 +682,8 @@ export class Peer {
     if (config.connectionId && this.#agent.remoteUfrag) {
       config.pairHint = Buffer.from(this.#agent.remoteUfrag, "utf8");
     }
-    const dtls = this.#dtlsFactory
-      ? await this.#dtlsFactory(io, config, this.#dtlsRole)
-      : this.#dtlsRole === "client"
-        ? await DtlsConnection.connect(io, config)
-        : await DtlsConnection.accept(io, config);
+    if (!this.#dtlsFactory) throw new Error("peer created without a DTLS factory");
+    const dtls = await this.#dtlsFactory(io, config, this.#dtlsRole);
     emitStackEvent("dtls.handshake", dtls.wasResumed?.() ? "resumed" : "full");
     this.#endpoint = new DcEndpoint(dtls, this.#dtlsRole, { chunkMessages: this.#chunkMessages, assocFactory: this.#assocFactory });
     emitStackEvent("endpoint.ready", this.#dtlsRole);

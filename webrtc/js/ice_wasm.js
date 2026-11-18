@@ -11,7 +11,7 @@
 // changes into the core first, and core-owned state
 // (nomination, generation) is read back, never shadowed.
 import init, { Ice } from "../../browser-test/dc_ice_gen/dc_ice_wasm.js";
-import { Candidate } from "./ice.js";
+import { Candidate } from "./candidate.js";
 
 const asBuffer = (u8) => Buffer.from(u8.buffer, u8.byteOffset, u8.byteLength).slice();
 

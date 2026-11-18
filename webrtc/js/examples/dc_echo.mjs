@@ -3,7 +3,8 @@
 
 import dgram from "node:dgram";
 import { createInterface } from "node:readline";
-import { DtlsConnection, udpPacketIo } from "../dtls.js";
+import { udpPacketIo } from "../dtls_shared.js";
+import { loadRustCores } from "../rust_cores.js";
 import { DcEndpoint } from "../endpoint.js";
 import { Certificate } from "../x509.js";
 
@@ -55,9 +56,9 @@ if (mode === "server") {
   await new Promise((resolve) => socket.bind(port, "127.0.0.1", resolve));
   // Report the bound port (the arg may be 0).
   console.error(`LISTENING ${socket.address().port}`);
-  const dtls = await DtlsConnection.accept(serverIo(socket), config());
+  const dtls = await (await loadRustCores()).DtlsConnection.accept(serverIo(socket), config());
   console.error("HANDSHAKE_OK");
-  const endpoint = new DcEndpoint(dtls, "server");
+  const endpoint = new DcEndpoint(dtls, "server", { assocFactory: (await loadRustCores()).assocFactory });
   endpoint.onchannel = (channel) => {
     console.error(`CHANNEL_OPEN stream=${channel.id} label=${channel.label}`);
     channel.onmessage = (event) => {
@@ -70,12 +71,12 @@ if (mode === "server") {
 } else if (mode === "client") {
   const socket = dgram.createSocket("udp4");
   await new Promise((resolve) => socket.bind(0, "127.0.0.1", resolve));
-  const dtls = await DtlsConnection.connect(
+  const dtls = await (await loadRustCores()).DtlsConnection.connect(
     udpPacketIo(socket, { address: "127.0.0.1", port }),
     config(),
   );
   console.error("HANDSHAKE_OK");
-  const endpoint = new DcEndpoint(dtls, "client");
+  const endpoint = new DcEndpoint(dtls, "client", { assocFactory: (await loadRustCores()).assocFactory });
   const channel = endpoint.openChannel({ label: "echo" });
   const replies = [];
   channel.onmessage = (event) => {

@@ -169,17 +169,14 @@
   ;; SCTP reassembly, generated from the shared DSL
   ;; (sctp-dsl.rkt). The Go stack consumes the Rust core
   ;; (crates/dc-sctp-ffi), so only JS/Rust are emitted.
-  (call-with-output-file (build-path root "webrtc" "js" "sctp_reassembly_gen.js") #:exists 'replace
-    (lambda (out) (display (emit-js-sctp-reassembly) out)))
-  (printf "generated webrtc/js/sctp_reassembly_gen.js\n")
+  ;; (JS reassembly emission removed: the JS stack
+  ;; consumes the Rust core via dc-sctp-wasm.)
   (call-with-output-file (build-path root "webrtc" "rust" "src" "sctp_reassembly_gen.rs") #:exists 'replace
     (lambda (out) (display (emit-rust-sctp-reassembly) out)))
   (printf "generated webrtc/rust/src/sctp_reassembly_gen.rs\n")
   ;; SCTP SACK/gap/retransmit, generated from the same DSL
   ;; (phase 3); Go emission removed with the mirror.
-  (call-with-output-file (build-path root "webrtc" "js" "sctp_sack_gen.js") #:exists 'replace
-    (lambda (out) (display (emit-js-sctp-sack) out)))
-  (printf "generated webrtc/js/sctp_sack_gen.js\n")
+  ;; (JS SACK emission removed with the mirror.)
   (call-with-output-file (build-path root "webrtc" "rust" "src" "sctp_sack_gen.rs") #:exists 'replace
     (lambda (out) (display (emit-rust-sctp-sack) out)))
   (printf "generated webrtc/rust/src/sctp_sack_gen.rs\n"))

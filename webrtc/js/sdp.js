@@ -1,7 +1,7 @@
 // SDP (RFC 8866) offer/answer subset for one datachannel m-section —
 // mirroring webrtc/rust/src/sdp.rs.
 
-import { Candidate } from "./ice.js";
+import { Candidate } from "./candidate.js";
 
 export function generate(desc, isOffer) {
   const lines = [

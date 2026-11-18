@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { Peer } from "../peer.js";
-import { Candidate } from "../ice.js";
+import { Candidate } from "../candidate.js";
 import {
   StunMessage,
   decodeMappedAddress,
