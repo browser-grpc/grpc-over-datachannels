@@ -629,22 +629,28 @@ vectors through every surface. Measured FFI tax: ~311 ns /
 mirrored Go stack — the price of one conformance-tested
 implementation, not a speedup.
 
-DTLS and ICE are **not** yet extractable, by design of their
-current APIs, and this section records why so the work is
-not half-started:
+DTLS is **partially** extracted (2026-11-17): the
+established-phase state now lives in `DtlsCore`
+(`handle_datagram` / `encrypt_app`, replay window, session
+state), pumped sans-io by any driver; `Dtls<I: DtlsIo>` is
+that driver and its public API is unchanged, so every
+current caller (Peer, endpoint, OpenSSL suites) works as
+before. `tests/dtls_core.rs` exchanges app data between
+two cores with no I/O trait anywhere. What remains driven
+is the handshake, by design of its current shape:
 
-- `Dtls<I: DtlsIo>` bakes I/O into the type: `send_packet` /
-  `recv_packet(timeout)` are called from inside handshake
-  and record code, flight retransmit is driven by receive
-  timeouts, and clock/entropy arrive via the platform
-  trait. A shared core needs the SCTP treatment first: a
-  sans-io `DtlsConn` (`handle_datagram(bytes, now) ->
-  (datagrams, events)`, `tick(now)`, app-data in/out queues)
-  with the existing `DtlsIo` kept as its driver for current
-  hosts. Handshake timing — not record crypto — is the
-  subtle part; the OpenSSL cross-checks
-  (`crypto_openssl` / `dtls_openssl` suites) are the oracle
-  any refactor must stay green against.
+- The flight machine in `connect`/`accept` is a linear
+  blocking sequence (cookie loop, resumption classification
+  with a timed peek, `pump_until_message` retransmitting on
+  1 s receive timeouts). Making *it* sans-io means lifting
+  those locals into an explicit resumable state enum — the
+  remaining step, with handshake timing (not record
+  crypto) as the subtle part and the OpenSSL cross-checks
+  (`crypto_openssl` / `dtls_openssl`) as its oracle. A
+  `dc-dtls-ffi` in the SCTP shape is blocked on exactly
+  this: an FFI host cannot be handed a finished core until
+  the handshake itself is pump-driven, since cores are
+  only born from driven handshakes today.
 - The FFI shape, when it comes, should copy SCTP's exactly
   (opaque handle, length-prefixed buffers, outputs stashed
   in the handle with a `drain` re-read: a too-small buffer
@@ -664,3 +670,18 @@ the bridge transport. Estimate: multi-week. Until then the
 three DTLS/ICE implementations stay mirrored, with the
 OpenSSL differentials and the interop matrix as their
 conformance net.
+
+Native endpoint core (assessed 2026-11-17): the grpc_dc
+runtime is async, so a native (non-Wasm) shared endpoint
+cannot free-ride an event loop the way the browser bridge
+does. The small design that fits: a `dc-endpoint-ffi`
+cdylib whose opaque endpoint owns one thread running a
+current-thread executor over the runtime's existing std
+transports (`StreamDc`/stdio, loopback, and a UDP/DTLS
+transport composed from dc-webrtc), with the SCTP FFI's
+buffer contract for calls (path + bytes in, bytes/events
+out, stash-and-drain on too-small). No new runtime work —
+the executor thread and transport glue are the whole
+crate. Build it only when a native host actually needs
+the endpoint (today's native consumers use the Rust
+runtime as a library, which is strictly better).
