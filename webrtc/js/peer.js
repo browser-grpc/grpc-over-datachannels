@@ -26,6 +26,44 @@ import {
   wrapSendIndication,
 } from "./turn.js";
 import { Certificate } from "./x509.js";
+import { readFileSync } from "node:fs";
+
+// The shared Rust cores (SCTP/DTLS/ICE compiled to Wasm)
+// are the default backends. Loading is async and cached;
+// explicit factories or rustCores:false select the
+// mirrored JS stacks instead. The .wasm binaries are
+// build artifacts (wasm-pack output, gitignored); a
+// missing file fails create() with the path in the error.
+let rustCoresPromise = null;
+function loadRustCores() {
+  if (!rustCoresPromise) {
+    rustCoresPromise = (async () => {
+      const [{ loadSctpWasm }, { loadDtlsWasm }, { loadIceWasm }] = await Promise.all([
+        import("./sctp_wasm.js"),
+        import("./dtls_wasm.js"),
+        import("./ice_wasm.js"),
+      ]);
+      const bytes = (rel) => readFileSync(new URL(rel, import.meta.url));
+      const [sctp, dtls, ice] = await Promise.all([
+        loadSctpWasm(bytes("../../browser-test/dc_sctp_gen/dc_sctp_wasm_bg.wasm")),
+        loadDtlsWasm(bytes("../../browser-test/dc_dtls_gen/dc_dtls_wasm_bg.wasm")),
+        loadIceWasm(bytes("../../browser-test/dc_ice_gen/dc_ice_wasm_bg.wasm")),
+      ]);
+      return {
+        assocFactory: (role, localPort) =>
+          role === "client"
+            ? sctp.Association.newClient(localPort)
+            : sctp.Association.newServer(localPort),
+        dtlsFactory: (io, config, role) =>
+          role === "client"
+            ? dtls.DtlsConnection.connect(io, config)
+            : dtls.DtlsConnection.accept(io, config),
+        iceAgentFactory: (controlling) => new ice.IceAgent(controlling),
+      };
+    })();
+  }
+  return rustCoresPromise;
+}
 
 function defaultLocalIps() {
   const ips = ["127.0.0.1"];
@@ -103,6 +141,7 @@ export class Peer {
     assocFactory = null,
     iceAgentFactory = null,
     dtlsFactory = null,
+    rustCores = true,
   } = {}) {
     const effectiveIps = localIps ?? defaultLocalIps();
     // A dual-stack udp6 socket serves IPv6 candidates (and IPv4
@@ -130,6 +169,7 @@ export class Peer {
       assocFactory,
       iceAgentFactory,
       dtlsFactory,
+      rustCores,
     });
   }
 
@@ -150,6 +190,7 @@ export class Peer {
       assocFactory = null,
       iceAgentFactory = null,
       dtlsFactory = null,
+      rustCores = true,
       // Rendezvous mode: pre-published fixed local ICE
       // credentials and DTLS certificate, so a browser can
       // synthesize this peer's description without signaling.
@@ -160,13 +201,28 @@ export class Peer {
   ) {
     const effectiveIps = localIps ?? defaultLocalIps();
     const { port } = socket.address();
-    const agent = iceAgentFactory ? iceAgentFactory(true) : new IceAgent(true);
+    // Resolve the shared Rust cores unless every factory
+    // was supplied or the mirrors were requested.
+    const rust =
+      rustCores && !(assocFactory && dtlsFactory && iceAgentFactory)
+        ? await loadRustCores()
+        : null;
+    const agent = iceAgentFactory
+      ? iceAgentFactory(true)
+      : rust
+        ? rust.iceAgentFactory(true)
+        : new IceAgent(true);
     if (iceUfrag) agent.localUfrag = iceUfrag;
     if (icePwd) agent.localPwd = icePwd;
     agent.localCandidates = effectiveIps.map((ip, i) =>
       Candidate.host(ip, port, String(i + 1)),
     );
-    const peer = new Peer(socket, agent, certificate ?? Certificate.generate(), { requirePeerCertificate, chunkMessages, assocFactory, dtlsFactory });
+    const peer = new Peer(socket, agent, certificate ?? Certificate.generate(), {
+      requirePeerCertificate,
+      chunkMessages,
+      assocFactory: assocFactory ?? rust?.assocFactory ?? null,
+      dtlsFactory: dtlsFactory ?? rust?.dtlsFactory ?? null,
+    });
     peer.#consentIntervalMs = consentIntervalMs;
     peer.#consentExpiryMs = consentExpiryMs;
     for (const server of stunServers) {
