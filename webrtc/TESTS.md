@@ -55,6 +55,7 @@ Stack suites run via `make test-webrtc-go`, `make test-webrtc-js`, `make test-we
 - [`restart.test.js`](js/test/restart.test.js) — Generated suite/example
 - [`sctp.test.js`](js/test/sctp.test.js) — Generated suite/example
 - [`sctp_blast.test.js`](js/test/sctp_blast.test.js) — Generated suite/example
+- [`sctp_bundle.test.js`](js/test/sctp_bundle.test.js) — Generated suite/example
 - [`sctp_sack_vectors.test.js`](js/test/sctp_sack_vectors.test.js) — Generated suite/example
 - [`sctp_vectors.test.js`](js/test/sctp_vectors.test.js) — Generated suite/example
 - [`srflx.test.js`](js/test/srflx.test.js) — Generated suite/example

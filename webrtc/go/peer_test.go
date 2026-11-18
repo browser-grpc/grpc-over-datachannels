@@ -123,6 +123,61 @@ func TestSctpLoopback(t *testing.T) {
 	}
 }
 
+func TestSctpSmallMessagesBundleOnSackDrain(t *testing.T) {
+	client := NewClientAssociation(SctpPort, SctpPort)
+	server := NewServerAssociation(SctpPort, SctpPort)
+	var now int64
+	pump := func(from, to *Association, packets [][]byte) []SctpEvent {
+		var events []SctpEvent
+		pending := packets
+		for len(pending) > 0 {
+			var out [][]byte
+			for _, p := range pending {
+				packets2, events2 := to.HandlePacket(p, now)
+				out = append(out, packets2...)
+				events = append(events, events2...)
+			}
+			from, to = to, from
+			pending = out
+		}
+		return events
+	}
+	init := client.Connect(now)
+	pump(client, server, [][]byte{init})
+	if !client.IsEstablished() || !server.IsEstablished() {
+		t.Fatal("not established")
+	}
+	// Fill the initial cwnd (4 * 1152 payload bytes) with held
+	// packets; further sends queue in outQueue.
+	msg := bytes.Repeat([]byte{7}, 200)
+	var held [][]byte
+	for i := 0; i < 40; i++ {
+		held = append(held, client.SendData(1, PpidBinary, msg, SendOptions{}, now)...)
+	}
+	if len(held) == 0 {
+		t.Fatal("first window should emit packets")
+	}
+	// Delivery SACK-clocks the backlog out; the drain must
+	// bundle: fewer packets than chunks, all payloads intact.
+	events := pump(client, server, held)
+	delivered := 0
+	for _, ev := range events {
+		if ev.Type == "data" && bytes.Equal(ev.Payload, msg) {
+			delivered++
+		}
+	}
+	if delivered != 40 {
+		t.Fatalf("delivered %d/40 payloads", delivered)
+	}
+	stats := client.Stats()
+	if stats.ChunksSent < 40 {
+		t.Fatalf("chunks_sent should cover all messages: %+v", stats)
+	}
+	if stats.PacketsSent >= stats.ChunksSent {
+		t.Fatalf("bundling: %d packets for %d chunks", stats.PacketsSent, stats.ChunksSent)
+	}
+}
+
 func TestPeerEcho(t *testing.T) {
 	a, err := NewPeer(PeerOptions{LocalIPs: []string{"127.0.0.1"}, RequirePeerCertificate: true})
 	if err != nil {

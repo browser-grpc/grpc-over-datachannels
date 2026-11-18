@@ -79,6 +79,39 @@ fn handshake_and_ordered_data() {
 }
 
 #[test]
+fn small_messages_bundle_on_sack_drain() {
+    let mut link = Link::new();
+    link.handshake();
+    // Fill the initial cwnd (4 * 1152 payload bytes) with
+    // held packets; further sends queue in out_queue.
+    let msg = vec![7u8; 200];
+    let mut held = Vec::new();
+    for _ in 0..40 {
+        held.extend(link.client.send_data(1, 63, &msg, SendOptions::default(), link.now));
+    }
+    assert!(!held.is_empty(), "first window should emit packets");
+    // Delivery SACK-clocks the backlog out; the drain must
+    // bundle: fewer packets than chunks, all payloads intact.
+    let events = link.deliver_to_server(held);
+    let delivered = events
+        .iter()
+        .filter(|e| matches!(e, Event::Data { payload, .. } if payload == &msg))
+        .count();
+    assert_eq!(delivered, 40, "all bundled payloads delivered intact");
+    let stats = link.client.stats();
+    assert!(
+        stats.chunks_sent >= 40,
+        "chunks_sent should cover all messages: {stats:?}"
+    );
+    assert!(
+        stats.packets_sent < stats.chunks_sent,
+        "bundling: {} packets for {} chunks",
+        stats.packets_sent,
+        stats.chunks_sent
+    );
+}
+
+#[test]
 fn fragmented_message_reassembles() {
     let mut link = Link::new();
     link.handshake();

@@ -25,6 +25,13 @@ const SctpPort = 5000
 // packets IP-fragment on real paths). See Rust sctp.rs.
 // overhead 4x vs 1000 on large messages. See Rust sctp.rs.
 const maxDataPayload = 1152
+
+// maxPacketBytes is the largest SCTP packet ever emitted:
+// header + one full DATA chunk (16-byte chunk header +
+// maxDataPayload). Bundling packs queued chunks up to this
+// cap, so a bundled packet is never larger than the
+// single-chunk packet it replaces.
+const maxPacketBytes = 12 + 16 + maxDataPayload
 const initialRwnd = 262144
 
 // RFC 9260 section 6.1: initial cwnd is 4 MTU here (fragment
@@ -52,10 +59,23 @@ type AssociationStats struct {
 
 // Crc32c computes the SCTP checksum (Castagnoli, reflected).
 func Crc32c(buf []byte) uint32 {
-	crc := uint32(0xffffffff)
+	return crc32cState(0xffffffff, buf) ^ 0xffffffff
+}
+
+func crc32cState(crc uint32, buf []byte) uint32 {
 	for _, b := range buf {
 		crc = Crc32cTable[(crc^uint32(b))&0xff] ^ (crc >> 8)
 	}
+	return crc
+}
+
+// Crc32cZeroed computes the checksum with the 4 bytes at
+// `at` treated as zero (the checksum-field position),
+// without copying the input.
+func Crc32cZeroed(buf []byte, at int) uint32 {
+	crc := crc32cState(0xffffffff, buf[:at])
+	crc = crc32cState(crc, []byte{0, 0, 0, 0})
+	crc = crc32cState(crc, buf[at+4:])
 	return crc ^ 0xffffffff
 }
 
@@ -634,23 +654,39 @@ func (a *Association) enqueueChunks(stream uint16, ppid uint32, payload []byte, 
 	}
 }
 
-// flushOut emits queued chunks while cwnd and the peer rwnd allow.
+// flushOut emits queued chunks while cwnd and the peer rwnd
+// allow. Chunks are bundled into packets up to maxPacketBytes
+// (RFC 9260 bundling): small messages queued in the same
+// flush share one packet/DTLS record/UDP datagram instead of
+// one each. Bundling happens only within a single flush, so
+// it adds no latency.
 func (a *Association) flushOut(nowMs int64) [][]byte {
 	var packets [][]byte
 	limit := a.cwnd
 	if int(a.peerRwnd) < limit {
 		limit = int(a.peerRwnd)
 	}
+	var cur []byte
+	var chunksSent int64
 	for len(a.outQueue) > 0 && a.inflightBytes < limit {
 		c := a.outQueue[0]
 		a.outQueue = a.outQueue[1:]
+		cb := dataChunkBytes(c)
+		if len(cur) > 0 && 12+len(cur)+len(cb) > maxPacketBytes {
+			packets = append(packets, a.packet(a.peerTag, cur))
+			cur = nil
+		}
 		a.inflightBytes += len(c.payload)
 		c.lastSentMs = nowMs
-		packets = append(packets, a.packet(a.peerTag, dataChunkBytes(c)))
+		cur = append(cur, cb...)
+		chunksSent++
 		a.unacked[c.tsn] = c
 	}
+	if len(cur) > 0 {
+		packets = append(packets, a.packet(a.peerTag, cur))
+	}
 	a.stats.PacketsSent += int64(len(packets))
-	a.stats.ChunksSent += int64(len(packets))
+	a.stats.ChunksSent += chunksSent
 	if len(packets) > 0 {
 		a.lastPacketOutMs = nowMs
 	}
@@ -693,10 +729,7 @@ func (a *Association) HandlePacket(packet []byte, nowMs int64) ([][]byte, []Sctp
 	if len(packet) < 12 {
 		return packets, events
 	}
-	check := make([]byte, len(packet))
-	copy(check, packet)
-	binary.LittleEndian.PutUint32(check[8:12], 0)
-	if Crc32c(check) != binary.LittleEndian.Uint32(packet[8:12]) {
+	if Crc32cZeroed(packet, 8) != binary.LittleEndian.Uint32(packet[8:12]) {
 		return packets, events
 	}
 	vtag := binary.BigEndian.Uint32(packet[4:8])

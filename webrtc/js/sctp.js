@@ -31,12 +31,29 @@ const RTO_MAX_MS = 60000;
 // RFC 9260 §6.1: initial cwnd is 4 MTU here (fragment payload
 // is 1152B, so ~4 fragments in flight before SACK clocking).
 const INITIAL_CWND = 4 * MAX_DATA_PAYLOAD;
+// Largest SCTP packet ever emitted: header + one full DATA
+// chunk (16-byte chunk header + MAX_DATA_PAYLOAD). Bundling
+// packs queued chunks up to this cap, so a bundled packet is
+// never larger than the single-chunk packet it replaces.
+const MAX_PACKET_BYTES = 12 + 16 + MAX_DATA_PAYLOAD;
 
 export function crc32c(buf) {
-  let crc = 0xffffffff;
+  return (crc32cState(0xffffffff, buf) ^ 0xffffffff) >>> 0;
+}
+
+function crc32cState(crc, buf) {
   for (const b of buf) {
     crc = CRC32C_TABLE[(crc ^ b) & 0xff] ^ (crc >>> 8);
   }
+  return crc;
+}
+
+// CRC with the 4 bytes at `at` treated as zero (the
+// checksum-field position), without copying the input.
+export function crc32cZeroed(buf, at) {
+  let crc = crc32cState(0xffffffff, buf.subarray(0, at));
+  crc = crc32cState(crc, [0, 0, 0, 0]);
+  crc = crc32cState(crc, buf.subarray(at + 4));
   return (crc ^ 0xffffffff) >>> 0;
 }
 
@@ -443,6 +460,11 @@ export class Association {
   }
 
   // Emit queued chunks while cwnd and the peer rwnd allow.
+  // Chunks are bundled into packets up to MAX_PACKET_BYTES
+  // (RFC 9260 bundling): small messages queued in the same
+  // flush share one packet/DTLS record/UDP datagram instead
+  // of one each. Bundling happens only within a single
+  // flush, so it adds no latency.
   #flushOut(nowMs) {
     const packets = [];
     const limit = Math.min(this.cwnd, this.peerRwnd);
@@ -451,16 +473,30 @@ export class Association {
         `flush blocked queue=${this.outQueue.length} inflight=${this.inflightBytes} limit=${limit}`,
       );
     }
+    let cur = [];
+    let curLen = 0;
+    let chunksSent = 0;
+    const flushCur = () => {
+      if (!cur.length) return;
+      packets.push(this.#packet(this.peerTag, Buffer.concat(cur)));
+      cur = [];
+      curLen = 0;
+    };
     while (this.outQueue.length && this.inflightBytes < limit) {
       const c = this.outQueue.shift();
+      const cb = dataChunkBytes(c);
+      if (cur.length && 12 + curLen + cb.length > MAX_PACKET_BYTES) flushCur();
       this.inflightBytes += c.payload.length;
       c.lastSentMs = nowMs;
       this.unacked.set(c.tsn, c);
       strace(`data out tsn=${c.tsn} stream=${c.stream} len=${c.payload.length}`);
-      packets.push(this.#packet(this.peerTag, dataChunkBytes(c)));
+      cur.push(cb);
+      curLen += cb.length;
+      chunksSent += 1;
     }
+    flushCur();
     this._stats.packetsSent += packets.length;
-    this._stats.chunksSent += packets.length;
+    this._stats.chunksSent += chunksSent;
     if (packets.length) this.lastPacketOutMs = nowMs;
     return packets;
   }
@@ -494,9 +530,7 @@ export class Association {
     const packets = [];
     const events = [];
     if (packet.length < 12) return { packets, events };
-    const check = Buffer.from(packet);
-    check.writeUInt32LE(0, 8);
-    if (crc32c(check) !== packet.readUInt32LE(8)) return { packets, events };
+    if (crc32cZeroed(packet, 8) !== packet.readUInt32LE(8)) return { packets, events };
     const vtag = packet.readUInt32BE(4);
     this._stats.packetsReceived += 1;
     for (const view of parseChunks(packet.subarray(12))) {
