@@ -65,9 +65,9 @@ func TestDcepOpenRoundTrip(t *testing.T) {
 
 // pump two associations directly against each other.
 func TestSctpLoopback(t *testing.T) {
-	client := NewClientAssociation(SctpPort, SctpPort)
-	server := NewServerAssociation(SctpPort, SctpPort)
-	exchange := func(from, to *Association, packets [][]byte, now int64) ([][]byte, []SctpEvent) {
+	client := newSctpAssoc(true)
+	server := newSctpAssoc(false)
+	exchange := func(from, to sctpAssoc, packets [][]byte, now int64) ([][]byte, []SctpEvent) {
 		// Pump until quiescent: with SACK-clocked (cwnd) sends,
 		// later fragments only leave when earlier ones are acked,
 		// so a single pass no longer delivers a whole message.
@@ -95,7 +95,7 @@ func TestSctpLoopback(t *testing.T) {
 	ackPackets, clientEvents := exchange(client, server, echo, now)
 	_, _ = exchange(server, client, ackPackets, now)
 	if !client.IsEstablished() || !server.IsEstablished() {
-		t.Fatalf("not established: client=%v server=%v events=%v", client.state, server.state, clientEvents)
+		t.Fatalf("not established: client=%v server=%v events=%v", client.IsEstablished(), server.IsEstablished(), clientEvents)
 	}
 	data := client.SendData(0, PpidBinary, []byte("hello sctp"), SendOptions{}, now)
 	_, events := exchange(client, server, data, now)
@@ -124,10 +124,10 @@ func TestSctpLoopback(t *testing.T) {
 }
 
 func TestSctpSmallMessagesBundleOnSackDrain(t *testing.T) {
-	client := NewClientAssociation(SctpPort, SctpPort)
-	server := NewServerAssociation(SctpPort, SctpPort)
+	client := newSctpAssoc(true)
+	server := newSctpAssoc(false)
 	var now int64
-	pump := func(from, to *Association, packets [][]byte) []SctpEvent {
+	pump := func(from, to sctpAssoc, packets [][]byte) []SctpEvent {
 		var events []SctpEvent
 		pending := packets
 		for len(pending) > 0 {

@@ -6,10 +6,10 @@ import "testing"
 // go/sctpffi: one client->server message delivery through
 // this Go SCTP stack, same shape and payload.
 func BenchmarkGoSctpPair(b *testing.B) {
-	client := NewClientAssociation(SctpPort, SctpPort)
-	server := NewServerAssociation(SctpPort, SctpPort)
+	client := newSctpAssoc(true)
+	server := newSctpAssoc(false)
 	var now int64
-	pump := func(from, to *Association, packets [][]byte) {
+	pump := func(from, to sctpAssoc, packets [][]byte) {
 		pending := packets
 		for len(pending) > 0 {
 			var out [][]byte

@@ -1,5 +1,3 @@
-//go:build !dc_native
-
 package dcwebrtc
 
 import "github.com/browser-grpc/grpc-over-datachannels/webrtc/go/sctpffi"
