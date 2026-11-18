@@ -61,6 +61,8 @@ Stack suites run via `make test-webrtc-go`, `make test-webrtc-js`, `make test-we
 - [`sctp_bundle.test.js`](js/test/sctp_bundle.test.js) — Generated suite/example
 - [`sctp_sack_vectors.test.js`](js/test/sctp_sack_vectors.test.js) — Generated suite/example
 - [`sctp_vectors.test.js`](js/test/sctp_vectors.test.js) — Generated suite/example
+- [`sctp_wasm_peer.test.js`](js/test/sctp_wasm_peer.test.js) — Generated suite/example
+- [`sctp_wasm_vectors.test.js`](js/test/sctp_wasm_vectors.test.js) — Generated suite/example
 - [`srflx.test.js`](js/test/srflx.test.js) — Generated suite/example
 - [`streamreset.test.js`](js/test/streamreset.test.js) — Generated suite/example
 - [`trace.test.js`](js/test/trace.test.js) — Tracing: traceparent propagation, span observers, nested calls
@@ -74,6 +76,7 @@ Stack suites run via `make test-webrtc-go`, `make test-webrtc-js`, `make test-we
 - [`consent.rs`](rust/tests/consent.rs) — Generated suite/example
 - [`crypto_openssl.rs`](rust/tests/crypto_openssl.rs) — Generated suite/example
 - [`datachannel.rs`](rust/tests/datachannel.rs) — Generated suite/example
+- [`dtls_core.rs`](rust/tests/dtls_core.rs) — Generated suite/example
 - [`dtls_openssl.rs`](rust/tests/dtls_openssl.rs) — Generated suite/example
 - [`dtls_resumption.rs`](rust/tests/dtls_resumption.rs) — Generated suite/example
 - [`eth_framing.rs`](rust/tests/eth_framing.rs) — Generated suite/example

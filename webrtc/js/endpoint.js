@@ -151,11 +151,18 @@ export class DcEndpoint {
    * @param role "client" (DTLS client: opens even streams, sends INIT)
    *             or "server" (DTLS server: odd streams)
    */
-  constructor(dtls, role, { localPort = SCTP_PORT, chunkMessages = false } = {}) {
+  constructor(dtls, role, { localPort = SCTP_PORT, chunkMessages = false, assocFactory = null } = {}) {
     this.chunkMessages = chunkMessages;
     this.dtls = dtls;
     this.role = role;
-    this.assoc = role === "client" ? Association.newClient(localPort) : Association.newServer(localPort);
+    // assocFactory(role, localPort) supplies the SCTP
+    // association (e.g. the shared Rust core via
+    // sctp_wasm.js); default is the mirrored JS stack.
+    this.assoc = assocFactory
+      ? assocFactory(role, localPort)
+      : role === "client"
+        ? Association.newClient(localPort)
+        : Association.newServer(localPort);
     this.channels = new Map();
     this.nextStream = role === "client" ? 0 : 1;
     // Channels opened by the peer before a handler is registered
