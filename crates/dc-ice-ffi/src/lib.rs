@@ -167,6 +167,92 @@ pub extern "C" fn grpcdc_ice_add_local_host(h: *mut GrpcdcIce, addr: *const c_ch
 }
 
 #[no_mangle]
+pub extern "C" fn grpcdc_ice_set_local_credentials(
+    h: *mut GrpcdcIce,
+    ufrag: *const c_char,
+    pwd: *const c_char,
+) -> i32 {
+    catch_unwind(AssertUnwindSafe(|| {
+        let w = match unsafe { (h as *mut GrpcdcIce).as_mut() } {
+            Some(w) => w,
+            None => return ERR_NULL as i32,
+        };
+        let (Some(ufrag), Some(pwd)) = (cstr(ufrag), cstr(pwd)) else {
+            return ERR_NULL as i32;
+        };
+        w.agent.local_ufrag = ufrag;
+        w.agent.local_pwd = pwd;
+        0
+    }))
+    .unwrap_or(ERR_PANIC as i32)
+}
+
+#[no_mangle]
+pub extern "C" fn grpcdc_ice_add_local_candidate(
+    h: *mut GrpcdcIce,
+    sdp_line: *const c_char,
+) -> i32 {
+    catch_unwind(AssertUnwindSafe(|| {
+        let w = match unsafe { (h as *mut GrpcdcIce).as_mut() } {
+            Some(w) => w,
+            None => return ERR_NULL as i32,
+        };
+        let Some(line) = cstr(sdp_line) else {
+            return ERR_NULL as i32;
+        };
+        let line = line.strip_prefix("a=").unwrap_or(&line);
+        let Some(cand) = Candidate::from_sdp(line) else {
+            return ERR_NULL as i32;
+        };
+        w.agent.local_candidates.push(cand);
+        0
+    }))
+    .unwrap_or(ERR_PANIC as i32)
+}
+
+#[no_mangle]
+pub extern "C" fn grpcdc_ice_set_controlling(h: *mut GrpcdcIce, controlling: u8) {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if let Some(w) = unsafe { (h as *mut GrpcdcIce).as_mut() } {
+            w.agent.controlling = controlling != 0;
+        }
+    }));
+}
+
+#[no_mangle]
+pub extern "C" fn grpcdc_ice_controlling(h: *const GrpcdcIce) -> i32 {
+    catch_unwind(AssertUnwindSafe(|| {
+        match unsafe { (h as *const GrpcdcIce).as_ref() } {
+            Some(w) => w.agent.controlling as i32,
+            None => 0,
+        }
+    }))
+    .unwrap_or(0)
+}
+
+#[no_mangle]
+pub extern "C" fn grpcdc_ice_generation(h: *const GrpcdcIce) -> u64 {
+    catch_unwind(AssertUnwindSafe(|| {
+        match unsafe { (h as *const GrpcdcIce).as_ref() } {
+            Some(w) => w.agent.generation(),
+            None => 0,
+        }
+    }))
+    .unwrap_or(0)
+}
+
+#[no_mangle]
+pub extern "C" fn grpcdc_ice_renominated(h: *const GrpcdcIce) -> i32 {
+    catch_unwind(AssertUnwindSafe(|| {
+        match unsafe { (h as *const GrpcdcIce).as_ref() } {
+            Some(w) => w.agent.renominated() as i32,
+            None => 0,
+        }
+    }))
+    .unwrap_or(0)
+}
+
+#[no_mangle]
 pub extern "C" fn grpcdc_ice_set_remote(
     h: *mut GrpcdcIce,
     ufrag: *const c_char,

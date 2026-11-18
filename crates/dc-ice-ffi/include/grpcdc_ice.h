@@ -40,6 +40,26 @@ int64_t grpcdc_ice_local_pwd(const grpcdc_ice_t *h, char *buf, size_t cap);
 /* Add one local host candidate ("ip:port"). */
 int32_t grpcdc_ice_add_local_host(grpcdc_ice_t *h, const char *addr);
 
+/* Override the generated local credentials (hosts that
+ * must present fixed ufrag/pwd, e.g. test hooks). */
+int32_t grpcdc_ice_set_local_credentials(grpcdc_ice_t *h,
+                                         const char *ufrag,
+                                         const char *pwd);
+
+/* Add one local candidate from an SDP line (host, srflx,
+ * or relay, "candidate:..." with or without "a="). */
+int32_t grpcdc_ice_add_local_candidate(grpcdc_ice_t *h, const char *sdp_line);
+
+/* Role control: set before checks begin; role-conflict
+ * repair inside the agent may flip it later. */
+void grpcdc_ice_set_controlling(grpcdc_ice_t *h, uint8_t controlling);
+int32_t grpcdc_ice_controlling(const grpcdc_ice_t *h);
+
+/* Restart generation (0 at start, +1 per restart) and
+ * whether the nomination belongs to the current one. */
+uint64_t grpcdc_ice_generation(const grpcdc_ice_t *h);
+int32_t grpcdc_ice_renominated(const grpcdc_ice_t *h);
+
 /* Remote credentials + one candidate SDP line
  * ("candidate:..." with or without the prefix). */
 int32_t grpcdc_ice_set_remote(grpcdc_ice_t *h, const char *ufrag, const char *pwd);
