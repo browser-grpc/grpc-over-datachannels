@@ -786,6 +786,8 @@ test-cpp-wasm-browser:
 		wasm/cpp/bridge.cpp wasm/cpp/echo_server.cpp \
 		-o browser-test/echo_cpp_server.wasm
 	cd browser-test && node wasm_facade.test.mjs C++ "wasm_facade_page.html?wasm=/browser-test/echo_cpp.wasm" all
+	cd crates/dc-bridge-wasm && wasm-pack build --release --target web --out-dir ../../browser-test/dc_bridge_gen
+	cd browser-test && node wasm_facade.test.mjs C++ "wasm_facade_rust_page.html?wasm=/browser-test/echo_cpp.wasm" all
 	cd browser-test && node wasm_cpp_facade_server.test.mjs all
 	$(ZIG) c++ -target wasm32-wasi -std=c++17 -O1 -mexec-model=reactor \
 		-fno-exceptions -fno-rtti -Iwasm/cpp \
