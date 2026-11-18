@@ -1,3 +1,5 @@
+//go:build !js
+
 // DTLS connection from the shared Rust core
 // (crates/dc-dtls-ffi, C ABI via cgo): the dc-webrtc
 // DtlsHandshake + DtlsCore running in-process instead of

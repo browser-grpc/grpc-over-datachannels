@@ -1,3 +1,5 @@
+//go:build !js
+
 // ICE agent from the shared Rust core (crates/dc-ice-ffi,
 // C ABI via cgo): the dc-webrtc IceAgent running in-process
 // instead of the mirrored Go stack. Sans-io, like the core:

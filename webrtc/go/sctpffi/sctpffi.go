@@ -1,3 +1,5 @@
+//go:build !js
+
 // SCTP association from the shared Rust core
 // (crates/dc-sctp-ffi, C ABI via cgo): the dc-webrtc SCTP
 // state machine running in-process instead of the mirrored
