@@ -529,6 +529,8 @@ LUA_SRC ?= $(HOME)/.local/lua-build/src
 # runtime over the worker mailbox transport. Lua sources
 # come from LUA_SRC (host: ~/.local/lua-build/src; the CI
 # image points it at the unpacked official tarball).
+# Lua (native VM in Wasm) client + server against the
+# Node stack on the Rust cores, as with Dart above.
 test-lua-wasm-browser:
 	python3 wasm/lua/embed_modules.py wasm/lua/modules.h \
 	  grpcdc.wire=lua/grpcdc/wire.lua grpcdc.status=lua/grpcdc/status.lua \
@@ -763,6 +765,9 @@ test-dart-browser:
 	cd browser-test && node dart.test.mjs all
 	cd browser-test && node dart_server.test.mjs all
 
+# Dart/Wasm client + server against the Node stack,
+# which runs the Rust cores by default: these runs also
+# verify the consolidated stack from a Dart client.
 test-dart-wasm-browser:
 	$(DART) compile wasm wasm/dart/echo_client.dart -o browser-test/echo_dart_wasm.wasm
 	$(DART) compile wasm wasm/dart/echo_server.dart -o browser-test/echo_dart_server_wasm.wasm
