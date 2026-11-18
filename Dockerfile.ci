@@ -302,6 +302,16 @@ RUN cd rust && cargo test --locked --no-run \
   && cargo test --locked --no-run --features kafka-tls --example kafka_proxy \
   && cd ../webrtc/rust && cargo test --locked --no-run
 
+# The Go WebRTC stack links the Rust FFI cores (in-repo
+# release paths in the bindings' cgo directives), so the
+# cdylibs must be built before any go build.
+COPY crates/dc-sctp-ffi ./crates/dc-sctp-ffi
+COPY crates/dc-dtls-ffi ./crates/dc-dtls-ffi
+COPY crates/dc-ice-ffi ./crates/dc-ice-ffi
+RUN cd crates/dc-sctp-ffi && cargo build --release \
+  && cd ../dc-dtls-ffi && cargo build --release \
+  && cd ../dc-ice-ffi && cargo build --release
+
 COPY go ./go
 COPY webrtc/go ./webrtc/go
 RUN cd go && go build ./...
