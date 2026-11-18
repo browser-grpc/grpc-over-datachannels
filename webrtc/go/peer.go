@@ -722,12 +722,12 @@ func (p *Peer) ConnectWithOptions(requirePeerCert bool) (*DcEndpoint, error) {
 		config.ConnectionID = lc.LocalCID()
 	}
 	config.PairHint = []byte(p.agent.RemoteUfrag)
-	var dtls *DtlsConnection
+	var dtls dtlsConn
 	var err error
 	if p.dtlsRole == "client" {
-		dtls, err = DtlsConnect(io, config)
+		dtls, err = newDtlsClient(io, config)
 	} else {
-		dtls, err = DtlsAccept(io, config)
+		dtls, err = newDtlsServer(io, config)
 	}
 	if err != nil {
 		return nil, err
