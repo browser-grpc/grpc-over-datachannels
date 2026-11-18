@@ -338,7 +338,39 @@ export class Endpoint {
   #streams = new Map();
   #nextId;
   #sendChain = Promise.resolve();
-  dispatcher = null; // async (path, headers, input, sink) => void, set by Server
+  #dispatcher = null;
+  #pendingCalls = new Map(); // streamId -> frames arrived before dispatcher attach
+
+  // async (path, headers, input, sink) => void, set by Server.
+  // Calls that arrive before the dispatcher is installed (a
+  // fast peer can deliver HEADERS in the same packet batch
+  // that opened the channel, before Server.serve runs) are
+  // queued and dispatched on attach, never failed for timing.
+  get dispatcher() {
+    return this.#dispatcher;
+  }
+
+  set dispatcher(fn) {
+    this.#dispatcher = fn;
+    if (fn) this.#flushPendingCalls();
+  }
+
+  #flushPendingCalls() {
+    const pending = [...this.#pendingCalls.entries()];
+    this.#pendingCalls.clear();
+    for (const [streamId, frames] of pending) {
+      const headers = frames.shift();
+      // #onHeaders registers the stream synchronously before
+      // its first await, so queued frames can follow it.
+      this.#onHeaders(streamId, headers.payload);
+      for (const f of frames) {
+        if (f.type === FrameType.DATA) this.#push(streamId, { kind: "data", payload: f.payload });
+        else if (f.type === FrameType.HALF_CLOSE) this.#push(streamId, { kind: "half-close" });
+        else if (f.type === FrameType.TRAILERS) this.#terminal(streamId, f.payload, "trailers");
+        else if (f.type === FrameType.RST) this.#terminal(streamId, f.payload, "rst");
+      }
+    }
+  }
 
   /**
    * @param dc an RTCDataChannel (browser, werift, node-datachannel) or any
@@ -452,6 +484,14 @@ export class Endpoint {
       return; // malformed frame: drop, keep the channel up
     }
     const { type, streamId, payload } = frame;
+    if (type !== FrameType.HEADERS && this.#pendingCalls.has(streamId)) {
+      if (type === FrameType.RST) {
+        this.#pendingCalls.delete(streamId); // aborted before dispatch
+      } else {
+        this.#pendingCalls.get(streamId).push({ type, payload });
+      }
+      return;
+    }
     @@FRAME_DISPATCH@@
   }
 
@@ -489,13 +529,9 @@ export class Endpoint {
       return;
     }
     if (!this.dispatcher) {
-      this.sendFrame(
-        statusFrame(
-          FrameType.TRAILERS,
-          streamId,
-          StatusError.unimplemented(`unknown method ${headers.path}`),
-        ),
-      ).catch(() => {});
+      // No dispatcher yet: queue the call (see the dispatcher
+      // setter); it dispatches when Server.serve attaches.
+      this.#pendingCalls.set(streamId, [{ type: FrameType.HEADERS, payload }]);
       return;
     }
     const input = new StreamInput();
@@ -541,6 +577,7 @@ export class Endpoint {
       input.fail(StatusError.unavailable("data channel closed"));
     }
     this.#streams.clear();
+    this.#pendingCalls.clear();
   }
 }
 
