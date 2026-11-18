@@ -1,3 +1,5 @@
+//go:build !dc_ice
+
 package dcwebrtc
 
 import (
