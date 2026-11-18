@@ -316,9 +316,7 @@ fn run_loop<I: DtlsIo>(
                 Ok(Some(packet)) => {
                     last_activity = Instant::now();
                     let (out, events) = assoc.handle_packet(&packet, now(start));
-                    for p in out {
-                        let _ = dtls.send_app(&p);
-                    }
+                    let _ = dtls.send_app_batch(&out);
                     for event in events {
                         handle_sctp_event(
                             event,
@@ -344,9 +342,7 @@ fn run_loop<I: DtlsIo>(
         if !out.is_empty() || !events.is_empty() {
             last_activity = Instant::now();
         }
-        for p in out {
-            let _ = dtls.send_app(&p);
-        }
+        let _ = dtls.send_app_batch(&out);
         for event in events {
             handle_sctp_event(
                 event,
@@ -380,9 +376,7 @@ fn run_loop<I: DtlsIo>(
                     };
                     let open = encode_open(&params);
                     channels.insert(stream, ChannelState { params, acked: false });
-                    for p in assoc.send_data(stream, PPID_DCEP, &open, Default::default(), now(start)) {
-                        let _ = dtls.send_app(&p);
-                    }
+                    let _ = dtls.send_app_batch(&assoc.send_data(stream, PPID_DCEP, &open, Default::default(), now(start)));
                     let _ = respond.send(handle);
                 }
                 Ok(Cmd::SetChunking { enabled }) => {
@@ -396,9 +390,7 @@ fn run_loop<I: DtlsIo>(
                         let opts = state.params.send_options();
                         if chunking && !text && data.len() > MAX_DC_CHUNK_PAYLOAD {
                             for chunk in split_dc_message(&data) {
-                                for p in assoc.send_data(stream, PPID_BINARY, &chunk, opts, now(start)) {
-                                    let _ = dtls.send_app(&p);
-                                }
+                                let _ = dtls.send_app_batch(&assoc.send_data(stream, PPID_BINARY, &chunk, opts, now(start)));
                             }
                             continue;
                         }
@@ -408,23 +400,17 @@ fn run_loop<I: DtlsIo>(
                             (false, false) => PPID_BINARY,
                             (false, true) => PPID_BINARY_EMPTY,
                         };
-                        for p in assoc.send_data(stream, ppid, &data, opts, now(start)) {
-                            let _ = dtls.send_app(&p);
-                        }
+                        let _ = dtls.send_app_batch(&assoc.send_data(stream, ppid, &data, opts, now(start)));
                     }
                 }
                 Ok(Cmd::CloseChannel { stream }) => {
                     // Signal an SCTP stream reset; the channel
                     // is removed and ChannelClosed emitted when
                     // the reset completes.
-                    for p in assoc.close_stream(stream) {
-                        let _ = dtls.send_app(&p);
-                    }
+                    let _ = dtls.send_app_batch(&assoc.close_stream(stream));
                 }
                 Ok(Cmd::Shutdown) => {
-                    for p in assoc.close(now(start)) {
-                        let _ = dtls.send_app(&p);
-                    }
+                    let _ = dtls.send_app_batch(&assoc.close(now(start)));
                     return;
                 }
                 Err(std::sync::mpsc::TryRecvError::Empty) => break,
@@ -465,9 +451,7 @@ fn handle_sctp_event<I: DtlsIo>(
                         cmd_tx: cmd_tx.clone(),
                     };
                     channels.insert(stream, ChannelState { params, acked: true });
-                    for p in assoc.send_data(stream, PPID_DCEP, &encode_ack(), Default::default(), now_ms) {
-                        let _ = dtls.send_app(&p);
-                    }
+                    let _ = dtls.send_app_batch(&assoc.send_data(stream, PPID_DCEP, &encode_ack(), Default::default(), now_ms));
                     let _ = event_tx.send(EndpointEvent::ChannelOpened { channel: handle });
                 }
             }

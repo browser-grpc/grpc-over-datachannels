@@ -24,6 +24,15 @@ use std::net::UdpSocket;
 
 pub trait DtlsIo {
     fn send_packet(&mut self, packet: &[u8]) -> io::Result<()>;
+    /// Send several packets, ideally in one syscall batch
+    /// (sendmmsg where the transport supports it). The
+    /// default sends them one by one.
+    fn send_packets(&mut self, packets: &[Vec<u8>]) -> io::Result<()> {
+        for p in packets {
+            self.send_packet(p)?;
+        }
+        Ok(())
+    }
     /// Ok(None) on timeout.
     fn recv_packet(&mut self, timeout: Duration) -> io::Result<Option<Vec<u8>>>;
 }
@@ -39,6 +48,10 @@ impl DtlsIo for UdpDtlsIo {
     fn send_packet(&mut self, packet: &[u8]) -> io::Result<()> {
         self.socket.send_to(packet, self.peer)?;
         Ok(())
+    }
+    #[cfg(target_os = "linux")]
+    fn send_packets(&mut self, packets: &[Vec<u8>]) -> io::Result<()> {
+        crate::mux::batch::sendmmsg_batch(&self.socket, packets, self.peer)
     }
     fn recv_packet(&mut self, timeout: Duration) -> io::Result<Option<Vec<u8>>> {
         self.socket.set_read_timeout(Some(timeout))?;
@@ -300,6 +313,12 @@ impl<I: DtlsIo> Dtls<I> {
     }
 
     fn send_record(&mut self, content_type: u8, epoch: u16, body: &[u8]) -> io::Result<Vec<u8>> {
+        let packet = self.build_record(content_type, epoch, body)?;
+        self.io.send_packet(&packet)?;
+        Ok(packet)
+    }
+
+    fn build_record(&mut self, content_type: u8, epoch: u16, body: &[u8]) -> io::Result<Vec<u8>> {
         let packet = if epoch == 0 {
             let mut out = vec![content_type];
             out.extend_from_slice(&DTLS_1_2);
@@ -346,7 +365,6 @@ impl<I: DtlsIo> Dtls<I> {
             out.extend_from_slice(&tag);
             out
         };
-        self.io.send_packet(&packet)?;
         Ok(packet)
     }
 
@@ -800,6 +818,20 @@ impl<I: DtlsIo> Dtls<I> {
         Ok(())
     }
 
+    /// Encrypt and send several application payloads, one
+    /// DTLS record each, handed to the transport as a single
+    /// batch (one sendmmsg where supported).
+    pub fn send_app_batch(&mut self, datas: &[Vec<u8>]) -> io::Result<()> {
+        if datas.len() == 1 {
+            return self.send_app(&datas[0]);
+        }
+        let mut records = Vec::with_capacity(datas.len());
+        for d in datas {
+            records.push(self.build_record(dtls_content::APPLICATION_DATA, 1, d)?);
+        }
+        self.io.send_packets(&records)
+    }
+
     /// Whether this connection came from an abbreviated
     /// (ticket-resumed) handshake rather than a full one.
     pub fn was_resumed(&self) -> bool {
@@ -833,13 +865,23 @@ impl<I: DtlsIo> Dtls<I> {
     }
 
     pub fn recv_app_timeout(&mut self, timeout: Duration) -> io::Result<Option<Vec<u8>>> {
-        // Sub-millisecond timeouts must survive: the endpoint
-        // pump passes 50 us receive slices while active, and a
-        // whole-ms deadline would truncate those to zero (the
-        // receive then never waits and packets stall).
+        // Sub-millisecond timeouts must survive on std: the
+        // endpoint pump passes 50 us receive slices while
+        // active, and a whole-ms deadline would truncate those
+        // to zero (the receive then never waits and packets
+        // stall). Bare-metal builds keep the ms platform-clock
+        // deadline (their callers pass >= 1 ms timeouts).
+        #[cfg(feature = "std")]
         let deadline = std::time::Instant::now() + timeout;
+        #[cfg(not(feature = "std"))]
+        let deadline_ms = crate::platform::clock().now_ms() + timeout.as_millis() as u64;
         loop {
+            #[cfg(feature = "std")]
             let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            #[cfg(not(feature = "std"))]
+            let remaining = Duration::from_millis(
+                deadline_ms.saturating_sub(crate::platform::clock().now_ms()),
+            );
             if remaining.is_zero() {
                 return Ok(None);
             }

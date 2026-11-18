@@ -49,7 +49,7 @@ use std::time::Duration;
 /// per-packet loop. The socket's read timeout still applies
 /// (NULL timeout argument honors SO_RCVTIMEO).
 #[cfg(target_os = "linux")]
-mod batch {
+pub(crate) mod batch {
     use std::ffi::c_void;
     use std::io;
     use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
@@ -94,6 +94,68 @@ mod batch {
             flags: i32,
             timeout: *const Timespec,
         ) -> i32;
+        fn sendmmsg(fd: i32, msgvec: *mut Mmsghdr, vlen: u32, flags: i32) -> i32;
+    }
+
+    fn encode_addr(addr: &SocketAddr) -> ([u8; 128], u32) {
+        let mut storage = [0u8; 128];
+        match addr {
+            SocketAddr::V4(v4) => {
+                storage[0..2].copy_from_slice(&2u16.to_ne_bytes());
+                storage[2..4].copy_from_slice(&v4.port().to_be_bytes());
+                storage[4..8].copy_from_slice(&v4.ip().octets());
+                (storage, 16)
+            }
+            SocketAddr::V6(v6) => {
+                storage[0..2].copy_from_slice(&10u16.to_ne_bytes());
+                storage[2..4].copy_from_slice(&v6.port().to_be_bytes());
+                storage[8..24].copy_from_slice(&v6.ip().octets());
+                storage[24..28].copy_from_slice(&v6.scope_id().to_ne_bytes());
+                (storage, 28)
+            }
+        }
+    }
+
+    /// Send every packet to `dest` in one sendmmsg syscall;
+    /// a partial batch (rare) finishes with plain send_to.
+    pub fn sendmmsg_batch(
+        socket: &UdpSocket,
+        packets: &[Vec<u8>],
+        dest: SocketAddr,
+    ) -> io::Result<()> {
+        if packets.is_empty() {
+            return Ok(());
+        }
+        let (storage, namelen) = encode_addr(&dest);
+        let mut iovecs: Vec<Iovec> = packets
+            .iter()
+            .map(|p| Iovec {
+                base: p.as_ptr() as *mut c_void,
+                len: p.len(),
+            })
+            .collect();
+        let mut msgs: Vec<Mmsghdr> = (0..packets.len())
+            .map(|i| Mmsghdr {
+                hdr: Msghdr {
+                    name: storage.as_ptr() as *mut c_void,
+                    namelen,
+                    iov: &mut iovecs[i],
+                    iovlen: 1,
+                    control: std::ptr::null_mut(),
+                    controllen: 0,
+                    flags: 0,
+                },
+                len: 0,
+            })
+            .collect();
+        let ret = unsafe { sendmmsg(socket.as_raw_fd(), msgs.as_mut_ptr(), packets.len() as u32, 0) };
+        if ret < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        for p in &packets[ret as usize..] {
+            socket.send_to(p, dest)?;
+        }
+        Ok(())
     }
 
     fn parse_addr(storage: &[u8; 128]) -> Option<SocketAddr> {
@@ -640,5 +702,27 @@ mod batch_tests {
         want.sort();
         assert_eq!(got, want);
         assert_eq!(from.unwrap().port(), client.local_addr().unwrap().port());
+    }
+
+    #[test]
+    fn sendmmsg_batch_delivers_all_packets() {
+        let server = UdpSocket::bind("127.0.0.1:0").unwrap();
+        server
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let addr = server.local_addr().unwrap();
+        let client = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let packets: Vec<Vec<u8>> = (0..4u8).map(|i| vec![i + 10; 64]).collect();
+        batch::sendmmsg_batch(&client, &packets, addr).unwrap();
+        let mut got = Vec::new();
+        let mut buf = [0u8; 256];
+        for _ in 0..packets.len() {
+            let (n, _) = server.recv_from(&mut buf).unwrap();
+            got.push(buf[..n].to_vec());
+        }
+        got.sort();
+        let mut want = packets.clone();
+        want.sort();
+        assert_eq!(got, want);
     }
 }
