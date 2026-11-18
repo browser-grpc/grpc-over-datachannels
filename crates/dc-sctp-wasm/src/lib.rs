@@ -1,5 +1,5 @@
 //! The dc-webrtc SCTP association compiled to wasm32, with
-//! the same surface as webrtc/js/sctp.js's Association
+//! the Association surface the JS adapter presents
 //! (sans-io pump: packets and events cross as Uint8Array /
 //! plain objects). Lets the JS stack run the shared Rust
 //! core instead of the mirrored JS stack; conformance is

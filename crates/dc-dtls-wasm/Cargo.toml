@@ -2,7 +2,7 @@
 name = "dc-dtls-wasm"
 version = "0.1.0"
 edition = "2021"
-description = "The dc-webrtc DTLS handshake + established core compiled to wasm32 for the JS stack: same DtlsConnection surface as webrtc/js/dtls.js, Rust core inside"
+description = "The dc-webrtc DTLS handshake + established core compiled to wasm32 for the JS stack: the DtlsConnection surface for the JS stack, Rust core inside"
 license = "Apache-2.0"
 
 [lib]
