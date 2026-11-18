@@ -4,20 +4,17 @@
 // the mirrored Go stack. Sans-io, like the core: pump
 // datagrams in, send what comes out.
 //
-// Behind the dc_dtls build tag so default builds stay
-// cgo-free:
+// The Rust core is the default backend; build it first:
 //
 //	cargo build --release (in crates/dc-dtls-ffi)
-//	CGO_LDFLAGS="-L<lib dir> -Wl,-rpath,<lib dir>" \
-//	  go test -tags dc_dtls ./dtlsffi/
 //
-//go:build dc_dtls
+// The cgo directives below link the in-repo release lib.
 
 package dtlsffi
 
 /*
 #cgo CFLAGS: -I${SRCDIR}/../../../crates/dc-dtls-ffi/include
-#cgo LDFLAGS: -ldc_dtls_ffi
+#cgo LDFLAGS: -L${SRCDIR}/../../../crates/dc-dtls-ffi/target/release -Wl,-rpath,${SRCDIR}/../../../crates/dc-dtls-ffi/target/release -ldc_dtls_ffi
 
 #include "grpcdc_dtls.h"
 #include <stdlib.h>
@@ -60,6 +57,7 @@ type Config struct {
 type Connection struct {
 	h   *C.grpcdc_dtls_t
 	buf []byte
+	app []byte
 }
 
 // ErrNoData reports a datagram without application data.
@@ -125,7 +123,7 @@ func newConnection(cfg Config, nowMs uint64, server bool) (*Connection, error) {
 	if h == nil {
 		return nil, errors.New("dtlsffi: core rejected the configuration")
 	}
-	return &Connection{h: h, buf: make([]byte, capSize)}, nil
+	return &Connection{h: h, buf: make([]byte, capSize), app: make([]byte, capSize)}, nil
 }
 
 // NewClient starts a client handshake at nowMs; call Start
@@ -248,10 +246,13 @@ func (c *Connection) EncryptApp(data []byte) ([]byte, error) {
 
 // HandleApp opens one inbound datagram: ErrNoData when it
 // carried no application data, ErrCrypto on a bad record.
+// The payload aliases the connection's scratch buffer: it
+// is valid until the next HandleApp call (copy it to keep
+// it). Allocating per record made the receive pump drop
+// datagrams at burst rates.
 func (c *Connection) HandleApp(packet []byte) ([]byte, error) {
-	out := make([]byte, capSize)
 	n := C.grpcdc_dtls_handle_app(c.h, bytePtr(packet), C.size_t(len(packet)),
-		(*C.uint8_t)(unsafe.Pointer(&out[0])), C.size_t(len(out)))
+		(*C.uint8_t)(unsafe.Pointer(&c.app[0])), C.size_t(len(c.app)))
 	switch n {
 	case rcNoData:
 		return nil, ErrNoData
@@ -261,7 +262,7 @@ func (c *Connection) HandleApp(packet []byte) ([]byte, error) {
 	if err := check(n, "handle_app"); err != nil {
 		return nil, err
 	}
-	return out[:n], nil
+	return c.app[:n], nil
 }
 
 // PeerFingerprint returns the peer certificate fingerprint

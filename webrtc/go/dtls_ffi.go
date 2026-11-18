@@ -1,25 +1,33 @@
-//go:build dc_dtls
+//go:build !dc_native
 
 package dcwebrtc
 
 import (
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/browser-grpc/grpc-over-datachannels/webrtc/go/dtlsffi"
 )
 
-// DTLS backend under the dc_dtls tag: the shared Rust core
+// DTLS backend (default): the shared Rust core
 // (crates/dc-dtls-ffi) instead of the mirrored Go stack.
 // The core is sans-io; this seam pumps it over the same
 // PacketIO the native handshake drives, then serves the
 // established phase through EncryptApp/HandleApp.
 
 type ffiDtls struct {
-	conn *dtlsffi.Connection
-	io   PacketIO
-	t0   time.Time
+	// sendMu serializes EncryptApp: record sequence and
+	// nonce are per-connection state, but SendApp runs on
+	// the pump goroutine and application goroutines alike
+	// (mirrors DtlsConnection.sendMu; without it, concurrent
+	// sends interleave sequence assignment and the peer's
+	// replay window drops the duplicates).
+	sendMu sync.Mutex
+	conn   *dtlsffi.Connection
+	io     PacketIO
+	t0     time.Time
 }
 
 func (f *ffiDtls) nowMs() uint64 {
@@ -122,6 +130,8 @@ func newDtlsServer(io PacketIO, config DtlsConfig) (dtlsConn, error) {
 
 // SendApp seals and sends one application record.
 func (f *ffiDtls) SendApp(data []byte) error {
+	f.sendMu.Lock()
+	defer f.sendMu.Unlock()
 	record, err := f.conn.EncryptApp(data)
 	if err != nil {
 		return err

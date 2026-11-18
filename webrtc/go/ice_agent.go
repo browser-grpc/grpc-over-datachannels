@@ -1,11 +1,12 @@
-//go:build !dc_ice
+//go:build dc_native
 
 package dcwebrtc
 
 // ICE agent: the mirrored Go stack (default backend).
-// Under the dc_ice tag, ice_agent_ffi.go supplies the
-// same IceAgent API over the shared Rust core
-// (crates/dc-ice-ffi).
+// By default ice_agent_ffi.go supplies the same
+// IceAgent API over the shared Rust core
+// (crates/dc-ice-ffi); this mirrored stack remains
+// behind the dc_native tag until mirror removal.
 
 import (
 	"crypto/rand"

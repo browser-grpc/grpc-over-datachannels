@@ -4,20 +4,17 @@
 // candidates cross as SDP lines, checks and responses as
 // framed (packet, addr) buffers, events framed alongside.
 //
-// Behind the dc_ice build tag so default builds stay
-// cgo-free:
+// The Rust core is the default backend; build it first:
 //
 //	cargo build --release (in crates/dc-ice-ffi)
-//	CGO_LDFLAGS="-L<lib dir> -Wl,-rpath,<lib dir>" \
-//	  go test -tags dc_ice ./iceffi/
 //
-//go:build dc_ice
+// The cgo directives below link the in-repo release lib.
 
 package iceffi
 
 /*
 #cgo CFLAGS: -I${SRCDIR}/../../../crates/dc-ice-ffi/include
-#cgo LDFLAGS: -ldc_ice_ffi
+#cgo LDFLAGS: -L${SRCDIR}/../../../crates/dc-ice-ffi/target/release -Wl,-rpath,${SRCDIR}/../../../crates/dc-ice-ffi/target/release -ldc_ice_ffi
 
 #include "grpcdc_ice.h"
 #include <stdlib.h>

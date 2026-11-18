@@ -1,4 +1,4 @@
-//go:build dc_ice
+//go:build !dc_native
 
 package dcwebrtc
 
@@ -11,7 +11,7 @@ import (
 	"github.com/browser-grpc/grpc-over-datachannels/webrtc/go/iceffi"
 )
 
-// ICE agent under the dc_ice tag: the shared Rust core
+// ICE agent (default): the shared Rust core
 // (crates/dc-ice-ffi) behind the same IceAgent API the
 // mirrored Go stack exposes (ice_agent.go). The public
 // fields stay Go-side mirrors (peer.go reads and appends

@@ -1,4 +1,4 @@
-//go:build !dc_dtls
+//go:build dc_native
 
 package dcwebrtc
 

@@ -1,11 +1,12 @@
-//go:build dc_sctp
+//go:build !dc_native
 
 package dcwebrtc
 
 import "github.com/browser-grpc/grpc-over-datachannels/webrtc/go/sctpffi"
 
-// SCTP backend under the dc_sctp tag: the shared Rust core
-// (crates/dc-sctp-ffi) instead of the mirrored Go stack.
+// SCTP backend (default): the shared Rust core
+// (crates/dc-sctp-ffi); the mirrored Go stack remains
+// behind the dc_native tag until mirror removal.
 // The endpoint pump drives it exactly like the native
 // association; events and stats are translated at this seam.
 type ffiAssoc struct {

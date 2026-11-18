@@ -329,7 +329,13 @@ test-proxy:
 	node --test proxy/http2_corpus.test.mjs
 	cd proxy/tcp-sidecar && cargo test --offline
 
+# The Go WebRTC stack links the Rust cores by default
+# (crates/dc-*-ffi cdylibs, in-repo release paths in the
+# bindings' cgo directives), so build them first.
 test-webrtc-go:
+	cd crates/dc-sctp-ffi && cargo build --release
+	cd crates/dc-dtls-ffi && cargo build --release
+	cd crates/dc-ice-ffi && cargo build --release
 	cd webrtc/go && go test -race ./...
 
 # Live-network smoke tests: gather a server-reflexive

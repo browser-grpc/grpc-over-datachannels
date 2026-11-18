@@ -4,19 +4,18 @@
 // Go stack. Sans-io, like the core: pump datagrams in, send
 // what comes out.
 //
-// Behind the dc_sctp build tag so default builds stay
-// cgo-free:
+// The Rust core is the default (and, after mirror
+// removal, only) backend; build it first:
 //
-//	CGO_LDFLAGS="-L<lib dir> -Wl,-rpath,<lib dir>" \
-//	  go test -tags dc_sctp ./sctpffi/
+//	cargo build --release (in crates/dc-sctp-ffi)
 //
-//go:build dc_sctp
+// The cgo directives below link the in-repo release lib.
 
 package sctpffi
 
 /*
 #cgo CFLAGS: -I${SRCDIR}/../../../crates/dc-sctp-ffi/include
-#cgo LDFLAGS: -ldc_sctp_ffi
+#cgo LDFLAGS: -L${SRCDIR}/../../../crates/dc-sctp-ffi/target/release -Wl,-rpath,${SRCDIR}/../../../crates/dc-sctp-ffi/target/release -ldc_sctp_ffi
 
 #include "grpcdc_sctp.h"
 #include <stdlib.h>

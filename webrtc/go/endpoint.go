@@ -185,9 +185,9 @@ func (c *DataChannel) emitMessage(data []byte, isText bool) {
 	handler(data, isText)
 }
 
-// sctpAssoc is the SCTP backend seam: the mirrored Go
-// stack by default, or the shared Rust core (dc-sctp-ffi,
-// crates/dc-sctp-ffi) under the dc_sctp build tag. All
+// sctpAssoc is the SCTP backend seam: the shared Rust
+// core (crates/dc-sctp-ffi) by default, or the mirrored
+// Go stack under the dc_native tag. All
 // endpoint association access goes through this interface.
 type sctpAssoc interface {
 	Connect(nowMs int64) []byte
@@ -200,9 +200,9 @@ type sctpAssoc interface {
 	IsEstablished() bool
 }
 
-// dtlsConn is the DTLS backend seam: the mirrored Go
-// stack by default, or the shared Rust core (dc-dtls-ffi,
-// crates/dc-dtls-ffi) under the dc_dtls build tag. All
+// dtlsConn is the DTLS backend seam: the shared Rust
+// core (crates/dc-dtls-ffi) by default, or the mirrored
+// Go stack under the dc_native tag. All
 // endpoint DTLS access goes through this interface.
 type dtlsConn interface {
 	SendApp(data []byte) error

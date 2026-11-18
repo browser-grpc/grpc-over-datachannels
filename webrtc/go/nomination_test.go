@@ -1,4 +1,4 @@
-//go:build !dc_ice
+//go:build dc_native
 
 package dcwebrtc
 
