@@ -158,6 +158,12 @@ type TagValue struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *TagValue) Reset() {
+	*m = TagValue{}
+}
+
 func (m *TagValue) MarshalDC() []byte {
 	var out []byte
 	if m.Tag != 0 {
@@ -262,6 +268,12 @@ type PublishRequest struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *PublishRequest) Reset() {
+	*m = PublishRequest{}
+}
+
 func (m *PublishRequest) MarshalDC() []byte {
 	var out []byte
 	for _, x := range m.Tags {
@@ -316,6 +328,12 @@ type PublishReply struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *PublishReply) Reset() {
+	*m = PublishReply{}
+}
+
 func (m *PublishReply) MarshalDC() []byte {
 	var out []byte
 	if m.Seq != 0 {
@@ -351,6 +369,12 @@ func (m *PublishReply) UnmarshalDC(data []byte) error {
 type SubscribeRequest struct {
 	Filter        []*TagValue
 	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *SubscribeRequest) Reset() {
+	*m = SubscribeRequest{}
 }
 
 func (m *SubscribeRequest) MarshalDC() []byte {
@@ -397,6 +421,12 @@ type Event struct {
 	PublisherId     string
 	TimestampUnixMs int64
 	UnknownFields   []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *Event) Reset() {
+	*m = Event{}
 }
 
 func (m *Event) MarshalDC() []byte {

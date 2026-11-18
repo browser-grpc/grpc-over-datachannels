@@ -54,25 +54,29 @@ class Reader {
     const tag = this.varint();
     const field = Number(tag >> 3n);
     const wire = Number(tag & 7n);
+    const f = this._f || (this._f = [0, 0, null, null]);
+    f[0] = field;
+    f[1] = wire;
     switch (wire) {
       case 0:
-        return [field, wire, this.varint(), this.bytes.slice(start, this.pos)];
+        f[2] = this.varint();
+        break;
       case 2: {
         const len = Number(this.varint());
-        const v = this.take(len);
-        return [field, wire, v, this.bytes.slice(start, this.pos)];
+        f[2] = this.take(len);
+        break;
       }
-      case 1: {
-        const v = this.take(8);
-        return [field, wire, v, this.bytes.slice(start, this.pos)];
-      }
-      case 5: {
-        const v = this.take(4);
-        return [field, wire, v, this.bytes.slice(start, this.pos)];
-      }
+      case 1:
+        f[2] = this.take(8);
+        break;
+      case 5:
+        f[2] = this.take(4);
+        break;
       default:
         throw new Error("bad wire type " + wire);
     }
+    f[3] = this.bytes.subarray(start, this.pos);
+    return f;
   }
 }
 
@@ -83,6 +87,9 @@ function concatBytes(a, b) {
   return out;
 }
 
+const textEncoder = new TextEncoder();
+const textDecoder = new TextDecoder();
+const EMPTY_BYTES = new Uint8Array(0);
 function putRaw(out, bytes) {
   for (let i = 0; i < bytes.length; i++) out.push(bytes[i]);
 }
@@ -105,7 +112,7 @@ function putBytesField(out, num, payload) {
 
 function putStringField(out, num, value) {
   if (!value) return;
-  putBytesField(out, num, new TextEncoder().encode(value));
+  putBytesField(out, num, textEncoder.encode(value));
 }
 
 function putFixedField(out, num, payload) {
@@ -113,10 +120,11 @@ function putFixedField(out, num, payload) {
   out.push(...payload);
 }
 
+const _fixedBuf = new Uint8Array(8);
+const _fixedView = new DataView(_fixedBuf.buffer);
 function fixedBytes(value, size, write) {
-  const bytes = new Uint8Array(size);
-  write(new DataView(bytes.buffer), value);
-  return bytes;
+  write(_fixedView, value);
+  return _fixedBuf.subarray(0, size);
 }
 
 function readFixed(bytes, read) {
@@ -135,7 +143,7 @@ export class Header {
   constructor({ key = "", value = new Uint8Array(0) } = {}) {
     this.key = key;
     this.value = value;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -146,17 +154,31 @@ export class Header {
   }
   static decode(bytes) {
     const msg = new Header();
+    Header._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    Header._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
-      case 1: msg.key = new TextDecoder().decode(value); break;
+      case 1: msg.key = textDecoder.decode(value); break;
       case 2: msg.value = value; break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
     return msg;
+  }
+  _reset() {
+    this.key = "";
+    this.value = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
 }
 
@@ -167,7 +189,7 @@ export class Record {
     this.headers = headers;
     this.timestampMs = timestampMs;
     this.nullKey = nullKey;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -181,6 +203,15 @@ export class Record {
   }
   static decode(bytes) {
     const msg = new Record();
+    Record._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    Record._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
@@ -196,6 +227,14 @@ export class Record {
     }
     return msg;
   }
+  _reset() {
+    this.key = new Uint8Array(0);
+    this.value = new Uint8Array(0);
+    this.headers = [];
+    this.timestampMs = 0n;
+    this.nullKey = false;
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class FetchedRecord {
@@ -206,7 +245,7 @@ export class FetchedRecord {
     this.value = value;
     this.headers = headers;
     this.keyNull = keyNull;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -221,6 +260,15 @@ export class FetchedRecord {
   }
   static decode(bytes) {
     const msg = new FetchedRecord();
+    FetchedRecord._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    FetchedRecord._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
@@ -237,13 +285,22 @@ export class FetchedRecord {
     }
     return msg;
   }
+  _reset() {
+    this.offset = 0n;
+    this.timestampMs = 0n;
+    this.key = new Uint8Array(0);
+    this.value = new Uint8Array(0);
+    this.headers = [];
+    this.keyNull = false;
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class TopicPartition {
   constructor({ topic = "", partition = 0 } = {}) {
     this.topic = topic;
     this.partition = partition;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -254,17 +311,31 @@ export class TopicPartition {
   }
   static decode(bytes) {
     const msg = new TopicPartition();
+    TopicPartition._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    TopicPartition._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
-      case 1: msg.topic = new TextDecoder().decode(value); break;
+      case 1: msg.topic = textDecoder.decode(value); break;
       case 2: msg.partition = Number(BigInt.asIntN(32, value)); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
     return msg;
+  }
+  _reset() {
+    this.topic = "";
+    this.partition = 0;
+    this.unknownFields = EMPTY_BYTES;
   }
 }
 
@@ -272,28 +343,42 @@ export class MetadataRequest {
   constructor({ topics = [], allowAutoTopicCreation = false } = {}) {
     this.topics = topics;
     this.allowAutoTopicCreation = allowAutoTopicCreation;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
-    if (msg.topics) for (const v of msg.topics) putBytesField(out, 1, new TextEncoder().encode(v));
+    if (msg.topics) for (const v of msg.topics) putBytesField(out, 1, textEncoder.encode(v));
     putVarintField(out, 2, (msg.allowAutoTopicCreation ? 1n : 0n));
     putRaw(out, msg.unknownFields);
     return new Uint8Array(out);
   }
   static decode(bytes) {
     const msg = new MetadataRequest();
+    MetadataRequest._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    MetadataRequest._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
-      case 1: msg.topics.push(new TextDecoder().decode(value)); break;
+      case 1: msg.topics.push(textDecoder.decode(value)); break;
       case 2: msg.allowAutoTopicCreation = value !== 0n; break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
     return msg;
+  }
+  _reset() {
+    this.topics = [];
+    this.allowAutoTopicCreation = false;
+    this.unknownFields = EMPTY_BYTES;
   }
 }
 
@@ -303,7 +388,7 @@ export class BrokerMetadata {
     this.host = host;
     this.port = port;
     this.rack = rack;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -316,19 +401,35 @@ export class BrokerMetadata {
   }
   static decode(bytes) {
     const msg = new BrokerMetadata();
+    BrokerMetadata._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    BrokerMetadata._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
       case 1: msg.nodeId = Number(BigInt.asIntN(32, value)); break;
-      case 2: msg.host = new TextDecoder().decode(value); break;
+      case 2: msg.host = textDecoder.decode(value); break;
       case 3: msg.port = Number(BigInt.asIntN(32, value)); break;
-      case 4: msg.rack = new TextDecoder().decode(value); break;
+      case 4: msg.rack = textDecoder.decode(value); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
     return msg;
+  }
+  _reset() {
+    this.nodeId = 0;
+    this.host = "";
+    this.port = 0;
+    this.rack = "";
+    this.unknownFields = EMPTY_BYTES;
   }
 }
 
@@ -340,7 +441,7 @@ export class PartitionMetadata {
     this.replicas = replicas;
     this.isr = isr;
     this.errorCode = errorCode;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -363,6 +464,15 @@ export class PartitionMetadata {
   }
   static decode(bytes) {
     const msg = new PartitionMetadata();
+    PartitionMetadata._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    PartitionMetadata._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
@@ -379,6 +489,15 @@ export class PartitionMetadata {
     }
     return msg;
   }
+  _reset() {
+    this.id = 0;
+    this.leaderId = 0;
+    this.leaderEpoch = 0;
+    this.replicas = [];
+    this.isr = [];
+    this.errorCode = 0;
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class TopicMetadata {
@@ -387,7 +506,7 @@ export class TopicMetadata {
     this.isInternal = isInternal;
     this.errorCode = errorCode;
     this.partitions = partitions;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -400,12 +519,21 @@ export class TopicMetadata {
   }
   static decode(bytes) {
     const msg = new TopicMetadata();
+    TopicMetadata._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    TopicMetadata._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
-      case 1: msg.name = new TextDecoder().decode(value); break;
+      case 1: msg.name = textDecoder.decode(value); break;
       case 2: msg.isInternal = value !== 0n; break;
       case 3: msg.errorCode = Number(BigInt.asIntN(32, value)); break;
       case 4: msg.partitions.push(PartitionMetadata.decode(value)); break;
@@ -413,6 +541,13 @@ export class TopicMetadata {
       }
     }
     return msg;
+  }
+  _reset() {
+    this.name = "";
+    this.isInternal = false;
+    this.errorCode = 0;
+    this.partitions = [];
+    this.unknownFields = EMPTY_BYTES;
   }
 }
 
@@ -423,7 +558,7 @@ export class MetadataResponse {
     this.clusterId = clusterId;
     this.controllerId = controllerId;
     this.topics = topics;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -437,6 +572,15 @@ export class MetadataResponse {
   }
   static decode(bytes) {
     const msg = new MetadataResponse();
+    MetadataResponse._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    MetadataResponse._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
@@ -444,7 +588,7 @@ export class MetadataResponse {
       switch (num) {
       case 1: msg.throttleTimeMs = Number(BigInt.asIntN(32, value)); break;
       case 2: msg.brokers.push(BrokerMetadata.decode(value)); break;
-      case 3: msg.clusterId = new TextDecoder().decode(value); break;
+      case 3: msg.clusterId = textDecoder.decode(value); break;
       case 4: msg.controllerId = Number(BigInt.asIntN(32, value)); break;
       case 5: msg.topics.push(TopicMetadata.decode(value)); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
@@ -452,13 +596,21 @@ export class MetadataResponse {
     }
     return msg;
   }
+  _reset() {
+    this.throttleTimeMs = 0;
+    this.brokers = [];
+    this.clusterId = "";
+    this.controllerId = 0;
+    this.topics = [];
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class OpenProducerRequest {
   constructor({ transactionalId = "", transactionTimeoutMs = 0 } = {}) {
     this.transactionalId = transactionalId;
     this.transactionTimeoutMs = transactionTimeoutMs;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -469,17 +621,31 @@ export class OpenProducerRequest {
   }
   static decode(bytes) {
     const msg = new OpenProducerRequest();
+    OpenProducerRequest._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    OpenProducerRequest._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
-      case 1: msg.transactionalId = new TextDecoder().decode(value); break;
+      case 1: msg.transactionalId = textDecoder.decode(value); break;
       case 2: msg.transactionTimeoutMs = Number(BigInt.asIntN(32, value)); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
     return msg;
+  }
+  _reset() {
+    this.transactionalId = "";
+    this.transactionTimeoutMs = 0;
+    this.unknownFields = EMPTY_BYTES;
   }
 }
 
@@ -489,7 +655,7 @@ export class OpenProducerResponse {
     this.producerId = producerId;
     this.producerEpoch = producerEpoch;
     this.errorCode = errorCode;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -502,12 +668,21 @@ export class OpenProducerResponse {
   }
   static decode(bytes) {
     const msg = new OpenProducerResponse();
+    OpenProducerResponse._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    OpenProducerResponse._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
-      case 1: msg.sessionId = new TextDecoder().decode(value); break;
+      case 1: msg.sessionId = textDecoder.decode(value); break;
       case 2: msg.producerId = BigInt.asIntN(64, value); break;
       case 3: msg.producerEpoch = Number(BigInt.asIntN(32, value)); break;
       case 4: msg.errorCode = Number(BigInt.asIntN(32, value)); break;
@@ -516,12 +691,19 @@ export class OpenProducerResponse {
     }
     return msg;
   }
+  _reset() {
+    this.sessionId = "";
+    this.producerId = 0n;
+    this.producerEpoch = 0;
+    this.errorCode = 0;
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class CloseProducerRequest {
   constructor({ sessionId = "" } = {}) {
     this.sessionId = sessionId;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -531,23 +713,36 @@ export class CloseProducerRequest {
   }
   static decode(bytes) {
     const msg = new CloseProducerRequest();
+    CloseProducerRequest._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    CloseProducerRequest._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
-      case 1: msg.sessionId = new TextDecoder().decode(value); break;
+      case 1: msg.sessionId = textDecoder.decode(value); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
     return msg;
+  }
+  _reset() {
+    this.sessionId = "";
+    this.unknownFields = EMPTY_BYTES;
   }
 }
 
 export class CloseProducerResponse {
   constructor({ errorCode = 0 } = {}) {
     this.errorCode = errorCode;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -557,6 +752,15 @@ export class CloseProducerResponse {
   }
   static decode(bytes) {
     const msg = new CloseProducerResponse();
+    CloseProducerResponse._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    CloseProducerResponse._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
@@ -568,13 +772,17 @@ export class CloseProducerResponse {
     }
     return msg;
   }
+  _reset() {
+    this.errorCode = 0;
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class EndTransactionRequest {
   constructor({ sessionId = "", commit = false } = {}) {
     this.sessionId = sessionId;
     this.commit = commit;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -585,24 +793,38 @@ export class EndTransactionRequest {
   }
   static decode(bytes) {
     const msg = new EndTransactionRequest();
+    EndTransactionRequest._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    EndTransactionRequest._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
-      case 1: msg.sessionId = new TextDecoder().decode(value); break;
+      case 1: msg.sessionId = textDecoder.decode(value); break;
       case 2: msg.commit = value !== 0n; break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
     return msg;
   }
+  _reset() {
+    this.sessionId = "";
+    this.commit = false;
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class EndTransactionResponse {
   constructor({ errorCode = 0 } = {}) {
     this.errorCode = errorCode;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -612,6 +834,15 @@ export class EndTransactionResponse {
   }
   static decode(bytes) {
     const msg = new EndTransactionResponse();
+    EndTransactionResponse._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    EndTransactionResponse._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
@@ -622,6 +853,10 @@ export class EndTransactionResponse {
       }
     }
     return msg;
+  }
+  _reset() {
+    this.errorCode = 0;
+    this.unknownFields = EMPTY_BYTES;
   }
 }
 
@@ -635,7 +870,7 @@ export class ProduceRequest {
     this.compression = compression;
     this.sessionId = sessionId;
     this.transactionalId = transactionalId;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -652,23 +887,43 @@ export class ProduceRequest {
   }
   static decode(bytes) {
     const msg = new ProduceRequest();
+    ProduceRequest._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    ProduceRequest._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
-      case 1: msg.topic = new TextDecoder().decode(value); break;
+      case 1: msg.topic = textDecoder.decode(value); break;
       case 2: msg.partition = Number(BigInt.asIntN(32, value)); break;
       case 3: msg.records.push(Record.decode(value)); break;
       case 4: msg.acks = Number(BigInt.asIntN(32, value)); break;
       case 5: msg.timeoutMs = Number(BigInt.asIntN(32, value)); break;
       case 6: msg.compression = Number(BigInt.asIntN(32, value)); break;
-      case 7: msg.sessionId = new TextDecoder().decode(value); break;
-      case 8: msg.transactionalId = new TextDecoder().decode(value); break;
+      case 7: msg.sessionId = textDecoder.decode(value); break;
+      case 8: msg.transactionalId = textDecoder.decode(value); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
     return msg;
+  }
+  _reset() {
+    this.topic = "";
+    this.partition = 0;
+    this.records = [];
+    this.acks = 0;
+    this.timeoutMs = 0;
+    this.compression = 0;
+    this.sessionId = "";
+    this.transactionalId = "";
+    this.unknownFields = EMPTY_BYTES;
   }
 }
 
@@ -678,7 +933,7 @@ export class ProduceResponse {
     this.baseOffset = baseOffset;
     this.logAppendTimeMs = logAppendTimeMs;
     this.errorCode = errorCode;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -691,6 +946,15 @@ export class ProduceResponse {
   }
   static decode(bytes) {
     const msg = new ProduceResponse();
+    ProduceResponse._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    ProduceResponse._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
@@ -705,6 +969,13 @@ export class ProduceResponse {
     }
     return msg;
   }
+  _reset() {
+    this.partition = 0;
+    this.baseOffset = 0n;
+    this.logAppendTimeMs = 0n;
+    this.errorCode = 0;
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class ConsumeRequest {
@@ -716,7 +987,7 @@ export class ConsumeRequest {
     this.maxWaitMs = maxWaitMs;
     this.minBytes = minBytes;
     this.readCommitted = readCommitted;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -732,12 +1003,21 @@ export class ConsumeRequest {
   }
   static decode(bytes) {
     const msg = new ConsumeRequest();
+    ConsumeRequest._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    ConsumeRequest._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
-      case 1: msg.topic = new TextDecoder().decode(value); break;
+      case 1: msg.topic = textDecoder.decode(value); break;
       case 2: msg.partition = Number(BigInt.asIntN(32, value)); break;
       case 3: msg.offset = BigInt.asIntN(64, value); break;
       case 4: msg.maxRecords = Number(BigInt.asIntN(32, value)); break;
@@ -749,6 +1029,16 @@ export class ConsumeRequest {
     }
     return msg;
   }
+  _reset() {
+    this.topic = "";
+    this.partition = 0;
+    this.offset = 0n;
+    this.maxRecords = 0;
+    this.maxWaitMs = 0;
+    this.minBytes = 0;
+    this.readCommitted = false;
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class ConsumeResponse {
@@ -758,7 +1048,7 @@ export class ConsumeResponse {
     this.highWatermark = highWatermark;
     this.errorCode = errorCode;
     this.records = records;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -772,12 +1062,21 @@ export class ConsumeResponse {
   }
   static decode(bytes) {
     const msg = new ConsumeResponse();
+    ConsumeResponse._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    ConsumeResponse._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
-      case 1: msg.topic = new TextDecoder().decode(value); break;
+      case 1: msg.topic = textDecoder.decode(value); break;
       case 2: msg.partition = Number(BigInt.asIntN(32, value)); break;
       case 3: msg.highWatermark = BigInt.asIntN(64, value); break;
       case 4: msg.errorCode = Number(BigInt.asIntN(32, value)); break;
@@ -786,6 +1085,14 @@ export class ConsumeResponse {
       }
     }
     return msg;
+  }
+  _reset() {
+    this.topic = "";
+    this.partition = 0;
+    this.highWatermark = 0n;
+    this.errorCode = 0;
+    this.records = [];
+    this.unknownFields = EMPTY_BYTES;
   }
 }
 
@@ -799,12 +1106,12 @@ export class GroupSubscribeRequest {
     this.autoOffsetReset = autoOffsetReset;
     this.readCommitted = readCommitted;
     this.groupProtocol = groupProtocol;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
     putStringField(out, 1, msg.groupId);
-    if (msg.topics) for (const v of msg.topics) putBytesField(out, 2, new TextEncoder().encode(v));
+    if (msg.topics) for (const v of msg.topics) putBytesField(out, 2, textEncoder.encode(v));
     putStringField(out, 3, msg.groupInstanceId);
     putVarintField(out, 4, BigInt(msg.sessionTimeoutMs));
     putVarintField(out, 5, BigInt(msg.maxPollRecords));
@@ -816,23 +1123,43 @@ export class GroupSubscribeRequest {
   }
   static decode(bytes) {
     const msg = new GroupSubscribeRequest();
+    GroupSubscribeRequest._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    GroupSubscribeRequest._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
-      case 1: msg.groupId = new TextDecoder().decode(value); break;
-      case 2: msg.topics.push(new TextDecoder().decode(value)); break;
-      case 3: msg.groupInstanceId = new TextDecoder().decode(value); break;
+      case 1: msg.groupId = textDecoder.decode(value); break;
+      case 2: msg.topics.push(textDecoder.decode(value)); break;
+      case 3: msg.groupInstanceId = textDecoder.decode(value); break;
       case 4: msg.sessionTimeoutMs = Number(BigInt.asIntN(32, value)); break;
       case 5: msg.maxPollRecords = Number(BigInt.asIntN(32, value)); break;
-      case 6: msg.autoOffsetReset = new TextDecoder().decode(value); break;
+      case 6: msg.autoOffsetReset = textDecoder.decode(value); break;
       case 7: msg.readCommitted = value !== 0n; break;
-      case 8: msg.groupProtocol = new TextDecoder().decode(value); break;
+      case 8: msg.groupProtocol = textDecoder.decode(value); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
     return msg;
+  }
+  _reset() {
+    this.groupId = "";
+    this.topics = [];
+    this.groupInstanceId = "";
+    this.sessionTimeoutMs = 0;
+    this.maxPollRecords = 0;
+    this.autoOffsetReset = "";
+    this.readCommitted = false;
+    this.groupProtocol = "";
+    this.unknownFields = EMPTY_BYTES;
   }
 }
 
@@ -841,7 +1168,7 @@ export class GroupSubscribeResponse {
     this.assignment = assignment;
     this.batch = batch;
     this.groupError = groupError;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -857,6 +1184,15 @@ export class GroupSubscribeResponse {
   }
   static decode(bytes) {
     const msg = new GroupSubscribeResponse();
+    GroupSubscribeResponse._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    GroupSubscribeResponse._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
@@ -870,6 +1206,12 @@ export class GroupSubscribeResponse {
     }
     return msg;
   }
+  _reset() {
+    this.assignment = undefined;
+    this.batch = undefined;
+    this.groupError = undefined;
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class Assignment {
@@ -877,7 +1219,7 @@ export class Assignment {
     this.generationId = generationId;
     this.memberId = memberId;
     this.partitions = partitions;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -889,18 +1231,33 @@ export class Assignment {
   }
   static decode(bytes) {
     const msg = new Assignment();
+    Assignment._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    Assignment._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
       case 1: msg.generationId = Number(BigInt.asIntN(32, value)); break;
-      case 2: msg.memberId = new TextDecoder().decode(value); break;
+      case 2: msg.memberId = textDecoder.decode(value); break;
       case 3: msg.partitions.push(TopicPartition.decode(value)); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
     return msg;
+  }
+  _reset() {
+    this.generationId = 0;
+    this.memberId = "";
+    this.partitions = [];
+    this.unknownFields = EMPTY_BYTES;
   }
 }
 
@@ -910,7 +1267,7 @@ export class RecordBatch {
     this.partition = partition;
     this.highWatermark = highWatermark;
     this.records = records;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -923,12 +1280,21 @@ export class RecordBatch {
   }
   static decode(bytes) {
     const msg = new RecordBatch();
+    RecordBatch._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    RecordBatch._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
-      case 1: msg.topic = new TextDecoder().decode(value); break;
+      case 1: msg.topic = textDecoder.decode(value); break;
       case 2: msg.partition = Number(BigInt.asIntN(32, value)); break;
       case 3: msg.highWatermark = BigInt.asIntN(64, value); break;
       case 4: msg.records.push(FetchedRecord.decode(value)); break;
@@ -937,13 +1303,20 @@ export class RecordBatch {
     }
     return msg;
   }
+  _reset() {
+    this.topic = "";
+    this.partition = 0;
+    this.highWatermark = 0n;
+    this.records = [];
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class GroupError {
   constructor({ errorCode = 0, message = "" } = {}) {
     this.errorCode = errorCode;
     this.message = message;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -954,17 +1327,31 @@ export class GroupError {
   }
   static decode(bytes) {
     const msg = new GroupError();
+    GroupError._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    GroupError._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
       case 1: msg.errorCode = Number(BigInt.asIntN(32, value)); break;
-      case 2: msg.message = new TextDecoder().decode(value); break;
+      case 2: msg.message = textDecoder.decode(value); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
     return msg;
+  }
+  _reset() {
+    this.errorCode = 0;
+    this.message = "";
+    this.unknownFields = EMPTY_BYTES;
   }
 }
 
@@ -974,7 +1361,7 @@ export class ListOffsetsRequest {
     this.partition = partition;
     this.timestamp = timestamp;
     this.readCommitted = readCommitted;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -987,12 +1374,21 @@ export class ListOffsetsRequest {
   }
   static decode(bytes) {
     const msg = new ListOffsetsRequest();
+    ListOffsetsRequest._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    ListOffsetsRequest._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
-      case 1: msg.topic = new TextDecoder().decode(value); break;
+      case 1: msg.topic = textDecoder.decode(value); break;
       case 2: msg.partition = Number(BigInt.asIntN(32, value)); break;
       case 3: msg.timestamp = BigInt.asIntN(64, value); break;
       case 4: msg.readCommitted = value !== 0n; break;
@@ -1001,6 +1397,13 @@ export class ListOffsetsRequest {
     }
     return msg;
   }
+  _reset() {
+    this.topic = "";
+    this.partition = 0;
+    this.timestamp = 0n;
+    this.readCommitted = false;
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class ListOffsetsResponse {
@@ -1008,7 +1411,7 @@ export class ListOffsetsResponse {
     this.offset = offset;
     this.timestampMs = timestampMs;
     this.errorCode = errorCode;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -1020,6 +1423,15 @@ export class ListOffsetsResponse {
   }
   static decode(bytes) {
     const msg = new ListOffsetsResponse();
+    ListOffsetsResponse._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    ListOffsetsResponse._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
@@ -1033,6 +1445,12 @@ export class ListOffsetsResponse {
     }
     return msg;
   }
+  _reset() {
+    this.offset = 0n;
+    this.timestampMs = 0n;
+    this.errorCode = 0;
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class CommitOffsetRequest {
@@ -1043,7 +1461,7 @@ export class CommitOffsetRequest {
     this.committedOffset = committedOffset;
     this.metadata = metadata;
     this.sessionId = sessionId;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -1058,28 +1476,46 @@ export class CommitOffsetRequest {
   }
   static decode(bytes) {
     const msg = new CommitOffsetRequest();
+    CommitOffsetRequest._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    CommitOffsetRequest._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
-      case 1: msg.groupId = new TextDecoder().decode(value); break;
-      case 2: msg.topic = new TextDecoder().decode(value); break;
+      case 1: msg.groupId = textDecoder.decode(value); break;
+      case 2: msg.topic = textDecoder.decode(value); break;
       case 3: msg.partition = Number(BigInt.asIntN(32, value)); break;
       case 4: msg.committedOffset = BigInt.asIntN(64, value); break;
-      case 5: msg.metadata = new TextDecoder().decode(value); break;
-      case 6: msg.sessionId = new TextDecoder().decode(value); break;
+      case 5: msg.metadata = textDecoder.decode(value); break;
+      case 6: msg.sessionId = textDecoder.decode(value); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
     return msg;
+  }
+  _reset() {
+    this.groupId = "";
+    this.topic = "";
+    this.partition = 0;
+    this.committedOffset = 0n;
+    this.metadata = "";
+    this.sessionId = "";
+    this.unknownFields = EMPTY_BYTES;
   }
 }
 
 export class CommitOffsetResponse {
   constructor({ errorCode = 0 } = {}) {
     this.errorCode = errorCode;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -1089,6 +1525,15 @@ export class CommitOffsetResponse {
   }
   static decode(bytes) {
     const msg = new CommitOffsetResponse();
+    CommitOffsetResponse._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    CommitOffsetResponse._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
@@ -1100,6 +1545,10 @@ export class CommitOffsetResponse {
     }
     return msg;
   }
+  _reset() {
+    this.errorCode = 0;
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class FetchOffsetRequest {
@@ -1107,7 +1556,7 @@ export class FetchOffsetRequest {
     this.groupId = groupId;
     this.topic = topic;
     this.partition = partition;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -1119,18 +1568,33 @@ export class FetchOffsetRequest {
   }
   static decode(bytes) {
     const msg = new FetchOffsetRequest();
+    FetchOffsetRequest._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    FetchOffsetRequest._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
-      case 1: msg.groupId = new TextDecoder().decode(value); break;
-      case 2: msg.topic = new TextDecoder().decode(value); break;
+      case 1: msg.groupId = textDecoder.decode(value); break;
+      case 2: msg.topic = textDecoder.decode(value); break;
       case 3: msg.partition = Number(BigInt.asIntN(32, value)); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
     return msg;
+  }
+  _reset() {
+    this.groupId = "";
+    this.topic = "";
+    this.partition = 0;
+    this.unknownFields = EMPTY_BYTES;
   }
 }
 
@@ -1139,7 +1603,7 @@ export class FetchOffsetResponse {
     this.committedOffset = committedOffset;
     this.metadata = metadata;
     this.errorCode = errorCode;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -1151,18 +1615,33 @@ export class FetchOffsetResponse {
   }
   static decode(bytes) {
     const msg = new FetchOffsetResponse();
+    FetchOffsetResponse._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    FetchOffsetResponse._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
       case 1: msg.committedOffset = BigInt.asIntN(64, value); break;
-      case 2: msg.metadata = new TextDecoder().decode(value); break;
+      case 2: msg.metadata = textDecoder.decode(value); break;
       case 3: msg.errorCode = Number(BigInt.asIntN(32, value)); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
     return msg;
+  }
+  _reset() {
+    this.committedOffset = 0n;
+    this.metadata = "";
+    this.errorCode = 0;
+    this.unknownFields = EMPTY_BYTES;
   }
 }
 
@@ -1171,7 +1650,7 @@ export class NewTopic {
     this.name = name;
     this.numPartitions = numPartitions;
     this.replicationFactor = replicationFactor;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -1183,18 +1662,33 @@ export class NewTopic {
   }
   static decode(bytes) {
     const msg = new NewTopic();
+    NewTopic._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    NewTopic._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
-      case 1: msg.name = new TextDecoder().decode(value); break;
+      case 1: msg.name = textDecoder.decode(value); break;
       case 2: msg.numPartitions = Number(BigInt.asIntN(32, value)); break;
       case 3: msg.replicationFactor = Number(BigInt.asIntN(32, value)); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
     return msg;
+  }
+  _reset() {
+    this.name = "";
+    this.numPartitions = 0;
+    this.replicationFactor = 0;
+    this.unknownFields = EMPTY_BYTES;
   }
 }
 
@@ -1203,7 +1697,7 @@ export class CreateTopicsRequest {
     this.topics = topics;
     this.timeoutMs = timeoutMs;
     this.validateOnly = validateOnly;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -1215,6 +1709,15 @@ export class CreateTopicsRequest {
   }
   static decode(bytes) {
     const msg = new CreateTopicsRequest();
+    CreateTopicsRequest._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    CreateTopicsRequest._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
@@ -1228,13 +1731,19 @@ export class CreateTopicsRequest {
     }
     return msg;
   }
+  _reset() {
+    this.topics = [];
+    this.timeoutMs = 0;
+    this.validateOnly = false;
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class TopicError {
   constructor({ name = "", errorCode = 0 } = {}) {
     this.name = name;
     this.errorCode = errorCode;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -1245,24 +1754,38 @@ export class TopicError {
   }
   static decode(bytes) {
     const msg = new TopicError();
+    TopicError._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    TopicError._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
-      case 1: msg.name = new TextDecoder().decode(value); break;
+      case 1: msg.name = textDecoder.decode(value); break;
       case 2: msg.errorCode = Number(BigInt.asIntN(32, value)); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
     return msg;
   }
+  _reset() {
+    this.name = "";
+    this.errorCode = 0;
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class CreateTopicsResponse {
   constructor({ results = [] } = {}) {
     this.results = results;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -1272,6 +1795,15 @@ export class CreateTopicsResponse {
   }
   static decode(bytes) {
     const msg = new CreateTopicsResponse();
+    CreateTopicsResponse._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    CreateTopicsResponse._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
@@ -1283,41 +1815,59 @@ export class CreateTopicsResponse {
     }
     return msg;
   }
+  _reset() {
+    this.results = [];
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class DeleteTopicsRequest {
   constructor({ topics = [], timeoutMs = 0 } = {}) {
     this.topics = topics;
     this.timeoutMs = timeoutMs;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
-    if (msg.topics) for (const v of msg.topics) putBytesField(out, 1, new TextEncoder().encode(v));
+    if (msg.topics) for (const v of msg.topics) putBytesField(out, 1, textEncoder.encode(v));
     putVarintField(out, 2, BigInt(msg.timeoutMs));
     putRaw(out, msg.unknownFields);
     return new Uint8Array(out);
   }
   static decode(bytes) {
     const msg = new DeleteTopicsRequest();
+    DeleteTopicsRequest._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    DeleteTopicsRequest._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
-      case 1: msg.topics.push(new TextDecoder().decode(value)); break;
+      case 1: msg.topics.push(textDecoder.decode(value)); break;
       case 2: msg.timeoutMs = Number(BigInt.asIntN(32, value)); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
     return msg;
   }
+  _reset() {
+    this.topics = [];
+    this.timeoutMs = 0;
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class DeleteTopicsResponse {
   constructor({ results = [] } = {}) {
     this.results = results;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -1327,6 +1877,15 @@ export class DeleteTopicsResponse {
   }
   static decode(bytes) {
     const msg = new DeleteTopicsResponse();
+    DeleteTopicsResponse._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    DeleteTopicsResponse._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
@@ -1338,13 +1897,17 @@ export class DeleteTopicsResponse {
     }
     return msg;
   }
+  _reset() {
+    this.results = [];
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class ConfigEntry {
   constructor({ name = "", value = "" } = {}) {
     this.name = name;
     this.value = value;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -1355,17 +1918,31 @@ export class ConfigEntry {
   }
   static decode(bytes) {
     const msg = new ConfigEntry();
+    ConfigEntry._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    ConfigEntry._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
-      case 1: msg.name = new TextDecoder().decode(value); break;
-      case 2: msg.value = new TextDecoder().decode(value); break;
+      case 1: msg.name = textDecoder.decode(value); break;
+      case 2: msg.value = textDecoder.decode(value); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
     return msg;
+  }
+  _reset() {
+    this.name = "";
+    this.value = "";
+    this.unknownFields = EMPTY_BYTES;
   }
 }
 
@@ -1374,7 +1951,7 @@ export class AlterConfigEntry {
     this.name = name;
     this.value = value;
     this.op = op;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -1386,18 +1963,33 @@ export class AlterConfigEntry {
   }
   static decode(bytes) {
     const msg = new AlterConfigEntry();
+    AlterConfigEntry._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    AlterConfigEntry._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
-      case 1: msg.name = new TextDecoder().decode(value); break;
-      case 2: msg.value = new TextDecoder().decode(value); break;
+      case 1: msg.name = textDecoder.decode(value); break;
+      case 2: msg.value = textDecoder.decode(value); break;
       case 3: msg.op = Number(BigInt.asIntN(32, value)); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
     return msg;
+  }
+  _reset() {
+    this.name = "";
+    this.value = "";
+    this.op = 0;
+    this.unknownFields = EMPTY_BYTES;
   }
 }
 
@@ -1407,32 +1999,48 @@ export class DescribeConfigsRequest {
     this.resourceName = resourceName;
     this.configKeys = configKeys;
     this.includeSynonyms = includeSynonyms;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
     putVarintField(out, 1, BigInt(msg.resourceType));
     putStringField(out, 2, msg.resourceName);
-    if (msg.configKeys) for (const v of msg.configKeys) putBytesField(out, 3, new TextEncoder().encode(v));
+    if (msg.configKeys) for (const v of msg.configKeys) putBytesField(out, 3, textEncoder.encode(v));
     putVarintField(out, 4, (msg.includeSynonyms ? 1n : 0n));
     putRaw(out, msg.unknownFields);
     return new Uint8Array(out);
   }
   static decode(bytes) {
     const msg = new DescribeConfigsRequest();
+    DescribeConfigsRequest._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    DescribeConfigsRequest._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
       case 1: msg.resourceType = Number(BigInt.asIntN(32, value)); break;
-      case 2: msg.resourceName = new TextDecoder().decode(value); break;
-      case 3: msg.configKeys.push(new TextDecoder().decode(value)); break;
+      case 2: msg.resourceName = textDecoder.decode(value); break;
+      case 3: msg.configKeys.push(textDecoder.decode(value)); break;
       case 4: msg.includeSynonyms = value !== 0n; break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
     return msg;
+  }
+  _reset() {
+    this.resourceType = 0;
+    this.resourceName = "";
+    this.configKeys = [];
+    this.includeSynonyms = false;
+    this.unknownFields = EMPTY_BYTES;
   }
 }
 
@@ -1443,7 +2051,7 @@ export class ConfigValue {
     this.readOnly = readOnly;
     this.source = source;
     this.isSensitive = isSensitive;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -1457,13 +2065,22 @@ export class ConfigValue {
   }
   static decode(bytes) {
     const msg = new ConfigValue();
+    ConfigValue._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    ConfigValue._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
-      case 1: msg.name = new TextDecoder().decode(value); break;
-      case 2: msg.value = new TextDecoder().decode(value); break;
+      case 1: msg.name = textDecoder.decode(value); break;
+      case 2: msg.value = textDecoder.decode(value); break;
       case 3: msg.readOnly = value !== 0n; break;
       case 4: msg.source = Number(BigInt.asIntN(32, value)); break;
       case 5: msg.isSensitive = value !== 0n; break;
@@ -1472,13 +2089,21 @@ export class ConfigValue {
     }
     return msg;
   }
+  _reset() {
+    this.name = "";
+    this.value = "";
+    this.readOnly = false;
+    this.source = 0;
+    this.isSensitive = false;
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class DescribeConfigsResponse {
   constructor({ errorCode = 0, values = [] } = {}) {
     this.errorCode = errorCode;
     this.values = values;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -1489,6 +2114,15 @@ export class DescribeConfigsResponse {
   }
   static decode(bytes) {
     const msg = new DescribeConfigsResponse();
+    DescribeConfigsResponse._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    DescribeConfigsResponse._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
@@ -1501,6 +2135,11 @@ export class DescribeConfigsResponse {
     }
     return msg;
   }
+  _reset() {
+    this.errorCode = 0;
+    this.values = [];
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class AlterConfigsRequest {
@@ -1509,7 +2148,7 @@ export class AlterConfigsRequest {
     this.resourceName = resourceName;
     this.entries = entries;
     this.validateOnly = validateOnly;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -1522,13 +2161,22 @@ export class AlterConfigsRequest {
   }
   static decode(bytes) {
     const msg = new AlterConfigsRequest();
+    AlterConfigsRequest._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    AlterConfigsRequest._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
       case 1: msg.resourceType = Number(BigInt.asIntN(32, value)); break;
-      case 2: msg.resourceName = new TextDecoder().decode(value); break;
+      case 2: msg.resourceName = textDecoder.decode(value); break;
       case 3: msg.entries.push(AlterConfigEntry.decode(value)); break;
       case 4: msg.validateOnly = value !== 0n; break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
@@ -1536,12 +2184,19 @@ export class AlterConfigsRequest {
     }
     return msg;
   }
+  _reset() {
+    this.resourceType = 0;
+    this.resourceName = "";
+    this.entries = [];
+    this.validateOnly = false;
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class AlterConfigsResponse {
   constructor({ errorCode = 0 } = {}) {
     this.errorCode = errorCode;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -1551,6 +2206,15 @@ export class AlterConfigsResponse {
   }
   static decode(bytes) {
     const msg = new AlterConfigsResponse();
+    AlterConfigsResponse._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    AlterConfigsResponse._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
@@ -1562,6 +2226,10 @@ export class AlterConfigsResponse {
     }
     return msg;
   }
+  _reset() {
+    this.errorCode = 0;
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class CreatePartitionsRequest {
@@ -1570,7 +2238,7 @@ export class CreatePartitionsRequest {
     this.totalCount = totalCount;
     this.validateOnly = validateOnly;
     this.timeoutMs = timeoutMs;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -1583,12 +2251,21 @@ export class CreatePartitionsRequest {
   }
   static decode(bytes) {
     const msg = new CreatePartitionsRequest();
+    CreatePartitionsRequest._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    CreatePartitionsRequest._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
-      case 1: msg.topic = new TextDecoder().decode(value); break;
+      case 1: msg.topic = textDecoder.decode(value); break;
       case 2: msg.totalCount = Number(BigInt.asIntN(32, value)); break;
       case 3: msg.validateOnly = value !== 0n; break;
       case 4: msg.timeoutMs = Number(BigInt.asIntN(32, value)); break;
@@ -1597,12 +2274,19 @@ export class CreatePartitionsRequest {
     }
     return msg;
   }
+  _reset() {
+    this.topic = "";
+    this.totalCount = 0;
+    this.validateOnly = false;
+    this.timeoutMs = 0;
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class CreatePartitionsResponse {
   constructor({ errorCode = 0 } = {}) {
     this.errorCode = errorCode;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -1612,6 +2296,15 @@ export class CreatePartitionsResponse {
   }
   static decode(bytes) {
     const msg = new CreatePartitionsResponse();
+    CreatePartitionsResponse._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    CreatePartitionsResponse._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
@@ -1623,6 +2316,10 @@ export class CreatePartitionsResponse {
     }
     return msg;
   }
+  _reset() {
+    this.errorCode = 0;
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class DeleteRecordsRequest {
@@ -1630,7 +2327,7 @@ export class DeleteRecordsRequest {
     this.topic = topic;
     this.partition = partition;
     this.beforeOffset = beforeOffset;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -1642,12 +2339,21 @@ export class DeleteRecordsRequest {
   }
   static decode(bytes) {
     const msg = new DeleteRecordsRequest();
+    DeleteRecordsRequest._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    DeleteRecordsRequest._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
-      case 1: msg.topic = new TextDecoder().decode(value); break;
+      case 1: msg.topic = textDecoder.decode(value); break;
       case 2: msg.partition = Number(BigInt.asIntN(32, value)); break;
       case 3: msg.beforeOffset = BigInt.asIntN(64, value); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
@@ -1655,13 +2361,19 @@ export class DeleteRecordsRequest {
     }
     return msg;
   }
+  _reset() {
+    this.topic = "";
+    this.partition = 0;
+    this.beforeOffset = 0n;
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class DeleteRecordsResponse {
   constructor({ lowWatermark = 0n, errorCode = 0 } = {}) {
     this.lowWatermark = lowWatermark;
     this.errorCode = errorCode;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -1672,6 +2384,15 @@ export class DeleteRecordsResponse {
   }
   static decode(bytes) {
     const msg = new DeleteRecordsResponse();
+    DeleteRecordsResponse._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    DeleteRecordsResponse._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
@@ -1684,11 +2405,16 @@ export class DeleteRecordsResponse {
     }
     return msg;
   }
+  _reset() {
+    this.lowWatermark = 0n;
+    this.errorCode = 0;
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class ListGroupsRequest {
   constructor({  } = {}) {
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -1697,6 +2423,15 @@ export class ListGroupsRequest {
   }
   static decode(bytes) {
     const msg = new ListGroupsRequest();
+    ListGroupsRequest._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    ListGroupsRequest._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
@@ -1707,6 +2442,9 @@ export class ListGroupsRequest {
     }
     return msg;
   }
+  _reset() {
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class GroupListing {
@@ -1714,7 +2452,7 @@ export class GroupListing {
     this.groupId = groupId;
     this.protocolType = protocolType;
     this.groupState = groupState;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -1726,18 +2464,33 @@ export class GroupListing {
   }
   static decode(bytes) {
     const msg = new GroupListing();
+    GroupListing._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    GroupListing._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
-      case 1: msg.groupId = new TextDecoder().decode(value); break;
-      case 2: msg.protocolType = new TextDecoder().decode(value); break;
-      case 3: msg.groupState = new TextDecoder().decode(value); break;
+      case 1: msg.groupId = textDecoder.decode(value); break;
+      case 2: msg.protocolType = textDecoder.decode(value); break;
+      case 3: msg.groupState = textDecoder.decode(value); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
     return msg;
+  }
+  _reset() {
+    this.groupId = "";
+    this.protocolType = "";
+    this.groupState = "";
+    this.unknownFields = EMPTY_BYTES;
   }
 }
 
@@ -1745,7 +2498,7 @@ export class ListGroupsResponse {
   constructor({ errorCode = 0, groups = [] } = {}) {
     this.errorCode = errorCode;
     this.groups = groups;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -1756,6 +2509,15 @@ export class ListGroupsResponse {
   }
   static decode(bytes) {
     const msg = new ListGroupsResponse();
+    ListGroupsResponse._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    ListGroupsResponse._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
@@ -1768,31 +2530,49 @@ export class ListGroupsResponse {
     }
     return msg;
   }
+  _reset() {
+    this.errorCode = 0;
+    this.groups = [];
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class DescribeGroupsRequest {
   constructor({ groupIds = [] } = {}) {
     this.groupIds = groupIds;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
-    if (msg.groupIds) for (const v of msg.groupIds) putBytesField(out, 1, new TextEncoder().encode(v));
+    if (msg.groupIds) for (const v of msg.groupIds) putBytesField(out, 1, textEncoder.encode(v));
     putRaw(out, msg.unknownFields);
     return new Uint8Array(out);
   }
   static decode(bytes) {
     const msg = new DescribeGroupsRequest();
+    DescribeGroupsRequest._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    DescribeGroupsRequest._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
-      case 1: msg.groupIds.push(new TextDecoder().decode(value)); break;
+      case 1: msg.groupIds.push(textDecoder.decode(value)); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
     return msg;
+  }
+  _reset() {
+    this.groupIds = [];
+    this.unknownFields = EMPTY_BYTES;
   }
 }
 
@@ -1802,7 +2582,7 @@ export class GroupMember {
     this.clientId = clientId;
     this.clientHost = clientHost;
     this.assignment = assignment;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -1815,19 +2595,35 @@ export class GroupMember {
   }
   static decode(bytes) {
     const msg = new GroupMember();
+    GroupMember._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    GroupMember._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
-      case 1: msg.memberId = new TextDecoder().decode(value); break;
-      case 2: msg.clientId = new TextDecoder().decode(value); break;
-      case 3: msg.clientHost = new TextDecoder().decode(value); break;
+      case 1: msg.memberId = textDecoder.decode(value); break;
+      case 2: msg.clientId = textDecoder.decode(value); break;
+      case 3: msg.clientHost = textDecoder.decode(value); break;
       case 4: msg.assignment.push(TopicPartition.decode(value)); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
     return msg;
+  }
+  _reset() {
+    this.memberId = "";
+    this.clientId = "";
+    this.clientHost = "";
+    this.assignment = [];
+    this.unknownFields = EMPTY_BYTES;
   }
 }
 
@@ -1839,7 +2635,7 @@ export class DescribedGroup {
     this.protocolType = protocolType;
     this.protocol = protocol;
     this.members = members;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -1854,28 +2650,46 @@ export class DescribedGroup {
   }
   static decode(bytes) {
     const msg = new DescribedGroup();
+    DescribedGroup._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    DescribedGroup._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
-      case 1: msg.groupId = new TextDecoder().decode(value); break;
+      case 1: msg.groupId = textDecoder.decode(value); break;
       case 2: msg.errorCode = Number(BigInt.asIntN(32, value)); break;
-      case 3: msg.groupState = new TextDecoder().decode(value); break;
-      case 4: msg.protocolType = new TextDecoder().decode(value); break;
-      case 5: msg.protocol = new TextDecoder().decode(value); break;
+      case 3: msg.groupState = textDecoder.decode(value); break;
+      case 4: msg.protocolType = textDecoder.decode(value); break;
+      case 5: msg.protocol = textDecoder.decode(value); break;
       case 6: msg.members.push(GroupMember.decode(value)); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
     return msg;
   }
+  _reset() {
+    this.groupId = "";
+    this.errorCode = 0;
+    this.groupState = "";
+    this.protocolType = "";
+    this.protocol = "";
+    this.members = [];
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class DescribeGroupsResponse {
   constructor({ groups = [] } = {}) {
     this.groups = groups;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -1885,6 +2699,15 @@ export class DescribeGroupsResponse {
   }
   static decode(bytes) {
     const msg = new DescribeGroupsResponse();
+    DescribeGroupsResponse._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    DescribeGroupsResponse._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
@@ -1896,31 +2719,48 @@ export class DescribeGroupsResponse {
     }
     return msg;
   }
+  _reset() {
+    this.groups = [];
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class DeleteGroupsRequest {
   constructor({ groupIds = [] } = {}) {
     this.groupIds = groupIds;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
-    if (msg.groupIds) for (const v of msg.groupIds) putBytesField(out, 1, new TextEncoder().encode(v));
+    if (msg.groupIds) for (const v of msg.groupIds) putBytesField(out, 1, textEncoder.encode(v));
     putRaw(out, msg.unknownFields);
     return new Uint8Array(out);
   }
   static decode(bytes) {
     const msg = new DeleteGroupsRequest();
+    DeleteGroupsRequest._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    DeleteGroupsRequest._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
-      case 1: msg.groupIds.push(new TextDecoder().decode(value)); break;
+      case 1: msg.groupIds.push(textDecoder.decode(value)); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
     return msg;
+  }
+  _reset() {
+    this.groupIds = [];
+    this.unknownFields = EMPTY_BYTES;
   }
 }
 
@@ -1928,7 +2768,7 @@ export class GroupErrorResult {
   constructor({ groupId = "", errorCode = 0 } = {}) {
     this.groupId = groupId;
     this.errorCode = errorCode;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -1939,24 +2779,38 @@ export class GroupErrorResult {
   }
   static decode(bytes) {
     const msg = new GroupErrorResult();
+    GroupErrorResult._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    GroupErrorResult._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
-      case 1: msg.groupId = new TextDecoder().decode(value); break;
+      case 1: msg.groupId = textDecoder.decode(value); break;
       case 2: msg.errorCode = Number(BigInt.asIntN(32, value)); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
     return msg;
   }
+  _reset() {
+    this.groupId = "";
+    this.errorCode = 0;
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class DeleteGroupsResponse {
   constructor({ results = [] } = {}) {
     this.results = results;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -1966,6 +2820,15 @@ export class DeleteGroupsResponse {
   }
   static decode(bytes) {
     const msg = new DeleteGroupsResponse();
+    DeleteGroupsResponse._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    DeleteGroupsResponse._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
@@ -1977,6 +2840,10 @@ export class DeleteGroupsResponse {
     }
     return msg;
   }
+  _reset() {
+    this.results = [];
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class DeleteGroupOffsetsRequest {
@@ -1984,7 +2851,7 @@ export class DeleteGroupOffsetsRequest {
     this.groupId = groupId;
     this.topic = topic;
     this.partitions = partitions;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -2000,25 +2867,40 @@ export class DeleteGroupOffsetsRequest {
   }
   static decode(bytes) {
     const msg = new DeleteGroupOffsetsRequest();
+    DeleteGroupOffsetsRequest._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    DeleteGroupOffsetsRequest._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
-      case 1: msg.groupId = new TextDecoder().decode(value); break;
-      case 2: msg.topic = new TextDecoder().decode(value); break;
+      case 1: msg.groupId = textDecoder.decode(value); break;
+      case 2: msg.topic = textDecoder.decode(value); break;
       case 3: if (wire === 2) { const r = new Reader(value); while (!r.done) msg.partitions.push(Number(BigInt.asIntN(32, r.varint()))); } else msg.partitions.push(Number(BigInt.asIntN(32, value))); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
     return msg;
   }
+  _reset() {
+    this.groupId = "";
+    this.topic = "";
+    this.partitions = [];
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class DeleteGroupOffsetsResponse {
   constructor({ errorCode = 0 } = {}) {
     this.errorCode = errorCode;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -2028,6 +2910,15 @@ export class DeleteGroupOffsetsResponse {
   }
   static decode(bytes) {
     const msg = new DeleteGroupOffsetsResponse();
+    DeleteGroupOffsetsResponse._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    DeleteGroupOffsetsResponse._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
@@ -2038,6 +2929,10 @@ export class DeleteGroupOffsetsResponse {
       }
     }
     return msg;
+  }
+  _reset() {
+    this.errorCode = 0;
+    this.unknownFields = EMPTY_BYTES;
   }
 }
 
@@ -2050,7 +2945,7 @@ export class Acl {
     this.host = host;
     this.operation = operation;
     this.permissionType = permissionType;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -2066,16 +2961,25 @@ export class Acl {
   }
   static decode(bytes) {
     const msg = new Acl();
+    Acl._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    Acl._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
       case 1: msg.resourceType = Number(BigInt.asIntN(32, value)); break;
-      case 2: msg.resourceName = new TextDecoder().decode(value); break;
+      case 2: msg.resourceName = textDecoder.decode(value); break;
       case 3: msg.patternType = Number(BigInt.asIntN(32, value)); break;
-      case 4: msg.principal = new TextDecoder().decode(value); break;
-      case 5: msg.host = new TextDecoder().decode(value); break;
+      case 4: msg.principal = textDecoder.decode(value); break;
+      case 5: msg.host = textDecoder.decode(value); break;
       case 6: msg.operation = Number(BigInt.asIntN(32, value)); break;
       case 7: msg.permissionType = Number(BigInt.asIntN(32, value)); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
@@ -2083,12 +2987,22 @@ export class Acl {
     }
     return msg;
   }
+  _reset() {
+    this.resourceType = 0;
+    this.resourceName = "";
+    this.patternType = 0;
+    this.principal = "";
+    this.host = "";
+    this.operation = 0;
+    this.permissionType = 0;
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class DescribeAclsRequest {
   constructor({ filter = undefined } = {}) {
     this.filter = filter;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -2098,6 +3012,15 @@ export class DescribeAclsRequest {
   }
   static decode(bytes) {
     const msg = new DescribeAclsRequest();
+    DescribeAclsRequest._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    DescribeAclsRequest._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
@@ -2109,13 +3032,17 @@ export class DescribeAclsRequest {
     }
     return msg;
   }
+  _reset() {
+    this.filter = undefined;
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class DescribeAclsResponse {
   constructor({ errorCode = 0, acls = [] } = {}) {
     this.errorCode = errorCode;
     this.acls = acls;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -2126,6 +3053,15 @@ export class DescribeAclsResponse {
   }
   static decode(bytes) {
     const msg = new DescribeAclsResponse();
+    DescribeAclsResponse._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    DescribeAclsResponse._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
@@ -2138,12 +3074,17 @@ export class DescribeAclsResponse {
     }
     return msg;
   }
+  _reset() {
+    this.errorCode = 0;
+    this.acls = [];
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class CreateAclsRequest {
   constructor({ acls = [] } = {}) {
     this.acls = acls;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -2153,6 +3094,15 @@ export class CreateAclsRequest {
   }
   static decode(bytes) {
     const msg = new CreateAclsRequest();
+    CreateAclsRequest._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    CreateAclsRequest._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
@@ -2164,12 +3114,16 @@ export class CreateAclsRequest {
     }
     return msg;
   }
+  _reset() {
+    this.acls = [];
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class CreateAclsResponse {
   constructor({ errorCodes = [] } = {}) {
     this.errorCodes = errorCodes;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -2183,6 +3137,15 @@ export class CreateAclsResponse {
   }
   static decode(bytes) {
     const msg = new CreateAclsResponse();
+    CreateAclsResponse._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    CreateAclsResponse._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
@@ -2194,12 +3157,16 @@ export class CreateAclsResponse {
     }
     return msg;
   }
+  _reset() {
+    this.errorCodes = [];
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class DeleteAclsRequest {
   constructor({ filters = [] } = {}) {
     this.filters = filters;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -2209,6 +3176,15 @@ export class DeleteAclsRequest {
   }
   static decode(bytes) {
     const msg = new DeleteAclsRequest();
+    DeleteAclsRequest._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    DeleteAclsRequest._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
@@ -2220,12 +3196,16 @@ export class DeleteAclsRequest {
     }
     return msg;
   }
+  _reset() {
+    this.filters = [];
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class DeleteAclsResponse {
   constructor({ errorCodes = [] } = {}) {
     this.errorCodes = errorCodes;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -2239,6 +3219,15 @@ export class DeleteAclsResponse {
   }
   static decode(bytes) {
     const msg = new DeleteAclsResponse();
+    DeleteAclsResponse._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    DeleteAclsResponse._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
@@ -2250,11 +3239,15 @@ export class DeleteAclsResponse {
     }
     return msg;
   }
+  _reset() {
+    this.errorCodes = [];
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class ListTransactionsRequest {
   constructor({  } = {}) {
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -2263,6 +3256,15 @@ export class ListTransactionsRequest {
   }
   static decode(bytes) {
     const msg = new ListTransactionsRequest();
+    ListTransactionsRequest._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    ListTransactionsRequest._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
@@ -2273,6 +3275,9 @@ export class ListTransactionsRequest {
     }
     return msg;
   }
+  _reset() {
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class TransactionListing {
@@ -2280,7 +3285,7 @@ export class TransactionListing {
     this.transactionalId = transactionalId;
     this.producerId = producerId;
     this.transactionState = transactionState;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -2292,18 +3297,33 @@ export class TransactionListing {
   }
   static decode(bytes) {
     const msg = new TransactionListing();
+    TransactionListing._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    TransactionListing._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
-      case 1: msg.transactionalId = new TextDecoder().decode(value); break;
+      case 1: msg.transactionalId = textDecoder.decode(value); break;
       case 2: msg.producerId = BigInt.asIntN(64, value); break;
-      case 3: msg.transactionState = new TextDecoder().decode(value); break;
+      case 3: msg.transactionState = textDecoder.decode(value); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
     return msg;
+  }
+  _reset() {
+    this.transactionalId = "";
+    this.producerId = 0n;
+    this.transactionState = "";
+    this.unknownFields = EMPTY_BYTES;
   }
 }
 
@@ -2311,7 +3331,7 @@ export class ListTransactionsResponse {
   constructor({ errorCode = 0, transactions = [] } = {}) {
     this.errorCode = errorCode;
     this.transactions = transactions;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -2322,6 +3342,15 @@ export class ListTransactionsResponse {
   }
   static decode(bytes) {
     const msg = new ListTransactionsResponse();
+    ListTransactionsResponse._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    ListTransactionsResponse._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
@@ -2334,31 +3363,49 @@ export class ListTransactionsResponse {
     }
     return msg;
   }
+  _reset() {
+    this.errorCode = 0;
+    this.transactions = [];
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class DescribeTransactionsRequest {
   constructor({ transactionalIds = [] } = {}) {
     this.transactionalIds = transactionalIds;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
-    if (msg.transactionalIds) for (const v of msg.transactionalIds) putBytesField(out, 1, new TextEncoder().encode(v));
+    if (msg.transactionalIds) for (const v of msg.transactionalIds) putBytesField(out, 1, textEncoder.encode(v));
     putRaw(out, msg.unknownFields);
     return new Uint8Array(out);
   }
   static decode(bytes) {
     const msg = new DescribeTransactionsRequest();
+    DescribeTransactionsRequest._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    DescribeTransactionsRequest._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
-      case 1: msg.transactionalIds.push(new TextDecoder().decode(value)); break;
+      case 1: msg.transactionalIds.push(textDecoder.decode(value)); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
     return msg;
+  }
+  _reset() {
+    this.transactionalIds = [];
+    this.unknownFields = EMPTY_BYTES;
   }
 }
 
@@ -2370,7 +3417,7 @@ export class DescribedTransaction {
     this.producerEpoch = producerEpoch;
     this.transactionState = transactionState;
     this.lastUpdateTimestampMs = lastUpdateTimestampMs;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -2385,28 +3432,46 @@ export class DescribedTransaction {
   }
   static decode(bytes) {
     const msg = new DescribedTransaction();
+    DescribedTransaction._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    DescribedTransaction._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
-      case 1: msg.transactionalId = new TextDecoder().decode(value); break;
+      case 1: msg.transactionalId = textDecoder.decode(value); break;
       case 2: msg.errorCode = Number(BigInt.asIntN(32, value)); break;
       case 3: msg.producerId = BigInt.asIntN(64, value); break;
       case 4: msg.producerEpoch = Number(BigInt.asIntN(32, value)); break;
-      case 5: msg.transactionState = new TextDecoder().decode(value); break;
+      case 5: msg.transactionState = textDecoder.decode(value); break;
       case 6: msg.lastUpdateTimestampMs = BigInt.asIntN(64, value); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
     return msg;
   }
+  _reset() {
+    this.transactionalId = "";
+    this.errorCode = 0;
+    this.producerId = 0n;
+    this.producerEpoch = 0;
+    this.transactionState = "";
+    this.lastUpdateTimestampMs = 0n;
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class DescribeTransactionsResponse {
   constructor({ transactions = [] } = {}) {
     this.transactions = transactions;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -2416,6 +3481,15 @@ export class DescribeTransactionsResponse {
   }
   static decode(bytes) {
     const msg = new DescribeTransactionsResponse();
+    DescribeTransactionsResponse._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    DescribeTransactionsResponse._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
@@ -2427,6 +3501,10 @@ export class DescribeTransactionsResponse {
     }
     return msg;
   }
+  _reset() {
+    this.transactions = [];
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class OpenShareGroupRequest {
@@ -2435,12 +3513,12 @@ export class OpenShareGroupRequest {
     this.topics = topics;
     this.groupInstanceId = groupInstanceId;
     this.sessionTimeoutMs = sessionTimeoutMs;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
     putStringField(out, 1, msg.groupId);
-    if (msg.topics) for (const v of msg.topics) putBytesField(out, 2, new TextEncoder().encode(v));
+    if (msg.topics) for (const v of msg.topics) putBytesField(out, 2, textEncoder.encode(v));
     putStringField(out, 3, msg.groupInstanceId);
     putVarintField(out, 4, BigInt(msg.sessionTimeoutMs));
     putRaw(out, msg.unknownFields);
@@ -2448,19 +3526,35 @@ export class OpenShareGroupRequest {
   }
   static decode(bytes) {
     const msg = new OpenShareGroupRequest();
+    OpenShareGroupRequest._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    OpenShareGroupRequest._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
-      case 1: msg.groupId = new TextDecoder().decode(value); break;
-      case 2: msg.topics.push(new TextDecoder().decode(value)); break;
-      case 3: msg.groupInstanceId = new TextDecoder().decode(value); break;
+      case 1: msg.groupId = textDecoder.decode(value); break;
+      case 2: msg.topics.push(textDecoder.decode(value)); break;
+      case 3: msg.groupInstanceId = textDecoder.decode(value); break;
       case 4: msg.sessionTimeoutMs = Number(BigInt.asIntN(32, value)); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
     return msg;
+  }
+  _reset() {
+    this.groupId = "";
+    this.topics = [];
+    this.groupInstanceId = "";
+    this.sessionTimeoutMs = 0;
+    this.unknownFields = EMPTY_BYTES;
   }
 }
 
@@ -2469,7 +3563,7 @@ export class OpenShareGroupResponse {
     this.sessionId = sessionId;
     this.errorCode = errorCode;
     this.assignment = assignment;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -2481,18 +3575,33 @@ export class OpenShareGroupResponse {
   }
   static decode(bytes) {
     const msg = new OpenShareGroupResponse();
+    OpenShareGroupResponse._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    OpenShareGroupResponse._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
-      case 1: msg.sessionId = new TextDecoder().decode(value); break;
+      case 1: msg.sessionId = textDecoder.decode(value); break;
       case 2: msg.errorCode = Number(BigInt.asIntN(32, value)); break;
       case 3: msg.assignment = Assignment.decode(value); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
     return msg;
+  }
+  _reset() {
+    this.sessionId = "";
+    this.errorCode = 0;
+    this.assignment = undefined;
+    this.unknownFields = EMPTY_BYTES;
   }
 }
 
@@ -2501,7 +3610,7 @@ export class SharePollRequest {
     this.sessionId = sessionId;
     this.maxRecords = maxRecords;
     this.maxWaitMs = maxWaitMs;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -2513,18 +3622,33 @@ export class SharePollRequest {
   }
   static decode(bytes) {
     const msg = new SharePollRequest();
+    SharePollRequest._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    SharePollRequest._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
-      case 1: msg.sessionId = new TextDecoder().decode(value); break;
+      case 1: msg.sessionId = textDecoder.decode(value); break;
       case 2: msg.maxRecords = Number(BigInt.asIntN(32, value)); break;
       case 3: msg.maxWaitMs = Number(BigInt.asIntN(32, value)); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
     return msg;
+  }
+  _reset() {
+    this.sessionId = "";
+    this.maxRecords = 0;
+    this.maxWaitMs = 0;
+    this.unknownFields = EMPTY_BYTES;
   }
 }
 
@@ -2539,7 +3663,7 @@ export class SharePollRecord {
     this.timestampMs = timestampMs;
     this.deliveryCount = deliveryCount;
     this.nullKey = nullKey;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -2557,12 +3681,21 @@ export class SharePollRecord {
   }
   static decode(bytes) {
     const msg = new SharePollRecord();
+    SharePollRecord._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    SharePollRecord._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
-      case 1: msg.topic = new TextDecoder().decode(value); break;
+      case 1: msg.topic = textDecoder.decode(value); break;
       case 2: msg.partition = Number(BigInt.asIntN(32, value)); break;
       case 3: msg.offset = BigInt.asIntN(64, value); break;
       case 4: msg.key = value; break;
@@ -2576,13 +3709,25 @@ export class SharePollRecord {
     }
     return msg;
   }
+  _reset() {
+    this.topic = "";
+    this.partition = 0;
+    this.offset = 0n;
+    this.key = new Uint8Array(0);
+    this.value = new Uint8Array(0);
+    this.headers = [];
+    this.timestampMs = 0n;
+    this.deliveryCount = 0;
+    this.nullKey = false;
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class SharePollResponse {
   constructor({ records = [], errorCode = 0 } = {}) {
     this.records = records;
     this.errorCode = errorCode;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -2593,6 +3738,15 @@ export class SharePollResponse {
   }
   static decode(bytes) {
     const msg = new SharePollResponse();
+    SharePollResponse._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    SharePollResponse._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
@@ -2605,6 +3759,11 @@ export class SharePollResponse {
     }
     return msg;
   }
+  _reset() {
+    this.records = [];
+    this.errorCode = 0;
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class ShareAckEntry {
@@ -2613,7 +3772,7 @@ export class ShareAckEntry {
     this.partition = partition;
     this.offset = offset;
     this.ackType = ackType;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -2626,12 +3785,21 @@ export class ShareAckEntry {
   }
   static decode(bytes) {
     const msg = new ShareAckEntry();
+    ShareAckEntry._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    ShareAckEntry._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
-      case 1: msg.topic = new TextDecoder().decode(value); break;
+      case 1: msg.topic = textDecoder.decode(value); break;
       case 2: msg.partition = Number(BigInt.asIntN(32, value)); break;
       case 3: msg.offset = BigInt.asIntN(64, value); break;
       case 4: msg.ackType = Number(BigInt.asIntN(32, value)); break;
@@ -2640,13 +3808,20 @@ export class ShareAckEntry {
     }
     return msg;
   }
+  _reset() {
+    this.topic = "";
+    this.partition = 0;
+    this.offset = 0n;
+    this.ackType = 0;
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class ShareAckRequest {
   constructor({ sessionId = "", entries = [] } = {}) {
     this.sessionId = sessionId;
     this.entries = entries;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -2657,24 +3832,38 @@ export class ShareAckRequest {
   }
   static decode(bytes) {
     const msg = new ShareAckRequest();
+    ShareAckRequest._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    ShareAckRequest._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
-      case 1: msg.sessionId = new TextDecoder().decode(value); break;
+      case 1: msg.sessionId = textDecoder.decode(value); break;
       case 2: msg.entries.push(ShareAckEntry.decode(value)); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
     return msg;
   }
+  _reset() {
+    this.sessionId = "";
+    this.entries = [];
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class ShareAckResponse {
   constructor({ errorCode = 0 } = {}) {
     this.errorCode = errorCode;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -2684,6 +3873,15 @@ export class ShareAckResponse {
   }
   static decode(bytes) {
     const msg = new ShareAckResponse();
+    ShareAckResponse._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    ShareAckResponse._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
@@ -2695,12 +3893,16 @@ export class ShareAckResponse {
     }
     return msg;
   }
+  _reset() {
+    this.errorCode = 0;
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class CloseShareGroupRequest {
   constructor({ sessionId = "" } = {}) {
     this.sessionId = sessionId;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -2710,23 +3912,36 @@ export class CloseShareGroupRequest {
   }
   static decode(bytes) {
     const msg = new CloseShareGroupRequest();
+    CloseShareGroupRequest._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    CloseShareGroupRequest._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
-      case 1: msg.sessionId = new TextDecoder().decode(value); break;
+      case 1: msg.sessionId = textDecoder.decode(value); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
     return msg;
+  }
+  _reset() {
+    this.sessionId = "";
+    this.unknownFields = EMPTY_BYTES;
   }
 }
 
 export class CloseShareGroupResponse {
   constructor({ errorCode = 0 } = {}) {
     this.errorCode = errorCode;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -2736,6 +3951,15 @@ export class CloseShareGroupResponse {
   }
   static decode(bytes) {
     const msg = new CloseShareGroupResponse();
+    CloseShareGroupResponse._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    CloseShareGroupResponse._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
@@ -2746,6 +3970,10 @@ export class CloseShareGroupResponse {
       }
     }
     return msg;
+  }
+  _reset() {
+    this.errorCode = 0;
+    this.unknownFields = EMPTY_BYTES;
   }
 }
 
@@ -2757,7 +3985,7 @@ export class ShareGroupMember {
     this.clientHost = clientHost;
     this.subscribedTopics = subscribedTopics;
     this.assignment = assignment;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -2765,28 +3993,46 @@ export class ShareGroupMember {
     putVarintField(out, 2, BigInt(msg.memberEpoch));
     putStringField(out, 3, msg.clientId);
     putStringField(out, 4, msg.clientHost);
-    if (msg.subscribedTopics) for (const v of msg.subscribedTopics) putBytesField(out, 5, new TextEncoder().encode(v));
+    if (msg.subscribedTopics) for (const v of msg.subscribedTopics) putBytesField(out, 5, textEncoder.encode(v));
     if (msg.assignment) for (const v of msg.assignment) putBytesField(out, 6, TopicPartition.encode(v));
     putRaw(out, msg.unknownFields);
     return new Uint8Array(out);
   }
   static decode(bytes) {
     const msg = new ShareGroupMember();
+    ShareGroupMember._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    ShareGroupMember._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
-      case 1: msg.memberId = new TextDecoder().decode(value); break;
+      case 1: msg.memberId = textDecoder.decode(value); break;
       case 2: msg.memberEpoch = Number(BigInt.asIntN(32, value)); break;
-      case 3: msg.clientId = new TextDecoder().decode(value); break;
-      case 4: msg.clientHost = new TextDecoder().decode(value); break;
-      case 5: msg.subscribedTopics.push(new TextDecoder().decode(value)); break;
+      case 3: msg.clientId = textDecoder.decode(value); break;
+      case 4: msg.clientHost = textDecoder.decode(value); break;
+      case 5: msg.subscribedTopics.push(textDecoder.decode(value)); break;
       case 6: msg.assignment.push(TopicPartition.decode(value)); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
     return msg;
+  }
+  _reset() {
+    this.memberId = "";
+    this.memberEpoch = 0;
+    this.clientId = "";
+    this.clientHost = "";
+    this.subscribedTopics = [];
+    this.assignment = [];
+    this.unknownFields = EMPTY_BYTES;
   }
 }
 
@@ -2798,7 +4044,7 @@ export class ShareGroupDescription {
     this.groupEpoch = groupEpoch;
     this.assignmentEpoch = assignmentEpoch;
     this.members = members;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -2813,14 +4059,23 @@ export class ShareGroupDescription {
   }
   static decode(bytes) {
     const msg = new ShareGroupDescription();
+    ShareGroupDescription._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    ShareGroupDescription._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
-      case 1: msg.groupId = new TextDecoder().decode(value); break;
+      case 1: msg.groupId = textDecoder.decode(value); break;
       case 2: msg.errorCode = Number(BigInt.asIntN(32, value)); break;
-      case 3: msg.state = new TextDecoder().decode(value); break;
+      case 3: msg.state = textDecoder.decode(value); break;
       case 4: msg.groupEpoch = Number(BigInt.asIntN(32, value)); break;
       case 5: msg.assignmentEpoch = Number(BigInt.asIntN(32, value)); break;
       case 6: msg.members.push(ShareGroupMember.decode(value)); break;
@@ -2829,31 +4084,53 @@ export class ShareGroupDescription {
     }
     return msg;
   }
+  _reset() {
+    this.groupId = "";
+    this.errorCode = 0;
+    this.state = "";
+    this.groupEpoch = 0;
+    this.assignmentEpoch = 0;
+    this.members = [];
+    this.unknownFields = EMPTY_BYTES;
+  }
 }
 
 export class DescribeShareGroupsRequest {
   constructor({ groupIds = [] } = {}) {
     this.groupIds = groupIds;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
-    if (msg.groupIds) for (const v of msg.groupIds) putBytesField(out, 1, new TextEncoder().encode(v));
+    if (msg.groupIds) for (const v of msg.groupIds) putBytesField(out, 1, textEncoder.encode(v));
     putRaw(out, msg.unknownFields);
     return new Uint8Array(out);
   }
   static decode(bytes) {
     const msg = new DescribeShareGroupsRequest();
+    DescribeShareGroupsRequest._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    DescribeShareGroupsRequest._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
       const [num, wire, value, raw] = f;
       switch (num) {
-      case 1: msg.groupIds.push(new TextDecoder().decode(value)); break;
+      case 1: msg.groupIds.push(textDecoder.decode(value)); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
     return msg;
+  }
+  _reset() {
+    this.groupIds = [];
+    this.unknownFields = EMPTY_BYTES;
   }
 }
 
@@ -2861,7 +4138,7 @@ export class DescribeShareGroupsResponse {
   constructor({ groups = [], errorCode = 0 } = {}) {
     this.groups = groups;
     this.errorCode = errorCode;
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -2872,6 +4149,15 @@ export class DescribeShareGroupsResponse {
   }
   static decode(bytes) {
     const msg = new DescribeShareGroupsResponse();
+    DescribeShareGroupsResponse._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    DescribeShareGroupsResponse._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
@@ -2883,6 +4169,11 @@ export class DescribeShareGroupsResponse {
       }
     }
     return msg;
+  }
+  _reset() {
+    this.groups = [];
+    this.errorCode = 0;
+    this.unknownFields = EMPTY_BYTES;
   }
 }
 

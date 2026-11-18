@@ -1752,6 +1752,15 @@
     (each fields (fmt "\t~a ~a\n" (pascal (ref name)) (field-type)))
     "\tUnknownFields []byte\n}\n\n"
     (call goPbConstructor)
+    (fmt
+     "// Reset zeroes the message (restoring explicit defaults),\n// so an instance can be safely reused with UnmarshalDC.\nfunc (m *~a) Reset() {\n\t*m = ~a{}\n"
+     (flat)
+     (flat))
+    (each
+     fields
+     (when (has-default)
+       (fmt "\tm.~a = ~a\n" (pascal (ref name)) (call goPbDefaultLiteral))))
+    "}\n\n"
     (fmt "func (m *~a) MarshalDC() []byte {\n\tvar out []byte\n" (flat))
     (each fields (call goPbEncodeFieldGuarded))
     "\tout = append(out, m.UnknownFields...)\n\treturn out\n}\n\n"
@@ -1923,7 +1932,7 @@
       (if (proto2)
         (then
          (fmt
-          "~aputBytesField(out, ~a, new TextEncoder().encode(~a));\n"
+          "~aputBytesField(out, ~a, textEncoder.encode(~a));\n"
           (arg 1)
           (ref number)
           (arg 0)))
@@ -1990,7 +1999,7 @@
              (ref number)))
            ("string"
             (fmt
-             "    if (msg.~a) for (const v of msg.~a) putBytesField(out, ~a, new TextEncoder().encode(v));\n"
+             "    if (msg.~a) for (const v of msg.~a) putBytesField(out, ~a, textEncoder.encode(v));\n"
              (js-name)
              (js-name)
              (ref number)))
@@ -2020,7 +2029,7 @@
        (arg 0)
        (arg 1)
        (js-fixed-name)))
-     ("string" (fmt "~a = new TextDecoder().decode(~a);" (arg 0) (arg 1)))
+     ("string" (fmt "~a = textDecoder.decode(~a);" (arg 0) (arg 1)))
      ("bytes" (fmt "~a = ~a;" (arg 0) (arg 1)))
      ("message" (fmt "~a = ~a.decode(~a);" (arg 0) (resolved-flat) (arg 1)))
      (else (fail)))))
@@ -2063,7 +2072,7 @@
              (js-name)
              (case-on
               (category)
-              ("string" "new TextDecoder().decode(value)")
+              ("string" "textDecoder.decode(value)")
               ("bytes" "value")
               (else (fmt "~a.decode(value)" (resolved-flat))))))))
          (else
@@ -2106,7 +2115,7 @@
      "  constructor({ ~a } = {}) {\n"
      (each-sep ", " fields (fmt "~a = ~a" (js-name) (call jsPbDefault))))
     (each fields (fmt "    this.~a = ~a;\n" (js-name) (js-name)))
-    "    this.unknownFields = new Uint8Array(0);\n  }\n  static encode(msg) {\n    const out = [];\n"
+    "    this.unknownFields = EMPTY_BYTES;\n  }\n  static encode(msg) {\n    const out = [];\n"
     (each
      fields
      (guarded
@@ -2115,10 +2124,16 @@
       "    }\n"
       (call jsPbEncodeField)))
     "    putRaw(out, msg.unknownFields);\n    return new Uint8Array(out);\n  }\n"
-    (fmt "  static decode(bytes) {\n    const msg = new ~a();\n" (flat))
+    (fmt
+     "  static decode(bytes) {\n    const msg = new ~a();\n    ~a._fill(msg, bytes);\n    return msg;\n  }\n  static decodeInto(msg, bytes) {\n    msg._reset();\n    ~a._fill(msg, bytes);\n    return msg;\n  }\n  static _fill(msg, bytes) {\n"
+     (flat)
+     (flat)
+     (flat))
     "    const reader = new Reader(bytes);\n    let f;\n    while ((f = reader.field()) !== null) {\n      const [num, wire, value, raw] = f;\n      switch (num) {\n"
     (each fields (call jsPbDecodeCase))
-    "        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;\n      }\n    }\n    return msg;\n  }\n}\n\n"))
+    "        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;\n      }\n    }\n    return msg;\n  }\n  _reset() {\n"
+    (each fields (fmt "    this.~a = ~a;\n" (js-name) (call jsPbDefault)))
+    "    this.unknownFields = EMPTY_BYTES;\n  }\n}\n\n"))
 
 (define wasm-swift-client-method-program
   '((kind-case
@@ -16776,15 +16791,16 @@
    "class Reader {\n  constructor(bytes) {\n    this.bytes = bytes;\n    this.pos = 0;\n  }\n  get done() {\n    return this.pos >= this.bytes.length;\n  }\n"
    "  varint() {\n    let result = 0n;\n    let shift = 0n;\n    for (;;) {\n      if (this.pos >= this.bytes.length) throw new Error(\"truncated varint\");\n      const byte = this.bytes[this.pos++];\n      result |= BigInt(byte & 0x7f) << shift;\n      if ((byte & 0x80) === 0) return result;\n      shift += 7n;\n      if (shift >= 64n) throw new Error(\"varint too long\");\n    }\n  }\n"
    "  take(n) {\n    const value = this.bytes.slice(this.pos, this.pos + n);\n    if (value.length !== n) throw new Error(\"truncated field\");\n    this.pos += n;\n    return value;\n  }\n"
-   "  field() {\n    if (this.done) return null;\n    const start = this.pos;\n    const tag = this.varint();\n    const field = Number(tag >> 3n);\n    const wire = Number(tag & 7n);\n    switch (wire) {\n      case 0:\n        return [field, wire, this.varint(), this.bytes.slice(start, this.pos)];\n      case 2: {\n        const len = Number(this.varint());\n        const v = this.take(len);\n        return [field, wire, v, this.bytes.slice(start, this.pos)];\n      }\n      case 1: {\n        const v = this.take(8);\n        return [field, wire, v, this.bytes.slice(start, this.pos)];\n      }\n      case 5: {\n        const v = this.take(4);\n        return [field, wire, v, this.bytes.slice(start, this.pos)];\n      }\n      default:\n        throw new Error(\"bad wire type \" + wire);\n    }\n  }\n}\n\n"
+   "  field() {\n    if (this.done) return null;\n    const start = this.pos;\n    const tag = this.varint();\n    const field = Number(tag >> 3n);\n    const wire = Number(tag & 7n);\n    const f = this._f || (this._f = [0, 0, null, null]);\n    f[0] = field;\n    f[1] = wire;\n    switch (wire) {\n      case 0:\n        f[2] = this.varint();\n        break;\n      case 2: {\n        const len = Number(this.varint());\n        f[2] = this.take(len);\n        break;\n      }\n      case 1:\n        f[2] = this.take(8);\n        break;\n      case 5:\n        f[2] = this.take(4);\n        break;\n      default:\n        throw new Error(\"bad wire type \" + wire);\n    }\n    f[3] = this.bytes.subarray(start, this.pos);\n    return f;\n  }\n}\n\n"
    "function concatBytes(a, b) {\n  const out = new Uint8Array(a.length + b.length);\n  out.set(a);\n  out.set(b, a.length);\n  return out;\n}\n\n"
+   "const textEncoder = new TextEncoder();\nconst textDecoder = new TextDecoder();\nconst EMPTY_BYTES = new Uint8Array(0);\n"
    "function putRaw(out, bytes) {\n  for (let i = 0; i < bytes.length; i++) out.push(bytes[i]);\n}\n\n"
    "function putTag(out, num, wire) {\n  out.push(...varintBytes((BigInt(num) << 3n) | BigInt(wire)));\n}\n\n"
    "function putVarintField(out, num, value) {\n  if (value === 0n) return;\n  putTag(out, num, 0);\n  out.push(...varintBytes(value));\n}\n\n"
    "function putBytesField(out, num, payload) {\n  putTag(out, num, 2);\n  putRaw(out, varintBytes(payload.length));\n  putRaw(out, payload);\n}\n\n"
-   "function putStringField(out, num, value) {\n  if (!value) return;\n  putBytesField(out, num, new TextEncoder().encode(value));\n}\n\n"
+   "function putStringField(out, num, value) {\n  if (!value) return;\n  putBytesField(out, num, textEncoder.encode(value));\n}\n\n"
    "function putFixedField(out, num, payload) {\n  putTag(out, num, payload.length === 8 ? 1 : 5);\n  out.push(...payload);\n}\n\n"
-   "function fixedBytes(value, size, write) {\n  const bytes = new Uint8Array(size);\n  write(new DataView(bytes.buffer), value);\n  return bytes;\n}\n\n"
+   "const _fixedBuf = new Uint8Array(8);\nconst _fixedView = new DataView(_fixedBuf.buffer);\nfunction fixedBytes(value, size, write) {\n  write(_fixedView, value);\n  return _fixedBuf.subarray(0, size);\n}\n\n"
    "function readFixed(bytes, read) {\n  return read(new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength));\n}\n\n"))
 
 (define (js-pb-flat pkg full)

@@ -654,6 +654,11 @@
     (each fields (fmt "\t~a ~a\n" (pascal (ref name)) (field-type)))
     "\tUnknownFields []byte\n}\n\n"
     (call goPbConstructor)
+    (fmt "// Reset zeroes the message (restoring explicit defaults),\n// so an instance can be safely reused with UnmarshalDC.\nfunc (m *~a) Reset() {\n\t*m = ~a{}\n" (flat) (flat))
+    (each fields
+          (when (has-default)
+            (fmt "\tm.~a = ~a\n" (pascal (ref name)) (call goPbDefaultLiteral))))
+    "}\n\n"
     (fmt "func (m *~a) MarshalDC() []byte {\n\tvar out []byte\n" (flat))
     (each fields (call goPbEncodeFieldGuarded))
     "\tout = append(out, m.UnknownFields...)\n\treturn out\n}\n\n"
@@ -771,7 +776,7 @@
                       (arg 1) (arg 0) (ref number) (arg 0) (js-fixed-size) (js-fixed-name)))))
       ("string"
        (if (proto2)
-           (then (fmt "~aputBytesField(out, ~a, new TextEncoder().encode(~a));\n"
+           (then (fmt "~aputBytesField(out, ~a, textEncoder.encode(~a));\n"
                       (arg 1) (ref number) (arg 0)))
            (else (fmt "~aputStringField(out, ~a, ~a);\n"
                       (arg 1) (ref number) (arg 0)))))
@@ -797,7 +802,7 @@
                                (js-name) (js-name) (js-name) (call jsPbVarintExpr "x") (ref number)))
                 ("fixed" (fmt "    if (msg.~a && msg.~a.length) {\n      const payload = new Uint8Array(msg.~a.length * ~a);\n      const dv = new DataView(payload.buffer);\n      msg.~a.forEach((x, i) => dv.set~a(i * ~a, x, true));\n      putBytesField(out, ~a, payload);\n    }\n"
                               (js-name) (js-name) (js-name) (js-fixed-size) (js-name) (js-fixed-name) (js-fixed-size) (ref number)))
-                ("string" (fmt "    if (msg.~a) for (const v of msg.~a) putBytesField(out, ~a, new TextEncoder().encode(v));\n"
+                ("string" (fmt "    if (msg.~a) for (const v of msg.~a) putBytesField(out, ~a, textEncoder.encode(v));\n"
                                (js-name) (js-name) (ref number)))
                 ("bytes" (fmt "    if (msg.~a) for (const v of msg.~a) putBytesField(out, ~a, v);\n"
                               (js-name) (js-name) (ref number)))
@@ -810,7 +815,7 @@
   '((case-on (category)
       ("varint" (fmt "~a = ~a;" (arg 0) (call jsPbVarintDecode (arg 1))))
       ("fixed" (fmt "~a = readFixed(~a, (dv) => dv.get~a(0, true));" (arg 0) (arg 1) (js-fixed-name)))
-      ("string" (fmt "~a = new TextDecoder().decode(~a);" (arg 0) (arg 1)))
+      ("string" (fmt "~a = textDecoder.decode(~a);" (arg 0) (arg 1)))
       ("bytes" (fmt "~a = ~a;" (arg 0) (arg 1)))
       ("message" (fmt "~a = ~a.decode(~a);" (arg 0) (resolved-flat) (arg 1)))
       (else (fail)))))
@@ -833,7 +838,7 @@
                 (else (fmt "      case ~a: msg.~a.push(~a); break;\n"
                            (ref number) (js-name)
                            (case-on (category)
-                             ("string" "new TextDecoder().decode(value)")
+                             ("string" "textDecoder.decode(value)")
                              ("bytes" "value")
                              (else (fmt "~a.decode(value)" (resolved-flat))))))))
              (else (fmt "      case ~a: ~a~a break;\n"
@@ -864,13 +869,15 @@
     (fmt "  constructor({ ~a } = {}) {\n"
          (each-sep ", " fields (fmt "~a = ~a" (js-name) (call jsPbDefault))))
     (each fields (fmt "    this.~a = ~a;\n" (js-name) (js-name)))
-    "    this.unknownFields = new Uint8Array(0);\n  }\n  static encode(msg) {\n    const out = [];\n"
+    "    this.unknownFields = EMPTY_BYTES;\n  }\n  static encode(msg) {\n    const out = [];\n"
     (each fields (guarded jsPbSetExpr "    if (!(~a)) {\n" "    }\n" (call jsPbEncodeField)))
     "    putRaw(out, msg.unknownFields);\n    return new Uint8Array(out);\n  }\n"
-    (fmt "  static decode(bytes) {\n    const msg = new ~a();\n" (flat))
+    (fmt "  static decode(bytes) {\n    const msg = new ~a();\n    ~a._fill(msg, bytes);\n    return msg;\n  }\n  static decodeInto(msg, bytes) {\n    msg._reset();\n    ~a._fill(msg, bytes);\n    return msg;\n  }\n  static _fill(msg, bytes) {\n" (flat) (flat) (flat))
     "    const reader = new Reader(bytes);\n    let f;\n    while ((f = reader.field()) !== null) {\n      const [num, wire, value, raw] = f;\n      switch (num) {\n"
     (each fields (call jsPbDecodeCase))
-    "        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;\n      }\n    }\n    return msg;\n  }\n}\n\n"))
+    "        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;\n      }\n    }\n    return msg;\n  }\n  _reset() {\n"
+    (each fields (fmt "    this.~a = ~a;\n" (js-name) (call jsPbDefault)))
+    "    this.unknownFields = EMPTY_BYTES;\n  }\n}\n\n"))
 
 ;; ---------------------------------------------------------------------------
 ;; Wasm-Swift facade emitter (mirrors template-wasm-swift.rkt).
