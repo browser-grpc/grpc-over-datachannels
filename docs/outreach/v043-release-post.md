@@ -14,6 +14,7 @@ Links:
 - pub.dev: https://pub.dev/packages/grpc_dc (kafka_grpc, eventbus_grpc)
 - NuGet: https://www.nuget.org/packages/GrpcDc (KafkaGrpc, EventBusGrpc)
 - Issue #2 (host/plugin request): https://github.com/browser-grpc/grpc-over-datachannels/issues/2
+- Videos: https://www.youtube.com/@JohnDavis-jf3on (gRPC https://youtu.be/LwrXpnlMlgA, WebRTC-Direct https://youtu.be/VB24tRXPTdE, Tracing https://youtu.be/QB-CFqeWBRk)
 
 ---
 

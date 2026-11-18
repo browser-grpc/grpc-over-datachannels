@@ -13,6 +13,7 @@ Links:
 - PyPI: https://pypi.org/project/grpc-dc/ (kafka-native wheel
   ships from the kafka-native repo)
 - SPEC-WEBRTC.md documents the token wire format.
+- Videos: Kafka https://youtu.be/KJ98a4ApZ4E, Event Bus https://youtu.be/PujUnQyxKWg, channel https://www.youtube.com/@JohnDavis-jf3on
 
 ---
 
