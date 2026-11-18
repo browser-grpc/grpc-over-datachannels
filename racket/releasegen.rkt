@@ -58,7 +58,14 @@
 
 (define allow-prefixes
   (append (map cdr languages)
-          '("webrtc" "wasm" "proto" "fixtures" "examples" "crates/kafka-native")))
+          '("webrtc" "wasm" "proto" "fixtures" "examples" "crates/kafka-native"
+            ;; The shared Rust cores: the Go stack links the
+            ;; FFI cdylibs and the JS stack generates its Wasm
+            ;; glue from these, so a public clone must carry
+            ;; them to build at all (post-consolidation).
+            "crates/dc-sctp-ffi" "crates/dc-dtls-ffi" "crates/dc-ice-ffi"
+            "crates/dc-sctp-wasm" "crates/dc-dtls-wasm" "crates/dc-ice-wasm"
+            "crates/dc-bridge-wasm")))
 
 ;; QUICKSTART step 2 lives in browser-test/, which is otherwise
 ;; private test tooling (and carries built wasm/binaries); export
