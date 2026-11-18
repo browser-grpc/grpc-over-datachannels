@@ -47,6 +47,7 @@ export class Peer {
   #dtlsRole = "server";
   #chunkMessages = false;
   #assocFactory = null;
+  #dtlsFactory = null;
   #requirePeerCertificate;
   #dtlsQueue = [];
   #dtlsWaiters = [];
@@ -77,9 +78,10 @@ export class Peer {
   #consentIntervalMs = 5000;
   #consentExpiryMs = 30000;
 
-  constructor(socket, agent, certificate, { requirePeerCertificate = true, chunkMessages = false, assocFactory = null } = {}) {
+  constructor(socket, agent, certificate, { requirePeerCertificate = true, chunkMessages = false, assocFactory = null, dtlsFactory = null } = {}) {
     this.#chunkMessages = chunkMessages;
     this.#assocFactory = assocFactory;
+    this.#dtlsFactory = dtlsFactory;
     this.#socket = socket;
     this.#agent = agent;
     this.#certificate = certificate;
@@ -99,6 +101,8 @@ export class Peer {
     consentExpiryMs = 30000,
     chunkMessages = false,
     assocFactory = null,
+    iceAgentFactory = null,
+    dtlsFactory = null,
   } = {}) {
     const effectiveIps = localIps ?? defaultLocalIps();
     // A dual-stack udp6 socket serves IPv6 candidates (and IPv4
@@ -124,6 +128,8 @@ export class Peer {
       consentExpiryMs,
       chunkMessages,
       assocFactory,
+      iceAgentFactory,
+      dtlsFactory,
     });
   }
 
@@ -142,6 +148,8 @@ export class Peer {
       consentExpiryMs = 30000,
       chunkMessages = false,
       assocFactory = null,
+      iceAgentFactory = null,
+      dtlsFactory = null,
       // Rendezvous mode: pre-published fixed local ICE
       // credentials and DTLS certificate, so a browser can
       // synthesize this peer's description without signaling.
@@ -152,13 +160,13 @@ export class Peer {
   ) {
     const effectiveIps = localIps ?? defaultLocalIps();
     const { port } = socket.address();
-    const agent = new IceAgent(true);
+    const agent = iceAgentFactory ? iceAgentFactory(true) : new IceAgent(true);
     if (iceUfrag) agent.localUfrag = iceUfrag;
     if (icePwd) agent.localPwd = icePwd;
     agent.localCandidates = effectiveIps.map((ip, i) =>
       Candidate.host(ip, port, String(i + 1)),
     );
-    const peer = new Peer(socket, agent, certificate ?? Certificate.generate(), { requirePeerCertificate, chunkMessages, assocFactory });
+    const peer = new Peer(socket, agent, certificate ?? Certificate.generate(), { requirePeerCertificate, chunkMessages, assocFactory, dtlsFactory });
     peer.#consentIntervalMs = consentIntervalMs;
     peer.#consentExpiryMs = consentExpiryMs;
     for (const server of stunServers) {
@@ -664,8 +672,9 @@ export class Peer {
     if (config.connectionId && this.#agent.remoteUfrag) {
       config.pairHint = Buffer.from(this.#agent.remoteUfrag, "utf8");
     }
-    const dtls =
-      this.#dtlsRole === "client"
+    const dtls = this.#dtlsFactory
+      ? await this.#dtlsFactory(io, config, this.#dtlsRole)
+      : this.#dtlsRole === "client"
         ? await DtlsConnection.connect(io, config)
         : await DtlsConnection.accept(io, config);
     emitStackEvent("dtls.handshake", dtls.wasResumed?.() ? "resumed" : "full");

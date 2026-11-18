@@ -110,6 +110,10 @@ generated_images/
 /crates/dc-bridge-wasm/pkg/
 /browser-test/dc_bridge_gen/
 /browser-test/dc_sctp_gen/
+/browser-test/dc_ice_gen/
+/browser-test/dc_dtls_gen/
 /crates/dc-sctp-wasm/target/
 /crates/dc-dtls-ffi/target/
+/crates/dc-dtls-wasm/target/
+/crates/dc-ice-wasm/target/
 /crates/dc-ice-ffi/target/
