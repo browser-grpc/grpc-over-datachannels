@@ -317,7 +317,7 @@ test-iot:
 test-webrtc-nostd:
 	cd webrtc/rust && $(CARGO) build --no-default-features && $(CARGO) build --no-default-features --target wasm32-unknown-unknown && $(CARGO) build --no-default-features --target thumbv7em-none-eabihf
 
-test-webrtc-js:
+test-webrtc-js: wasm-cores-gen
 	cd webrtc/js && npm test
 
 ## Supported TCP<->DataChannel proxy (proxy/grpc-dc-proxy.mjs):
@@ -701,6 +701,18 @@ else
 WASM_BINDGEN ?= wasm-bindgen
 endif
 
+# Bridge glue without wasm-pack (absent from the CI
+# image): cargo plus the pinned wasm-bindgen CLI.
+BRIDGE_GEN = cd crates/dc-bridge-wasm && cargo build --release --target wasm32-unknown-unknown && $(WASM_BINDGEN) --target web --out-dir ../../browser-test/dc_bridge_gen target/wasm32-unknown-unknown/release/dc_bridge_wasm.wasm
+
+## Build the Rust-core Wasm glue the JS stack loads
+## (browser-test/dc_*_gen; gitignored artifacts, so a
+## fresh checkout must generate them before testing).
+wasm-cores-gen:
+	cd crates/dc-sctp-wasm && cargo build --release --target wasm32-unknown-unknown && $(WASM_BINDGEN) --target web --out-dir ../../browser-test/dc_sctp_gen target/wasm32-unknown-unknown/release/dc_sctp_wasm.wasm
+	cd crates/dc-dtls-wasm && cargo build --release --target wasm32-unknown-unknown && $(WASM_BINDGEN) --target web --out-dir ../../browser-test/dc_dtls_gen target/wasm32-unknown-unknown/release/dc_dtls_wasm.wasm
+	cd crates/dc-ice-wasm && cargo build --release --target wasm32-unknown-unknown && $(WASM_BINDGEN) --target web --out-dir ../../browser-test/dc_ice_gen target/wasm32-unknown-unknown/release/dc_ice_wasm.wasm
+
 test-wasm:
 	cd wasm/go && GOOS=js GOARCH=wasm go build -o ../../browser-test/echo.wasm ./cmd/echo_wasm
 	cd wasm/go && GOOS=js GOARCH=wasm go build -o ../../browser-test/echo_go_server.wasm ./cmd/echo_server_wasm
@@ -712,7 +724,7 @@ test-wasm:
 	$(WASM_BINDGEN) --target web --out-dir browser-test/wasm_rust_gen wasm/rust/target/wasm32-unknown-unknown/release/grpc_dc_wasm_rust.wasm
 	cd browser-test && node wasm.test.mjs all && node wasm_rust.test.mjs all
 	cd browser-test && node wasm_rust_server.test.mjs all
-	cd crates/dc-bridge-wasm && wasm-pack build --release --target web --out-dir ../../browser-test/dc_bridge_gen
+	$(BRIDGE_GEN)
 	cd browser-test && node wasm_rust_bridge.test.mjs all
 	cd browser-test && node wasm_rust_tracing.test.mjs all
 
@@ -797,7 +809,7 @@ test-cpp-wasm-browser:
 		wasm/cpp/bridge.cpp wasm/cpp/echo_server.cpp \
 		-o browser-test/echo_cpp_server.wasm
 	cd browser-test && node wasm_facade.test.mjs C++ "wasm_facade_page.html?wasm=/browser-test/echo_cpp.wasm" all
-	cd crates/dc-bridge-wasm && wasm-pack build --release --target web --out-dir ../../browser-test/dc_bridge_gen
+	$(BRIDGE_GEN)
 	cd browser-test && node wasm_facade.test.mjs C++ "wasm_facade_rust_page.html?wasm=/browser-test/echo_cpp.wasm" all
 	cd browser-test && node wasm_cpp_facade_server.test.mjs all
 	$(ZIG) c++ -target wasm32-wasi -std=c++17 -O1 -mexec-model=reactor \
@@ -912,7 +924,7 @@ test-swift-wasm-browser:
 		$(SWIFT_WASM_LIBDIR)/libswiftExclusivitySingleThreaded.a \
 		-o browser-test/echo_swift.wasm
 	cd browser-test && node wasm_facade.test.mjs Swift "wasm_facade_page.html?wasm=/browser-test/echo_swift.wasm" all
-	cd crates/dc-bridge-wasm && wasm-pack build --release --target web --out-dir ../../browser-test/dc_bridge_gen
+	$(BRIDGE_GEN)
 	cd browser-test && node wasm_facade.test.mjs Swift "wasm_facade_rust_page.html?wasm=/browser-test/echo_swift.wasm" all
 
 # Native Swift WASM runtime: the real grpcdc runtime +
@@ -976,7 +988,7 @@ test-kotlin-wasm-browser:
 		-ir-output-name echo_kotlin \
 		-module-kind es -target es2015 -main noCall -Xir-produce-js
 	cd browser-test && node wasm_facade.test.mjs Kotlin wasm_kotlin_page.html all
-	cd crates/dc-bridge-wasm && wasm-pack build --release --target web --out-dir ../../browser-test/dc_bridge_gen
+	$(BRIDGE_GEN)
 	cd browser-test && node wasm_facade.test.mjs Kotlin wasm_kotlin_rust_page.html all
 	cd browser-test && node wasm_kotlin_facade_server.test.mjs all
 	cd browser-test && node wasm_kotlin_stream_server.test.mjs all
@@ -1045,7 +1057,7 @@ scalajs-gen:
 
 test-scalajs-browser: scalajs-gen
 	cd browser-test && node wasm_facade.test.mjs ScalaJS wasm_scalajs_page.html all
-	cd crates/dc-bridge-wasm && wasm-pack build --release --target web --out-dir ../../browser-test/dc_bridge_gen
+	$(BRIDGE_GEN)
 	cd browser-test && node wasm_facade.test.mjs ScalaJS wasm_scalajs_rust_page.html all
 	cd browser-test && node wasm_scalajs_facade_server.test.mjs all
 	cd browser-test && node wasm_scalajs_stream_server.test.mjs all

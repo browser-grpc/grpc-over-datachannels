@@ -312,6 +312,18 @@ RUN cd crates/dc-sctp-ffi && cargo build --release \
   && cd ../dc-dtls-ffi && cargo build --release \
   && cd ../dc-ice-ffi && cargo build --release
 
+# Warm the Wasm core crates too: image test runs are
+# offline (CARGO_NET_OFFLINE), and the JS/browser suites
+# generate their glue from these.
+COPY crates/dc-sctp-wasm ./crates/dc-sctp-wasm
+COPY crates/dc-dtls-wasm ./crates/dc-dtls-wasm
+COPY crates/dc-ice-wasm ./crates/dc-ice-wasm
+COPY crates/dc-bridge-wasm ./crates/dc-bridge-wasm
+RUN cd crates/dc-sctp-wasm && cargo build --release --target wasm32-unknown-unknown \
+  && cd ../dc-dtls-wasm && cargo build --release --target wasm32-unknown-unknown \
+  && cd ../dc-ice-wasm && cargo build --release --target wasm32-unknown-unknown \
+  && cd ../dc-bridge-wasm && cargo build --release --target wasm32-unknown-unknown
+
 COPY go ./go
 COPY webrtc/go ./webrtc/go
 RUN cd go && go build ./...
