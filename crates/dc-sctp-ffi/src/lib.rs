@@ -8,7 +8,96 @@ use dc_webrtc::sctp::{Association, Event, SendOptions};
 use std::ffi::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
-pub struct GrpcdcSctp(Association);
+pub struct GrpcdcSctp {
+    assoc: Association,
+    /// Serialized outputs of the last handle_packet/tick
+    /// call. Buffer-too-small never loses them: the host
+    /// grows its buffers and re-reads via grpcdc_sctp_drain
+    /// (the core call itself is never re-run).
+    last_packets: Vec<u8>,
+    last_events: Vec<u8>,
+}
+
+impl GrpcdcSctp {
+    fn new(assoc: Association) -> Self {
+        Self {
+            assoc,
+            last_packets: Vec::new(),
+            last_events: Vec::new(),
+        }
+    }
+
+    /// Serialize into the stash, then copy out. Returns
+    /// packets bytes written, or ERR_SMALL with the stash
+    /// populated for grpcdc_sctp_drain.
+    fn stash(&mut self, packets: &[Vec<u8>], events: &[Event]) -> i64 {
+        self.last_packets = serialize_packets(packets);
+        self.last_events = serialize_events(events);
+        ERR_SMALL // caller follows with copy_out
+    }
+
+    fn copy_out(
+        &self,
+        out_packets: *mut u8,
+        packets_cap: usize,
+        out_events: *mut u8,
+        events_cap: usize,
+        events_len: *mut usize,
+    ) -> i64 {
+        if self.last_packets.len() > packets_cap || self.last_events.len() > events_cap {
+            return ERR_SMALL;
+        }
+        if !out_packets.is_null() && !self.last_packets.is_empty() {
+            unsafe {
+                std::slice::from_raw_parts_mut(out_packets, packets_cap)
+                    [..self.last_packets.len()]
+                    .copy_from_slice(&self.last_packets)
+            };
+        }
+        if !out_events.is_null() && !self.last_events.is_empty() {
+            unsafe {
+                std::slice::from_raw_parts_mut(out_events, events_cap)
+                    [..self.last_events.len()]
+                    .copy_from_slice(&self.last_events)
+            };
+        }
+        unsafe { *events_len = self.last_events.len() };
+        self.last_packets.len() as i64
+    }
+}
+
+/// Serialize packets as [u32 BE len][bytes]... into a Vec.
+fn serialize_packets(packets: &[Vec<u8>]) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(packets.iter().map(|p| 4 + p.len()).sum());
+    for p in packets {
+        buf.extend_from_slice(&(p.len() as u32).to_be_bytes());
+        buf.extend_from_slice(p);
+    }
+    buf
+}
+
+/// Serialize events (see grpcdc_sctp.h) into a Vec.
+fn serialize_events(events: &[Event]) -> Vec<u8> {
+    let mut buf = Vec::new();
+    for e in events {
+        let (kind, stream, ppid, payload): (u8, u16, u32, &[u8]) = match e {
+            Event::Connected => (1, 0, 0, &[]),
+            Event::Data {
+                stream,
+                ppid,
+                payload,
+            } => (2, *stream, *ppid, payload),
+            Event::StreamReset { stream } => (3, *stream, 0, &[]),
+            Event::Closed => (4, 0, 0, &[]),
+        };
+        buf.push(kind);
+        buf.extend_from_slice(&stream.to_be_bytes());
+        buf.extend_from_slice(&ppid.to_be_bytes());
+        buf.extend_from_slice(&(payload.len() as u32).to_be_bytes());
+        buf.extend_from_slice(payload);
+    }
+    buf
+}
 
 const ERR_NULL: i64 = -1;
 const ERR_SMALL: i64 = -2;
@@ -86,7 +175,7 @@ fn write_events(events: &[Event], out: *mut u8, cap: usize) -> i64 {
 macro_rules! handle {
     ($h:expr) => {
         match unsafe { ($h as *mut GrpcdcSctp).as_mut() } {
-            Some(w) => &mut w.0,
+            Some(w) => w,
             None => return ERR_NULL,
         }
     };
@@ -94,12 +183,12 @@ macro_rules! handle {
 
 #[no_mangle]
 pub extern "C" fn grpcdc_sctp_new_client(local_port: u16, peer_port: u16) -> *mut GrpcdcSctp {
-    guard_ptr(|| Box::into_raw(Box::new(GrpcdcSctp(Association::new_client(local_port, peer_port)))))
+    guard_ptr(|| Box::into_raw(Box::new(GrpcdcSctp::new(Association::new_client(local_port, peer_port)))))
 }
 
 #[no_mangle]
 pub extern "C" fn grpcdc_sctp_new_server(local_port: u16, peer_port: u16) -> *mut GrpcdcSctp {
-    guard_ptr(|| Box::into_raw(Box::new(GrpcdcSctp(Association::new_server(local_port, peer_port)))))
+    guard_ptr(|| Box::into_raw(Box::new(GrpcdcSctp::new(Association::new_server(local_port, peer_port)))))
 }
 
 #[no_mangle]
@@ -115,7 +204,7 @@ pub extern "C" fn grpcdc_sctp_free(h: *mut GrpcdcSctp) {
 pub extern "C" fn grpcdc_sctp_is_established(h: *const GrpcdcSctp) -> i32 {
     catch_unwind(AssertUnwindSafe(|| {
         match unsafe { (h as *const GrpcdcSctp).as_ref() } {
-            Some(w) => w.0.is_established() as i32,
+            Some(w) => w.assoc.is_established() as i32,
             None => 0,
         }
     }))
@@ -130,11 +219,11 @@ pub extern "C" fn grpcdc_sctp_connect(
     cap: usize,
 ) -> i64 {
     guard_i64(|| {
-        let assoc = handle!(h);
+        let w = handle!(h);
         if out.is_null() {
             return ERR_NULL;
         }
-        let packet = assoc.connect(now_ms);
+        let packet = w.assoc.connect(now_ms);
         if packet.len() > cap {
             return ERR_SMALL;
         }
@@ -159,7 +248,7 @@ pub extern "C" fn grpcdc_sctp_send_data(
     cap: usize,
 ) -> i64 {
     guard_i64(|| {
-        let assoc = handle!(h);
+        let w = handle!(h);
         if data.is_null() && len > 0 {
             return ERR_NULL;
         }
@@ -181,7 +270,7 @@ pub extern "C" fn grpcdc_sctp_send_data(
                 Some(max_lifetime_ms as u64)
             },
         };
-        let packets = assoc.send_data(stream, ppid, payload, opts, now_ms);
+        let packets = w.assoc.send_data(stream, ppid, payload, opts, now_ms);
         write_packets(&packets, out, cap)
     })
 }
@@ -199,18 +288,14 @@ pub extern "C" fn grpcdc_sctp_handle_packet(
     events_len: *mut usize,
 ) -> i64 {
     guard_i64(|| {
-        let assoc = handle!(h);
+        let w = handle!(h);
         if packet.is_null() || events_len.is_null() {
             return ERR_NULL;
         }
         let bytes = unsafe { std::slice::from_raw_parts(packet, len) };
-        let (packets, events) = assoc.handle_packet(bytes, now_ms);
-        let ev = write_events(&events, out_events, events_cap);
-        if ev < 0 {
-            return ev;
-        }
-        unsafe { *events_len = ev as usize };
-        write_packets(&packets, out_packets, packets_cap)
+        let (packets, events) = w.assoc.handle_packet(bytes, now_ms);
+        w.stash(&packets, &events);
+        w.copy_out(out_packets, packets_cap, out_events, events_cap, events_len)
     })
 }
 
@@ -225,17 +310,34 @@ pub extern "C" fn grpcdc_sctp_tick(
     events_len: *mut usize,
 ) -> i64 {
     guard_i64(|| {
-        let assoc = handle!(h);
+        let w = handle!(h);
         if events_len.is_null() {
             return ERR_NULL;
         }
-        let (packets, events) = assoc.tick(now_ms);
-        let ev = write_events(&events, out_events, events_cap);
-        if ev < 0 {
-            return ev;
+        let (packets, events) = w.assoc.tick(now_ms);
+        w.stash(&packets, &events);
+        w.copy_out(out_packets, packets_cap, out_events, events_cap, events_len)
+    })
+}
+
+/// Re-read the stashed outputs of the last handle_packet
+/// or tick call (after a -2 return with bigger buffers).
+/// Never re-runs the core; safe to call repeatedly.
+#[no_mangle]
+pub extern "C" fn grpcdc_sctp_drain(
+    h: *mut GrpcdcSctp,
+    out_packets: *mut u8,
+    packets_cap: usize,
+    out_events: *mut u8,
+    events_cap: usize,
+    events_len: *mut usize,
+) -> i64 {
+    guard_i64(|| {
+        let w = handle!(h);
+        if events_len.is_null() {
+            return ERR_NULL;
         }
-        unsafe { *events_len = ev as usize };
-        write_packets(&packets, out_packets, packets_cap)
+        w.copy_out(out_packets, packets_cap, out_events, events_cap, events_len)
     })
 }
 
@@ -249,7 +351,7 @@ pub extern "C" fn grpcdc_sctp_stats(h: *const GrpcdcSctp, out7: *mut u64) -> i32
         if out7.is_null() {
             return -1;
         }
-        let s = w.0.stats();
+        let s = w.assoc.stats();
         let vals = [
             s.packets_sent,
             s.packets_received,
@@ -273,8 +375,8 @@ pub extern "C" fn grpcdc_sctp_close_stream(
     cap: usize,
 ) -> i64 {
     guard_i64(|| {
-        let assoc = handle!(h);
-        let packets = assoc.close_stream(stream);
+        let w = handle!(h);
+        let packets = w.assoc.close_stream(stream);
         write_packets(&packets, out, cap)
     })
 }
@@ -287,8 +389,8 @@ pub extern "C" fn grpcdc_sctp_close(
     cap: usize,
 ) -> i64 {
     guard_i64(|| {
-        let assoc = handle!(h);
-        let packets = assoc.close(now_ms);
+        let w = handle!(h);
+        let packets = w.assoc.close(now_ms);
         write_packets(&packets, out, cap)
     })
 }

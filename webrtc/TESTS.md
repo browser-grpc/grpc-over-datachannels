@@ -28,6 +28,8 @@ Stack suites run via `make test-webrtc-go`, `make test-webrtc-js`, `make test-we
 - [`sctp_sack_vectors_test.go`](go/sctp_sack_vectors_test.go) — Generated suite/example
 - [`sctp_stats_test.go`](go/sctp_stats_test.go) — Generated suite/example
 - [`sctp_vectors_test.go`](go/sctp_vectors_test.go) — Generated suite/example
+- [`sctpffi_bench_test.go`](go/sctpffi/sctpffi_bench_test.go) — Generated suite/example
+- [`sctpffi_test.go`](go/sctpffi/sctpffi_test.go) — Generated suite/example
 - [`srflx_test.go`](go/srflx_test.go) — Generated suite/example
 - [`streamreset_test.go`](go/streamreset_test.go) — Generated suite/example
 - [`trace_test.go`](go/trace_test.go) — Tracing: traceparent propagation, span observers, nested calls

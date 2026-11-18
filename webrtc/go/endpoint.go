@@ -185,13 +185,28 @@ func (c *DataChannel) emitMessage(data []byte, isText bool) {
 	handler(data, isText)
 }
 
+// sctpAssoc is the SCTP backend seam: the mirrored Go
+// stack by default, or the shared Rust core (dc-sctp-ffi,
+// crates/dc-sctp-ffi) under the dc_sctp build tag. All
+// endpoint association access goes through this interface.
+type sctpAssoc interface {
+	Connect(nowMs int64) []byte
+	SendData(stream uint16, ppid uint32, payload []byte, opts SendOptions, nowMs int64) [][]byte
+	HandlePacket(packet []byte, nowMs int64) ([][]byte, []SctpEvent)
+	Tick(nowMs int64) ([][]byte, []SctpEvent)
+	Stats() AssociationStats
+	CloseStream(id uint16) [][]byte
+	Close(nowMs int64) [][]byte
+	IsEstablished() bool
+}
+
 // DcEndpoint is a DTLS+SCTP association with DCEP channels.
 type DcEndpoint struct {
 	// onChannel fires for inbound channels.
 	onChannel atomic.Value // func(*DataChannel)
 
 	dtls       *DtlsConnection
-	assoc      *Association
+	assoc      sctpAssoc
 	role       string
 	channels   map[uint16]*DataChannel
 	nextStream uint16
@@ -268,12 +283,7 @@ func (e *DcEndpoint) Stats() AssociationStats {
 // opens odd streams.
 func NewDcEndpoint(dtls *DtlsConnection, role string) *DcEndpoint {
 	isClient := role == "client"
-	var assoc *Association
-	if isClient {
-		assoc = NewClientAssociation(SctpPort, SctpPort)
-	} else {
-		assoc = NewServerAssociation(SctpPort, SctpPort)
-	}
+	assoc := newSctpAssoc(isClient)
 	endpoint := &DcEndpoint{
 		dtls: dtls, assoc: assoc, role: role,
 		channels: map[uint16]*DataChannel{}, start: time.Now(),

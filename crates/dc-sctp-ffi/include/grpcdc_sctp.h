@@ -46,7 +46,10 @@ int64_t grpcdc_sctp_send_data(grpcdc_sctp_t *h, uint16_t stream, uint32_t ppid,
                               uint8_t *out, size_t cap);
 
 /* On success *events_len receives the events bytes written
- * (the packets byte count is the return value). */
+ * (the packets byte count is the return value). On -2 the
+ * call HAS run (state advanced) and its outputs are stashed
+ * in the handle: grow the buffers and re-read them with
+ * grpcdc_sctp_drain — never re-run the same packet. */
 int64_t grpcdc_sctp_handle_packet(grpcdc_sctp_t *h,
                                   const uint8_t *packet, size_t len,
                                   uint64_t now_ms,
@@ -58,6 +61,14 @@ int64_t grpcdc_sctp_tick(grpcdc_sctp_t *h, uint64_t now_ms,
                          uint8_t *out_packets, size_t packets_cap,
                          uint8_t *out_events, size_t events_cap,
                          size_t *events_len);
+
+/* Re-read the stashed outputs of the last handle_packet
+ * or tick call (after a -2 return with bigger buffers).
+ * Never re-runs the core; safe to call repeatedly. */
+int64_t grpcdc_sctp_drain(grpcdc_sctp_t *h,
+                          uint8_t *out_packets, size_t packets_cap,
+                          uint8_t *out_events, size_t events_cap,
+                          size_t *events_len);
 
 /* Writes 7 counters: packets_sent, packets_received,
  * chunks_sent, chunks_received, retransmits,

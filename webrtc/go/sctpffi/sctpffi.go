@@ -15,7 +15,7 @@
 package sctpffi
 
 /*
-#cgo CFLAGS: -I${SRCDIR}/../../crates/dc-sctp-ffi/include
+#cgo CFLAGS: -I${SRCDIR}/../../../crates/dc-sctp-ffi/include
 #cgo LDFLAGS: -ldc_sctp_ffi
 
 #include "grpcdc_sctp.h"
@@ -105,6 +105,17 @@ func check(rc C.int64_t, what string) error {
 	return nil
 }
 
+// growFor doubles the named scratch buffer; the FFI
+// returns -2 (buffer too small, nothing written) when a
+// burst does not fit, and callers retry with a bigger one.
+func (a *Association) grow(events bool) {
+	if events {
+		a.ebuf = make([]byte, len(a.ebuf)*2)
+	} else {
+		a.pbuf = make([]byte, len(a.pbuf)*2)
+	}
+}
+
 func splitPackets(buf []byte) [][]byte {
 	var out [][]byte
 	for len(buf) >= 4 {
@@ -154,14 +165,20 @@ func (a *Association) SendData(stream uint16, ppid uint32, data []byte, opts Sen
 	if opts.Unordered {
 		unordered = 1
 	}
-	n := C.grpcdc_sctp_send_data(a.h, C.uint16_t(stream), C.uint32_t(ppid),
-		dataPtr, C.size_t(len(data)), unordered,
-		C.int32_t(opts.MaxRetransmits), C.int64_t(opts.MaxLifetimeMs),
-		C.uint64_t(nowMs), (*C.uint8_t)(unsafe.Pointer(&a.pbuf[0])), C.size_t(len(a.pbuf)))
-	if err := check(n, "send_data"); err != nil {
-		return nil, err
+	for {
+		n := C.grpcdc_sctp_send_data(a.h, C.uint16_t(stream), C.uint32_t(ppid),
+			dataPtr, C.size_t(len(data)), unordered,
+			C.int32_t(opts.MaxRetransmits), C.int64_t(opts.MaxLifetimeMs),
+			C.uint64_t(nowMs), (*C.uint8_t)(unsafe.Pointer(&a.pbuf[0])), C.size_t(len(a.pbuf)))
+		if n == -2 {
+			a.grow(false)
+			continue
+		}
+		if err := check(n, "send_data"); err != nil {
+			return nil, err
+		}
+		return splitPackets(a.pbuf[:n]), nil
 	}
-	return splitPackets(a.pbuf[:n]), nil
 }
 
 // HandlePacket feeds one inbound datagram; returns reply
@@ -175,6 +192,23 @@ func (a *Association) HandlePacket(packet []byte, nowMs uint64) ([][]byte, []Eve
 	n := C.grpcdc_sctp_handle_packet(a.h, pktPtr, C.size_t(len(packet)), C.uint64_t(nowMs),
 		(*C.uint8_t)(unsafe.Pointer(&a.pbuf[0])), C.size_t(len(a.pbuf)),
 		(*C.uint8_t)(unsafe.Pointer(&a.ebuf[0])), C.size_t(len(a.ebuf)), &elen)
+	if n == -2 {
+		// The core call HAS run; its outputs are stashed
+		// in the handle. Grow and drain — never re-run
+		// the same packet through the association.
+		for n == -2 {
+			a.grow(false)
+			a.grow(true)
+			var dn C.int64_t
+			_, _, dn = a.Drain()
+			n = dn
+		}
+		if err := check(n, "handle_packet"); err != nil {
+			return nil, nil, err
+		}
+		packets, events, _ := a.Drain()
+		return packets, events, nil
+	}
 	if err := check(n, "handle_packet"); err != nil {
 		return nil, nil, err
 	}
@@ -187,10 +221,62 @@ func (a *Association) Tick(nowMs uint64) ([][]byte, []Event, error) {
 	n := C.grpcdc_sctp_tick(a.h, C.uint64_t(nowMs),
 		(*C.uint8_t)(unsafe.Pointer(&a.pbuf[0])), C.size_t(len(a.pbuf)),
 		(*C.uint8_t)(unsafe.Pointer(&a.ebuf[0])), C.size_t(len(a.ebuf)), &elen)
+	if n == -2 {
+		for n == -2 {
+			a.grow(false)
+			a.grow(true)
+			var dn C.int64_t
+			_, _, dn = a.Drain()
+			n = dn
+		}
+		if err := check(n, "tick"); err != nil {
+			return nil, nil, err
+		}
+		packets, events, _ := a.Drain()
+		return packets, events, nil
+	}
 	if err := check(n, "tick"); err != nil {
 		return nil, nil, err
 	}
 	return splitPackets(a.pbuf[:n]), parseEvents(a.ebuf[:elen]), nil
+}
+
+// CloseStream signals an SCTP stream reset; returns
+// packets to send.
+func (a *Association) CloseStream(stream uint16) ([][]byte, error) {
+	n := C.grpcdc_sctp_close_stream(a.h, C.uint16_t(stream),
+		(*C.uint8_t)(unsafe.Pointer(&a.pbuf[0])), C.size_t(len(a.pbuf)))
+	if err := check(n, "close_stream"); err != nil {
+		return nil, err
+	}
+	return splitPackets(a.pbuf[:n]), nil
+}
+
+// Shutdown starts SCTP shutdown; returns packets to send.
+// The handle is freed as part of Shutdown.
+func (a *Association) Shutdown(nowMs uint64) ([][]byte, error) {
+	n := C.grpcdc_sctp_close(a.h, C.uint64_t(nowMs),
+		(*C.uint8_t)(unsafe.Pointer(&a.pbuf[0])), C.size_t(len(a.pbuf)))
+	if err := check(n, "close"); err != nil {
+		return nil, err
+	}
+	out := splitPackets(a.pbuf[:n])
+	a.Close()
+	return out, nil
+}
+
+// Drain re-reads the stashed outputs of the last
+// HandlePacket or Tick call (after a -2 too-small return
+// with bigger buffers). It never re-runs the core.
+func (a *Association) Drain() ([][]byte, []Event, C.int64_t) {
+	var elen C.size_t
+	n := C.grpcdc_sctp_drain(a.h,
+		(*C.uint8_t)(unsafe.Pointer(&a.pbuf[0])), C.size_t(len(a.pbuf)),
+		(*C.uint8_t)(unsafe.Pointer(&a.ebuf[0])), C.size_t(len(a.ebuf)), &elen)
+	if n < 0 {
+		return nil, nil, n
+	}
+	return splitPackets(a.pbuf[:n]), parseEvents(a.ebuf[:elen]), n
 }
 
 // Stats returns the 7 core counters (see grpcdc_sctp.h).

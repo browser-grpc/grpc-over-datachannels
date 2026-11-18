@@ -56,7 +56,7 @@ func handshake(t testing.TB, client, server *Association, now uint64) {
 }
 
 func TestFFISctpVectors(t *testing.T) {
-	raw, err := os.ReadFile("../../fixtures/sctp_vectors.json")
+	raw, err := os.ReadFile("../../../fixtures/sctp_vectors.json")
 	if err != nil {
 		t.Fatal(err)
 	}
