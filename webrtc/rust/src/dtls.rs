@@ -198,8 +198,14 @@ struct EpochKeys {
     salt: [u8; 4],
 }
 
-pub struct Dtls<I: DtlsIo> {
-    io: I,
+/// Sans-io DTLS connection (established phase): record
+/// crypto, replay window, and session state with no I/O of
+/// its own. Pump it from any driver: feed datagrams to
+/// handle_datagram, send what encrypt_app returns. The
+/// handshake that produces a core is driven by Dtls below
+/// (the flight state machine stays driven; see the
+/// SPEC-WEBRTC shared-core assessment).
+pub struct DtlsCore {
     role: Role,
     write_keys: Option<EpochKeys>,
     read_keys: Option<EpochKeys>,
@@ -227,75 +233,12 @@ pub struct Dtls<I: DtlsIo> {
     recv_cid: Option<Vec<u8>>,
 }
 
-fn err(msg: &str) -> io::Error {
-    io::Error::new(io::ErrorKind::InvalidData, msg.to_string())
+pub struct Dtls<I: DtlsIo> {
+    io: I,
+    core: DtlsCore,
 }
 
-// ---------------------------------------------------------------------------
-// byte readers/writers
-// ---------------------------------------------------------------------------
-
-struct Reader<'a> {
-    data: &'a [u8],
-    pos: usize,
-}
-
-impl<'a> Reader<'a> {
-    fn new(data: &'a [u8]) -> Self {
-        Self { data, pos: 0 }
-    }
-    fn u8(&mut self) -> io::Result<u8> {
-        let v = self.data.get(self.pos).copied().ok_or_else(|| err("short read u8"))?;
-        self.pos += 1;
-        Ok(v)
-    }
-    fn u16(&mut self) -> io::Result<u16> {
-        Ok(u16::from_be_bytes([self.u8()?, self.u8()?]))
-    }
-    fn u24(&mut self) -> io::Result<u32> {
-        Ok(((self.u8()? as u32) << 16) | ((self.u8()? as u32) << 8) | self.u8()? as u32)
-    }
-    fn take(&mut self, n: usize) -> io::Result<&'a [u8]> {
-        let out = self.data.get(self.pos..self.pos + n).ok_or_else(|| err("short read"))?;
-        self.pos += n;
-        Ok(out)
-    }
-    fn vec8(&mut self) -> io::Result<&'a [u8]> {
-        let n = self.u8()? as usize;
-        self.take(n)
-    }
-    fn vec16(&mut self) -> io::Result<&'a [u8]> {
-        let n = self.u16()? as usize;
-        self.take(n)
-    }
-    fn vec24(&mut self) -> io::Result<&'a [u8]> {
-        let n = self.u24()? as usize;
-        self.take(n)
-    }
-    fn done(&self) -> bool {
-        self.pos >= self.data.len()
-    }
-}
-
-fn put_u24(out: &mut Vec<u8>, v: u32) {
-    out.extend_from_slice(&(v as u32).to_be_bytes()[1..]);
-}
-
-fn handshake_message(msg_type: u8, msg_seq: u16, body: &[u8]) -> Vec<u8> {
-    let mut out = vec![msg_type];
-    put_u24(&mut out, body.len() as u32);
-    out.extend_from_slice(&msg_seq.to_be_bytes());
-    put_u24(&mut out, 0);
-    put_u24(&mut out, body.len() as u32);
-    out.extend_from_slice(body);
-    out
-}
-
-// ---------------------------------------------------------------------------
-// connection
-// ---------------------------------------------------------------------------
-
-impl<I: DtlsIo> Dtls<I> {
+impl DtlsCore {
     pub fn peer_fingerprint(&self) -> Option<String> {
         self.peer_certificate.as_deref().map(fingerprint_of_der)
     }
@@ -310,12 +253,6 @@ impl<I: DtlsIo> Dtls<I> {
         seed.extend_from_slice(&self.server_random);
         seed.extend_from_slice(context);
         prf(&self.master_secret, label, &seed, len)
-    }
-
-    fn send_record(&mut self, content_type: u8, epoch: u16, body: &[u8]) -> io::Result<Vec<u8>> {
-        let packet = self.build_record(content_type, epoch, body)?;
-        self.io.send_packet(&packet)?;
-        Ok(packet)
     }
 
     fn build_record(&mut self, content_type: u8, epoch: u16, body: &[u8]) -> io::Result<Vec<u8>> {
@@ -495,6 +432,188 @@ impl<I: DtlsIo> Dtls<I> {
         }
         Ok((Record { content_type, body: plaintext }, consumed))
     }
+
+    fn derive_keys(&mut self, master: &[u8]) {
+        let mut seed = self.server_random.to_vec();
+        seed.extend_from_slice(&self.client_random);
+        let block = prf(master, "key expansion", &seed, 40);
+        let (ck, rest) = block.split_at(16);
+        let (sk, rest) = rest.split_at(16);
+        let (civ, siv) = rest.split_at(4);
+        let client_keys = EpochKeys {
+            key: ck.try_into().unwrap(),
+            salt: civ[..4].try_into().unwrap(),
+        };
+        let server_keys = EpochKeys {
+            key: sk.try_into().unwrap(),
+            salt: siv[..4].try_into().unwrap(),
+        };
+        match self.role {
+            Role::Client => {
+                self.write_keys = Some(client_keys);
+                self.read_keys = Some(server_keys);
+            }
+            Role::Server => {
+                self.write_keys = Some(server_keys);
+                self.read_keys = Some(client_keys);
+            }
+        }
+    }
+
+    fn check_peer_fingerprint(&self, config: &DtlsConfig) -> io::Result<()> {
+        if let Some(expected) = &config.expected_peer_fingerprint {
+            let actual = self
+                .peer_certificate
+                .as_deref()
+                .map(fingerprint_of_der)
+                .ok_or_else(|| err("peer presented no certificate"))?;
+            if !actual.eq_ignore_ascii_case(expected) {
+                return Err(err("peer certificate fingerprint mismatch"));
+            }
+        }
+        Ok(())
+    }
+
+    /// Decrypt one inbound datagram: Some(payload) for an
+    /// application-data record, None for anything else
+    /// (alerts are an error, mirroring the driven receive).
+    pub fn handle_datagram(&mut self, packet: &[u8]) -> io::Result<Option<Vec<u8>>> {
+        let records = self.parse_records(packet)?;
+        for record in records {
+            match record.content_type {
+                t if t == dtls_content::APPLICATION_DATA => return Ok(Some(record.body)),
+                t if t == dtls_content::ALERT => return Err(err("alert from peer")),
+                _ => continue,
+            }
+        }
+        Ok(None)
+    }
+
+    /// Encrypt one application payload into a datagram.
+    pub fn encrypt_app(&mut self, data: &[u8]) -> io::Result<Vec<u8>> {
+        self.build_record(dtls_content::APPLICATION_DATA, 1, data)
+    }
+}
+
+fn err(msg: &str) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, msg.to_string())
+}
+
+// ---------------------------------------------------------------------------
+// byte readers/writers
+// ---------------------------------------------------------------------------
+
+struct Reader<'a> {
+    data: &'a [u8],
+    pos: usize,
+}
+
+impl<'a> Reader<'a> {
+    fn new(data: &'a [u8]) -> Self {
+        Self { data, pos: 0 }
+    }
+    fn u8(&mut self) -> io::Result<u8> {
+        let v = self.data.get(self.pos).copied().ok_or_else(|| err("short read u8"))?;
+        self.pos += 1;
+        Ok(v)
+    }
+    fn u16(&mut self) -> io::Result<u16> {
+        Ok(u16::from_be_bytes([self.u8()?, self.u8()?]))
+    }
+    fn u24(&mut self) -> io::Result<u32> {
+        Ok(((self.u8()? as u32) << 16) | ((self.u8()? as u32) << 8) | self.u8()? as u32)
+    }
+    fn take(&mut self, n: usize) -> io::Result<&'a [u8]> {
+        let out = self.data.get(self.pos..self.pos + n).ok_or_else(|| err("short read"))?;
+        self.pos += n;
+        Ok(out)
+    }
+    fn vec8(&mut self) -> io::Result<&'a [u8]> {
+        let n = self.u8()? as usize;
+        self.take(n)
+    }
+    fn vec16(&mut self) -> io::Result<&'a [u8]> {
+        let n = self.u16()? as usize;
+        self.take(n)
+    }
+    fn vec24(&mut self) -> io::Result<&'a [u8]> {
+        let n = self.u24()? as usize;
+        self.take(n)
+    }
+    fn done(&self) -> bool {
+        self.pos >= self.data.len()
+    }
+}
+
+fn put_u24(out: &mut Vec<u8>, v: u32) {
+    out.extend_from_slice(&(v as u32).to_be_bytes()[1..]);
+}
+
+fn handshake_message(msg_type: u8, msg_seq: u16, body: &[u8]) -> Vec<u8> {
+    let mut out = vec![msg_type];
+    put_u24(&mut out, body.len() as u32);
+    out.extend_from_slice(&msg_seq.to_be_bytes());
+    put_u24(&mut out, 0);
+    put_u24(&mut out, body.len() as u32);
+    out.extend_from_slice(body);
+    out
+}
+
+// ---------------------------------------------------------------------------
+// connection
+// ---------------------------------------------------------------------------
+
+impl<I: DtlsIo> Dtls<I> {
+    /// The sans-io core (established-phase state).
+    pub fn core(&self) -> &DtlsCore {
+        &self.core
+    }
+
+    /// Consume the driver, leaving the pump-driven core.
+    pub fn into_core(self) -> DtlsCore {
+        self.core
+    }
+
+    /// Attach a core to a driver (e.g. after a driven
+    /// handshake produced it, or to re-driver a core that
+    /// was pumped sans-io).
+    pub fn from_core(core: DtlsCore, io: I) -> Self {
+        Self { io, core }
+    }
+
+    pub fn peer_fingerprint(&self) -> Option<String> {
+        self.core.peer_fingerprint()
+    }
+
+    pub fn srtp_profile(&self) -> Option<u16> {
+        self.core.srtp_profile()
+    }
+
+    pub fn export_keying_material(&self, label: &str, context: &[u8], len: usize) -> Vec<u8> {
+        self.core.export_keying_material(label, context, len)
+    }
+
+
+
+
+
+
+
+    fn send_record(&mut self, content_type: u8, epoch: u16, body: &[u8]) -> io::Result<Vec<u8>> {
+        let packet = self.core.build_record(content_type, epoch, body)?;
+        self.io.send_packet(&packet)?;
+        Ok(packet)
+    }
+
+
+
+
+
+
+
+
+
+
 }
 
 // ---------------------------------------------------------------------------
@@ -663,7 +782,8 @@ macro_rules! dtls_new {
     ($io:expr, $role:expr) => {
         Dtls {
             io: $io,
-            role: $role,
+            core: DtlsCore {
+                role: $role,
             write_keys: None,
             read_keys: None,
             write_seq: 0,
@@ -677,8 +797,9 @@ macro_rules! dtls_new {
             read_replay_window: 0,
             session: None,
             resumed: false,
-            send_cid: None,
-            recv_cid: None,
+                send_cid: None,
+                recv_cid: None,
+            },
         }
     };
 }
@@ -709,7 +830,7 @@ impl<I: DtlsIo> Dtls<I> {
             let mut i = 0;
             let mut progressed = false;
             while i < hs.pending.len() {
-                let (records, parse_err) = self.parse_records_partial(&hs.pending[i].clone());
+                let (records, parse_err) = self.core.parse_records_partial(&hs.pending[i].clone());
                 if parse_err.is_none() {
                     hs.pending.remove(i);
                     progressed = true;
@@ -736,7 +857,7 @@ impl<I: DtlsIo> Dtls<I> {
             }
             match self.io.recv_packet(Duration::from_millis(1000))? {
                 Some(packet) => {
-                    let (records, parse_err) = self.parse_records_partial(&packet);
+                    let (records, parse_err) = self.core.parse_records_partial(&packet);
                     for record in records {
                         match record.content_type {
                             t if t == dtls_content::HANDSHAKE => {
@@ -753,7 +874,7 @@ impl<I: DtlsIo> Dtls<I> {
                     }
                     match parse_err {
                         None => {}
-                        Some(_) if self.read_keys.is_none() => hs.pending.push(packet),
+                        Some(_) if self.core.read_keys.is_none() => hs.pending.push(packet),
                         Some(e) => return Err(e),
                     }
                 }
@@ -770,46 +891,9 @@ impl<I: DtlsIo> Dtls<I> {
         }
     }
 
-    fn derive_keys(&mut self, master: &[u8]) {
-        let mut seed = self.server_random.to_vec();
-        seed.extend_from_slice(&self.client_random);
-        let block = prf(master, "key expansion", &seed, 40);
-        let (ck, rest) = block.split_at(16);
-        let (sk, rest) = rest.split_at(16);
-        let (civ, siv) = rest.split_at(4);
-        let client_keys = EpochKeys {
-            key: ck.try_into().unwrap(),
-            salt: civ[..4].try_into().unwrap(),
-        };
-        let server_keys = EpochKeys {
-            key: sk.try_into().unwrap(),
-            salt: siv[..4].try_into().unwrap(),
-        };
-        match self.role {
-            Role::Client => {
-                self.write_keys = Some(client_keys);
-                self.read_keys = Some(server_keys);
-            }
-            Role::Server => {
-                self.write_keys = Some(server_keys);
-                self.read_keys = Some(client_keys);
-            }
-        }
-    }
 
-    fn check_peer_fingerprint(&self, config: &DtlsConfig) -> io::Result<()> {
-        if let Some(expected) = &config.expected_peer_fingerprint {
-            let actual = self
-                .peer_certificate
-                .as_deref()
-                .map(fingerprint_of_der)
-                .ok_or_else(|| err("peer presented no certificate"))?;
-            if !actual.eq_ignore_ascii_case(expected) {
-                return Err(err("peer certificate fingerprint mismatch"));
-            }
-        }
-        Ok(())
-    }
+
+
 
     // -- application data -----------------------------------------------------
 
@@ -827,7 +911,7 @@ impl<I: DtlsIo> Dtls<I> {
         }
         let mut records = Vec::with_capacity(datas.len());
         for d in datas {
-            records.push(self.build_record(dtls_content::APPLICATION_DATA, 1, d)?);
+            records.push(self.core.build_record(dtls_content::APPLICATION_DATA, 1, d)?);
         }
         self.io.send_packets(&records)
     }
@@ -835,7 +919,7 @@ impl<I: DtlsIo> Dtls<I> {
     /// Whether this connection came from an abbreviated
     /// (ticket-resumed) handshake rather than a full one.
     pub fn was_resumed(&self) -> bool {
-        self.resumed
+        self.core.resumed
     }
 
     /// Send a close_notify alert (best effort). Lets the peer
@@ -849,7 +933,7 @@ impl<I: DtlsIo> Dtls<I> {
         loop {
             match self.io.recv_packet(Duration::from_secs(60))? {
                 Some(packet) => {
-                    for record in self.parse_records(&packet)? {
+                    for record in self.core.parse_records(&packet)? {
                         match record.content_type {
                             t if t == dtls_content::APPLICATION_DATA => return Ok(record.body),
                             t if t == dtls_content::ALERT => {
@@ -887,7 +971,7 @@ impl<I: DtlsIo> Dtls<I> {
             }
             match self.io.recv_packet(remaining)? {
                 Some(packet) => {
-                    for record in self.parse_records(&packet)? {
+                    for record in self.core.parse_records(&packet)? {
                         match record.content_type {
                             t if t == dtls_content::APPLICATION_DATA => {
                                 return Ok(Some(record.body))
@@ -1057,7 +1141,7 @@ impl<I: DtlsIo> Dtls<I> {
     /// Take resumption state captured from a NewSessionTicket,
     /// if the server sent one (requires `session_resumption`).
     pub fn take_session(&mut self) -> Option<DtlsSession> {
-        self.session.take()
+        self.core.session.take()
     }
 
     fn handshake(
@@ -1070,9 +1154,9 @@ impl<I: DtlsIo> Dtls<I> {
         // honoring our announced cid stamps it from its first
         // flight onward, so the record parser must recognize it
         // before ServerHello (mirrors accept()).
-        conn.recv_cid = config.connection_id.clone();
+        conn.core.recv_cid = config.connection_id.clone();
         let mut hs = Hs::default();
-        conn.client_random = random_bytes(32).try_into().unwrap();
+        conn.core.client_random = random_bytes(32).try_into().unwrap();
 
         // First flight: ClientHello (re-sent with cookie on HelloVerify).
         // When resuming, offer a random session id; its echo in
@@ -1094,7 +1178,7 @@ impl<I: DtlsIo> Dtls<I> {
                 None => None,
             };
             let body = client_hello_body(
-                &conn.client_random,
+                &conn.core.client_random,
                 &cookie,
                 true,
                 ticket_offer,
@@ -1126,9 +1210,9 @@ impl<I: DtlsIo> Dtls<I> {
                 }
             }
         }
-        conn.server_random = server_hello.server_random;
-        conn.negotiated_srtp_profile = server_hello.srtp_profile;
-        conn.send_cid = server_hello.peer_cid.clone();
+        conn.core.server_random = server_hello.server_random;
+        conn.core.negotiated_srtp_profile = server_hello.srtp_profile;
+        conn.core.send_cid = server_hello.peer_cid.clone();
 
         // Resumption is signalled by the echoed session id; when
         // that classification is unavailable, an abbreviated
@@ -1176,12 +1260,12 @@ impl<I: DtlsIo> Dtls<I> {
             // carries the session; no certificates are exchanged,
             // and the fingerprint check runs against the ticket's
             // certificate, so identity enforcement is unchanged.
-            conn.master_secret = session.master_secret.clone();
-            conn.peer_certificate = Some(session.peer_certificate.clone());
-            conn.negotiated_srtp_profile = session.srtp_profile;
-            conn.resumed = true;
-            conn.check_peer_fingerprint(config)?;
-            conn.derive_keys(&conn.master_secret.clone());
+            conn.core.master_secret = session.master_secret.clone();
+            conn.core.peer_certificate = Some(session.peer_certificate.clone());
+            conn.core.negotiated_srtp_profile = session.srtp_profile;
+            conn.core.resumed = true;
+            conn.core.check_peer_fingerprint(config)?;
+            conn.core.derive_keys(&conn.core.master_secret.clone());
             // Abbreviated flight order: the server's Finished
             // comes first (its verify_data covers the transcript
             // through ServerHello, snapshotted here), and ours
@@ -1199,7 +1283,7 @@ impl<I: DtlsIo> Dtls<I> {
                 }
                 if msg_type == dtls_handshake::FINISHED {
                     let expected = prf(
-                        &conn.master_secret,
+                        &conn.core.master_secret,
                         "server finished",
                         &sha256(&resume_transcript),
                         12,
@@ -1214,16 +1298,16 @@ impl<I: DtlsIo> Dtls<I> {
                 hs.transcript.extend_from_slice(&raw);
             }
             let ccs = conn.send_record(dtls_content::CHANGE_CIPHER_SPEC, 0, &[1])?;
-            let verify_data = prf(&conn.master_secret, "client finished", &hs.hash(), 12);
+            let verify_data = prf(&conn.core.master_secret, "client finished", &hs.hash(), 12);
             let fin = conn.send_hs(&mut hs, dtls_handshake::FINISHED, &verify_data, 1)?;
             flight = vec![ccs, fin];
             if config.session_resumption {
                 conn.capture_session_ticket(&mut hs);
-                if conn.session.is_none() {
+                if conn.core.session.is_none() {
                     // No rotated ticket followed (servers must not
                     // send one post-handshake): the presented
                     // session remains valid for the next reconnect.
-                    conn.session = Some(session.clone());
+                    conn.core.session = Some(session.clone());
                 }
             }
             return Ok(conn);
@@ -1243,7 +1327,7 @@ impl<I: DtlsIo> Dtls<I> {
             match msg_type {
                 t if t == dtls_handshake::CERTIFICATE => {
                     let der = parse_first_cert(&body)?;
-                    conn.peer_certificate = Some(der);
+                    conn.core.peer_certificate = Some(der);
                 }
                 t if t == dtls_handshake::SERVER_KEY_EXCHANGE => {
                     // params: curve_type(1) namedcurve(2) len(1) point; then sigalg(2) len(2) sig
@@ -1271,7 +1355,7 @@ impl<I: DtlsIo> Dtls<I> {
             }
         }
         let peer_cert_der =
-            conn.peer_certificate.clone().ok_or_else(|| err("server sent no certificate"))?;
+            conn.core.peer_certificate.clone().ok_or_else(|| err("server sent no certificate"))?;
         let peer_cert_key = crate::x509::parse_public_key(&peer_cert_der)
             .ok_or_else(|| err("cannot parse server certificate key"))?;
         // Verify ServerKeyExchange signature.
@@ -1279,8 +1363,8 @@ impl<I: DtlsIo> Dtls<I> {
             let params = ske_signed_bytes.ok_or_else(|| err("no ServerKeyExchange"))?;
             let sig_der = ske_signature.ok_or_else(|| err("no ServerKeyExchange signature"))?;
             let mut signed = Vec::new();
-            signed.extend_from_slice(&conn.client_random);
-            signed.extend_from_slice(&conn.server_random);
+            signed.extend_from_slice(&conn.core.client_random);
+            signed.extend_from_slice(&conn.core.server_random);
             signed.extend_from_slice(&params);
             let digest = sha256(&signed);
             let (r, s) = parse_ecdsa_sig_der(&sig_der)?;
@@ -1288,7 +1372,7 @@ impl<I: DtlsIo> Dtls<I> {
                 return Err(err("ServerKeyExchange signature invalid"));
             }
         }
-        conn.check_peer_fingerprint(config)?;
+        conn.core.check_peer_fingerprint(config)?;
 
         // Client flight.
         let (eph_private, eph_public) = PrivateKey::generate();
@@ -1317,14 +1401,14 @@ impl<I: DtlsIo> Dtls<I> {
 
         // Master secret (EMS snapshot is the transcript through CKE).
         let session_hash = hs.hash();
-        conn.master_secret = if server_hello.ems {
+        conn.core.master_secret = if server_hello.ems {
             prf(&premaster, "extended master secret", &session_hash, 48)
         } else {
-            let mut seed = conn.client_random.to_vec();
-            seed.extend_from_slice(&conn.server_random);
+            let mut seed = conn.core.client_random.to_vec();
+            seed.extend_from_slice(&conn.core.server_random);
             prf(&premaster, "master secret", &seed, 48)
         };
-        conn.derive_keys(&conn.master_secret.clone());
+        conn.core.derive_keys(&conn.core.master_secret.clone());
 
         if cert_requested {
             let (r, s) = config.certificate.private.sign(&session_hash);
@@ -1337,7 +1421,7 @@ impl<I: DtlsIo> Dtls<I> {
         }
         let ccs = conn.send_record(dtls_content::CHANGE_CIPHER_SPEC, 0, &[1])?;
         out_flight.push(ccs);
-        let verify_data = prf(&conn.master_secret, "client finished", &hs.hash(), 12);
+        let verify_data = prf(&conn.core.master_secret, "client finished", &hs.hash(), 12);
         let p = conn.send_hs(&mut hs, dtls_handshake::FINISHED, &verify_data, 1)?;
         out_flight.push(p);
         flight = out_flight;
@@ -1350,7 +1434,7 @@ impl<I: DtlsIo> Dtls<I> {
             }
             if msg_type == dtls_handshake::FINISHED {
                 let expected =
-                    prf(&conn.master_secret, "server finished", &hs.hash(), 12);
+                    prf(&conn.core.master_secret, "server finished", &hs.hash(), 12);
                 if body != expected.as_slice() {
                     return Err(err("server Finished verification failed"));
                 }
@@ -1368,7 +1452,7 @@ impl<I: DtlsIo> Dtls<I> {
     /// Best-effort capture of a NewSessionTicket sent after the
     /// server's Finished. Never fails the connection.
     fn capture_session_ticket(&mut self, hs: &mut Hs) {
-        if self.session.is_some() {
+        if self.core.session.is_some() {
             return;
         }
         let find_ticket = |hs: &Hs| -> Option<Vec<u8>> {
@@ -1381,7 +1465,7 @@ impl<I: DtlsIo> Dtls<I> {
         if body.is_none() {
             // One short poll for a ticket sent in its own datagram.
             if let Ok(Some(packet)) = self.io.recv_packet(Duration::from_millis(250)) {
-                if let Ok(records) = self.parse_records(&packet) {
+                if let Ok(records) = self.core.parse_records(&packet) {
                     for record in records {
                         if record.content_type == dtls_content::HANDSHAKE {
                             hs.feed_handshake_bytes(&record.body);
@@ -1404,11 +1488,11 @@ impl<I: DtlsIo> Dtls<I> {
         let mut r = Reader::new(body);
         let _ = r.take(4); // lifetime
         if let Ok(ticket) = r.vec16() {
-            self.session = Some(DtlsSession {
+            self.core.session = Some(DtlsSession {
                 ticket: ticket.to_vec(),
-                master_secret: self.master_secret.clone(),
-                peer_certificate: self.peer_certificate.clone().unwrap_or_default(),
-                srtp_profile: self.negotiated_srtp_profile,
+                master_secret: self.core.master_secret.clone(),
+                peer_certificate: self.core.peer_certificate.clone().unwrap_or_default(),
+                srtp_profile: self.core.negotiated_srtp_profile,
             });
         }
     }
@@ -1416,7 +1500,7 @@ impl<I: DtlsIo> Dtls<I> {
     /// DTLS server handshake (no HelloVerifyRequest cookie demand).
     pub fn accept(io: I, config: &DtlsConfig) -> io::Result<Self> {
         let mut conn = dtls_new!(io, Role::Server);
-        conn.recv_cid = config.connection_id.clone();
+        conn.core.recv_cid = config.connection_id.clone();
         let mut hs = Hs::default();
 
         // ClientHello.
@@ -1425,7 +1509,7 @@ impl<I: DtlsIo> Dtls<I> {
         let (client_ems, client_srtp_profiles, client_ticket, client_session_id) = {
             let mut r = Reader::new(&body);
             let _v = [r.u8()?, r.u8()?];
-            conn.client_random = r.take(32)?.try_into().unwrap();
+            conn.core.client_random = r.take(32)?.try_into().unwrap();
             let session_id = r.vec8()?.to_vec();
             let _cookie = r.vec8()?;
             let suites = r.vec16()?;
@@ -1461,15 +1545,15 @@ impl<I: DtlsIo> Dtls<I> {
                     }
                 }
             }
-            conn.send_cid = client_cid;
+            conn.core.send_cid = client_cid;
             (ems, profiles, ticket, session_id)
         };
         let srtp_profile = [0x0007u16, 0x0001, 0x0002, 0x0008]
             .iter()
             .copied()
             .find(|p| client_srtp_profiles.contains(p));
-        conn.negotiated_srtp_profile = srtp_profile;
-        conn.server_random = random_bytes(32).try_into().unwrap();
+        conn.core.negotiated_srtp_profile = srtp_profile;
+        conn.core.server_random = random_bytes(32).try_into().unwrap();
 
         // Abbreviated handshake when the client presents a valid
         // ticket we sealed earlier (RFC 5077).
@@ -1500,7 +1584,7 @@ impl<I: DtlsIo> Dtls<I> {
         {
             let mut sh = Vec::new();
             sh.extend_from_slice(&DTLS_1_2);
-            sh.extend_from_slice(&conn.server_random);
+            sh.extend_from_slice(&conn.core.server_random);
             sh.push(0);
             sh.extend_from_slice(&SUITE.to_be_bytes());
             sh.push(0);
@@ -1550,8 +1634,8 @@ impl<I: DtlsIo> Dtls<I> {
             params.push(point.len() as u8);
             params.extend_from_slice(&point);
             let mut signed = Vec::new();
-            signed.extend_from_slice(&conn.client_random);
-            signed.extend_from_slice(&conn.server_random);
+            signed.extend_from_slice(&conn.core.client_random);
+            signed.extend_from_slice(&conn.core.server_random);
             signed.extend_from_slice(&params);
             let digest = sha256(&signed);
             let (r, s) = config.certificate.private.sign(&digest);
@@ -1584,7 +1668,7 @@ impl<I: DtlsIo> Dtls<I> {
                     if !body.is_empty() && body != [0u8, 0, 0] {
                         match parse_first_cert(&body) {
                             Ok(der) => {
-                                conn.peer_certificate = Some(der);
+                                conn.core.peer_certificate = Some(der);
                                 saw_client_cert = true;
                             }
                             Err(_) => saw_client_cert = false,
@@ -1601,18 +1685,18 @@ impl<I: DtlsIo> Dtls<I> {
                         .ecdh(&peer_eph)
                         .ok_or_else(|| err("ECDH failed"))?;
                     cke_transcript_hash = Some(hs.hash());
-                    conn.master_secret = if client_ems {
+                    conn.core.master_secret = if client_ems {
                         prf(&premaster, "extended master secret", &cke_transcript_hash.unwrap(), 48)
                     } else {
-                        let mut seed = conn.client_random.to_vec();
-                        seed.extend_from_slice(&conn.server_random);
+                        let mut seed = conn.core.client_random.to_vec();
+                        seed.extend_from_slice(&conn.core.server_random);
                         prf(&premaster, "master secret", &seed, 48)
                     };
-                    conn.derive_keys(&conn.master_secret.clone());
+                    conn.core.derive_keys(&conn.core.master_secret.clone());
                 }
                 t if t == dtls_handshake::CERTIFICATE_VERIFY => {
                     // Verify against the transcript through ClientKeyExchange.
-                    let peer_key = conn
+                    let peer_key = conn.core
                         .peer_certificate
                         .as_deref()
                         .and_then(crate::x509::parse_public_key)
@@ -1630,7 +1714,7 @@ impl<I: DtlsIo> Dtls<I> {
                 }
                 t if t == dtls_handshake::FINISHED => {
                     let expected =
-                        prf(&conn.master_secret, "client finished", &hs.hash(), 12);
+                        prf(&conn.core.master_secret, "client finished", &hs.hash(), 12);
                     if body != expected.as_slice() {
                         return Err(err("client Finished verification failed"));
                     }
@@ -1643,7 +1727,7 @@ impl<I: DtlsIo> Dtls<I> {
         if config.require_peer_certificate && !saw_client_cert {
             return Err(err("peer presented no certificate"));
         }
-        conn.check_peer_fingerprint(config)?;
+        conn.core.check_peer_fingerprint(config)?;
 
         // Issue a session ticket when resumption is enabled and
         // the client offered ticket support. Like OpenSSL, the
@@ -1658,7 +1742,7 @@ impl<I: DtlsIo> Dtls<I> {
         // Server CCS + Finished.
         let ccs = conn.send_record(dtls_content::CHANGE_CIPHER_SPEC, 0, &[1])?;
         let _ = ccs;
-        let verify_data = prf(&conn.master_secret, "server finished", &hs.hash(), 12);
+        let verify_data = prf(&conn.core.master_secret, "server finished", &hs.hash(), 12);
         conn.send_hs(&mut hs, dtls_handshake::FINISHED, &verify_data, 1)?;
         Ok(conn)
     }
@@ -1676,14 +1760,14 @@ impl<I: DtlsIo> Dtls<I> {
         client_session_id: &[u8],
         client_ems: bool,
     ) -> io::Result<Self> {
-        self.master_secret = session.master_secret.clone();
-        self.peer_certificate = Some(session.peer_certificate.clone());
-        self.negotiated_srtp_profile = session.srtp_profile;
-        self.resumed = true;
+        self.core.master_secret = session.master_secret.clone();
+        self.core.peer_certificate = Some(session.peer_certificate.clone());
+        self.core.negotiated_srtp_profile = session.srtp_profile;
+        self.core.resumed = true;
 
         let mut sh = Vec::new();
         sh.extend_from_slice(&DTLS_1_2);
-        sh.extend_from_slice(&self.server_random);
+        sh.extend_from_slice(&self.core.server_random);
         // Echo the client's session id: OpenSSL only recognizes
         // ticket resumption when the id it offered comes back.
         sh.push(client_session_id.len() as u8);
@@ -1710,7 +1794,7 @@ impl<I: DtlsIo> Dtls<I> {
         sh.extend_from_slice(&exts);
         let packet = self.send_hs(hs, dtls_handshake::SERVER_HELLO, &sh, 0)?;
 
-        self.derive_keys(&self.master_secret.clone());
+        self.core.derive_keys(&self.core.master_secret.clone());
 
         // Abbreviated flight order: our CCS + Finished go out
         // before the client's Finished is read. Our verify_data
@@ -1718,7 +1802,7 @@ impl<I: DtlsIo> Dtls<I> {
         // answer is checked against the transcript including
         // our Finished (send_hs has already appended it).
         let ccs_packet = self.send_record(dtls_content::CHANGE_CIPHER_SPEC, 0, &[1])?;
-        let verify_data = prf(&self.master_secret, "server finished", &hs.hash(), 12);
+        let verify_data = prf(&self.core.master_secret, "server finished", &hs.hash(), 12);
         let fin_packet = self.send_hs(hs, dtls_handshake::FINISHED, &verify_data, 1)?;
         // Retransmit the whole flight (ServerHello included, in
         // case the client never saw it) while awaiting the answer.
@@ -1728,7 +1812,7 @@ impl<I: DtlsIo> Dtls<I> {
         loop {
             let (msg_type, raw, body) = self.pump_until_message(hs, &flight)?;
             if msg_type == dtls_handshake::FINISHED {
-                let expected = prf(&self.master_secret, "client finished", &hs.hash(), 12);
+                let expected = prf(&self.core.master_secret, "client finished", &hs.hash(), 12);
                 if body != expected.as_slice() {
                     return Err(err("client Finished verification failed"));
                 }
@@ -1737,7 +1821,7 @@ impl<I: DtlsIo> Dtls<I> {
             }
             hs.transcript.extend_from_slice(&raw);
         }
-        self.check_peer_fingerprint(config)?;
+        self.core.check_peer_fingerprint(config)?;
         // No ticket rotation here: a post-handshake
         // NewSessionTicket (epoch 1, after Finished) is rejected
         // by OpenSSL TLS 1.2 clients and poisons the data path.
@@ -1752,9 +1836,9 @@ impl<I: DtlsIo> Dtls<I> {
         if let Some(key) = &config.session_ticket_key {
             let ticket = seal_ticket(
                 key,
-                &self.master_secret,
-                self.negotiated_srtp_profile,
-                self.peer_certificate.as_deref().unwrap_or(&[]),
+                &self.core.master_secret,
+                self.core.negotiated_srtp_profile,
+                self.core.peer_certificate.as_deref().unwrap_or(&[]),
             );
             let mut body = Vec::new();
             body.extend_from_slice(&(TICKET_LIFETIME_SECS as u32).to_be_bytes());
