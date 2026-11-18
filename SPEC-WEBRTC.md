@@ -701,10 +701,19 @@ is the handshake, by design of its current shape:
   (fingerprint verification, ticket keys) cross as data,
   never as function pointers, matching the rendezvous-auth
   split.
-- ICE is closer (agent state + `due_checks`), but candidate
-  gathering, TURN allocations, and mDNS resolution perform
-  network I/O from inside agent code; those need I/O seams
-  before the agent is pump-driven like the association.
+- ICE extraction status (2026-11-18): done, and smaller
+  than assessed. `IceAgent` was already sans-io (zero
+  socket/thread I/O in `ice.rs`: candidates and credentials
+  cross as data, `due_checks()` emits framed packets,
+  `handle_stun()` returns responses + events, consent is a
+  pump API); gathering, TURN allocation, and mDNS
+  resolution already live host-side in `Peer`, which is the
+  agent's driver (`due_checks`/`handle_stun` pump in
+  `peer.rs`). `crates/dc-ice-ffi` exposes the agent in the
+  SCTP FFI shape (opaque handle, framed (packet, addr)
+  buffers, framed events, stash-and-drain on too-small);
+  its conformance test nominates two agents entirely
+  through the C ABI. No `Peer` rewire was needed.
 
 Sequencing, when scheduled: sans-io DTLS in dc-webrtc
 (driver-compatible) → OpenSSL differential green → FFI +

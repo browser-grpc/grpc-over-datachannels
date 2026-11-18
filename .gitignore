@@ -112,3 +112,4 @@ generated_images/
 /browser-test/dc_sctp_gen/
 /crates/dc-sctp-wasm/target/
 /crates/dc-dtls-ffi/target/
+/crates/dc-ice-ffi/target/
