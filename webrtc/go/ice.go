@@ -1,7 +1,8 @@
-// ICE (RFC 8445) agent — mirroring webrtc/js/ice.js: connectivity
-// checks with short-term credentials, tie-breaker role-conflict
-// repair, nomination. Remote candidates may arrive inline in SDP
-// or trickled afterwards (AddRemoteCandidate).
+// ICE (RFC 8445) candidate value type and SDP form,
+// shared by peer.go and the seam. The agent itself is
+// the Rust core (crates/dc-ice-ffi); see
+// ice_agent_ffi.go. Remote candidates may arrive inline
+// in SDP or trickled afterwards (AddRemoteCandidate).
 package dcwebrtc
 
 import (

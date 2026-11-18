@@ -622,12 +622,12 @@ found by running real browsers (`browser-test/`) and fixed:
 SCTP is unified: the Rust association is the single core
 (`crates/dc-sctp-ffi`, C ABI, sans-io `handle_packet`/`tick`),
 consumed in production by the Go endpoint behind the
-`sctpAssoc` seam (`dc_sctp` build tag; the whole webrtc/go
-suite passes on either backend) and proven by the shared
-vectors through every surface. Measured FFI tax: ~311 ns /
-0 allocs per 200-byte delivery vs 173 ns / 3 allocs for the
-mirrored Go stack — the price of one conformance-tested
-implementation, not a speedup.
+`sctpAssoc` seam and proven by the shared vectors through
+every surface. Measured FFI tax: ~311 ns / 0 allocs per
+200-byte delivery vs 173 ns / 3 allocs for the mirrored Go
+stack — the price of one conformance-tested
+implementation, not a speedup. (The Go mirror has since
+been deleted; see the consolidation status below.)
 
 DTLS extraction status (2026-11-17): the handshake is
 lifted. `DtlsHandshake` is the resumable flight machine
@@ -715,25 +715,41 @@ is the handshake, by design of its current shape:
   its conformance test nominates two agents entirely
   through the C ABI. No `Peer` rewire was needed.
 
-Sequencing, when scheduled: sans-io DTLS in dc-webrtc
-(driver-compatible) → OpenSSL differential green → FFI +
-Go seam consumption (same pattern as `sctpAssoc`) → JS via
-the bridge transport. Estimate: multi-week. Until then the
-three DTLS/ICE implementations stay mirrored, with the
-OpenSSL differentials and the interop matrix as their
-conformance net.
+Consolidation status (2026-11-18): complete. The
+sequencing above ran to its end state: Go DTLS/ICE seams
+over `crates/dc-dtls-ffi` / `crates/dc-ice-ffi` (modeled
+on `sctpAssoc`), JS Wasm consumption of all three cores
+(`crates/dc-dtls-wasm`, `crates/dc-ice-wasm`,
+`crates/dc-sctp-wasm` behind `webrtc/js/rust_cores.js`),
+defaults flipped in both stacks, and the mirrored Go
+implementations (`sctp.go`, the DTLS stack in the former
+`dtls.go`, `ice_agent.go`, generated reassembly/SACK) and
+JS implementations (`sctp.js`, `dtls.js`, `ice.js`,
+generated machines) deleted, with the Racket generator
+no longer emitting the Go/JS copies. The conformance net
+is now mirror-free: the OpenSSL differentials
+(`dtls_openssl` / `crypto_openssl`), the shared SCTP
+vectors through the FFI and Wasm surfaces, the ICE
+consent/trickle suites against the core, and full
+webrtc/go + webrtc/js suites running on the Rust cores.
+One burst-loss fix fell out of the flip: the Go peer's
+DTLS demux queue went 64 → 4096 deep, after shallow-queue
+drops turned into SCTP retransmit storms at MiB message
+rates on the FFI path (queued tail-drop blast regression:
+`webrtc/rust/tests/sctp_queued_blast.rs`).
 
-Native endpoint core (assessed 2026-11-17): the grpc_dc
-runtime is async, so a native (non-Wasm) shared endpoint
-cannot free-ride an event loop the way the browser bridge
-does. The small design that fits: a `dc-endpoint-ffi`
-cdylib whose opaque endpoint owns one thread running a
+Native endpoint core (assessed 2026-11-17; decision
+recorded 2026-11-18: not built): the grpc_dc runtime is
+async, so a native (non-Wasm) shared endpoint cannot
+free-ride an event loop the way the browser bridge does.
+The design that would fit is a `dc-endpoint-ffi` cdylib
+whose opaque endpoint owns one thread running a
 current-thread executor over the runtime's existing std
-transports (`StreamDc`/stdio, loopback, and a UDP/DTLS
-transport composed from dc-webrtc), with the SCTP FFI's
-buffer contract for calls (path + bytes in, bytes/events
-out, stash-and-drain on too-small). No new runtime work —
-the executor thread and transport glue are the whole
-crate. Build it only when a native host actually needs
-the endpoint (today's native consumers use the Rust
-runtime as a library, which is strictly better).
+transports, with the SCTP FFI's buffer contract. It
+stays unbuilt: no native non-Rust host needs an embedded
+endpoint today — native consumers use the Rust runtime
+as a library or the per-component FFI cores the way the
+Go stack now does, both of which are strictly better
+than a threaded endpoint shim. Revisit only when a
+native host (C/C++/Python/…) actually needs to embed
+the endpoint.

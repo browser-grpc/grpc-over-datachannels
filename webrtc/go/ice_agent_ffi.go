@@ -10,9 +10,8 @@ import (
 	"github.com/browser-grpc/grpc-over-datachannels/webrtc/go/iceffi"
 )
 
-// ICE agent (default): the shared Rust core
-// (crates/dc-ice-ffi) behind the same IceAgent API the
-// mirrored Go stack exposes (ice_agent.go). The public
+// ICE agent: the shared Rust core (crates/dc-ice-ffi)
+// behind the IceAgent API peer.go drives. The public
 // fields stay Go-side mirrors (peer.go reads and appends
 // them directly); every method syncs pending changes into
 // the core before it acts. Core-owned state — validity,
@@ -35,8 +34,8 @@ type IceAgent struct {
 	pushedLocal  int
 	pushedRemote map[string]bool
 
-	// mu guards RemoteCandidates, exactly as in the
-	// mirrored agent (peer.go locks it directly).
+	// mu guards RemoteCandidates (peer.go locks it
+	// directly).
 	mu sync.Mutex
 }
 
@@ -54,7 +53,7 @@ func NewIceAgent(controlling bool) *IceAgent {
 	return agent
 }
 
-// syncLocked pushes Go-side mirror changes (credentials
+// syncLocked pushes Go-side field changes (credentials
 // overwritten directly, appended local candidates,
 // mDNS-rewritten remote candidates) into the core.
 // Caller must hold mu (or be in construction).

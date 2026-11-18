@@ -8,7 +8,7 @@ import (
 )
 
 // Generated conformance vectors (fixtures/sctp_vectors.json):
-// all three mirrored SCTP stacks run
+// the shared SCTP core runs
 // the same fragment-delivery scenarios. Thin interpreter only —
 // scenarios are generated data.
 
