@@ -493,6 +493,20 @@ impl DtlsCore {
     pub fn encrypt_app(&mut self, data: &[u8]) -> io::Result<Vec<u8>> {
         self.build_record(dtls_content::APPLICATION_DATA, 1, data)
     }
+
+    /// Whether epoch-1 keys are installed (handshake done).
+    pub fn established(&self) -> bool {
+        self.write_keys.is_some() && self.read_keys.is_some()
+    }
+
+    /// Timer driver for the established phase: no flights
+    /// are outstanding once keys exist (retransmission only
+    /// exists during the driven handshake), so this is
+    /// always empty; it completes the pump contract
+    /// (handle_datagram / encrypt_app / tick) drivers use.
+    pub fn tick(&mut self, _now_ms: u64) -> Vec<Vec<u8>> {
+        Vec::new()
+    }
 }
 
 fn err(msg: &str) -> io::Error {
