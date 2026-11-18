@@ -106,3 +106,5 @@ generated_images/
 /video/out/
 /crates/kafka-native/target/
 /crates/dc-sctp-ffi/target/
+/crates/dc-bridge-wasm/target/
+/crates/dc-bridge-wasm/pkg/

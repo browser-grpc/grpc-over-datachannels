@@ -1,0 +1,22 @@
+[package]
+name = "dc-bridge-wasm"
+version = "0.1.0"
+edition = "2021"
+description = "Wasm bridge over the real grpc_dc Rust runtime: the byte-level surface (unary/serverStream/clientStream/bidi by path) that generated Wasm facades call, implemented by Rust instead of the JS runtime"
+license = "Apache-2.0"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+grpc-dc = { path = "../../rust" }
+wasm-bindgen = "=0.2.100"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+futures-util = "0.3"
+futures-channel = "0.3"
+bytes = "1"
+tokio = { version = "1", features = ["sync"] }
+
+[profile.release]
+opt-level = "s"
