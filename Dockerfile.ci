@@ -9,6 +9,11 @@
 # Full test suite (Racket + Rust + JS + WebRTC stacks + browser test):
 #   docker run --rm grpc-dc-ci
 #
+# Runs that bind-mount the workspace (release generation,
+# one-off suites) must go through scripts/ci-run.sh: plain
+# `docker run -v ...` executes as root and leaves
+# root-owned files all over the mounted tree.
+#
 # No special networking needed: the browser legs launch Firefox
 # with media.peerconnection.ice.obfuscate_host_addresses=false
 # (Playwright's Firefox answers no mDNS queries for its .local
