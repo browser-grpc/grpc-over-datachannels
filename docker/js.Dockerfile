@@ -7,9 +7,10 @@
 #   docker run --rm grpc-dc-js
 FROM node:24-bookworm-slim
 WORKDIR /src
-RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler nodejs git && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler nodejs git curl ca-certificates build-essential && rm -rf /var/lib/apt/lists/*
 COPY js ./js
 COPY webrtc/js ./webrtc/js
+COPY webrtc/rust ./webrtc/rust
 COPY fixtures ./fixtures
 COPY bin ./bin
 COPY webapp/testdata ./webapp/testdata
@@ -17,4 +18,11 @@ COPY docs/app/protoc-gen-grpc-dc.mjs ./docs/app/protoc-gen-grpc-dc.mjs
 COPY docs/app/gen ./docs/app/gen
 COPY proto ./proto
 COPY examples/tracing ./examples/tracing
+COPY crates/dc-sctp-wasm ./crates/dc-sctp-wasm
+COPY crates/dc-dtls-wasm ./crates/dc-dtls-wasm
+COPY crates/dc-ice-wasm ./crates/dc-ice-wasm
+COPY crates/dc-bridge-wasm ./crates/dc-bridge-wasm
+COPY rust ./rust
+RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable && export PATH="$HOME/.cargo/bin:$PATH" && rustup target add wasm32-unknown-unknown && cargo install wasm-bindgen-cli --version 0.2.100
+RUN export PATH="$HOME/.cargo/bin:$PATH" && for c in sctp dtls ice; do (cd crates/dc-$c-wasm && cargo build --release --target wasm32-unknown-unknown && wasm-bindgen --target web --out-dir ../../browser-test/dc_${c}_gen target/wasm32-unknown-unknown/release/dc_${c}_wasm.wasm); done && (cd crates/dc-bridge-wasm && cargo build --release --target wasm32-unknown-unknown && wasm-bindgen --target web --out-dir ../../browser-test/dc_bridge_gen target/wasm32-unknown-unknown/release/dc_bridge_wasm.wasm)
 CMD ["sh", "-c", "cd js && node --test $(ls test/*.test.js | grep -v -e dynamic.test -e oracle.test -e interop.test -e plugin_parity.test)"]
