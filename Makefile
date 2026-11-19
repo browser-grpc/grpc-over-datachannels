@@ -273,12 +273,30 @@ update-baseline:
 ## difference means a generated file was hand-edited or a Racket
 ## change was not regenerated — either way the docs/tests would
 ## silently disagree with the implementation, so fail.
+## CI status across the generated public repos (latest
+## CI run each; exit 1 when any is red). --watch via
+## CI_WATCH=1 polls until nothing is in progress.
+ci-status:
+	node scripts/ci-status.mjs $(if $(CI_WATCH),--watch,)
+
 check-generated:
 	@before=$$(find . -path ./.git -prune -o -path ./node_modules -prune -o -path '*/target' -prune -o -path '*/build' -prune -o -path '*/node_modules' -prune -o -path './browser-test/scalajs_gen' -prune -o -path '*/.scala-build' -prune -o -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1); \
 	$(MAKE) --no-print-directory generate; \
 	after=$$(find . -path ./.git -prune -o -path ./node_modules -prune -o -path '*/target' -prune -o -path '*/build' -prune -o -path '*/node_modules' -prune -o -path './browser-test/scalajs_gen' -prune -o -path '*/.scala-build' -prune -o -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1); \
-	if [ "$$before" != "$$after" ]; then echo "check-generated: FAIL (generated files drift from Racket sources; run make generate and commit the result)"; exit 1; fi; \
-	echo "check-generated: OK (generated tree is byte-stable)"
+	if [ "$$before" != "$$after" ]; then echo "## CI status across the generated public repos (latest
+## CI run each; exit 1 when any is red). --watch via
+## CI_WATCH=1 polls until nothing is in progress.
+ci-status:
+	node scripts/ci-status.mjs $(if $(CI_WATCH),--watch,)
+
+check-generated: FAIL (generated files drift from Racket sources; run make generate and commit the result)"; exit 1; fi; \
+	echo "## CI status across the generated public repos (latest
+## CI run each; exit 1 when any is red). --watch via
+## CI_WATCH=1 polls until nothing is in progress.
+ci-status:
+	node scripts/ci-status.mjs $(if $(CI_WATCH),--watch,)
+
+check-generated: OK (generated tree is byte-stable)"
 
 # Serve the built SPA locally with the COOP/COEP headers the
 # in-browser Racket/Wasm plugin runner requires (SharedArrayBuffer).
