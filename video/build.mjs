@@ -239,7 +239,19 @@ async function captureEventbusDemo() {
   return trimLines(`$ node js/examples/eventbus_demo.js\n${out}`);
 }
 
+async function captureMuxBench() {
+  const out = await run('cargo', [
+    'run', '--release', '--quiet',
+    '--manifest-path', 'webrtc/rust/Cargo.toml',
+    '--example', 'mux_bench',
+  ]);
+  const lines = out.split('\n').filter((l) =>
+    /^(mux socket|handshake|blast|pingpong)/.test(l));
+  return trimLines(`$ cargo run --release --example mux_bench\n${lines.join('\n')}`);
+}
+
 const DEMOS = {
+  'mux-bench': captureMuxBench,
   'direct-echo': captureDirectEcho,
   'kafka-roundtrip': captureKafkaRoundtrip,
   'tracing-demo': captureTracingDemo,
@@ -250,9 +262,10 @@ const DEMOS = {
 const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 function slideHtml(scene, index, total) {
+  const vertical = spec.orientation === 'vertical';
   const base = `
     * { margin: 0; box-sizing: border-box; }
-    body { width: 1920px; height: 1080px; overflow: hidden; background: #0b1020; color: #e8ecf6;
+    body { width: ${vertical ? 1080 : 1920}px; height: ${vertical ? 1920 : 1080}px; overflow: hidden; background: #0b1020; color: #e8ecf6;
       font-family: 'DejaVu Sans', system-ui, sans-serif; padding: 110px 130px; display: flex; flex-direction: column; }
     .kicker { color: #6ea8ff; font-size: 30px; letter-spacing: 4px; text-transform: uppercase; margin-bottom: 34px; }
     h1 { font-size: 96px; line-height: 1.08; font-weight: 800; }
@@ -271,13 +284,19 @@ function slideHtml(scene, index, total) {
   if (scene.kind === 'demo') {
     return `<!doctype html><style>${base}</style><div class="kicker">Live demo</div><h2>${esc(scene.heading)}</h2><pre>${esc(scene.terminal ?? '')}</pre>${foot}`;
   }
+  if (scene.kind === 'diagram') {
+    return `<!doctype html><style>${base} .diagram { margin: auto 0; } .diagram svg { width: 100%; height: auto; }</style><div class="kicker">${esc(spec.id)}</div><h2>${esc(scene.heading)}</h2><div class="diagram">${scene.svg ?? ''}</div>${foot}`;
+  }
   const items = (scene.bullets ?? []).map((b) => `<li>${esc(b)}</li>`).join('');
   return `<!doctype html><style>${base}</style><div class="kicker">${esc(spec.id)}</div><h2>${esc(scene.heading)}</h2><ul>${items}</ul>${foot}`;
 }
 
 async function renderSlides() {
   const browser = await chromium.launch();
-  const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
+  const vertical = spec.orientation === 'vertical';
+  const page = await browser.newPage({
+    viewport: vertical ? { width: 1080, height: 1920 } : { width: 1920, height: 1080 },
+  });
   for (let i = 0; i < spec.scenes.length; i++) {
     await page.setContent(slideHtml(spec.scenes[i], i, spec.scenes.length), { waitUntil: 'load' });
     await page.screenshot({ path: path.join(OUT, `frame-${String(i).padStart(2, '0')}.png`) });

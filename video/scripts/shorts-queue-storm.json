@@ -1,0 +1,54 @@
+{
+  "id": "shorts-queue-storm",
+  "orientation": "vertical",
+  "direction": "[sultry cinematic actress, warm expressive female voice, confident film-trailer delivery, smooth and unhurried]",
+  "voice": {
+    "name": "sultry-narrator",
+    "refAudio": "video/assets/narrator-ref.wav",
+    "refText": "Here it is live. The server prints its multiaddr; the client dials it directly and the echo comes back over the data channel. Every other language does the same thing, natively or through the generated sidecar transport."
+  },
+  "source": "docs/outreach/v044-consolidation-post.md",
+  "youtube": {
+    "title": "The 64-packet queue that ate a megabyte #Shorts",
+    "description": "A 64-deep DTLS demux queue dropped burst records, SCTP retransmit storms truncated MiB chunk echoes — but only on the slightly slower FFI path. Queue is 4096 deep now, with a permanent queued tail-drop blast regression test. From the v0.44 consolidation: https://github.com/browser-grpc/grpc-over-datachannels\n\nBuilt with Fish Audio",
+    "tags": ["grpc", "webrtc", "sctp", "rust", "performance", "shorts"]
+  },
+  "scenes": [
+    {
+      "kind": "title",
+      "heading": "The 64-packet queue",
+      "sub": "A burst-loss bug story in 45 seconds",
+      "say": "A sixty-four packet queue ate a megabyte message. Here is how."
+    },
+    {
+      "kind": "bullets",
+      "heading": "The symptom",
+      "bullets": [
+        "1 MiB chunked echo returns 13–15 of 16 chunks",
+        "Only on the Rust FFI path; the mirror passed",
+        "Flaky ~50% — always at exact 64 KiB boundaries"
+      ],
+      "say": "A one megabyte echo kept coming back short: thirteen to fifteen of sixteen chunks, always at exact sixty-four kibibyte boundaries, and only on the new Rust F F I path. The mirrored stack passed every time."
+    },
+    {
+      "kind": "bullets",
+      "heading": "The mechanism",
+      "bullets": [
+        "DTLS demux queue: 64 deep, drop-on-full",
+        "FFI pump drains slightly slower → queue overflows",
+        "Dropped records → SCTP retransmit storm → final chunk lands first, message completes short"
+      ],
+      "say": "The peer demuxes D T L S records into a sixty-four deep queue that drops when full. The F F I pump drains slightly slower, the queue overflows mid-burst, S C T P retransmits race the final chunk, and the reassembler completes the message short."
+    },
+    {
+      "kind": "outro",
+      "heading": "The fix",
+      "bullets": [
+        "Queue: 64 → 4096 deep",
+        "Permanent regression: queued tail-drop blast test in the Rust suite",
+        "Sweep after: 6/6 clean, at half the time"
+      ],
+      "say": "The queue is four thousand ninety-six deep now, and a queued tail-drop blast test lives in the Rust suite forever. Six of six clean sweeps, at half the previous time. Full story in the long video."
+    }
+  ]
+}

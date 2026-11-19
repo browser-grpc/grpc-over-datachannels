@@ -1,0 +1,53 @@
+{
+  "id": "shorts-dtls-undefined",
+  "orientation": "vertical",
+  "direction": "[sultry cinematic actress, warm expressive female voice, confident film-trailer delivery, smooth and unhurried]",
+  "voice": {
+    "name": "sultry-narrator",
+    "refAudio": "video/assets/narrator-ref.wav",
+    "refText": "Here it is live. The server prints its multiaddr; the client dials it directly and the echo comes back over the data channel. Every other language does the same thing, natively or through the generated sidecar transport."
+  },
+  "source": "docs/outreach/v044-consolidation-post.md",
+  "youtube": {
+    "title": "The DTLS pump that died on `undefined` #Shorts",
+    "description": "One non-application DTLS record mapped Rust's None to JavaScript undefined, the adapter only checked for null, and every endpoint pump threw. Sequential tests passed; eight concurrent dials killed all eight pumps. From the v0.44 consolidation: https://github.com/browser-grpc/grpc-over-datachannels\n\nBuilt with Fish Audio",
+    "tags": ["grpc", "webrtc", "rust", "wasm", "javascript", "shorts"]
+  },
+  "scenes": [
+    {
+      "kind": "title",
+      "heading": "Killed by `undefined`",
+      "sub": "A WebRTC bug story in 45 seconds",
+      "say": "This D T L S pump died on a single JavaScript value: undefined."
+    },
+    {
+      "kind": "bullets",
+      "heading": "The setup",
+      "bullets": [
+        "Rust DTLS core compiled to WebAssembly",
+        "JS adapter pumps datagrams in, app data out",
+        "Non-app records (tickets) return None"
+      ],
+      "say": "The Rust D T L S core returns None when a datagram carries no application data, like a session ticket. Across the Wasm boundary, None becomes undefined in JavaScript."
+    },
+    {
+      "kind": "bullets",
+      "heading": "The bug",
+      "bullets": [
+        "Adapter checked `payload !== null`",
+        "undefined is not null → payload dereferenced → throw",
+        "Every endpoint pump died on its first ticket record"
+      ],
+      "say": "The adapter checked payload is not equal to null. Undefined is not null, so the first ticket record sailed through and exploded. Sequential tests never noticed; eight concurrent dials killed all eight pumps at once."
+    },
+    {
+      "kind": "outro",
+      "heading": "One-character class of fix",
+      "bullets": [
+        "`payload != null` — covers null and undefined",
+        "Found by the v0.44 default flip + rendezvous stress test"
+      ],
+      "say": "The fix is two characters: loose not-equal, which covers null and undefined. Found only because we flipped the defaults and stressed it. Full story in the long video, linked in the description."
+    }
+  ]
+}

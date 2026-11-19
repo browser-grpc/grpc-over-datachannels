@@ -283,20 +283,8 @@ check-generated:
 	@before=$$(find . -path ./.git -prune -o -path ./node_modules -prune -o -path '*/target' -prune -o -path '*/build' -prune -o -path '*/node_modules' -prune -o -path './browser-test/scalajs_gen' -prune -o -path '*/.scala-build' -prune -o -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1); \
 	$(MAKE) --no-print-directory generate; \
 	after=$$(find . -path ./.git -prune -o -path ./node_modules -prune -o -path '*/target' -prune -o -path '*/build' -prune -o -path '*/node_modules' -prune -o -path './browser-test/scalajs_gen' -prune -o -path '*/.scala-build' -prune -o -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1); \
-	if [ "$$before" != "$$after" ]; then echo "## CI status across the generated public repos (latest
-## CI run each; exit 1 when any is red). --watch via
-## CI_WATCH=1 polls until nothing is in progress.
-ci-status:
-	node scripts/ci-status.mjs $(if $(CI_WATCH),--watch,)
-
-check-generated: FAIL (generated files drift from Racket sources; run make generate and commit the result)"; exit 1; fi; \
-	echo "## CI status across the generated public repos (latest
-## CI run each; exit 1 when any is red). --watch via
-## CI_WATCH=1 polls until nothing is in progress.
-ci-status:
-	node scripts/ci-status.mjs $(if $(CI_WATCH),--watch,)
-
-check-generated: OK (generated tree is byte-stable)"
+	if [ "$$before" != "$$after" ]; then echo "check-generated: FAIL (generated files drift from Racket sources; run make generate and commit the result)"; exit 1; fi; \
+	echo "check-generated: OK (generated tree is byte-stable)"
 
 # Serve the built SPA locally with the COOP/COEP headers the
 # in-browser Racket/Wasm plugin runner requires (SharedArrayBuffer).
@@ -1332,6 +1320,15 @@ video-direct:
 
 video-eventbus:
 	$(MAKE) video-build VIDEO_SCRIPT=video/scripts/eventbus.json
+
+video-consolidation:
+	$(MAKE) video-build VIDEO_SCRIPT=video/scripts/consolidation.json
+
+## Shorts (vertical 1080x1920, same builder): silent
+## framing check with make video-preview VIDEO_SCRIPT=...
+video-shorts:
+	$(MAKE) video-build VIDEO_SCRIPT=video/scripts/shorts-dtls-undefined.json
+	$(MAKE) video-build VIDEO_SCRIPT=video/scripts/shorts-queue-storm.json
 
 clean-gen:
 	rm -f bin/protoc-gen-grpc-dc-kotlin bin/protoc-gen-grpc-dc-kotlin-native bin/protoc-gen-grpc-dc-rust bin/protoc-gen-grpc-dc-js bin/protoc-gen-grpc-dc-go bin/protoc-gen-grpc-dc-wasm-go bin/protoc-gen-grpc-dc-wasm-zig bin/protoc-gen-grpc-dc-wasm-cpp bin/protoc-gen-grpc-dc-wasm-swift bin/protoc-gen-grpc-dc-wasm-kotlin bin/protoc-gen-grpc-dc-cpp bin/protoc-gen-grpc-dc-swift bin/protoc-gen-grpc-dc-php bin/protoc-gen-grpc-dc-scala

@@ -1,0 +1,102 @@
+{
+  "id": "consolidation",
+  "direction": "[sultry cinematic actress, warm expressive female voice, confident film-trailer delivery, smooth and unhurried]",
+  "voice": {
+    "name": "sultry-narrator",
+    "refAudio": "video/assets/narrator-ref.wav",
+    "refText": "Here it is live. The server prints its multiaddr; the client dials it directly and the echo comes back over the data channel. Every other language does the same thing, natively or through the generated sidecar transport."
+  },
+  "source": "docs/outreach/v044-consolidation-post.md (dev.to + c100k.blogspot.com on publication)",
+  "youtube": {
+    "title": "One WebRTC Stack, Sixteen Languages: Deleting the Mirrors | grpc-over-datachannels v0.44",
+    "description": "grpc-over-datachannels 0.44 deletes the mirrored Go and JavaScript WebRTC stacks. The Rust ICE/DTLS/SCTP cores — sans-io, pump-driven — are now the only implementations, consumed via C ABI (Go) and Wasm (JS, browsers, facades). Includes the three bugs the default flip exposed and the mirror-free conformance net.\n\nCode: https://github.com/browser-grpc/grpc-over-datachannels\nRelease: https://github.com/browser-grpc/grpc-over-datachannels/releases/tag/v0.44.0\nBlog: https://c100k.blogspot.com/\n\nBuilt with Fish Audio",
+    "tags": ["grpc", "webrtc", "rust", "wasm", "ffi", "datachannel", "code generation"]
+  },
+  "scenes": [
+    {
+      "kind": "title",
+      "heading": "Deleting the Mirrors",
+      "sub": "One WebRTC stack for sixteen languages",
+      "say": "This project used to have three WebRTC stacks: one in Rust, and hand-mirrored copies in Go and JavaScript. Version 0.44 deletes two of them. Here is why, and what broke along the way."
+    },
+    {
+      "kind": "bullets",
+      "heading": "Three stacks, one drift",
+      "bullets": [
+        "ICE, DTLS, and SCTP implemented in Rust, Go, and JavaScript",
+        "Mirrors kept in sync by discipline and a conformance suite",
+        "v0.32: a reassembly wedge existed in exactly one stack"
+      ],
+      "say": "Three implementations of the same protocols, synchronized by discipline. It already failed once: a fragment reassembly bug wedged ordered delivery in one stack while the other two were fine. State machines that must not drift should not exist three times."
+    },
+    {
+      "kind": "diagram",
+      "heading": "One core, two consumption shapes",
+      "svg": "<svg viewBox='0 0 1500 620' xmlns='http://www.w3.org/2000/svg' font-family='DejaVu Sans, sans-serif'><rect x='560' y='240' width='380' height='140' rx='18' fill='#12244d' stroke='#6ea8ff' stroke-width='3'/><text x='750' y='300' fill='#e8ecf6' font-size='40' text-anchor='middle'>Rust cores</text><text x='750' y='348' fill='#aab6d3' font-size='28' text-anchor='middle'>ICE · DTLS · SCTP</text><rect x='60' y='60' width='330' height='100' rx='14' fill='#0e1830' stroke='#3a4a6e' stroke-width='2'/><text x='225' y='122' fill='#8fa1c4' font-size='30' text-anchor='middle'>Go mirror ✕</text><rect x='60' y='240' width='330' height='100' rx='14' fill='#0e1830' stroke='#3a4a6e' stroke-width='2'/><text x='225' y='302' fill='#8fa1c4' font-size='30' text-anchor='middle'>JS mirror ✕</text><rect x='60' y='420' width='330' height='100' rx='14' fill='#0e1830' stroke='#3a4a6e' stroke-width='2'/><text x='225' y='482' fill='#8fa1c4' font-size='30' text-anchor='middle'>Rust original</text><rect x='1110' y='60' width='330' height='100' rx='14' fill='#12244d' stroke='#6ea8ff' stroke-width='2'/><text x='1275' y='122' fill='#e8ecf6' font-size='30' text-anchor='middle'>Go · cgo FFI</text><rect x='1110' y='240' width='330' height='100' rx='14' fill='#12244d' stroke='#6ea8ff' stroke-width='2'/><text x='1275' y='302' fill='#e8ecf6' font-size='30' text-anchor='middle'>JS · Wasm</text><rect x='1110' y='420' width='330' height='100' rx='14' fill='#12244d' stroke='#6ea8ff' stroke-width='2'/><text x='1275' y='482' fill='#e8ecf6' font-size='30' text-anchor='middle'>Browser bridge</text><path d='M390 110 L560 280' stroke='#3a4a6e' stroke-width='2' stroke-dasharray='8 8'/><path d='M390 290 L560 310' stroke='#3a4a6e' stroke-width='2' stroke-dasharray='8 8'/><path d='M390 470 L560 340' stroke='#6ea8ff' stroke-width='3'/><path d='M940 280 L1110 110' stroke='#6ea8ff' stroke-width='3'/><path d='M940 310 L1110 290' stroke='#6ea8ff' stroke-width='3'/><path d='M940 340 L1110 470' stroke='#6ea8ff' stroke-width='3'/></svg>",
+      "say": "The mirrors are gone. The Rust original is the only stack left. Go consumes it through a C A B I. JavaScript consumes the same code compiled to WebAssembly. Browsers and the generated facade languages ride the Rust bridge runtime."
+    },
+    {
+      "kind": "bullets",
+      "heading": "Sans-io: pump-driven cores",
+      "bullets": [
+        "No sockets, no threads inside ICE / DTLS / SCTP",
+        "Datagrams and candidates cross as data; clocks are injected",
+        "Hosts own I/O: Go cgo seams, JS factories, Peer as driver"
+      ],
+      "say": "This only works because the cores are sans I O: pump-driven state machines. Datagrams, candidates, and credentials cross the boundary as data. Hosts own the sockets. That is what lets one implementation run in a Go process, a Node process, and a browser tab."
+    },
+    {
+      "kind": "diagram",
+      "heading": "One call, end to end",
+      "svg": "<svg viewBox='0 0 1500 620' xmlns='http://www.w3.org/2000/svg' font-family='DejaVu Sans, sans-serif'><text x='250' y='60' fill='#e8ecf6' font-size='34' text-anchor='middle'>Browser (Wasm cores)</text><text x='1250' y='60' fill='#e8ecf6' font-size='34' text-anchor='middle'>Node (Wasm cores)</text><line x1='250' y1='80' x2='250' y2='560' stroke='#3a4a6e' stroke-width='3'/><line x1='1250' y1='80' x2='1250' y2='560' stroke='#3a4a6e' stroke-width='3'/><path d='M250 140 L1250 140' stroke='#6ea8ff' stroke-width='3'/><text x='750' y='128' fill='#aab6d3' font-size='28' text-anchor='middle'>ICE checks → nomination</text><path d='M250 240 L1250 240' stroke='#6ea8ff' stroke-width='3'/><text x='750' y='228' fill='#aab6d3' font-size='28' text-anchor='middle'>DTLS flights → established</text><path d='M250 340 L1250 340' stroke='#9fe8a9' stroke-width='3'/><text x='750' y='328' fill='#aab6d3' font-size='28' text-anchor='middle'>SCTP INIT → association</text><path d='M250 440 L1250 440' stroke='#9fe8a9' stroke-width='3'/><text x='750' y='428' fill='#aab6d3' font-size='28' text-anchor='middle'>DCEP channel → gRPC frames</text><path d='M1250 520 L250 520' stroke='#ffb454' stroke-width='3'/><text x='750' y='508' fill='#aab6d3' font-size='28' text-anchor='middle'>echo response</text></svg>",
+      "say": "One echo call, end to end. I C E checks nominate a pair. D T L S flights establish the session. S C T P associates, a channel opens, and g R P C frames flow. Every arrow on both sides is the same Rust code."
+    },
+    {
+      "kind": "bullets",
+      "heading": "The honest cost",
+      "bullets": [
+        "FFI tax measured: ~311 ns vs 173 ns per 200-byte delivery",
+        "Paid for one conformance-tested implementation, not speed",
+        "Echo path today: ~8,300 msgs/s at 0.36 ms mean RTT"
+      ],
+      "say": "The shared core is not free. Crossing the F F I costs about three hundred eleven nanoseconds per message, against one seventy-three for the old mirror. We measured it, published it, and paid it anyway: that is the price of one tested implementation instead of three that can drift."
+    },
+    {
+      "kind": "demo",
+      "demo": "mux-bench",
+      "heading": "Live: mux_bench on the consolidated stack",
+      "say": "Here is the benchmark live: eight pairs handshaking, two thousand echoes blasted through the mux, and ping-pong at a third of a millisecond. Same numbers as before the mirrors died."
+    },
+    {
+      "kind": "bullets",
+      "heading": "Bugs the flip exposed",
+      "bullets": [
+        "Wasm DTLS pump killed by JavaScript `undefined` (all 8 stress dials)",
+        "64-deep demux queue → retransmit storms on MiB messages",
+        "Registry test racing two clients on one transport (9m56s CI hang)",
+        "Public Go/browser/interop CI red until the cores were built first"
+      ],
+      "say": "Flipping the defaults earned its keep. A Wasm adapter confused undefined with null and killed every D T L S pump under load. A shallow queue turned burst loss into retransmit storms. A test raced two clients on one transport and hung C I for ten minutes. Each one shipped with a regression test."
+    },
+    {
+      "kind": "bullets",
+      "heading": "Oracles without mirrors",
+      "bullets": [
+        "OpenSSL differentials for DTLS; shared SCTP vectors everywhere",
+        "ICE consent/trickle suites against the core",
+        "make ci-status: every generated repo green on v0.44.0"
+      ],
+      "say": "Deleting a second implementation deletes your differential oracle, so the conformance net is mirror-free by design: Open S S L differentials, shared vectors, and full suites that only have the Rust path to run on. One command sweeps every generated repository's C I. It is all green."
+    },
+    {
+      "kind": "outro",
+      "heading": "One stack, maintained once",
+      "bullets": [
+        "github.com/browser-grpc/grpc-over-datachannels (v0.44.0)",
+        "Blog post: link in the description",
+        "make ci-status — try the sweep yourself"
+      ],
+      "say": "About forty-four hundred lines of mirrored Go and JavaScript are gone. One WebRTC stack, maintained once, spoken in sixteen languages. The code and the release are on GitHub. Links are in the description."
+    }
+  ]
+}
