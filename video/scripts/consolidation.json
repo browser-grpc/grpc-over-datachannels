@@ -10,14 +10,22 @@
   "youtube": {
     "title": "One WebRTC Stack, Sixteen Languages: Deleting the Mirrors | grpc-over-datachannels v0.44",
     "description": "grpc-over-datachannels 0.44 deletes the mirrored Go and JavaScript WebRTC stacks. The Rust ICE/DTLS/SCTP cores — sans-io, pump-driven — are now the only implementations, consumed via C ABI (Go) and Wasm (JS, browsers, facades). Includes the three bugs the default flip exposed and the mirror-free conformance net.\n\nCode: https://github.com/browser-grpc/grpc-over-datachannels\nRelease: https://github.com/browser-grpc/grpc-over-datachannels/releases/tag/v0.44.0\nBlog: https://c100k.blogspot.com/\n\nBuilt with Fish Audio",
-    "tags": ["grpc", "webrtc", "rust", "wasm", "ffi", "datachannel", "code generation"]
+    "tags": [
+      "grpc",
+      "webrtc",
+      "rust",
+      "wasm",
+      "ffi",
+      "datachannel",
+      "code generation"
+    ]
   },
   "scenes": [
     {
       "kind": "title",
       "heading": "Deleting the Mirrors",
       "sub": "One WebRTC stack for sixteen languages",
-      "say": "This project used to have three WebRTC stacks: one in Rust, and hand-mirrored copies in Go and JavaScript. Version 0.44 deletes two of them. Here is why, and what broke along the way."
+      "say": "This project used to have three WebRTC stacks: one in Rust, and hand-mirrored copies in Go and JavaScript. The new release deletes two of them, and here is why, and what broke along the way."
     },
     {
       "kind": "bullets",

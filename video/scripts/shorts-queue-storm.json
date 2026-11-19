@@ -11,14 +11,21 @@
   "youtube": {
     "title": "The 64-packet queue that ate a megabyte #Shorts",
     "description": "A 64-deep DTLS demux queue dropped burst records, SCTP retransmit storms truncated MiB chunk echoes — but only on the slightly slower FFI path. Queue is 4096 deep now, with a permanent queued tail-drop blast regression test. From the v0.44 consolidation: https://github.com/browser-grpc/grpc-over-datachannels\n\nBuilt with Fish Audio",
-    "tags": ["grpc", "webrtc", "sctp", "rust", "performance", "shorts"]
+    "tags": [
+      "grpc",
+      "webrtc",
+      "sctp",
+      "rust",
+      "performance",
+      "shorts"
+    ]
   },
   "scenes": [
     {
       "kind": "title",
       "heading": "The 64-packet queue",
       "sub": "A burst-loss bug story in 45 seconds",
-      "say": "A sixty-four packet queue ate a megabyte message. Here is how."
+      "say": "A sixty-four packet queue ate a megabyte message, and here is exactly how it happened."
     },
     {
       "kind": "bullets",
