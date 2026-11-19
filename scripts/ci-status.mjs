@@ -23,7 +23,15 @@ const ORG = "browser-grpc";
 const watch = process.argv.includes("--watch");
 
 function gh(args) {
-  return execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  try {
+    return execFileSync("gh", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  } catch (e) {
+    // A repo with no CI workflow is a stable "no runs";
+    // anything else (rate limit, network) is a lookup
+    // failure and must never read as "settled".
+    if (String(e.stderr ?? "").includes("could not find any workflows")) return "";
+    throw e;
+  }
 }
 
 function latestCiRun(repo) {
@@ -36,7 +44,7 @@ function latestCiRun(repo) {
     const runs = JSON.parse(out || "[]");
     return runs[0] ?? null;
   } catch {
-    return null; // no CI workflow (e.g. Packagist-only PHP repos)
+    return { status: "lookup-failed", displayTitle: "gh lookup failed" };
   }
 }
 
@@ -61,6 +69,11 @@ function sweep() {
       continue;
     }
     const state = run.status === "completed" ? run.conclusion : run.status;
+    if (run.status === "lookup-failed") {
+      console.log(`${repo}: lookup failed (treating as still running)`);
+      anyRunning = true;
+      continue;
+    }
     if (state === "failure") {
       anyFailed = true;
       const jobs = failingJobs(repo, run.databaseId);
