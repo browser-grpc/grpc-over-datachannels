@@ -1391,7 +1391,7 @@
            "RUN cd rust && cargo fetch --locked && cargo test --locked --no-run")
          "cd rust && cargo test --locked -- --skip official_clients_call_rust_server")
    (list "go" "golang:1.24-bookworm"
-         '("RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler nodejs && rm -rf /var/lib/apt/lists/*" "COPY go ./go" "COPY fixtures ./fixtures" "COPY bin ./bin" "COPY webapp/testdata ./webapp/testdata" "COPY docs/app/protoc-gen-grpc-dc.mjs ./docs/app/protoc-gen-grpc-dc.mjs" "COPY docs/app/gen ./docs/app/gen" "COPY proto ./proto" "COPY webrtc/go ./webrtc/go" "RUN cd go && go mod edit -replace=github.com/browser-grpc/grpc-over-datachannels/webrtc/go=../webrtc/go && go mod tidy && go build ./...")
+         '("RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler nodejs curl && rm -rf /var/lib/apt/lists/*" "COPY go ./go" "COPY fixtures ./fixtures" "COPY bin ./bin" "COPY webapp/testdata ./webapp/testdata" "COPY docs/app/protoc-gen-grpc-dc.mjs ./docs/app/protoc-gen-grpc-dc.mjs" "COPY docs/app/gen ./docs/app/gen" "COPY proto ./proto" "COPY webrtc/go ./webrtc/go" "COPY webrtc/rust ./webrtc/rust" "COPY crates/dc-sctp-ffi ./crates/dc-sctp-ffi" "COPY crates/dc-dtls-ffi ./crates/dc-dtls-ffi" "COPY crates/dc-ice-ffi ./crates/dc-ice-ffi" "RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable" "RUN export PATH=\"$HOME/.cargo/bin:$PATH\" && cd crates/dc-sctp-ffi && cargo build --release && cd ../dc-dtls-ffi && cargo build --release && cd ../dc-ice-ffi && cargo build --release" "RUN cd go && go mod edit -replace=github.com/browser-grpc/grpc-over-datachannels/webrtc/go=../webrtc/go && go mod tidy && go build ./...")
          "cd go && go test -race -skip 'Sidecar|TestInteropOfficialClientsCallGoServer' ./...")
    (list "js" "node:24-bookworm-slim"
          '("RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler nodejs git && rm -rf /var/lib/apt/lists/*" "COPY js ./js" "COPY webrtc/js ./webrtc/js" "COPY fixtures ./fixtures" "COPY bin ./bin" "COPY webapp/testdata ./webapp/testdata" "COPY docs/app/protoc-gen-grpc-dc.mjs ./docs/app/protoc-gen-grpc-dc.mjs" "COPY docs/app/gen ./docs/app/gen" "COPY proto ./proto" "COPY examples/tracing ./examples/tracing")
@@ -1555,6 +1555,12 @@
       "        run: npx playwright install --with-deps chromium firefox webkit\n"
       "      - name: Build Rust peer for browser suites\n"
       "        run: cargo build --manifest-path webrtc/rust/Cargo.toml --example peer_echo\n"
+      "      - name: Generate Rust-core Wasm glue\n"
+      "        run: |\n"
+      "          rustup target add wasm32-unknown-unknown\n"
+      "          cargo install wasm-bindgen-cli --version 0.2.100\n"
+      "          for c in sctp dtls ice; do (cd crates/dc-$c-wasm && cargo build --release --target wasm32-unknown-unknown && wasm-bindgen --target web --out-dir ../../browser-test/dc_${c}_gen target/wasm32-unknown-unknown/release/dc_${c}_wasm.wasm); done\n"
+      "          (cd crates/dc-bridge-wasm && cargo build --release --target wasm32-unknown-unknown && wasm-bindgen --target web --out-dir ../../browser-test/dc_bridge_gen target/wasm32-unknown-unknown/release/dc_bridge_wasm.wasm)\n"
       "      - name: Run browser suites (Chromium/Firefox/WebKit)\n"
       "        working-directory: browser-test\n"
       "        run: npm test\n")
@@ -1574,7 +1580,9 @@
       "COPY --from=node /usr/local/bin/node /usr/local/bin/node\n"
       "RUN apt-get update && apt-get install -y --no-install-recommends python3 && rm -rf /var/lib/apt/lists/*\n"
       "WORKDIR /src\n"
-      "COPY go ./go\nCOPY webrtc/go ./webrtc/go\nCOPY python ./python\nCOPY js ./js\n"
+      "COPY go ./go\nCOPY webrtc/go ./webrtc/go\nCOPY webrtc/rust ./webrtc/rust\nCOPY crates/dc-sctp-ffi ./crates/dc-sctp-ffi\nCOPY crates/dc-dtls-ffi ./crates/dc-dtls-ffi\nCOPY crates/dc-ice-ffi ./crates/dc-ice-ffi\nCOPY python ./python\nCOPY js ./js\n"
+      "RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/* && curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable\n"
+      "RUN export PATH=\"$HOME/.cargo/bin:$PATH\" && cd crates/dc-sctp-ffi && cargo build --release && cd ../dc-dtls-ffi && cargo build --release && cd ../dc-ice-ffi && cargo build --release\n"
       "RUN cd go && go mod edit -replace=github.com/browser-grpc/grpc-over-datachannels/webrtc/go=../webrtc/go && go mod tidy\n"
       "CMD [\"sh\", \"-c\", \"MATRIX_CLIENTS=python,go MATRIX_SERVERS=go,python node js/test/interop-matrix.mjs\"]\n")
      out))
