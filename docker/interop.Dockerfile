@@ -8,7 +8,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends python3 && rm -
 WORKDIR /src
 COPY go ./go
 COPY webrtc/go ./webrtc/go
+COPY webrtc/rust ./webrtc/rust
+COPY crates/dc-sctp-ffi ./crates/dc-sctp-ffi
+COPY crates/dc-dtls-ffi ./crates/dc-dtls-ffi
+COPY crates/dc-ice-ffi ./crates/dc-ice-ffi
 COPY python ./python
 COPY js ./js
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/* && curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+RUN export PATH="$HOME/.cargo/bin:$PATH" && cd crates/dc-sctp-ffi && cargo build --release && cd ../dc-dtls-ffi && cargo build --release && cd ../dc-ice-ffi && cargo build --release
 RUN cd go && go mod edit -replace=github.com/browser-grpc/grpc-over-datachannels/webrtc/go=../webrtc/go && go mod tidy
 CMD ["sh", "-c", "MATRIX_CLIENTS=python,go MATRIX_SERVERS=go,python node js/test/interop-matrix.mjs"]

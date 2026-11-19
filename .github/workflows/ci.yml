@@ -47,6 +47,12 @@ jobs:
         run: npx playwright install --with-deps chromium firefox webkit
       - name: Build Rust peer for browser suites
         run: cargo build --manifest-path webrtc/rust/Cargo.toml --example peer_echo
+      - name: Generate Rust-core Wasm glue
+        run: |
+          rustup target add wasm32-unknown-unknown
+          cargo install wasm-bindgen-cli --version 0.2.100
+          for c in sctp dtls ice; do (cd crates/dc-$c-wasm && cargo build --release --target wasm32-unknown-unknown && wasm-bindgen --target web --out-dir ../../browser-test/dc_${c}_gen target/wasm32-unknown-unknown/release/dc_${c}_wasm.wasm); done
+          (cd crates/dc-bridge-wasm && cargo build --release --target wasm32-unknown-unknown && wasm-bindgen --target web --out-dir ../../browser-test/dc_bridge_gen target/wasm32-unknown-unknown/release/dc_bridge_wasm.wasm)
       - name: Run browser suites (Chromium/Firefox/WebKit)
         working-directory: browser-test
         run: npm test

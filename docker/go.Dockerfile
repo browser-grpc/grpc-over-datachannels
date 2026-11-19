@@ -7,7 +7,7 @@
 #   docker run --rm grpc-dc-go
 FROM golang:1.24-bookworm
 WORKDIR /src
-RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler nodejs && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler nodejs curl && rm -rf /var/lib/apt/lists/*
 COPY go ./go
 COPY fixtures ./fixtures
 COPY bin ./bin
@@ -16,5 +16,11 @@ COPY docs/app/protoc-gen-grpc-dc.mjs ./docs/app/protoc-gen-grpc-dc.mjs
 COPY docs/app/gen ./docs/app/gen
 COPY proto ./proto
 COPY webrtc/go ./webrtc/go
+COPY webrtc/rust ./webrtc/rust
+COPY crates/dc-sctp-ffi ./crates/dc-sctp-ffi
+COPY crates/dc-dtls-ffi ./crates/dc-dtls-ffi
+COPY crates/dc-ice-ffi ./crates/dc-ice-ffi
+RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+RUN export PATH="$HOME/.cargo/bin:$PATH" && cd crates/dc-sctp-ffi && cargo build --release && cd ../dc-dtls-ffi && cargo build --release && cd ../dc-ice-ffi && cargo build --release
 RUN cd go && go mod edit -replace=github.com/browser-grpc/grpc-over-datachannels/webrtc/go=../webrtc/go && go mod tidy && go build ./...
 CMD ["sh", "-c", "cd go && go test -race -skip 'Sidecar|TestInteropOfficialClientsCallGoServer' ./..."]
