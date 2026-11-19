@@ -1553,6 +1553,8 @@
       "      - name: Install browsers\n"
       "        working-directory: browser-test\n"
       "        run: npx playwright install --with-deps chromium firefox webkit\n"
+      "      - name: Build Rust FFI cores for the Go rendezvous server\n"
+      "        run: for c in sctp dtls ice; do (cd crates/dc-$c-ffi && cargo build --release); done\n"
       "      - name: Build Rust peer for browser suites\n"
       "        run: cargo build --manifest-path webrtc/rust/Cargo.toml --example peer_echo\n"
       "      - name: Generate Rust-core Wasm glue\n"
