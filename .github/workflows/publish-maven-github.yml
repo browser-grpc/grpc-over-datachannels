@@ -20,7 +20,12 @@ jobs:
           distribution: temurin
           java-version: 17
       - name: Build jars
-        run: mvn -B -f java/pom.xml package -DskipTests
+        # install, not just package: the kafka/eventbus jar
+        # builds below resolve grpc-dc from the local repo,
+        # so this workflow does not depend on Maven Central
+        # already carrying the version (it is dispatched
+        # before Central in the publish sequence).
+        run: mvn -B -f java/pom.xml install -DskipTests
       - name: Lay out the Maven repository under docs/maven
         shell: bash
         run: |
