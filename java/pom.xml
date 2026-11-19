@@ -44,6 +44,7 @@
       <plugin>
         <artifactId>maven-source-plugin</artifactId>
         <version>3.3.1</version>
+        <configuration><excludes><exclude>target/**</exclude></excludes></configuration>
         <executions><execution><id>attach-sources</id><goals><goal>jar-no-fork</goal></goals></execution></executions>
       </plugin>
       <plugin>

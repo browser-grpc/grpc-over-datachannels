@@ -1,6 +1,0 @@
-examples
-examples.interop
-grpcdc
-grpcdc.events.v1
-grpcdc.kafka.v1
-tests

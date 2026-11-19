@@ -1,1 +1,0 @@
-packageSearchIndex = [{"l":"All Packages","u":"allpackages-index.html"},{"l":"examples"},{"l":"examples.interop"},{"l":"grpcdc"},{"l":"grpcdc.events.v1"},{"l":"grpcdc.kafka.v1"},{"l":"tests"}];updateSearchResults();
