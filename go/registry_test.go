@@ -72,7 +72,13 @@ func TestRegistryDiscovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dyn := grpcdc.NewDynamicClient(grpcdc.NewChannel(clientTransport), echoModel)
+	// The discovered client gets its own transport pair:
+	// two client endpoints sharing one transport race for
+	// frames (each read loop drops the other's streams),
+	// which starved this call under -race in containers.
+	clientTransport2, serverTransport2 := grpcdc.MemoryTransportPair()
+	server.ServeTransport(serverTransport2)
+	dyn := grpcdc.NewDynamicClient(grpcdc.NewChannel(clientTransport2), echoModel)
 	req := grpcdc.NewGenericMessage(echoModel.Messages[".echo.EchoRequest"])
 	req.Set(1, "discovered")
 	resp, err := dyn.Unary(context.Background(), "echo.Echo", "Unary", req, nil)

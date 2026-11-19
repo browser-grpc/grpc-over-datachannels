@@ -82,16 +82,6 @@ function getDataViewMemory0() {
     return cachedDataViewMemory0;
 }
 /**
- * Serve the generated Echo service over the given JS transport.
- * Returns immediately; serving runs as a local task until the
- * transport closes.
- * @param {any} transport
- */
-export function echo_server(transport) {
-    wasm.echo_server(transport);
-}
-
-/**
  * JSON snapshot of the matrix recorder's spans.
  * @returns {string}
  */
@@ -106,6 +96,16 @@ export function echo_tracing_spans() {
     } finally {
         wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
     }
+}
+
+/**
+ * Serve the generated Echo service over the given JS transport.
+ * Returns immediately; serving runs as a local task until the
+ * transport closes.
+ * @param {any} transport
+ */
+export function echo_server(transport) {
+    wasm.echo_server(transport);
 }
 
 /**
@@ -132,21 +132,21 @@ export function echo_client_tracing(transport) {
 }
 
 /**
- * Serve Echo over the JS transport with the matrix recorder
- * registered (spans readable via echo_tracing_spans).
- * @param {any} transport
- */
-export function echo_server_tracing(transport) {
-    wasm.echo_server_tracing(transport);
-}
-
-/**
  * Run the nested tracing scenario and resolve with its JSON.
  * @returns {Promise<string>}
  */
 export function echo_tracing() {
     const ret = wasm.echo_tracing();
     return ret;
+}
+
+/**
+ * Serve Echo over the JS transport with the matrix recorder
+ * registered (spans readable via echo_tracing_spans).
+ * @param {any} transport
+ */
+export function echo_server_tracing(transport) {
+    wasm.echo_server_tracing(transport);
 }
 
 let WASM_VECTOR_LEN = 0;
@@ -160,11 +160,11 @@ function passArray8ToWasm0(arg, malloc) {
 function __wbg_adapter_22(arg0, arg1, arg2) {
     const ptr0 = passArray8ToWasm0(arg2, wasm.__wbindgen_malloc);
     const len0 = WASM_VECTOR_LEN;
-    wasm._dyn_core__ops__function__FnMut__A____Output___R_as_wasm_bindgen__closure__WasmClosure___describe__invoke__hcd7e876055dfa8b3(arg0, arg1, ptr0, len0);
+    wasm._dyn_core__ops__function__FnMut__A____Output___R_as_wasm_bindgen__closure__WasmClosure___describe__invoke__h82cba992109ee99b(arg0, arg1, ptr0, len0);
 }
 
 function __wbg_adapter_25(arg0, arg1) {
-    wasm._dyn_core__ops__function__FnMut_____Output___R_as_wasm_bindgen__closure__WasmClosure___describe__invoke__h374acee18d084f07(arg0, arg1);
+    wasm._dyn_core__ops__function__FnMut_____Output___R_as_wasm_bindgen__closure__WasmClosure___describe__invoke__h06c81ebfc41e5c73(arg0, arg1);
 }
 
 function __wbg_adapter_28(arg0, arg1, arg2) {

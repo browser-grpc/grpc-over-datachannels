@@ -6,8 +6,8 @@ import "testing"
 // where the events happen (mirrors the Rust/JS stats tests).
 
 func TestSctpStatsCountRetransmitsAndDuplicates(t *testing.T) {
-	client := NewClientAssociation(SctpPort, SctpPort)
-	server := NewServerAssociation(SctpPort, SctpPort)
+	client := newSctpAssoc(true)
+	server := newSctpAssoc(false)
 	var now int64
 
 	var deliverToServer func(packets [][]byte) []SctpEvent

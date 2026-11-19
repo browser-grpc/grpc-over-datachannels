@@ -9,7 +9,13 @@
 import assert from "node:assert/strict";
 import dgram from "node:dgram";
 import test from "node:test";
-import { DtlsConnection, udpPacketIo } from "../dtls.js";
+import { udpPacketIo } from "../dtls_shared.js";
+import { loadDtlsWasm } from "../dtls_wasm.js";
+import { readFileSync } from "node:fs";
+
+const { DtlsConnection } = await loadDtlsWasm(
+  readFileSync(new URL("../../../browser-test/dc_dtls_gen/dc_dtls_wasm_bg.wasm", import.meta.url)),
+);
 import { Certificate } from "../x509.js";
 
 function bind() {

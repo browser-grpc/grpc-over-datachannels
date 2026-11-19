@@ -158,6 +158,12 @@ type TagValue struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *TagValue) Reset() {
+	*m = TagValue{}
+}
+
 func (m *TagValue) MarshalDC() []byte {
 	var out []byte
 	if m.Tag != 0 {
@@ -262,6 +268,12 @@ type PublishRequest struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *PublishRequest) Reset() {
+	*m = PublishRequest{}
+}
+
 func (m *PublishRequest) MarshalDC() []byte {
 	var out []byte
 	for _, x := range m.Tags {
@@ -299,7 +311,7 @@ func (m *PublishRequest) UnmarshalDC(data []byte) error {
 			}
 		case 2:
 			if b, ok := value.([]byte); ok {
-				m.Payload = append([]byte(nil), b...)
+				m.Payload = b
 			}
 		case 3:
 			if b, ok := value.([]byte); ok {
@@ -314,6 +326,12 @@ func (m *PublishRequest) UnmarshalDC(data []byte) error {
 type PublishReply struct {
 	Seq           uint64
 	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *PublishReply) Reset() {
+	*m = PublishReply{}
 }
 
 func (m *PublishReply) MarshalDC() []byte {
@@ -351,6 +369,12 @@ func (m *PublishReply) UnmarshalDC(data []byte) error {
 type SubscribeRequest struct {
 	Filter        []*TagValue
 	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *SubscribeRequest) Reset() {
+	*m = SubscribeRequest{}
 }
 
 func (m *SubscribeRequest) MarshalDC() []byte {
@@ -399,6 +423,12 @@ type Event struct {
 	UnknownFields   []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *Event) Reset() {
+	*m = Event{}
+}
+
 func (m *Event) MarshalDC() []byte {
 	var out []byte
 	for _, x := range m.Tags {
@@ -444,7 +474,7 @@ func (m *Event) UnmarshalDC(data []byte) error {
 			}
 		case 2:
 			if b, ok := value.([]byte); ok {
-				m.Payload = append([]byte(nil), b...)
+				m.Payload = b
 			}
 		case 3:
 			if v, ok := value.(uint64); ok {

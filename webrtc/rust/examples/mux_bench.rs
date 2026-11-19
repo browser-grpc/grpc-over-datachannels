@@ -136,15 +136,23 @@ fn main() {
 
     // ---- ping-pong phase -------------------------------------
     let started = Instant::now();
+    let mut rtts_ms: Vec<f64> = Vec::with_capacity(pingpongs);
     for _ in 0..pingpongs {
+        let t0 = Instant::now();
         channel.send_binary(&payload).expect("ping send");
         let _ = wait_message(client, Duration::from_secs(30));
+        rtts_ms.push(t0.elapsed().as_secs_f64() * 1000.0);
     }
     let pp_s = started.elapsed().as_secs_f64();
+    rtts_ms.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let pct = |p: f64| rtts_ms[((rtts_ms.len() as f64 * p) as usize).min(rtts_ms.len() - 1)];
     println!(
         "pingpong: {pingpongs} round trips in {pp_s:.2}s \
-         ({:.2} ms mean RTT)",
-        pp_s * 1000.0 / pingpongs as f64
+         ({:.2} ms mean RTT, p50 {:.2} ms, p99 {:.2} ms, max {:.2} ms)",
+        pp_s * 1000.0 / pingpongs as f64,
+        pct(0.50),
+        pct(0.99),
+        rtts_ms[rtts_ms.len() - 1]
     );
 
     for ep in &offerers {

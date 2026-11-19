@@ -36,6 +36,11 @@ pub const SCTP_PORT: u16 = 5000;
 // keeping datagrams small enough to avoid pathological IP
 // fragmentation on LAN paths.
 const MAX_DATA_PAYLOAD: usize = 1152;
+// Largest SCTP packet ever emitted: header + one full DATA
+// chunk (16-byte chunk header + MAX_DATA_PAYLOAD). Bundling
+// packs queued chunks up to this cap, so a bundled packet is
+// never larger than the single-chunk packet it replaces.
+const MAX_PACKET_BYTES: usize = 12 + 16 + MAX_DATA_PAYLOAD;
 const INITIAL_RWND: u32 = 262_144;
 const INITIAL_RTO_MS: u64 = 1000;
 const RTO_MIN_MS: u64 = 200;
@@ -628,20 +633,36 @@ impl Association {
     }
 
     // Emit queued chunks while cwnd and the peer rwnd allow.
+    // Chunks are bundled into packets up to MAX_PACKET_BYTES
+    // (RFC 9260 bundling): small messages queued in the same
+    // flush share one packet/DTLS record/UDP datagram instead
+    // of one each. Bundling happens only within a single
+    // flush, so it adds no latency.
     fn flush_out(&mut self, now_ms: u64) -> Vec<Vec<u8>> {
         let mut packets = Vec::new();
         let limit = self.cwnd.min(self.peer_rwnd as usize);
+        let mut cur: Vec<u8> = Vec::new();
+        let mut chunks_sent = 0u64;
         while self.inflight_bytes < limit {
             let Some(mut c) = self.out_queue.pop_front() else {
                 break;
             };
+            let cb = data_chunk_bytes(&c);
+            if !cur.is_empty() && 12 + cur.len() + cb.len() > MAX_PACKET_BYTES {
+                packets.push(self.packet(self.peer_tag, &cur));
+                cur = Vec::new();
+            }
             self.inflight_bytes += c.payload.len();
             c.last_sent_ms = now_ms;
-            packets.push(self.packet(self.peer_tag, &data_chunk_bytes(&c)));
+            cur.extend_from_slice(&cb);
+            chunks_sent += 1;
             self.unacked.insert(c.tsn, c);
         }
+        if !cur.is_empty() {
+            packets.push(self.packet(self.peer_tag, &cur));
+        }
         self.stats.packets_sent += packets.len() as u64;
-        self.stats.chunks_sent += packets.len() as u64;
+        self.stats.chunks_sent += chunks_sent;
         if !packets.is_empty() {
             self.last_packet_out_ms = now_ms;
         }
@@ -692,9 +713,9 @@ impl Association {
             return (packets, events);
         }
         // Verify CRC32C (field stored little-endian).
-        let mut check = packet.to_vec();
-        check[8..12].copy_from_slice(&[0, 0, 0, 0]);
-        if crc32c(&check) != u32::from_le_bytes(packet[8..12].try_into().unwrap()) {
+        if crate::crypto::crc32c_zeroed(packet, 8)
+            != u32::from_le_bytes(packet[8..12].try_into().unwrap())
+        {
             return (packets, events);
         }
         let vtag = u32::from_be_bytes(packet[4..8].try_into().unwrap());

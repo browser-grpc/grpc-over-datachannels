@@ -17,12 +17,16 @@ func sackArwnd(t *testing.T, packet []byte) uint32 {
 	return binary.BigEndian.Uint32(packet[20:24])
 }
 
+// initialRwnd is the core's advertised receive window
+// (INITIAL_RWND in the Rust association).
+const initialRwnd = 262144
+
 func TestSackRwndShrinksForGapBufferedBytesAndRecovers(t *testing.T) {
-	client := NewClientAssociation(SctpPort, SctpPort)
-	server := NewServerAssociation(SctpPort, SctpPort)
+	client := newSctpAssoc(true)
+	server := newSctpAssoc(false)
 	var now int64
-	var exchange func(to *Association, packets [][]byte)
-	exchange = func(to *Association, packets [][]byte) {
+	var exchange func(to sctpAssoc, packets [][]byte)
+	exchange = func(to sctpAssoc, packets [][]byte) {
 		for _, p := range packets {
 			replies, _ := to.HandlePacket(p, now)
 			if to == server {
@@ -65,11 +69,11 @@ func TestSackRwndShrinksForGapBufferedBytesAndRecovers(t *testing.T) {
 // fixed 1000ms initial value: a delayed-but-not-lost flight
 // must not be spuriously retransmitted.
 func TestRtoFollowsMeasuredRttNotFixedTimer(t *testing.T) {
-	client := NewClientAssociation(SctpPort, SctpPort)
-	server := NewServerAssociation(SctpPort, SctpPort)
+	client := newSctpAssoc(true)
+	server := newSctpAssoc(false)
 	var now int64
-	var exchange func(to *Association, packets [][]byte)
-	exchange = func(to *Association, packets [][]byte) {
+	var exchange func(to sctpAssoc, packets [][]byte)
+	exchange = func(to sctpAssoc, packets [][]byte) {
 		for _, p := range packets {
 			replies, _ := to.HandlePacket(p, now)
 			if to == server {

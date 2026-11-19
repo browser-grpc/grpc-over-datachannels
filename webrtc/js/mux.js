@@ -35,7 +35,7 @@
 import dgram from "node:dgram";
 import { EventEmitter } from "node:events";
 import { Peer } from "./peer.js";
-import { Reader } from "./dtls.js";
+import { Reader } from "./dtls_shared.js";
 import { StunMessage } from "./stun.js";
 import {
   DtlsContentType,

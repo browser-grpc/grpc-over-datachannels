@@ -182,6 +182,12 @@ type Header struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *Header) Reset() {
+	*m = Header{}
+}
+
 func (m *Header) MarshalDC() []byte {
 	var out []byte
 	out = KafkaPbAppendStringField(out, 1, m.Key)
@@ -210,7 +216,7 @@ func (m *Header) UnmarshalDC(data []byte) error {
 			}
 		case 2:
 			if b, ok := value.([]byte); ok {
-				m.Value = append([]byte(nil), b...)
+				m.Value = b
 			}
 		default:
 			m.UnknownFields = append(m.UnknownFields, raw...)
@@ -225,6 +231,12 @@ type Record struct {
 	TimestampMs   int64
 	NullKey       bool
 	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *Record) Reset() {
+	*m = Record{}
 }
 
 func (m *Record) MarshalDC() []byte {
@@ -264,11 +276,11 @@ func (m *Record) UnmarshalDC(data []byte) error {
 		switch num {
 		case 1:
 			if b, ok := value.([]byte); ok {
-				m.Key = append([]byte(nil), b...)
+				m.Key = b
 			}
 		case 2:
 			if b, ok := value.([]byte); ok {
-				m.Value = append([]byte(nil), b...)
+				m.Value = b
 			}
 		case 3:
 			if b, ok := value.([]byte); ok {
@@ -302,6 +314,12 @@ type FetchedRecord struct {
 	Headers       []*Header
 	KeyNull       bool
 	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *FetchedRecord) Reset() {
+	*m = FetchedRecord{}
 }
 
 func (m *FetchedRecord) MarshalDC() []byte {
@@ -353,11 +371,11 @@ func (m *FetchedRecord) UnmarshalDC(data []byte) error {
 			}
 		case 3:
 			if b, ok := value.([]byte); ok {
-				m.Key = append([]byte(nil), b...)
+				m.Key = b
 			}
 		case 4:
 			if b, ok := value.([]byte); ok {
-				m.Value = append([]byte(nil), b...)
+				m.Value = b
 			}
 		case 5:
 			if b, ok := value.([]byte); ok {
@@ -383,6 +401,12 @@ type TopicPartition struct {
 	Topic         string
 	Partition     int32
 	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *TopicPartition) Reset() {
+	*m = TopicPartition{}
 }
 
 func (m *TopicPartition) MarshalDC() []byte {
@@ -426,6 +450,12 @@ type MetadataRequest struct {
 	Topics                 []string
 	AllowAutoTopicCreation bool
 	UnknownFields          []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *MetadataRequest) Reset() {
+	*m = MetadataRequest{}
 }
 
 func (m *MetadataRequest) MarshalDC() []byte {
@@ -473,6 +503,12 @@ type BrokerMetadata struct {
 	Port          int32
 	Rack          string
 	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *BrokerMetadata) Reset() {
+	*m = BrokerMetadata{}
 }
 
 func (m *BrokerMetadata) MarshalDC() []byte {
@@ -533,6 +569,12 @@ type PartitionMetadata struct {
 	Isr           []int32
 	ErrorCode     int32
 	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *PartitionMetadata) Reset() {
+	*m = PartitionMetadata{}
 }
 
 func (m *PartitionMetadata) MarshalDC() []byte {
@@ -641,6 +683,12 @@ type TopicMetadata struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *TopicMetadata) Reset() {
+	*m = TopicMetadata{}
+}
+
 func (m *TopicMetadata) MarshalDC() []byte {
 	var out []byte
 	out = KafkaPbAppendStringField(out, 1, m.Name)
@@ -706,6 +754,12 @@ type MetadataResponse struct {
 	ControllerId   int32
 	Topics         []*TopicMetadata
 	UnknownFields  []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *MetadataResponse) Reset() {
+	*m = MetadataResponse{}
 }
 
 func (m *MetadataResponse) MarshalDC() []byte {
@@ -785,6 +839,12 @@ type OpenProducerRequest struct {
 	UnknownFields        []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *OpenProducerRequest) Reset() {
+	*m = OpenProducerRequest{}
+}
+
 func (m *OpenProducerRequest) MarshalDC() []byte {
 	var out []byte
 	out = KafkaPbAppendStringField(out, 1, m.TransactionalId)
@@ -828,6 +888,12 @@ type OpenProducerResponse struct {
 	ProducerEpoch int32
 	ErrorCode     int32
 	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *OpenProducerResponse) Reset() {
+	*m = OpenProducerResponse{}
 }
 
 func (m *OpenProducerResponse) MarshalDC() []byte {
@@ -888,6 +954,12 @@ type CloseProducerRequest struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *CloseProducerRequest) Reset() {
+	*m = CloseProducerRequest{}
+}
+
 func (m *CloseProducerRequest) MarshalDC() []byte {
 	var out []byte
 	out = KafkaPbAppendStringField(out, 1, m.SessionId)
@@ -920,6 +992,12 @@ func (m *CloseProducerRequest) UnmarshalDC(data []byte) error {
 type CloseProducerResponse struct {
 	ErrorCode     int32
 	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *CloseProducerResponse) Reset() {
+	*m = CloseProducerResponse{}
 }
 
 func (m *CloseProducerResponse) MarshalDC() []byte {
@@ -958,6 +1036,12 @@ type EndTransactionRequest struct {
 	SessionId     string
 	Commit        bool
 	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *EndTransactionRequest) Reset() {
+	*m = EndTransactionRequest{}
 }
 
 func (m *EndTransactionRequest) MarshalDC() []byte {
@@ -1002,6 +1086,12 @@ type EndTransactionResponse struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *EndTransactionResponse) Reset() {
+	*m = EndTransactionResponse{}
+}
+
 func (m *EndTransactionResponse) MarshalDC() []byte {
 	var out []byte
 	if m.ErrorCode != 0 {
@@ -1044,6 +1134,12 @@ type ProduceRequest struct {
 	SessionId       string
 	TransactionalId string
 	UnknownFields   []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *ProduceRequest) Reset() {
+	*m = ProduceRequest{}
 }
 
 func (m *ProduceRequest) MarshalDC() []byte {
@@ -1138,6 +1234,12 @@ type ProduceResponse struct {
 	UnknownFields   []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *ProduceResponse) Reset() {
+	*m = ProduceResponse{}
+}
+
 func (m *ProduceResponse) MarshalDC() []byte {
 	var out []byte
 	if m.Partition != 0 {
@@ -1203,6 +1305,12 @@ type ConsumeRequest struct {
 	MinBytes      int32
 	ReadCommitted bool
 	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *ConsumeRequest) Reset() {
+	*m = ConsumeRequest{}
 }
 
 func (m *ConsumeRequest) MarshalDC() []byte {
@@ -1291,6 +1399,12 @@ type ConsumeResponse struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *ConsumeResponse) Reset() {
+	*m = ConsumeResponse{}
+}
+
 func (m *ConsumeResponse) MarshalDC() []byte {
 	var out []byte
 	out = KafkaPbAppendStringField(out, 1, m.Topic)
@@ -1367,6 +1481,12 @@ type GroupSubscribeRequest struct {
 	ReadCommitted    bool
 	GroupProtocol    string
 	UnknownFields    []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *GroupSubscribeRequest) Reset() {
+	*m = GroupSubscribeRequest{}
 }
 
 func (m *GroupSubscribeRequest) MarshalDC() []byte {
@@ -1451,6 +1571,12 @@ type GroupSubscribeResponse struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *GroupSubscribeResponse) Reset() {
+	*m = GroupSubscribeResponse{}
+}
+
 func (m *GroupSubscribeResponse) MarshalDC() []byte {
 	var out []byte
 	if !(m.Batch != nil || m.GroupError != nil) {
@@ -1525,6 +1651,12 @@ type Assignment struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *Assignment) Reset() {
+	*m = Assignment{}
+}
+
 func (m *Assignment) MarshalDC() []byte {
 	var out []byte
 	if m.GenerationId != 0 {
@@ -1581,6 +1713,12 @@ type RecordBatch struct {
 	HighWatermark int64
 	Records       []*FetchedRecord
 	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *RecordBatch) Reset() {
+	*m = RecordBatch{}
 }
 
 func (m *RecordBatch) MarshalDC() []byte {
@@ -1647,6 +1785,12 @@ type GroupError struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *GroupError) Reset() {
+	*m = GroupError{}
+}
+
 func (m *GroupError) MarshalDC() []byte {
 	var out []byte
 	if m.ErrorCode != 0 {
@@ -1690,6 +1834,12 @@ type ListOffsetsRequest struct {
 	Timestamp     int64
 	ReadCommitted bool
 	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *ListOffsetsRequest) Reset() {
+	*m = ListOffsetsRequest{}
 }
 
 func (m *ListOffsetsRequest) MarshalDC() []byte {
@@ -1752,6 +1902,12 @@ type ListOffsetsResponse struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *ListOffsetsResponse) Reset() {
+	*m = ListOffsetsResponse{}
+}
+
 func (m *ListOffsetsResponse) MarshalDC() []byte {
 	var out []byte
 	if m.Offset != 0 {
@@ -1808,6 +1964,12 @@ type CommitOffsetRequest struct {
 	Metadata        string
 	SessionId       string
 	UnknownFields   []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *CommitOffsetRequest) Reset() {
+	*m = CommitOffsetRequest{}
 }
 
 func (m *CommitOffsetRequest) MarshalDC() []byte {
@@ -1875,6 +2037,12 @@ type CommitOffsetResponse struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *CommitOffsetResponse) Reset() {
+	*m = CommitOffsetResponse{}
+}
+
 func (m *CommitOffsetResponse) MarshalDC() []byte {
 	var out []byte
 	if m.ErrorCode != 0 {
@@ -1912,6 +2080,12 @@ type FetchOffsetRequest struct {
 	Topic         string
 	Partition     int32
 	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *FetchOffsetRequest) Reset() {
+	*m = FetchOffsetRequest{}
 }
 
 func (m *FetchOffsetRequest) MarshalDC() []byte {
@@ -1961,6 +2135,12 @@ type FetchOffsetResponse struct {
 	Metadata        string
 	ErrorCode       int32
 	UnknownFields   []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *FetchOffsetResponse) Reset() {
+	*m = FetchOffsetResponse{}
 }
 
 func (m *FetchOffsetResponse) MarshalDC() []byte {
@@ -2015,6 +2195,12 @@ type NewTopic struct {
 	UnknownFields     []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *NewTopic) Reset() {
+	*m = NewTopic{}
+}
+
 func (m *NewTopic) MarshalDC() []byte {
 	var out []byte
 	out = KafkaPbAppendStringField(out, 1, m.Name)
@@ -2065,6 +2251,12 @@ type CreateTopicsRequest struct {
 	TimeoutMs     int32
 	ValidateOnly  bool
 	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *CreateTopicsRequest) Reset() {
+	*m = CreateTopicsRequest{}
 }
 
 func (m *CreateTopicsRequest) MarshalDC() []byte {
@@ -2126,6 +2318,12 @@ type TopicError struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *TopicError) Reset() {
+	*m = TopicError{}
+}
+
 func (m *TopicError) MarshalDC() []byte {
 	var out []byte
 	out = KafkaPbAppendStringField(out, 1, m.Name)
@@ -2166,6 +2364,12 @@ func (m *TopicError) UnmarshalDC(data []byte) error {
 type CreateTopicsResponse struct {
 	Results       []*TopicError
 	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *CreateTopicsResponse) Reset() {
+	*m = CreateTopicsResponse{}
 }
 
 func (m *CreateTopicsResponse) MarshalDC() []byte {
@@ -2209,6 +2413,12 @@ type DeleteTopicsRequest struct {
 	Topics        []string
 	TimeoutMs     int32
 	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *DeleteTopicsRequest) Reset() {
+	*m = DeleteTopicsRequest{}
 }
 
 func (m *DeleteTopicsRequest) MarshalDC() []byte {
@@ -2255,6 +2465,12 @@ type DeleteTopicsResponse struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *DeleteTopicsResponse) Reset() {
+	*m = DeleteTopicsResponse{}
+}
+
 func (m *DeleteTopicsResponse) MarshalDC() []byte {
 	var out []byte
 	for _, x := range m.Results {
@@ -2298,6 +2514,12 @@ type ConfigEntry struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *ConfigEntry) Reset() {
+	*m = ConfigEntry{}
+}
+
 func (m *ConfigEntry) MarshalDC() []byte {
 	var out []byte
 	out = KafkaPbAppendStringField(out, 1, m.Name)
@@ -2337,6 +2559,12 @@ type AlterConfigEntry struct {
 	Value         string
 	Op            ConfigOp
 	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *AlterConfigEntry) Reset() {
+	*m = AlterConfigEntry{}
 }
 
 func (m *AlterConfigEntry) MarshalDC() []byte {
@@ -2387,6 +2615,12 @@ type DescribeConfigsRequest struct {
 	ConfigKeys      []string
 	IncludeSynonyms bool
 	UnknownFields   []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *DescribeConfigsRequest) Reset() {
+	*m = DescribeConfigsRequest{}
 }
 
 func (m *DescribeConfigsRequest) MarshalDC() []byte {
@@ -2448,6 +2682,12 @@ type ConfigValue struct {
 	Source        int32
 	IsSensitive   bool
 	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *ConfigValue) Reset() {
+	*m = ConfigValue{}
 }
 
 func (m *ConfigValue) MarshalDC() []byte {
@@ -2514,6 +2754,12 @@ type DescribeConfigsResponse struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *DescribeConfigsResponse) Reset() {
+	*m = DescribeConfigsResponse{}
+}
+
 func (m *DescribeConfigsResponse) MarshalDC() []byte {
 	var out []byte
 	if m.ErrorCode != 0 {
@@ -2565,6 +2811,12 @@ type AlterConfigsRequest struct {
 	Entries       []*AlterConfigEntry
 	ValidateOnly  bool
 	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *AlterConfigsRequest) Reset() {
+	*m = AlterConfigsRequest{}
 }
 
 func (m *AlterConfigsRequest) MarshalDC() []byte {
@@ -2630,6 +2882,12 @@ type AlterConfigsResponse struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *AlterConfigsResponse) Reset() {
+	*m = AlterConfigsResponse{}
+}
+
 func (m *AlterConfigsResponse) MarshalDC() []byte {
 	var out []byte
 	if m.ErrorCode != 0 {
@@ -2668,6 +2926,12 @@ type CreatePartitionsRequest struct {
 	ValidateOnly  bool
 	TimeoutMs     int32
 	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *CreatePartitionsRequest) Reset() {
+	*m = CreatePartitionsRequest{}
 }
 
 func (m *CreatePartitionsRequest) MarshalDC() []byte {
@@ -2728,6 +2992,12 @@ type CreatePartitionsResponse struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *CreatePartitionsResponse) Reset() {
+	*m = CreatePartitionsResponse{}
+}
+
 func (m *CreatePartitionsResponse) MarshalDC() []byte {
 	var out []byte
 	if m.ErrorCode != 0 {
@@ -2765,6 +3035,12 @@ type DeleteRecordsRequest struct {
 	Partition     int32
 	BeforeOffset  int64
 	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *DeleteRecordsRequest) Reset() {
+	*m = DeleteRecordsRequest{}
 }
 
 func (m *DeleteRecordsRequest) MarshalDC() []byte {
@@ -2818,6 +3094,12 @@ type DeleteRecordsResponse struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *DeleteRecordsResponse) Reset() {
+	*m = DeleteRecordsResponse{}
+}
+
 func (m *DeleteRecordsResponse) MarshalDC() []byte {
 	var out []byte
 	if m.LowWatermark != 0 {
@@ -2862,6 +3144,12 @@ type ListGroupsRequest struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *ListGroupsRequest) Reset() {
+	*m = ListGroupsRequest{}
+}
+
 func (m *ListGroupsRequest) MarshalDC() []byte {
 	var out []byte
 	out = append(out, m.UnknownFields...)
@@ -2891,6 +3179,12 @@ type GroupListing struct {
 	ProtocolType  string
 	GroupState    string
 	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *GroupListing) Reset() {
+	*m = GroupListing{}
 }
 
 func (m *GroupListing) MarshalDC() []byte {
@@ -2936,6 +3230,12 @@ type ListGroupsResponse struct {
 	ErrorCode     int32
 	Groups        []*GroupListing
 	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *ListGroupsResponse) Reset() {
+	*m = ListGroupsResponse{}
 }
 
 func (m *ListGroupsResponse) MarshalDC() []byte {
@@ -2988,6 +3288,12 @@ type DescribeGroupsRequest struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *DescribeGroupsRequest) Reset() {
+	*m = DescribeGroupsRequest{}
+}
+
 func (m *DescribeGroupsRequest) MarshalDC() []byte {
 	var out []byte
 	for _, x := range m.GroupIds {
@@ -3025,6 +3331,12 @@ type GroupMember struct {
 	ClientHost    string
 	Assignment    []*TopicPartition
 	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *GroupMember) Reset() {
+	*m = GroupMember{}
 }
 
 func (m *GroupMember) MarshalDC() []byte {
@@ -3087,6 +3399,12 @@ type DescribedGroup struct {
 	Protocol      string
 	Members       []*GroupMember
 	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *DescribedGroup) Reset() {
+	*m = DescribedGroup{}
 }
 
 func (m *DescribedGroup) MarshalDC() []byte {
@@ -3159,6 +3477,12 @@ type DescribeGroupsResponse struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *DescribeGroupsResponse) Reset() {
+	*m = DescribeGroupsResponse{}
+}
+
 func (m *DescribeGroupsResponse) MarshalDC() []byte {
 	var out []byte
 	for _, x := range m.Groups {
@@ -3201,6 +3525,12 @@ type DeleteGroupsRequest struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *DeleteGroupsRequest) Reset() {
+	*m = DeleteGroupsRequest{}
+}
+
 func (m *DeleteGroupsRequest) MarshalDC() []byte {
 	var out []byte
 	for _, x := range m.GroupIds {
@@ -3236,6 +3566,12 @@ type GroupErrorResult struct {
 	GroupId       string
 	ErrorCode     int32
 	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *GroupErrorResult) Reset() {
+	*m = GroupErrorResult{}
 }
 
 func (m *GroupErrorResult) MarshalDC() []byte {
@@ -3280,6 +3616,12 @@ type DeleteGroupsResponse struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *DeleteGroupsResponse) Reset() {
+	*m = DeleteGroupsResponse{}
+}
+
 func (m *DeleteGroupsResponse) MarshalDC() []byte {
 	var out []byte
 	for _, x := range m.Results {
@@ -3322,6 +3664,12 @@ type DeleteGroupOffsetsRequest struct {
 	Topic         string
 	Partitions    []int32
 	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *DeleteGroupOffsetsRequest) Reset() {
+	*m = DeleteGroupOffsetsRequest{}
 }
 
 func (m *DeleteGroupOffsetsRequest) MarshalDC() []byte {
@@ -3384,6 +3732,12 @@ type DeleteGroupOffsetsResponse struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *DeleteGroupOffsetsResponse) Reset() {
+	*m = DeleteGroupOffsetsResponse{}
+}
+
 func (m *DeleteGroupOffsetsResponse) MarshalDC() []byte {
 	var out []byte
 	if m.ErrorCode != 0 {
@@ -3425,6 +3779,12 @@ type Acl struct {
 	Operation      int32
 	PermissionType int32
 	UnknownFields  []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *Acl) Reset() {
+	*m = Acl{}
 }
 
 func (m *Acl) MarshalDC() []byte {
@@ -3503,6 +3863,12 @@ type DescribeAclsRequest struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *DescribeAclsRequest) Reset() {
+	*m = DescribeAclsRequest{}
+}
+
 func (m *DescribeAclsRequest) MarshalDC() []byte {
 	var out []byte
 	if m.Filter != nil {
@@ -3542,6 +3908,12 @@ type DescribeAclsResponse struct {
 	ErrorCode     int32
 	Acls          []*Acl
 	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *DescribeAclsResponse) Reset() {
+	*m = DescribeAclsResponse{}
 }
 
 func (m *DescribeAclsResponse) MarshalDC() []byte {
@@ -3594,6 +3966,12 @@ type CreateAclsRequest struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *CreateAclsRequest) Reset() {
+	*m = CreateAclsRequest{}
+}
+
 func (m *CreateAclsRequest) MarshalDC() []byte {
 	var out []byte
 	for _, x := range m.Acls {
@@ -3634,6 +4012,12 @@ func (m *CreateAclsRequest) UnmarshalDC(data []byte) error {
 type CreateAclsResponse struct {
 	ErrorCodes    []int32
 	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *CreateAclsResponse) Reset() {
+	*m = CreateAclsResponse{}
 }
 
 func (m *CreateAclsResponse) MarshalDC() []byte {
@@ -3686,6 +4070,12 @@ type DeleteAclsRequest struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *DeleteAclsRequest) Reset() {
+	*m = DeleteAclsRequest{}
+}
+
 func (m *DeleteAclsRequest) MarshalDC() []byte {
 	var out []byte
 	for _, x := range m.Filters {
@@ -3726,6 +4116,12 @@ func (m *DeleteAclsRequest) UnmarshalDC(data []byte) error {
 type DeleteAclsResponse struct {
 	ErrorCodes    []int32
 	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *DeleteAclsResponse) Reset() {
+	*m = DeleteAclsResponse{}
 }
 
 func (m *DeleteAclsResponse) MarshalDC() []byte {
@@ -3777,6 +4173,12 @@ type ListTransactionsRequest struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *ListTransactionsRequest) Reset() {
+	*m = ListTransactionsRequest{}
+}
+
 func (m *ListTransactionsRequest) MarshalDC() []byte {
 	var out []byte
 	out = append(out, m.UnknownFields...)
@@ -3806,6 +4208,12 @@ type TransactionListing struct {
 	ProducerId       int64
 	TransactionState string
 	UnknownFields    []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *TransactionListing) Reset() {
+	*m = TransactionListing{}
 }
 
 func (m *TransactionListing) MarshalDC() []byte {
@@ -3854,6 +4262,12 @@ type ListTransactionsResponse struct {
 	ErrorCode     int32
 	Transactions  []*TransactionListing
 	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *ListTransactionsResponse) Reset() {
+	*m = ListTransactionsResponse{}
 }
 
 func (m *ListTransactionsResponse) MarshalDC() []byte {
@@ -3906,6 +4320,12 @@ type DescribeTransactionsRequest struct {
 	UnknownFields    []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *DescribeTransactionsRequest) Reset() {
+	*m = DescribeTransactionsRequest{}
+}
+
 func (m *DescribeTransactionsRequest) MarshalDC() []byte {
 	var out []byte
 	for _, x := range m.TransactionalIds {
@@ -3945,6 +4365,12 @@ type DescribedTransaction struct {
 	TransactionState      string
 	LastUpdateTimestampMs int64
 	UnknownFields         []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *DescribedTransaction) Reset() {
+	*m = DescribedTransaction{}
 }
 
 func (m *DescribedTransaction) MarshalDC() []byte {
@@ -4018,6 +4444,12 @@ type DescribeTransactionsResponse struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *DescribeTransactionsResponse) Reset() {
+	*m = DescribeTransactionsResponse{}
+}
+
 func (m *DescribeTransactionsResponse) MarshalDC() []byte {
 	var out []byte
 	for _, x := range m.Transactions {
@@ -4061,6 +4493,12 @@ type OpenShareGroupRequest struct {
 	GroupInstanceId  string
 	SessionTimeoutMs int32
 	UnknownFields    []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *OpenShareGroupRequest) Reset() {
+	*m = OpenShareGroupRequest{}
 }
 
 func (m *OpenShareGroupRequest) MarshalDC() []byte {
@@ -4119,6 +4557,12 @@ type OpenShareGroupResponse struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *OpenShareGroupResponse) Reset() {
+	*m = OpenShareGroupResponse{}
+}
+
 func (m *OpenShareGroupResponse) MarshalDC() []byte {
 	var out []byte
 	out = KafkaPbAppendStringField(out, 1, m.SessionId)
@@ -4172,6 +4616,12 @@ type SharePollRequest struct {
 	MaxRecords    int32
 	MaxWaitMs     int32
 	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *SharePollRequest) Reset() {
+	*m = SharePollRequest{}
 }
 
 func (m *SharePollRequest) MarshalDC() []byte {
@@ -4230,6 +4680,12 @@ type SharePollRecord struct {
 	DeliveryCount int32
 	NullKey       bool
 	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *SharePollRecord) Reset() {
+	*m = SharePollRecord{}
 }
 
 func (m *SharePollRecord) MarshalDC() []byte {
@@ -4294,11 +4750,11 @@ func (m *SharePollRecord) UnmarshalDC(data []byte) error {
 			}
 		case 4:
 			if b, ok := value.([]byte); ok {
-				m.Key = append([]byte(nil), b...)
+				m.Key = b
 			}
 		case 5:
 			if b, ok := value.([]byte); ok {
-				m.Value = append([]byte(nil), b...)
+				m.Value = b
 			}
 		case 6:
 			if b, ok := value.([]byte); ok {
@@ -4332,6 +4788,12 @@ type SharePollResponse struct {
 	Records       []*SharePollRecord
 	ErrorCode     int32
 	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *SharePollResponse) Reset() {
+	*m = SharePollResponse{}
 }
 
 func (m *SharePollResponse) MarshalDC() []byte {
@@ -4385,6 +4847,12 @@ type ShareAckEntry struct {
 	Offset        int64
 	AckType       int32
 	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *ShareAckEntry) Reset() {
+	*m = ShareAckEntry{}
 }
 
 func (m *ShareAckEntry) MarshalDC() []byte {
@@ -4446,6 +4914,12 @@ type ShareAckRequest struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *ShareAckRequest) Reset() {
+	*m = ShareAckRequest{}
+}
+
 func (m *ShareAckRequest) MarshalDC() []byte {
 	var out []byte
 	out = KafkaPbAppendStringField(out, 1, m.SessionId)
@@ -4493,6 +4967,12 @@ type ShareAckResponse struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *ShareAckResponse) Reset() {
+	*m = ShareAckResponse{}
+}
+
 func (m *ShareAckResponse) MarshalDC() []byte {
 	var out []byte
 	if m.ErrorCode != 0 {
@@ -4530,6 +5010,12 @@ type CloseShareGroupRequest struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *CloseShareGroupRequest) Reset() {
+	*m = CloseShareGroupRequest{}
+}
+
 func (m *CloseShareGroupRequest) MarshalDC() []byte {
 	var out []byte
 	out = KafkaPbAppendStringField(out, 1, m.SessionId)
@@ -4562,6 +5048,12 @@ func (m *CloseShareGroupRequest) UnmarshalDC(data []byte) error {
 type CloseShareGroupResponse struct {
 	ErrorCode     int32
 	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *CloseShareGroupResponse) Reset() {
+	*m = CloseShareGroupResponse{}
 }
 
 func (m *CloseShareGroupResponse) MarshalDC() []byte {
@@ -4604,6 +5096,12 @@ type ShareGroupMember struct {
 	SubscribedTopics []string
 	Assignment       []*TopicPartition
 	UnknownFields    []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *ShareGroupMember) Reset() {
+	*m = ShareGroupMember{}
 }
 
 func (m *ShareGroupMember) MarshalDC() []byte {
@@ -4683,6 +5181,12 @@ type ShareGroupDescription struct {
 	UnknownFields   []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *ShareGroupDescription) Reset() {
+	*m = ShareGroupDescription{}
+}
+
 func (m *ShareGroupDescription) MarshalDC() []byte {
 	var out []byte
 	out = KafkaPbAppendStringField(out, 1, m.GroupId)
@@ -4759,6 +5263,12 @@ type DescribeShareGroupsRequest struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *DescribeShareGroupsRequest) Reset() {
+	*m = DescribeShareGroupsRequest{}
+}
+
 func (m *DescribeShareGroupsRequest) MarshalDC() []byte {
 	var out []byte
 	for _, x := range m.GroupIds {
@@ -4794,6 +5304,12 @@ type DescribeShareGroupsResponse struct {
 	Groups        []*ShareGroupDescription
 	ErrorCode     int32
 	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *DescribeShareGroupsResponse) Reset() {
+	*m = DescribeShareGroupsResponse{}
 }
 
 func (m *DescribeShareGroupsResponse) MarshalDC() []byte {

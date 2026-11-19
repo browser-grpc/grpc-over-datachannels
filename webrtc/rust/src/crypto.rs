@@ -782,11 +782,23 @@ pub fn crc32(data: &[u8]) -> u32 {
 /// CRC-32C (Castagnoli) — the SCTP checksum (stored little-endian on
 /// the wire, unlike most SCTP fields).
 pub fn crc32c(data: &[u8]) -> u32 {
+    crc32c_state(0xFFFF_FFFF, data) ^ 0xFFFF_FFFF
+}
+
+fn crc32c_state(mut crc: u32, data: &[u8]) -> u32 {
     use crate::proto_gen::CRC32C_TABLE;
-    let mut crc = 0xFFFF_FFFFu32;
     for &b in data {
         crc = CRC32C_TABLE[((crc ^ b as u32) & 0xFF) as usize] ^ (crc >> 8);
     }
+    crc
+}
+
+/// CRC over `data` with bytes `zero_at..zero_at+4` treated as
+/// zero (the SCTP checksum-field position), without copying.
+pub fn crc32c_zeroed(data: &[u8], zero_at: usize) -> u32 {
+    let mut crc = crc32c_state(0xFFFF_FFFF, &data[..zero_at]);
+    crc = crc32c_state(crc, &[0, 0, 0, 0]);
+    crc = crc32c_state(crc, &data[zero_at + 4..]);
     crc ^ 0xFFFF_FFFF
 }
 

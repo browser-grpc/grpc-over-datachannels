@@ -107,9 +107,9 @@ func TestDataChannelCloseViaStreamReset(t *testing.T) {
 // not yet been cumulatively received is deferred, then applied
 // (with its response) once the gap fills.
 func TestStreamResetDefersUntilCumulative(t *testing.T) {
-	client := NewClientAssociation(SctpPort, SctpPort)
-	server := NewServerAssociation(SctpPort, SctpPort)
-	exchange := func(to *Association, packets [][]byte, now int64) ([][]byte, []SctpEvent) {
+	client := newSctpAssoc(true)
+	server := newSctpAssoc(false)
+	exchange := func(to sctpAssoc, packets [][]byte, now int64) ([][]byte, []SctpEvent) {
 		var out [][]byte
 		var events []SctpEvent
 		for _, p := range packets {

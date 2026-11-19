@@ -185,13 +185,36 @@ func (c *DataChannel) emitMessage(data []byte, isText bool) {
 	handler(data, isText)
 }
 
+// sctpAssoc is the SCTP backend seam over the shared
+// Rust core (crates/dc-sctp-ffi). All
+// endpoint association access goes through this interface.
+type sctpAssoc interface {
+	Connect(nowMs int64) []byte
+	SendData(stream uint16, ppid uint32, payload []byte, opts SendOptions, nowMs int64) [][]byte
+	HandlePacket(packet []byte, nowMs int64) ([][]byte, []SctpEvent)
+	Tick(nowMs int64) ([][]byte, []SctpEvent)
+	Stats() AssociationStats
+	CloseStream(id uint16) [][]byte
+	Close(nowMs int64) [][]byte
+	IsEstablished() bool
+}
+
+// DtlsConn is the DTLS backend seam over the shared
+// Rust core (crates/dc-dtls-ffi). All endpoint DTLS
+// access goes through this interface.
+type DtlsConn interface {
+	SendApp(data []byte) error
+	RecvAppTimeout(timeoutMs int) ([]byte, error)
+	PeerFingerprint() string
+}
+
 // DcEndpoint is a DTLS+SCTP association with DCEP channels.
 type DcEndpoint struct {
 	// onChannel fires for inbound channels.
 	onChannel atomic.Value // func(*DataChannel)
 
-	dtls       *DtlsConnection
-	assoc      *Association
+	dtls       DtlsConn
+	assoc      sctpAssoc
 	role       string
 	channels   map[uint16]*DataChannel
 	nextStream uint16
@@ -266,14 +289,9 @@ func (e *DcEndpoint) Stats() AssociationStats {
 // NewDcEndpoint wraps an established DTLS connection. Role "client"
 // sends the SCTP INIT and opens even streams; "server" answers and
 // opens odd streams.
-func NewDcEndpoint(dtls *DtlsConnection, role string) *DcEndpoint {
+func NewDcEndpoint(dtls DtlsConn, role string) *DcEndpoint {
 	isClient := role == "client"
-	var assoc *Association
-	if isClient {
-		assoc = NewClientAssociation(SctpPort, SctpPort)
-	} else {
-		assoc = NewServerAssociation(SctpPort, SctpPort)
-	}
+	assoc := newSctpAssoc(isClient)
 	endpoint := &DcEndpoint{
 		dtls: dtls, assoc: assoc, role: role,
 		channels: map[uint16]*DataChannel{}, start: time.Now(),

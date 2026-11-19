@@ -4,7 +4,8 @@
 
 import dgram from "node:dgram";
 import { createInterface } from "node:readline";
-import { DtlsConnection, udpPacketIo } from "../dtls.js";
+import { udpPacketIo } from "../dtls_shared.js";
+import { loadRustCores } from "../rust_cores.js";
 import { Certificate } from "../x509.js";
 
 const [mode, portArg] = process.argv.slice(2);
@@ -57,7 +58,7 @@ if (mode === "server") {
   // ephemeral and read the allocated port here instead of
   // probe-close-rebinding a guessed one.
   console.error(`LISTENING ${socket.address().port}`);
-  const conn = await DtlsConnection.accept(serverIo(socket), config());
+  const conn = await (await loadRustCores()).DtlsConnection.accept(serverIo(socket), config());
   console.error(`HANDSHAKE_OK peer_fp=${conn.peerFingerprint() ?? ""}`);
   for (;;) {
     const data = await conn.recvApp();
@@ -67,7 +68,7 @@ if (mode === "server") {
   const socket = dgram.createSocket("udp4");
   await new Promise((resolve) => socket.bind(0, "127.0.0.1", resolve));
   const io = udpPacketIo(socket, { address: "127.0.0.1", port });
-  const conn = await DtlsConnection.connect(io, config());
+  const conn = await (await loadRustCores()).DtlsConnection.connect(io, config());
   console.error(`HANDSHAKE_OK peer_fp=${conn.peerFingerprint() ?? ""}`);
   const rl = createInterface({ input: process.stdin });
   for await (const line of rl) {

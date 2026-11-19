@@ -24,6 +24,15 @@ use std::net::UdpSocket;
 
 pub trait DtlsIo {
     fn send_packet(&mut self, packet: &[u8]) -> io::Result<()>;
+    /// Send several packets, ideally in one syscall batch
+    /// (sendmmsg where the transport supports it). The
+    /// default sends them one by one.
+    fn send_packets(&mut self, packets: &[Vec<u8>]) -> io::Result<()> {
+        for p in packets {
+            self.send_packet(p)?;
+        }
+        Ok(())
+    }
     /// Ok(None) on timeout.
     fn recv_packet(&mut self, timeout: Duration) -> io::Result<Option<Vec<u8>>>;
 }
@@ -39,6 +48,10 @@ impl DtlsIo for UdpDtlsIo {
     fn send_packet(&mut self, packet: &[u8]) -> io::Result<()> {
         self.socket.send_to(packet, self.peer)?;
         Ok(())
+    }
+    #[cfg(target_os = "linux")]
+    fn send_packets(&mut self, packets: &[Vec<u8>]) -> io::Result<()> {
+        crate::mux::batch::sendmmsg_batch(&self.socket, packets, self.peer)
     }
     fn recv_packet(&mut self, timeout: Duration) -> io::Result<Option<Vec<u8>>> {
         self.socket.set_read_timeout(Some(timeout))?;
@@ -185,8 +198,14 @@ struct EpochKeys {
     salt: [u8; 4],
 }
 
-pub struct Dtls<I: DtlsIo> {
-    io: I,
+/// Sans-io DTLS connection (established phase): record
+/// crypto, replay window, and session state with no I/O of
+/// its own. Pump it from any driver: feed datagrams to
+/// handle_datagram, send what encrypt_app returns. The
+/// handshake that produces a core is driven by Dtls below
+/// (the flight state machine stays driven; see the
+/// SPEC-WEBRTC shared-core assessment).
+pub struct DtlsCore {
     role: Role,
     write_keys: Option<EpochKeys>,
     read_keys: Option<EpochKeys>,
@@ -214,75 +233,12 @@ pub struct Dtls<I: DtlsIo> {
     recv_cid: Option<Vec<u8>>,
 }
 
-fn err(msg: &str) -> io::Error {
-    io::Error::new(io::ErrorKind::InvalidData, msg.to_string())
+pub struct Dtls<I: DtlsIo> {
+    io: I,
+    core: DtlsCore,
 }
 
-// ---------------------------------------------------------------------------
-// byte readers/writers
-// ---------------------------------------------------------------------------
-
-struct Reader<'a> {
-    data: &'a [u8],
-    pos: usize,
-}
-
-impl<'a> Reader<'a> {
-    fn new(data: &'a [u8]) -> Self {
-        Self { data, pos: 0 }
-    }
-    fn u8(&mut self) -> io::Result<u8> {
-        let v = self.data.get(self.pos).copied().ok_or_else(|| err("short read u8"))?;
-        self.pos += 1;
-        Ok(v)
-    }
-    fn u16(&mut self) -> io::Result<u16> {
-        Ok(u16::from_be_bytes([self.u8()?, self.u8()?]))
-    }
-    fn u24(&mut self) -> io::Result<u32> {
-        Ok(((self.u8()? as u32) << 16) | ((self.u8()? as u32) << 8) | self.u8()? as u32)
-    }
-    fn take(&mut self, n: usize) -> io::Result<&'a [u8]> {
-        let out = self.data.get(self.pos..self.pos + n).ok_or_else(|| err("short read"))?;
-        self.pos += n;
-        Ok(out)
-    }
-    fn vec8(&mut self) -> io::Result<&'a [u8]> {
-        let n = self.u8()? as usize;
-        self.take(n)
-    }
-    fn vec16(&mut self) -> io::Result<&'a [u8]> {
-        let n = self.u16()? as usize;
-        self.take(n)
-    }
-    fn vec24(&mut self) -> io::Result<&'a [u8]> {
-        let n = self.u24()? as usize;
-        self.take(n)
-    }
-    fn done(&self) -> bool {
-        self.pos >= self.data.len()
-    }
-}
-
-fn put_u24(out: &mut Vec<u8>, v: u32) {
-    out.extend_from_slice(&(v as u32).to_be_bytes()[1..]);
-}
-
-fn handshake_message(msg_type: u8, msg_seq: u16, body: &[u8]) -> Vec<u8> {
-    let mut out = vec![msg_type];
-    put_u24(&mut out, body.len() as u32);
-    out.extend_from_slice(&msg_seq.to_be_bytes());
-    put_u24(&mut out, 0);
-    put_u24(&mut out, body.len() as u32);
-    out.extend_from_slice(body);
-    out
-}
-
-// ---------------------------------------------------------------------------
-// connection
-// ---------------------------------------------------------------------------
-
-impl<I: DtlsIo> Dtls<I> {
+impl DtlsCore {
     pub fn peer_fingerprint(&self) -> Option<String> {
         self.peer_certificate.as_deref().map(fingerprint_of_der)
     }
@@ -299,7 +255,7 @@ impl<I: DtlsIo> Dtls<I> {
         prf(&self.master_secret, label, &seed, len)
     }
 
-    fn send_record(&mut self, content_type: u8, epoch: u16, body: &[u8]) -> io::Result<Vec<u8>> {
+    fn build_record(&mut self, content_type: u8, epoch: u16, body: &[u8]) -> io::Result<Vec<u8>> {
         let packet = if epoch == 0 {
             let mut out = vec![content_type];
             out.extend_from_slice(&DTLS_1_2);
@@ -346,7 +302,6 @@ impl<I: DtlsIo> Dtls<I> {
             out.extend_from_slice(&tag);
             out
         };
-        self.io.send_packet(&packet)?;
         Ok(packet)
     }
 
@@ -477,6 +432,1295 @@ impl<I: DtlsIo> Dtls<I> {
         }
         Ok((Record { content_type, body: plaintext }, consumed))
     }
+
+    fn derive_keys(&mut self, master: &[u8]) {
+        let mut seed = self.server_random.to_vec();
+        seed.extend_from_slice(&self.client_random);
+        let block = prf(master, "key expansion", &seed, 40);
+        let (ck, rest) = block.split_at(16);
+        let (sk, rest) = rest.split_at(16);
+        let (civ, siv) = rest.split_at(4);
+        let client_keys = EpochKeys {
+            key: ck.try_into().unwrap(),
+            salt: civ[..4].try_into().unwrap(),
+        };
+        let server_keys = EpochKeys {
+            key: sk.try_into().unwrap(),
+            salt: siv[..4].try_into().unwrap(),
+        };
+        match self.role {
+            Role::Client => {
+                self.write_keys = Some(client_keys);
+                self.read_keys = Some(server_keys);
+            }
+            Role::Server => {
+                self.write_keys = Some(server_keys);
+                self.read_keys = Some(client_keys);
+            }
+        }
+    }
+
+    fn check_peer_fingerprint(&self, config: &DtlsConfig) -> io::Result<()> {
+        if let Some(expected) = &config.expected_peer_fingerprint {
+            let actual = self
+                .peer_certificate
+                .as_deref()
+                .map(fingerprint_of_der)
+                .ok_or_else(|| err("peer presented no certificate"))?;
+            if !actual.eq_ignore_ascii_case(expected) {
+                return Err(err("peer certificate fingerprint mismatch"));
+            }
+        }
+        Ok(())
+    }
+
+    /// Decrypt one inbound datagram: Some(payload) for an
+    /// application-data record, None for anything else
+    /// (alerts are an error, mirroring the driven receive).
+    pub fn handle_datagram(&mut self, packet: &[u8]) -> io::Result<Option<Vec<u8>>> {
+        let records = self.parse_records(packet)?;
+        for record in records {
+            match record.content_type {
+                t if t == dtls_content::APPLICATION_DATA => return Ok(Some(record.body)),
+                t if t == dtls_content::ALERT => return Err(err("alert from peer")),
+                _ => continue,
+            }
+        }
+        Ok(None)
+    }
+
+    /// Encrypt one application payload into a datagram.
+    pub fn encrypt_app(&mut self, data: &[u8]) -> io::Result<Vec<u8>> {
+        self.build_record(dtls_content::APPLICATION_DATA, 1, data)
+    }
+
+    /// Resumption state captured from a NewSessionTicket.
+    pub fn take_session(&mut self) -> Option<DtlsSession> {
+        self.session.take()
+    }
+
+    /// Whether this connection resumed a prior session.
+    pub fn was_resumed(&self) -> bool {
+        self.resumed
+    }
+
+    /// Whether epoch-1 keys are installed (handshake done).
+    pub fn established(&self) -> bool {
+        self.write_keys.is_some() && self.read_keys.is_some()
+    }
+
+    /// Timer driver for the established phase: no flights
+    /// are outstanding once keys exist (retransmission only
+    /// exists during the driven handshake), so this is
+    /// always empty; it completes the pump contract
+    /// (handle_datagram / encrypt_app / tick) drivers use.
+    pub fn tick(&mut self, _now_ms: u64) -> Vec<Vec<u8>> {
+        Vec::new()
+    }
+
+    /// Build one handshake record (transcript + seq updated),
+    /// without sending: the record-layer half of send_hs for
+    /// sans-io pumps.
+    fn build_hs(&mut self, hs: &mut Hs, msg_type: u8, body: &[u8], epoch: u16) -> io::Result<Vec<u8>> {
+        let raw = handshake_message(msg_type, hs.send_seq, body);
+        hs.send_seq += 1;
+        let packet = self.build_record(dtls_content::HANDSHAKE, epoch, &raw)?;
+        hs.transcript.extend_from_slice(&raw);
+        Ok(packet)
+    }
+
+    /// Parse a NewSessionTicket body into resumption state.
+    fn store_ticket_body(&mut self, body: &[u8]) {
+        let mut r = Reader::new(body);
+        let _ = r.take(4); // lifetime
+        if let Ok(ticket) = r.vec16() {
+            self.session = Some(DtlsSession {
+                ticket: ticket.to_vec(),
+                master_secret: self.master_secret.clone(),
+                peer_certificate: self.peer_certificate.clone().unwrap_or_default(),
+                srtp_profile: self.negotiated_srtp_profile,
+            });
+        }
+    }
+
+    /// Build a NewSessionTicket record for the current
+    /// session (None without a ticket key). Best effort by
+    /// design: callers ignore failure.
+    fn build_session_ticket(&mut self, hs: &mut Hs, key: &[u8; 32], epoch: u16) -> Option<Vec<u8>> {
+        let ticket = seal_ticket(
+            key,
+            &self.master_secret,
+            self.negotiated_srtp_profile,
+            self.peer_certificate.as_deref().unwrap_or(&[]),
+        );
+        let mut body = Vec::new();
+        body.extend_from_slice(&(TICKET_LIFETIME_SECS as u32).to_be_bytes());
+        body.extend_from_slice(&(ticket.len() as u16).to_be_bytes());
+        body.extend_from_slice(&ticket);
+        self.build_hs(hs, dtls_handshake::NEW_SESSION_TICKET, &body, epoch).ok()
+    }
+}
+
+fn err(msg: &str) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, msg.to_string())
+}
+
+// ---------------------------------------------------------------------------
+// sans-io handshake (DtlsHandshake)
+// ---------------------------------------------------------------------------
+
+/// Epoch-1 handshake record test (resumption classification),
+/// lifted verbatim from the driven client.
+fn epoch1_handshake(packet: &[u8]) -> bool {
+    let mut off = 0;
+    while off + 13 <= packet.len() {
+        let len = u16::from_be_bytes([packet[off + 11], packet[off + 12]]) as usize;
+        if packet[off] == dtls_content::HANDSHAKE && packet[off + 3] == 0 && packet[off + 4] == 1 {
+            return true;
+        }
+        off += 13 + len;
+    }
+    false
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum HsStage {
+    ClientAwaitServerHello,
+    ClientClassifyResumption,
+    ClientAwaitResumeFinished,
+    ClientAwaitServerFlight,
+    ClientAwaitServerFinished,
+    CaptureTicket,
+    ServerAwaitClientHello,
+    ServerAwaitClientFlight,
+    ServerAwaitResumeClientFinished,
+    Established,
+    Failed,
+}
+
+/// Resumable DTLS handshake: the flight machine of
+/// connect/accept as a pump-driven state machine. Hosts
+/// feed datagrams (`handle_datagram`), call `tick` at
+/// `next_timeout`, and send what comes out; on
+/// `established()` the finished `DtlsCore` is theirs via
+/// `into_core`. Wire behavior mirrors the driven handshake
+/// flight-for-flight (same transcripts, same retransmit
+/// budget: 6 x 1 s of silence per wait).
+pub struct DtlsHandshake {
+    core: DtlsCore,
+    hs: Hs,
+    stage: HsStage,
+    flight: Vec<Vec<u8>>,
+    retries_left: u32,
+    deadline_ms: Option<u64>,
+    now_ms: u64,
+    failure: Option<String>,
+    certificate: Certificate,
+    expected_fingerprint: Option<String>,
+    require_peer_cert: bool,
+    session_resumption: bool,
+    ticket_key: Option<[u8; 32]>,
+    connection_id: Option<Vec<u8>>,
+    pair_hint: Option<Vec<u8>>,
+    resume: Option<DtlsSession>,
+    cookie: Vec<u8>,
+    offered_session_id: Vec<u8>,
+    resume_transcript: Vec<u8>,
+    peer_ephemeral: Option<PublicKey>,
+    ske_signed: Option<Vec<u8>>,
+    ske_sig: Option<Vec<u8>>,
+    cert_requested: bool,
+    server_ems: bool,
+    server_eph_private: Option<PrivateKey>,
+    client_ems: bool,
+    client_ticket: Option<Vec<u8>>,
+    saw_client_cert: bool,
+    cke_hash: Option<[u8; 32]>,
+    stage_deadline_ms: u64,
+}
+
+fn fresh_core(role: Role) -> DtlsCore {
+    DtlsCore {
+        role,
+        write_keys: None,
+        read_keys: None,
+        write_seq: 0,
+        epoch0_seq: 0,
+        master_secret: Vec::new(),
+        client_random: [0u8; 32],
+        server_random: [0u8; 32],
+        peer_certificate: None,
+        negotiated_srtp_profile: None,
+        read_highest_seq: None,
+        read_replay_window: 0,
+        session: None,
+        resumed: false,
+        send_cid: None,
+        recv_cid: None,
+    }
+}
+
+impl DtlsHandshake {
+    fn blank(
+        core: DtlsCore,
+        config: &DtlsConfig,
+        resume: Option<DtlsSession>,
+        stage: HsStage,
+        now_ms: u64,
+    ) -> Self {
+        Self {
+            core,
+            hs: Hs::default(),
+            stage,
+            flight: Vec::new(),
+            retries_left: 6,
+            deadline_ms: Some(now_ms + 1000),
+            now_ms,
+            failure: None,
+            certificate: config.certificate.clone(),
+            expected_fingerprint: config.expected_peer_fingerprint.clone(),
+            require_peer_cert: config.require_peer_certificate,
+            session_resumption: config.session_resumption,
+            ticket_key: config.session_ticket_key,
+            connection_id: config.connection_id.clone(),
+            pair_hint: config.pair_hint.clone(),
+            resume,
+            cookie: Vec::new(),
+            offered_session_id: Vec::new(),
+            resume_transcript: Vec::new(),
+            peer_ephemeral: None,
+            ske_signed: None,
+            ske_sig: None,
+            cert_requested: false,
+            server_ems: false,
+            server_eph_private: None,
+            client_ems: false,
+            client_ticket: None,
+            saw_client_cert: false,
+            cke_hash: None,
+            stage_deadline_ms: 0,
+        }
+    }
+
+    /// Client handshake; returns the machine and the first
+    /// flight (ClientHello) to send.
+    pub fn new_client(
+        config: &DtlsConfig,
+        resume: Option<&DtlsSession>,
+        now_ms: u64,
+    ) -> io::Result<(Self, Vec<Vec<u8>>)> {
+        let mut core = fresh_core(Role::Client);
+        core.recv_cid = config.connection_id.clone();
+        core.client_random = random_bytes(32).try_into().unwrap();
+        let mut this = Self::blank(core, config, resume.cloned(), HsStage::ClientAwaitServerHello, now_ms);
+        this.offered_session_id = match resume {
+            Some(_) => random_bytes(32),
+            None => Vec::new(),
+        };
+        let flight = this.client_hello_flight()?;
+        this.set_flight(flight.clone(), now_ms);
+        Ok((this, flight))
+    }
+
+    /// Server handshake (no initial flight).
+    pub fn new_server(config: &DtlsConfig, now_ms: u64) -> Self {
+        let mut core = fresh_core(Role::Server);
+        core.recv_cid = config.connection_id.clone();
+        Self::blank(core, config, None, HsStage::ServerAwaitClientHello, now_ms)
+    }
+
+    fn client_hello_flight(&mut self) -> io::Result<Vec<Vec<u8>>> {
+        let ticket_offer: Option<&[u8]> = match &self.resume {
+            Some(session) => Some(&session.ticket),
+            None if self.session_resumption => Some(&[]),
+            None => None,
+        };
+        let body = client_hello_body(
+            &self.core.client_random,
+            &self.cookie,
+            true,
+            ticket_offer,
+            &self.offered_session_id,
+            self.connection_id.as_deref(),
+            self.pair_hint.as_deref(),
+        );
+        let packet = self.core.build_hs(&mut self.hs, dtls_handshake::CLIENT_HELLO, &body, 0)?;
+        Ok(vec![packet])
+    }
+
+    fn set_flight(&mut self, flight: Vec<Vec<u8>>, now_ms: u64) {
+        self.flight = flight;
+        self.retries_left = 6;
+        self.deadline_ms = Some(now_ms + 1000);
+    }
+
+    fn fail(&mut self, msg: impl Into<String>) {
+        self.stage = HsStage::Failed;
+        self.failure = Some(msg.into());
+    }
+
+    fn check_fingerprint(&self) -> io::Result<()> {
+        if let Some(expected) = &self.expected_fingerprint {
+            let actual = self
+                .core
+                .peer_certificate
+                .as_deref()
+                .map(fingerprint_of_der)
+                .ok_or_else(|| err("peer presented no certificate"))?;
+            if !actual.eq_ignore_ascii_case(expected) {
+                return Err(err("peer certificate fingerprint mismatch"));
+            }
+        }
+        Ok(())
+    }
+
+    /// Feed one inbound datagram; returns datagrams to send.
+    pub fn handle_datagram(&mut self, packet: &[u8], now_ms: u64) -> Vec<Vec<u8>> {
+        self.now_ms = now_ms;
+        if matches!(self.stage, HsStage::Established | HsStage::Failed) {
+            return Vec::new();
+        }
+        if let Err(e) = self.feed(packet) {
+            self.fail(e.to_string());
+            return Vec::new();
+        }
+        // Resumption classification looks at the raw packet,
+        // exactly like the driven peek.
+        if self.stage == HsStage::ClientClassifyResumption && epoch1_handshake(packet) {
+            self.begin_resumed();
+        }
+        let mut out = Vec::new();
+        self.step(&mut out);
+        out
+    }
+
+    fn feed(&mut self, packet: &[u8]) -> io::Result<()> {
+        let (records, parse_err) = self.core.parse_records_partial(packet);
+        for record in records {
+            match record.content_type {
+                t if t == dtls_content::HANDSHAKE => {
+                    self.hs.feed_handshake_bytes(&record.body)
+                }
+                t if t == dtls_content::CHANGE_CIPHER_SPEC => self.hs.ccs_received = true,
+                t if t == dtls_content::ALERT => {
+                    return Err(err("fatal alert from peer during handshake"))
+                }
+                _ => {}
+            }
+        }
+        match parse_err {
+            None => Ok(()),
+            Some(_) if self.core.read_keys.is_none() => {
+                self.hs.pending.push(packet.to_vec());
+                Ok(())
+            }
+            Some(e) => Err(e),
+        }
+    }
+
+    /// Next handshake message, draining deferred datagrams
+    /// first (the pump's pending loop).
+    fn next_msg(&mut self) -> Option<(u8, Vec<u8>, Vec<u8>)> {
+        loop {
+            if let Some(m) = self.hs.next() {
+                return Some(m);
+            }
+            let mut progressed = false;
+            let mut i = 0;
+            while i < self.hs.pending.len() {
+                let (records, parse_err) =
+                    self.core.parse_records_partial(&self.hs.pending[i].clone());
+                if parse_err.is_none() {
+                    self.hs.pending.remove(i);
+                    progressed = true;
+                } else {
+                    i += 1;
+                }
+                for record in records {
+                    match record.content_type {
+                        t if t == dtls_content::HANDSHAKE => {
+                            self.hs.feed_handshake_bytes(&record.body)
+                        }
+                        t if t == dtls_content::CHANGE_CIPHER_SPEC => {
+                            self.hs.ccs_received = true
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            if !progressed {
+                return None;
+            }
+        }
+    }
+
+    /// Timer entry: retransmit the current flight when the
+    /// silence deadline passes (6 retries, then failure),
+    /// and advance the timed stages (classification and
+    /// ticket-capture windows).
+    pub fn tick(&mut self, now_ms: u64) -> Vec<Vec<u8>> {
+        self.now_ms = now_ms;
+        let mut out = Vec::new();
+        match self.stage {
+            HsStage::Established | HsStage::Failed => return out,
+            HsStage::ClientClassifyResumption => {
+                if now_ms >= self.stage_deadline_ms {
+                    self.stage = HsStage::ClientAwaitServerFlight;
+                    self.step(&mut out);
+                }
+                return out;
+            }
+            HsStage::CaptureTicket => {
+                if now_ms >= self.stage_deadline_ms {
+                    if self.core.session.is_none() {
+                        if let Some(session) = &self.resume {
+                            self.core.session = Some(session.clone());
+                        }
+                    }
+                    self.stage = HsStage::Established;
+                }
+                return out;
+            }
+            _ => {}
+        }
+        if let Some(deadline) = self.deadline_ms {
+            if now_ms >= deadline {
+                if self.retries_left == 0 {
+                    self.fail("handshake timed out");
+                    return out;
+                }
+                self.retries_left -= 1;
+                self.deadline_ms = Some(now_ms + 1000);
+                out.extend(self.flight.iter().cloned());
+            }
+        }
+        out
+    }
+
+    /// Milliseconds until the next tick is due (0 = now).
+    pub fn next_timeout(&self, now_ms: u64) -> Option<u64> {
+        match self.stage {
+            HsStage::Established | HsStage::Failed => None,
+            HsStage::ClientClassifyResumption | HsStage::CaptureTicket => {
+                Some(self.stage_deadline_ms.saturating_sub(now_ms))
+            }
+            _ => self
+                .deadline_ms
+                .map(|d| d.saturating_sub(now_ms)),
+        }
+    }
+
+    pub fn established(&self) -> bool {
+        self.stage == HsStage::Established
+    }
+
+    pub fn failure(&self) -> Option<&str> {
+        self.failure.as_deref()
+    }
+
+    /// Encrypt app data (established phase only).
+    pub fn encrypt_app(&mut self, data: &[u8]) -> Option<Vec<u8>> {
+        if self.established() {
+            self.core.encrypt_app(data).ok()
+        } else {
+            None
+        }
+    }
+
+    /// Decrypt one app datagram (established phase only):
+    /// Some(Ok(Some(payload))) for app data, Some(Ok(None))
+    /// for other records, Some(Err) on alert/crypto failure,
+    /// None before establishment.
+    pub fn handle_app_datagram(&mut self, packet: &[u8]) -> Option<io::Result<Option<Vec<u8>>>> {
+        if self.established() {
+            Some(self.core.handle_datagram(packet))
+        } else {
+            None
+        }
+    }
+
+    /// Captured resumption state (established phase).
+    pub fn take_session(&mut self) -> Option<DtlsSession> {
+        if self.established() {
+            self.core.take_session()
+        } else {
+            None
+        }
+    }
+
+    /// Peer certificate fingerprint, once known.
+    pub fn peer_fingerprint(&self) -> Option<String> {
+        self.core.peer_fingerprint()
+    }
+
+    /// Whether this handshake resumed a prior session.
+    pub fn was_resumed(&self) -> bool {
+        self.core.was_resumed()
+    }
+
+    /// The finished connection, once established.
+    pub fn into_core(self) -> Option<DtlsCore> {
+        if self.stage == HsStage::Established {
+            Some(self.core)
+        } else {
+            None
+        }
+    }
+
+    fn begin_resumed(&mut self) {
+        let session = self.resume.clone().expect("resumed without session");
+        self.core.master_secret = session.master_secret.clone();
+        self.core.peer_certificate = Some(session.peer_certificate.clone());
+        self.core.negotiated_srtp_profile = session.srtp_profile;
+        self.core.resumed = true;
+        if let Err(e) = self.check_fingerprint() {
+            self.fail(e.to_string());
+            return;
+        }
+        self.core.derive_keys(&self.core.master_secret.clone());
+        self.resume_transcript = self.hs.transcript.clone();
+        self.stage = HsStage::ClientAwaitResumeFinished;
+    }
+
+    fn step(&mut self, out: &mut Vec<Vec<u8>>) {
+        loop {
+            match self.stage {
+                HsStage::Established | HsStage::Failed => return,
+                HsStage::ClientClassifyResumption | HsStage::CaptureTicket => {
+                    if self.stage == HsStage::CaptureTicket {
+                        self.capture_step();
+                    }
+                    return;
+                }
+                _ => {}
+            }
+            let Some((msg_type, raw, body)) = self.next_msg() else {
+                return;
+            };
+            let result = match self.stage {
+                HsStage::ClientAwaitServerHello => self.on_server_hello(msg_type, raw, body, out),
+                HsStage::ClientAwaitResumeFinished => {
+                    self.on_resume_finished(msg_type, raw, body, out)
+                }
+                HsStage::ClientAwaitServerFlight => self.on_server_flight(msg_type, raw, body, out),
+                HsStage::ClientAwaitServerFinished => {
+                    self.on_server_finished(msg_type, raw, body, out)
+                }
+                HsStage::ServerAwaitClientHello => self.on_client_hello(msg_type, raw, body, out),
+                HsStage::ServerAwaitClientFlight => {
+                    self.on_client_flight(msg_type, raw, body, out)
+                }
+                HsStage::ServerAwaitResumeClientFinished => {
+                    self.on_resume_client_finished(msg_type, raw, body, out)
+                }
+                _ => unreachable!(),
+            };
+            if let Err(e) = result {
+                self.fail(e.to_string());
+                return;
+            }
+        }
+    }
+
+    fn capture_step(&mut self) {
+        if self.core.session.is_some() {
+            self.stage = HsStage::Established;
+            return;
+        }
+        // Ticket already queued in ready messages?
+        let queued = self
+            .hs
+            .ready
+            .values()
+            .find(|(t, _, _)| *t == dtls_handshake::NEW_SESSION_TICKET)
+            .map(|(_, _, body)| body.clone());
+        if let Some(body) = queued {
+            self.core.store_ticket_body(&body);
+            self.stage = HsStage::Established;
+            return;
+        }
+        if let Some((msg_type, _raw, body)) = self.next_msg() {
+            if msg_type == dtls_handshake::NEW_SESSION_TICKET {
+                self.core.store_ticket_body(&body);
+                self.stage = HsStage::Established;
+            }
+        }
+    }
+
+    fn on_server_hello(
+        &mut self,
+        msg_type: u8,
+        raw: Vec<u8>,
+        body: Vec<u8>,
+        _out: &mut Vec<Vec<u8>>,
+    ) -> io::Result<()> {
+        match msg_type {
+            t if t == dtls_handshake::HELLO_VERIFY_REQUEST => {
+                let mut r = Reader::new(&body);
+                let _v = [r.u8()?, r.u8()?];
+                self.cookie = r.vec8()?.to_vec();
+                self.hs.transcript.clear();
+                self.hs.send_seq = 0;
+                self.hs.expect_seq = 0;
+                let flight = self.client_hello_flight()?;
+                self.set_flight(flight.clone(), self.now_ms);
+                _out.extend(flight);
+                Ok(())
+            }
+            t if t == dtls_handshake::SERVER_HELLO => {
+                let mut hello = parse_server_hello(&body)?;
+                hello.resumed = self.resume.is_some()
+                    && !self.offered_session_id.is_empty()
+                    && hello.session_id == self.offered_session_id;
+                self.hs.transcript.extend_from_slice(&raw);
+                self.server_ems = hello.ems;
+                self.core.server_random = hello.server_random;
+                self.core.negotiated_srtp_profile = hello.srtp_profile;
+                self.core.send_cid = hello.peer_cid.clone();
+                match (self.resume.is_some(), hello.resumed) {
+                    (true, true) => self.begin_resumed(),
+                    (true, false) => {
+                        // Classification by ready/pending state,
+                        // else a 1500 ms window (driven peek).
+                        let abbreviated = self.hs.ready.is_empty()
+                            && self.hs.pending.iter().any(|p| epoch1_handshake(p));
+                        if abbreviated {
+                            self.begin_resumed();
+                        } else if self.hs.ready.is_empty() {
+                            self.stage_deadline_ms = self.now_ms + 1500;
+                            self.stage = HsStage::ClientClassifyResumption;
+                        } else {
+                            self.stage = HsStage::ClientAwaitServerFlight;
+                        }
+                    }
+                    _ => self.stage = HsStage::ClientAwaitServerFlight,
+                }
+                Ok(())
+            }
+            _ => Err(err("unexpected message before ServerHello")),
+        }
+    }
+
+    fn on_resume_finished(
+        &mut self,
+        msg_type: u8,
+        raw: Vec<u8>,
+        body: Vec<u8>,
+        out: &mut Vec<Vec<u8>>,
+    ) -> io::Result<()> {
+        if msg_type == dtls_handshake::NEW_SESSION_TICKET {
+            self.core.store_ticket_body(&body);
+            self.resume_transcript.extend_from_slice(&raw);
+            self.hs.transcript.extend_from_slice(&raw);
+            return Ok(());
+        }
+        if msg_type == dtls_handshake::FINISHED {
+            let expected = prf(
+                &self.core.master_secret,
+                "server finished",
+                &sha256(&self.resume_transcript),
+                12,
+            );
+            if body != expected.as_slice() {
+                return Err(err("server Finished verification failed"));
+            }
+            self.hs.transcript.extend_from_slice(&raw);
+            let ccs = self.core.build_record(dtls_content::CHANGE_CIPHER_SPEC, 0, &[1])?;
+            let verify_data =
+                prf(&self.core.master_secret, "client finished", &self.hs.hash(), 12);
+            let fin = self.core.build_hs(&mut self.hs, dtls_handshake::FINISHED, &verify_data, 1)?;
+            let flight = vec![ccs, fin];
+            self.set_flight(flight.clone(), self.now_ms);
+            out.extend(flight);
+            if self.session_resumption {
+                if self.core.session.is_some() {
+                    self.stage = HsStage::Established;
+                } else {
+                    self.stage_deadline_ms = self.now_ms + 250;
+                    self.stage = HsStage::CaptureTicket;
+                }
+            } else {
+                self.stage = HsStage::Established;
+            }
+            return Ok(());
+        }
+        self.resume_transcript.extend_from_slice(&raw);
+        self.hs.transcript.extend_from_slice(&raw);
+        Ok(())
+    }
+
+    fn on_server_flight(
+        &mut self,
+        msg_type: u8,
+        raw: Vec<u8>,
+        body: Vec<u8>,
+        out: &mut Vec<Vec<u8>>,
+    ) -> io::Result<()> {
+        self.hs.transcript.extend_from_slice(&raw);
+        match msg_type {
+            t if t == dtls_handshake::CERTIFICATE => {
+                self.core.peer_certificate = Some(parse_first_cert(&body)?);
+                Ok(())
+            }
+            t if t == dtls_handshake::SERVER_KEY_EXCHANGE => {
+                let mut r = Reader::new(&body);
+                let params_start = r.pos;
+                let curve_type = r.u8()?;
+                let group = r.u16()?;
+                if curve_type != 3 || group != GROUP_SECP256R1 {
+                    return Err(err("server picked an unsupported ECDHE group"));
+                }
+                let point = r.vec8()?;
+                let params = &body[params_start..r.pos];
+                self.ske_signed = Some(params.to_vec());
+                let _sigalg = r.u16()?;
+                self.ske_sig = Some(r.vec16()?.to_vec());
+                self.peer_ephemeral = Some(
+                    PublicKey::decode(point).ok_or_else(|| err("bad server ECDHE point"))?,
+                );
+                Ok(())
+            }
+            t if t == dtls_handshake::CERTIFICATE_REQUEST => {
+                self.cert_requested = true;
+                Ok(())
+            }
+            t if t == dtls_handshake::SERVER_HELLO_DONE => {
+                self.finish_server_flight(out)
+            }
+            _ => Err(err("unexpected message in server flight")),
+        }
+    }
+
+    fn finish_server_flight(&mut self, out: &mut Vec<Vec<u8>>) -> io::Result<()> {
+        let peer_cert_der = self
+            .core
+            .peer_certificate
+            .clone()
+            .ok_or_else(|| err("server sent no certificate"))?;
+        let peer_cert_key = crate::x509::parse_public_key(&peer_cert_der)
+            .ok_or_else(|| err("cannot parse server certificate key"))?;
+        {
+            let params = self.ske_signed.clone().ok_or_else(|| err("no ServerKeyExchange"))?;
+            let sig_der = self.ske_sig.clone().ok_or_else(|| err("no ServerKeyExchange signature"))?;
+            let mut signed = Vec::new();
+            signed.extend_from_slice(&self.core.client_random);
+            signed.extend_from_slice(&self.core.server_random);
+            signed.extend_from_slice(&params);
+            let digest = sha256(&signed);
+            let (r, s) = parse_ecdsa_sig_der(&sig_der)?;
+            if !peer_cert_key.verify(&digest, &r, &s) {
+                return Err(err("ServerKeyExchange signature invalid"));
+            }
+        }
+        self.check_fingerprint()?;
+
+        let (eph_private, eph_public) = PrivateKey::generate();
+        let peer_eph = self.peer_ephemeral.clone().ok_or_else(|| err("no server ephemeral"))?;
+        let premaster = eph_private.ecdh(&peer_eph).ok_or_else(|| err("ECDH failed"))?;
+        let mut flight: Vec<Vec<u8>> = Vec::new();
+        if self.cert_requested {
+            flight.push(self.core.build_hs(
+                &mut self.hs,
+                dtls_handshake::CERTIFICATE,
+                &cert_list_body(&self.certificate.der),
+                0,
+            )?);
+        }
+        let cke_body = {
+            let point = eph_public.encode_uncompressed();
+            let mut v = vec![point.len() as u8];
+            v.extend_from_slice(&point);
+            v
+        };
+        flight.push(self.core.build_hs(&mut self.hs, dtls_handshake::CLIENT_KEY_EXCHANGE, &cke_body, 0)?);
+        let session_hash = self.hs.hash();
+        // ems was recorded on the core? ServerHelloInfo.ems is
+        // consulted via master-secret derivation below.
+        self.core.master_secret = if self.server_ems {
+            prf(&premaster, "extended master secret", &session_hash, 48)
+        } else {
+            let mut seed = self.core.client_random.to_vec();
+            seed.extend_from_slice(&self.core.server_random);
+            prf(&premaster, "master secret", &seed, 48)
+        };
+        self.core.derive_keys(&self.core.master_secret.clone());
+        if self.cert_requested {
+            let (r, s) = self.certificate.private.sign(&session_hash);
+            let mut cv_body = vec![0x04, 0x03];
+            let der = ecdsa_sig_der(&r, &s);
+            cv_body.extend_from_slice(&(der.len() as u16).to_be_bytes());
+            cv_body.extend_from_slice(&der);
+            flight.push(self.core.build_hs(&mut self.hs, dtls_handshake::CERTIFICATE_VERIFY, &cv_body, 0)?);
+        }
+        flight.push(self.core.build_record(dtls_content::CHANGE_CIPHER_SPEC, 0, &[1])?);
+        let verify_data = prf(&self.core.master_secret, "client finished", &self.hs.hash(), 12);
+        flight.push(self.core.build_hs(&mut self.hs, dtls_handshake::FINISHED, &verify_data, 1)?);
+        self.set_flight(flight.clone(), self.now_ms);
+        out.extend(flight);
+        self.stage = HsStage::ClientAwaitServerFinished;
+        Ok(())
+    }
+
+    fn on_server_finished(
+        &mut self,
+        msg_type: u8,
+        raw: Vec<u8>,
+        body: Vec<u8>,
+        _out: &mut Vec<Vec<u8>>,
+    ) -> io::Result<()> {
+        if msg_type == dtls_handshake::NEW_SESSION_TICKET {
+            self.core.store_ticket_body(&body);
+        }
+        if msg_type == dtls_handshake::FINISHED {
+            let expected = prf(&self.core.master_secret, "server finished", &self.hs.hash(), 12);
+            if body != expected.as_slice() {
+                return Err(err("server Finished verification failed"));
+            }
+            self.hs.transcript.extend_from_slice(&raw);
+            if self.session_resumption {
+                if self.core.session.is_some() {
+                    self.stage = HsStage::Established;
+                } else {
+                    self.stage_deadline_ms = self.now_ms + 250;
+                    self.stage = HsStage::CaptureTicket;
+                }
+            } else {
+                self.stage = HsStage::Established;
+            }
+            return Ok(());
+        }
+        self.hs.transcript.extend_from_slice(&raw);
+        Ok(())
+    }
+
+    fn on_client_hello(
+        &mut self,
+        msg_type: u8,
+        raw: Vec<u8>,
+        body: Vec<u8>,
+        out: &mut Vec<Vec<u8>>,
+    ) -> io::Result<()> {
+        if msg_type != dtls_handshake::CLIENT_HELLO {
+            return Err(err("expected ClientHello"));
+        }
+        self.hs.transcript.extend_from_slice(&raw);
+        let (client_ems, client_srtp_profiles, client_ticket, client_session_id) = {
+            let mut r = Reader::new(&body);
+            let _v = [r.u8()?, r.u8()?];
+            self.core.client_random = r.take(32)?.try_into().unwrap();
+            let session_id = r.vec8()?.to_vec();
+            let _cookie = r.vec8()?;
+            let suites = r.vec16()?;
+            if !suites
+                .chunks_exact(2)
+                .any(|c| u16::from_be_bytes([c[0], c[1]]) == SUITE)
+            {
+                return Err(err("client does not offer the required cipher suite"));
+            }
+            let _compression = r.vec8()?;
+            let mut ems = false;
+            let mut profiles = Vec::new();
+            let mut ticket: Option<Vec<u8>> = None;
+            let mut client_cid: Option<Vec<u8>> = None;
+            if !r.done() {
+                let exts = r.vec16()?;
+                let mut er = Reader::new(exts);
+                while !er.done() {
+                    let ty = er.u16()?;
+                    let data = er.vec16()?;
+                    match ty {
+                        23 => ems = true,
+                        crate::proto_gen::dtls_ext::CONNECTION_ID => {
+                            let mut cr = Reader::new(data);
+                            client_cid = Some(cr.vec8()?.to_vec());
+                        }
+                        35 => ticket = Some(data.to_vec()),
+                        14 => {
+                            let mut sr = Reader::new(data);
+                            let list = sr.vec16()?;
+                            for c in list.chunks_exact(2) {
+                                profiles.push(u16::from_be_bytes([c[0], c[1]]));
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            self.core.send_cid = client_cid;
+            (ems, profiles, ticket, session_id)
+        };
+        self.client_ems = client_ems;
+        self.client_ticket = client_ticket.clone();
+        let srtp_profile = [0x0007u16, 0x0001, 0x0002, 0x0008]
+            .iter()
+            .copied()
+            .find(|p| client_srtp_profiles.contains(p));
+        self.core.negotiated_srtp_profile = srtp_profile;
+        self.core.server_random = random_bytes(32).try_into().unwrap();
+
+        if self.session_resumption {
+            if let (Some(key), Some(ticket)) = (&self.ticket_key, &client_ticket) {
+                if !ticket.is_empty() {
+                    if let Some(session) = open_ticket(key, ticket) {
+                        if !(self.require_peer_cert && session.peer_certificate.is_empty()) {
+                            return self.begin_resumed_accept(session, &client_session_id, out);
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut flight = Vec::new();
+        {
+            let mut sh = Vec::new();
+            sh.extend_from_slice(&DTLS_1_2);
+            sh.extend_from_slice(&self.core.server_random);
+            sh.push(0);
+            sh.extend_from_slice(&SUITE.to_be_bytes());
+            sh.push(0);
+            let mut exts = Vec::new();
+            if let Some(profile) = srtp_profile {
+                exts.extend_from_slice(&14u16.to_be_bytes());
+                let data = [0u8, 2, (profile >> 8) as u8, profile as u8, 0];
+                exts.extend_from_slice(&(data.len() as u16).to_be_bytes());
+                exts.extend_from_slice(&data);
+            }
+            if client_ems {
+                exts.extend_from_slice(&23u16.to_be_bytes());
+                exts.extend_from_slice(&[0, 0]);
+            }
+            if let Some(cid) = &self.connection_id {
+                exts.extend_from_slice(&crate::proto_gen::dtls_ext::CONNECTION_ID.to_be_bytes());
+                exts.extend_from_slice(&((cid.len() + 1) as u16).to_be_bytes());
+                exts.push(cid.len() as u8);
+                exts.extend_from_slice(cid);
+            }
+            if self.session_resumption && client_ticket.is_some() {
+                exts.extend_from_slice(&35u16.to_be_bytes());
+                exts.extend_from_slice(&[0, 0]);
+            }
+            exts.extend_from_slice(&65281u16.to_be_bytes());
+            exts.extend_from_slice(&[0, 1, 0]);
+            sh.extend_from_slice(&(exts.len() as u16).to_be_bytes());
+            sh.extend_from_slice(&exts);
+            flight.push(self.core.build_hs(&mut self.hs, dtls_handshake::SERVER_HELLO, &sh, 0)?);
+        }
+        flight.push(self.core.build_hs(
+            &mut self.hs,
+            dtls_handshake::CERTIFICATE,
+            &cert_list_body(&self.certificate.der),
+            0,
+        )?);
+        let (eph_private, eph_public) = PrivateKey::generate();
+        self.server_eph_private = Some(eph_private);
+        {
+            let mut params = vec![3u8];
+            params.extend_from_slice(&GROUP_SECP256R1.to_be_bytes());
+            let point = eph_public.encode_uncompressed();
+            params.push(point.len() as u8);
+            params.extend_from_slice(&point);
+            let mut signed = Vec::new();
+            signed.extend_from_slice(&self.core.client_random);
+            signed.extend_from_slice(&self.core.server_random);
+            signed.extend_from_slice(&params);
+            let digest = sha256(&signed);
+            let (r, s) = self.certificate.private.sign(&digest);
+            let der = ecdsa_sig_der(&r, &s);
+            let mut ske = params;
+            ske.extend_from_slice(&[0x04, 0x03]);
+            ske.extend_from_slice(&(der.len() as u16).to_be_bytes());
+            ske.extend_from_slice(&der);
+            flight.push(self.core.build_hs(&mut self.hs, dtls_handshake::SERVER_KEY_EXCHANGE, &ske, 0)?);
+        }
+        {
+            let mut cr = vec![1u8, 64u8];
+            let pairs: [u8; 12] = [0x04, 0x03, 0x05, 0x03, 0x06, 0x03, 0x04, 0x01, 0x05, 0x01, 0x06, 0x01];
+            cr.extend_from_slice(&(pairs.len() as u16).to_be_bytes());
+            cr.extend_from_slice(&pairs);
+            cr.extend_from_slice(&[0, 0]);
+            flight.push(self.core.build_hs(&mut self.hs, dtls_handshake::CERTIFICATE_REQUEST, &cr, 0)?);
+        }
+        flight.push(self.core.build_hs(&mut self.hs, dtls_handshake::SERVER_HELLO_DONE, &[], 0)?);
+        self.set_flight(flight.clone(), self.now_ms);
+        out.extend(flight);
+        self.stage = HsStage::ServerAwaitClientFlight;
+        Ok(())
+    }
+
+    fn begin_resumed_accept(
+        &mut self,
+        session: DtlsSession,
+        client_session_id: &[u8],
+        out: &mut Vec<Vec<u8>>,
+    ) -> io::Result<()> {
+        self.core.master_secret = session.master_secret.clone();
+        self.core.peer_certificate = Some(session.peer_certificate.clone());
+        self.core.negotiated_srtp_profile = session.srtp_profile;
+        self.core.resumed = true;
+
+        let mut sh = Vec::new();
+        sh.extend_from_slice(&DTLS_1_2);
+        sh.extend_from_slice(&self.core.server_random);
+        sh.push(client_session_id.len() as u8);
+        sh.extend_from_slice(client_session_id);
+        sh.extend_from_slice(&SUITE.to_be_bytes());
+        sh.push(0);
+        let mut exts = Vec::new();
+        if let Some(profile) = session.srtp_profile {
+            exts.extend_from_slice(&14u16.to_be_bytes());
+            let data = [0u8, 2, (profile >> 8) as u8, profile as u8, 0];
+            exts.extend_from_slice(&(data.len() as u16).to_be_bytes());
+            exts.extend_from_slice(&data);
+        }
+        if self.client_ems {
+            exts.extend_from_slice(&23u16.to_be_bytes());
+            exts.extend_from_slice(&[0, 0]);
+        }
+        exts.extend_from_slice(&65281u16.to_be_bytes());
+        exts.extend_from_slice(&[0, 1, 0]);
+        sh.extend_from_slice(&(exts.len() as u16).to_be_bytes());
+        sh.extend_from_slice(&exts);
+        let sh_packet = self.core.build_hs(&mut self.hs, dtls_handshake::SERVER_HELLO, &sh, 0)?;
+        self.core.derive_keys(&self.core.master_secret.clone());
+        let ccs_packet = self.core.build_record(dtls_content::CHANGE_CIPHER_SPEC, 0, &[1])?;
+        let verify_data = prf(&self.core.master_secret, "server finished", &self.hs.hash(), 12);
+        let fin_packet = self.core.build_hs(&mut self.hs, dtls_handshake::FINISHED, &verify_data, 1)?;
+        let flight = vec![sh_packet, ccs_packet, fin_packet];
+        self.set_flight(flight.clone(), self.now_ms);
+        out.extend(flight);
+        self.stage = HsStage::ServerAwaitResumeClientFinished;
+        Ok(())
+    }
+
+    fn on_client_flight(
+        &mut self,
+        msg_type: u8,
+        raw: Vec<u8>,
+        body: Vec<u8>,
+        out: &mut Vec<Vec<u8>>,
+    ) -> io::Result<()> {
+        match msg_type {
+            t if t == dtls_handshake::CERTIFICATE => {
+                self.hs.transcript.extend_from_slice(&raw);
+                if !body.is_empty() && body != [0u8, 0, 0] {
+                    match parse_first_cert(&body) {
+                        Ok(der) => {
+                            self.core.peer_certificate = Some(der);
+                            self.saw_client_cert = true;
+                        }
+                        Err(_) => self.saw_client_cert = false,
+                    }
+                }
+                Ok(())
+            }
+            t if t == dtls_handshake::CLIENT_KEY_EXCHANGE => {
+                self.hs.transcript.extend_from_slice(&raw);
+                let mut r = Reader::new(&body);
+                let point = r.vec8()?;
+                let peer_eph = PublicKey::decode(point).ok_or_else(|| err("bad client ECDHE point"))?;
+                let eph_private = self
+                    .server_eph_private
+                    .as_ref()
+                    .ok_or_else(|| err("no server ephemeral"))?;
+                let premaster = eph_private.ecdh(&peer_eph).ok_or_else(|| err("ECDH failed"))?;
+                self.cke_hash = Some(self.hs.hash());
+                self.core.master_secret = if self.client_ems {
+                    prf(&premaster, "extended master secret", &self.cke_hash.unwrap(), 48)
+                } else {
+                    let mut seed = self.core.client_random.to_vec();
+                    seed.extend_from_slice(&self.core.server_random);
+                    prf(&premaster, "master secret", &seed, 48)
+                };
+                self.core.derive_keys(&self.core.master_secret.clone());
+                Ok(())
+            }
+            t if t == dtls_handshake::CERTIFICATE_VERIFY => {
+                let peer_key = self
+                    .core
+                    .peer_certificate
+                    .as_deref()
+                    .and_then(crate::x509::parse_public_key)
+                    .ok_or_else(|| err("CertificateVerify without certificate"))?;
+                let hash = self
+                    .cke_hash
+                    .ok_or_else(|| err("CertificateVerify before ClientKeyExchange"))?;
+                let mut r = Reader::new(&body);
+                let _alg = r.u16()?;
+                let sig = r.vec16()?;
+                let (sr, ss) = parse_ecdsa_sig_der(sig)?;
+                if !peer_key.verify(&hash, &sr, &ss) {
+                    return Err(err("CertificateVerify signature invalid"));
+                }
+                self.hs.transcript.extend_from_slice(&raw);
+                Ok(())
+            }
+            t if t == dtls_handshake::FINISHED => {
+                let expected = prf(&self.core.master_secret, "client finished", &self.hs.hash(), 12);
+                if body != expected.as_slice() {
+                    return Err(err("client Finished verification failed"));
+                }
+                self.hs.transcript.extend_from_slice(&raw);
+                if self.require_peer_cert && !self.saw_client_cert {
+                    return Err(err("peer presented no certificate"));
+                }
+                self.check_fingerprint()?;
+                let mut flight: Vec<Vec<u8>> = Vec::new();
+                if self.session_resumption && self.client_ticket.is_some() {
+                    if let Some(key) = &self.ticket_key {
+                        if let Some(packet) = self.core.build_session_ticket(&mut self.hs, key, 0) {
+                            flight.push(packet);
+                        }
+                    }
+                }
+                flight.push(self.core.build_record(dtls_content::CHANGE_CIPHER_SPEC, 0, &[1])?);
+                let verify_data = prf(&self.core.master_secret, "server finished", &self.hs.hash(), 12);
+                flight.push(self.core.build_hs(&mut self.hs, dtls_handshake::FINISHED, &verify_data, 1)?);
+                out.extend(flight);
+                self.stage = HsStage::Established;
+                Ok(())
+            }
+            _ => Err(err("unexpected message in client flight")),
+        }
+    }
+
+    fn on_resume_client_finished(
+        &mut self,
+        msg_type: u8,
+        raw: Vec<u8>,
+        body: Vec<u8>,
+        _out: &mut Vec<Vec<u8>>,
+    ) -> io::Result<()> {
+        if msg_type == dtls_handshake::FINISHED {
+            let expected = prf(&self.core.master_secret, "client finished", &self.hs.hash(), 12);
+            if body != expected.as_slice() {
+                return Err(err("client Finished verification failed"));
+            }
+            self.hs.transcript.extend_from_slice(&raw);
+            self.check_fingerprint()?;
+            self.stage = HsStage::Established;
+            return Ok(());
+        }
+        self.hs.transcript.extend_from_slice(&raw);
+        Ok(())
+    }
+}
+
+
+// ---------------------------------------------------------------------------
+// byte readers/writers
+// ---------------------------------------------------------------------------
+
+struct Reader<'a> {
+    data: &'a [u8],
+    pos: usize,
+}
+
+impl<'a> Reader<'a> {
+    fn new(data: &'a [u8]) -> Self {
+        Self { data, pos: 0 }
+    }
+    fn u8(&mut self) -> io::Result<u8> {
+        let v = self.data.get(self.pos).copied().ok_or_else(|| err("short read u8"))?;
+        self.pos += 1;
+        Ok(v)
+    }
+    fn u16(&mut self) -> io::Result<u16> {
+        Ok(u16::from_be_bytes([self.u8()?, self.u8()?]))
+    }
+    fn u24(&mut self) -> io::Result<u32> {
+        Ok(((self.u8()? as u32) << 16) | ((self.u8()? as u32) << 8) | self.u8()? as u32)
+    }
+    fn take(&mut self, n: usize) -> io::Result<&'a [u8]> {
+        let out = self.data.get(self.pos..self.pos + n).ok_or_else(|| err("short read"))?;
+        self.pos += n;
+        Ok(out)
+    }
+    fn vec8(&mut self) -> io::Result<&'a [u8]> {
+        let n = self.u8()? as usize;
+        self.take(n)
+    }
+    fn vec16(&mut self) -> io::Result<&'a [u8]> {
+        let n = self.u16()? as usize;
+        self.take(n)
+    }
+    fn vec24(&mut self) -> io::Result<&'a [u8]> {
+        let n = self.u24()? as usize;
+        self.take(n)
+    }
+    fn done(&self) -> bool {
+        self.pos >= self.data.len()
+    }
+}
+
+fn put_u24(out: &mut Vec<u8>, v: u32) {
+    out.extend_from_slice(&(v as u32).to_be_bytes()[1..]);
+}
+
+fn handshake_message(msg_type: u8, msg_seq: u16, body: &[u8]) -> Vec<u8> {
+    let mut out = vec![msg_type];
+    put_u24(&mut out, body.len() as u32);
+    out.extend_from_slice(&msg_seq.to_be_bytes());
+    put_u24(&mut out, 0);
+    put_u24(&mut out, body.len() as u32);
+    out.extend_from_slice(body);
+    out
+}
+
+// ---------------------------------------------------------------------------
+// connection
+// ---------------------------------------------------------------------------
+
+impl<I: DtlsIo> Dtls<I> {
+    /// The sans-io core (established-phase state).
+    pub fn core(&self) -> &DtlsCore {
+        &self.core
+    }
+
+    /// Consume the driver, leaving the pump-driven core.
+    pub fn into_core(self) -> DtlsCore {
+        self.core
+    }
+
+    /// Attach a core to a driver (e.g. after a driven
+    /// handshake produced it, or to re-driver a core that
+    /// was pumped sans-io).
+    pub fn from_core(core: DtlsCore, io: I) -> Self {
+        Self { io, core }
+    }
+
+    pub fn peer_fingerprint(&self) -> Option<String> {
+        self.core.peer_fingerprint()
+    }
+
+    pub fn srtp_profile(&self) -> Option<u16> {
+        self.core.srtp_profile()
+    }
+
+    pub fn export_keying_material(&self, label: &str, context: &[u8], len: usize) -> Vec<u8> {
+        self.core.export_keying_material(label, context, len)
+    }
+
+
+
+
+
+
+
+    fn send_record(&mut self, content_type: u8, epoch: u16, body: &[u8]) -> io::Result<Vec<u8>> {
+        let packet = self.core.build_record(content_type, epoch, body)?;
+        self.io.send_packet(&packet)?;
+        Ok(packet)
+    }
+
+
+
+
+
+
+
+
+
+
 }
 
 // ---------------------------------------------------------------------------
@@ -641,169 +1885,31 @@ fn parse_first_cert(body: &[u8]) -> io::Result<Vec<u8>> {
     Ok(lr.vec24()?.to_vec())
 }
 
-macro_rules! dtls_new {
-    ($io:expr, $role:expr) => {
-        Dtls {
-            io: $io,
-            role: $role,
-            write_keys: None,
-            read_keys: None,
-            write_seq: 0,
-            epoch0_seq: 0,
-            master_secret: Vec::new(),
-            client_random: [0u8; 32],
-            server_random: [0u8; 32],
-            peer_certificate: None,
-            negotiated_srtp_profile: None,
-            read_highest_seq: None,
-            read_replay_window: 0,
-            session: None,
-            resumed: false,
-            send_cid: None,
-            recv_cid: None,
-        }
-    };
-}
 
 impl<I: DtlsIo> Dtls<I> {
-    fn send_hs(&mut self, hs: &mut Hs, msg_type: u8, body: &[u8], epoch: u16) -> io::Result<Vec<u8>> {
-        let raw = handshake_message(msg_type, hs.send_seq, body);
-        hs.send_seq += 1;
-        let packet = self.send_record(dtls_content::HANDSHAKE, epoch, &raw)?;
-        hs.transcript.extend_from_slice(&raw);
-        Ok(packet)
-    }
-
-    /// Receive records until `ready` yields the next handshake message or
-    /// the overall deadline/retry budget is exhausted. Retransmits
-    /// `flight` on each 1s timeout (DTLS flight retransmission).
-    fn pump_until_message(
-        &mut self,
-        hs: &mut Hs,
-        flight: &[Vec<u8>],
-    ) -> io::Result<(u8, Vec<u8>, Vec<u8>)> {
-        let mut retries = 0;
-        loop {
-            if let Some(msg) = hs.next() {
-                return Ok(msg);
-            }
-            // Retry packets deferred until epoch keys were installed.
-            let mut i = 0;
-            let mut progressed = false;
-            while i < hs.pending.len() {
-                let (records, parse_err) = self.parse_records_partial(&hs.pending[i].clone());
-                if parse_err.is_none() {
-                    hs.pending.remove(i);
-                    progressed = true;
-                } else {
-                    // Deferred (or undecodable): keep the datagram
-                    // for a later pass; the reassembly layer dedupes
-                    // records that get fed twice.
-                    i += 1;
-                }
-                for record in records {
-                    match record.content_type {
-                        t if t == dtls_content::HANDSHAKE => {
-                            hs.feed_handshake_bytes(&record.body)
-                        }
-                        t if t == dtls_content::CHANGE_CIPHER_SPEC => {
-                            hs.ccs_received = true
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            if progressed {
-                continue;
-            }
-            match self.io.recv_packet(Duration::from_millis(1000))? {
-                Some(packet) => {
-                    let (records, parse_err) = self.parse_records_partial(&packet);
-                    for record in records {
-                        match record.content_type {
-                            t if t == dtls_content::HANDSHAKE => {
-                                hs.feed_handshake_bytes(&record.body)
-                            }
-                            t if t == dtls_content::CHANGE_CIPHER_SPEC => {
-                                hs.ccs_received = true
-                            }
-                            t if t == dtls_content::ALERT => {
-                                return Err(err("fatal alert from peer during handshake"))
-                            }
-                            _ => {}
-                        }
-                    }
-                    match parse_err {
-                        None => {}
-                        Some(_) if self.read_keys.is_none() => hs.pending.push(packet),
-                        Some(e) => return Err(e),
-                    }
-                }
-                None => {
-                    retries += 1;
-                    if retries > 6 {
-                        return Err(err("handshake timed out"));
-                    }
-                    for packet in flight {
-                        self.io.send_packet(packet)?;
-                    }
-                }
-            }
-        }
-    }
-
-    fn derive_keys(&mut self, master: &[u8]) {
-        let mut seed = self.server_random.to_vec();
-        seed.extend_from_slice(&self.client_random);
-        let block = prf(master, "key expansion", &seed, 40);
-        let (ck, rest) = block.split_at(16);
-        let (sk, rest) = rest.split_at(16);
-        let (civ, siv) = rest.split_at(4);
-        let client_keys = EpochKeys {
-            key: ck.try_into().unwrap(),
-            salt: civ[..4].try_into().unwrap(),
-        };
-        let server_keys = EpochKeys {
-            key: sk.try_into().unwrap(),
-            salt: siv[..4].try_into().unwrap(),
-        };
-        match self.role {
-            Role::Client => {
-                self.write_keys = Some(client_keys);
-                self.read_keys = Some(server_keys);
-            }
-            Role::Server => {
-                self.write_keys = Some(server_keys);
-                self.read_keys = Some(client_keys);
-            }
-        }
-    }
-
-    fn check_peer_fingerprint(&self, config: &DtlsConfig) -> io::Result<()> {
-        if let Some(expected) = &config.expected_peer_fingerprint {
-            let actual = self
-                .peer_certificate
-                .as_deref()
-                .map(fingerprint_of_der)
-                .ok_or_else(|| err("peer presented no certificate"))?;
-            if !actual.eq_ignore_ascii_case(expected) {
-                return Err(err("peer certificate fingerprint mismatch"));
-            }
-        }
-        Ok(())
-    }
-
-    // -- application data -----------------------------------------------------
-
     pub fn send_app(&mut self, data: &[u8]) -> io::Result<()> {
         self.send_record(dtls_content::APPLICATION_DATA, 1, data)?;
         Ok(())
     }
 
+    /// Encrypt and send several application payloads, one
+    /// DTLS record each, handed to the transport as a single
+    /// batch (one sendmmsg where supported).
+    pub fn send_app_batch(&mut self, datas: &[Vec<u8>]) -> io::Result<()> {
+        if datas.len() == 1 {
+            return self.send_app(&datas[0]);
+        }
+        let mut records = Vec::with_capacity(datas.len());
+        for d in datas {
+            records.push(self.core.build_record(dtls_content::APPLICATION_DATA, 1, d)?);
+        }
+        self.io.send_packets(&records)
+    }
+
     /// Whether this connection came from an abbreviated
     /// (ticket-resumed) handshake rather than a full one.
     pub fn was_resumed(&self) -> bool {
-        self.resumed
+        self.core.resumed
     }
 
     /// Send a close_notify alert (best effort). Lets the peer
@@ -817,7 +1923,7 @@ impl<I: DtlsIo> Dtls<I> {
         loop {
             match self.io.recv_packet(Duration::from_secs(60))? {
                 Some(packet) => {
-                    for record in self.parse_records(&packet)? {
+                    for record in self.core.parse_records(&packet)? {
                         match record.content_type {
                             t if t == dtls_content::APPLICATION_DATA => return Ok(record.body),
                             t if t == dtls_content::ALERT => {
@@ -833,18 +1939,29 @@ impl<I: DtlsIo> Dtls<I> {
     }
 
     pub fn recv_app_timeout(&mut self, timeout: Duration) -> io::Result<Option<Vec<u8>>> {
-        let clock = crate::platform::clock();
-        let deadline_ms = clock.now_ms() + timeout.as_millis() as u64;
+        // Sub-millisecond timeouts must survive on std: the
+        // endpoint pump passes 50 us receive slices while
+        // active, and a whole-ms deadline would truncate those
+        // to zero (the receive then never waits and packets
+        // stall). Bare-metal builds keep the ms platform-clock
+        // deadline (their callers pass >= 1 ms timeouts).
+        #[cfg(feature = "std")]
+        let deadline = std::time::Instant::now() + timeout;
+        #[cfg(not(feature = "std"))]
+        let deadline_ms = crate::platform::clock().now_ms() + timeout.as_millis() as u64;
         loop {
+            #[cfg(feature = "std")]
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            #[cfg(not(feature = "std"))]
             let remaining = Duration::from_millis(
-                deadline_ms.saturating_sub(clock.now_ms()),
+                deadline_ms.saturating_sub(crate::platform::clock().now_ms()),
             );
             if remaining.is_zero() {
                 return Ok(None);
             }
             match self.io.recv_packet(remaining)? {
                 Some(packet) => {
-                    for record in self.parse_records(&packet)? {
+                    for record in self.core.parse_records(&packet)? {
                         match record.content_type {
                             t if t == dtls_content::APPLICATION_DATA => {
                                 return Ok(Some(record.body))
@@ -1014,7 +2131,7 @@ impl<I: DtlsIo> Dtls<I> {
     /// Take resumption state captured from a NewSessionTicket,
     /// if the server sent one (requires `session_resumption`).
     pub fn take_session(&mut self) -> Option<DtlsSession> {
-        self.session.take()
+        self.core.session.take()
     }
 
     fn handshake(
@@ -1022,702 +2139,57 @@ impl<I: DtlsIo> Dtls<I> {
         config: &DtlsConfig,
         resume: Option<&DtlsSession>,
     ) -> io::Result<Self> {
-        let mut conn = dtls_new!(io, Role::Client);
-        // Arm the receive cid before the first pump: a server
-        // honoring our announced cid stamps it from its first
-        // flight onward, so the record parser must recognize it
-        // before ServerHello (mirrors accept()).
-        conn.recv_cid = config.connection_id.clone();
-        let mut hs = Hs::default();
-        conn.client_random = random_bytes(32).try_into().unwrap();
-
-        // First flight: ClientHello (re-sent with cookie on HelloVerify).
-        // When resuming, offer a random session id; its echo in
-        // ServerHello is the resumption signal.
-        let offered_session_id: Vec<u8> = match resume {
-            Some(_) => random_bytes(32),
-            None => Vec::new(),
-        };
-        let mut cookie: Vec<u8> = Vec::new();
-        let mut flight;
-        let server_hello;
-        'cookie_loop: loop {
-            hs.transcript.clear();
-            hs.send_seq = 0;
-            hs.expect_seq = 0;
-            let ticket_offer: Option<&[u8]> = match resume {
-                Some(session) => Some(&session.ticket),
-                None if config.session_resumption => Some(&[]),
-                None => None,
-            };
-            let body = client_hello_body(
-                &conn.client_random,
-                &cookie,
-                true,
-                ticket_offer,
-                &offered_session_id,
-                config.connection_id.as_deref(),
-                config.pair_hint.as_deref(),
-            );
-            let packet = conn.send_hs(&mut hs, dtls_handshake::CLIENT_HELLO, &body, 0)?;
-            flight = vec![packet];
-            loop {
-                let (msg_type, raw, body) = conn.pump_until_message(&mut hs, &flight)?;
-                match msg_type {
-                    t if t == dtls_handshake::HELLO_VERIFY_REQUEST => {
-                        let mut r = Reader::new(&body);
-                        let _v = [r.u8()?, r.u8()?];
-                        cookie = r.vec8()?.to_vec();
-                        continue 'cookie_loop;
-                    }
-                    t if t == dtls_handshake::SERVER_HELLO => {
-                        let mut hello = parse_server_hello(&body)?;
-                        hello.resumed = resume.is_some()
-                            && !offered_session_id.is_empty()
-                            && hello.session_id == offered_session_id;
-                        server_hello = hello;
-                        hs.transcript.extend_from_slice(&raw);
-                        break 'cookie_loop;
-                    }
-                    _ => return Err(err("unexpected message before ServerHello")),
-                }
-            }
-        }
-        conn.server_random = server_hello.server_random;
-        conn.negotiated_srtp_profile = server_hello.srtp_profile;
-        conn.send_cid = server_hello.peer_cid.clone();
-
-        // Resumption is signalled by the echoed session id; when
-        // that classification is unavailable, an abbreviated
-        // flight straight to Finished also proves it (OpenSSL
-        // omits the extension on resume). The encrypted Finished cannot
-        // be ordered-pumped before keys exist, so classify at the
-        // record layer: an epoch-1 handshake record already
-        // deferred (or arriving next) with no plaintext flight in
-        // hand means the server abbreviated.
-        let mut peeked: Option<(u8, Vec<u8>, Vec<u8>)> = None;
-        let resumed = match (resume, server_hello.resumed) {
-            (Some(_), true) => true,
-            (Some(_), false) => {
-                fn epoch1_handshake(packet: &[u8]) -> bool {
-                    let mut off = 0;
-                    while off + 13 <= packet.len() {
-                        let len =
-                            u16::from_be_bytes([packet[off + 11], packet[off + 12]]) as usize;
-                        if packet[off] == dtls_content::HANDSHAKE
-                            && packet[off + 3] == 0
-                            && packet[off + 4] == 1
-                        {
-                            return true;
-                        }
-                        off += 13 + len;
-                    }
-                    false
-                }
-                let mut abbreviated = hs.ready.is_empty()
-                    && hs.pending.iter().any(|p| epoch1_handshake(p));
-                if !abbreviated && hs.ready.is_empty() {
-                    if let Ok(Some(packet)) =
-                        conn.io.recv_packet(Duration::from_millis(1500))
-                    {
-                        abbreviated = epoch1_handshake(&packet);
-                        hs.pending.push(packet);
-                    }
-                }
-                abbreviated
-            }
-            _ => false,
-        };
-        if let (Some(session), true) = (resume, resumed) {
-            // Abbreviated handshake (RFC 5077): the sealed ticket
-            // carries the session; no certificates are exchanged,
-            // and the fingerprint check runs against the ticket's
-            // certificate, so identity enforcement is unchanged.
-            conn.master_secret = session.master_secret.clone();
-            conn.peer_certificate = Some(session.peer_certificate.clone());
-            conn.negotiated_srtp_profile = session.srtp_profile;
-            conn.resumed = true;
-            conn.check_peer_fingerprint(config)?;
-            conn.derive_keys(&conn.master_secret.clone());
-            // Abbreviated flight order: the server's Finished
-            // comes first (its verify_data covers the transcript
-            // through ServerHello, snapshotted here), and ours
-            // answers it — our verify_data covers the transcript
-            // including the server's Finished, which is how
-            // reference stacks check it.
-            let mut resume_transcript = hs.transcript.clone();
-            loop {
-                let (msg_type, raw, body) = match peeked.take() {
-                    Some(m) => m,
-                    None => conn.pump_until_message(&mut hs, &flight)?,
-                };
-                if msg_type == dtls_handshake::NEW_SESSION_TICKET {
-                    conn.store_ticket_body(&body);
-                }
-                if msg_type == dtls_handshake::FINISHED {
-                    let expected = prf(
-                        &conn.master_secret,
-                        "server finished",
-                        &sha256(&resume_transcript),
-                        12,
-                    );
-                    if body != expected.as_slice() {
-                        return Err(err("server Finished verification failed"));
-                    }
-                    hs.transcript.extend_from_slice(&raw);
-                    break;
-                }
-                resume_transcript.extend_from_slice(&raw);
-                hs.transcript.extend_from_slice(&raw);
-            }
-            let ccs = conn.send_record(dtls_content::CHANGE_CIPHER_SPEC, 0, &[1])?;
-            let verify_data = prf(&conn.master_secret, "client finished", &hs.hash(), 12);
-            let fin = conn.send_hs(&mut hs, dtls_handshake::FINISHED, &verify_data, 1)?;
-            flight = vec![ccs, fin];
-            if config.session_resumption {
-                conn.capture_session_ticket(&mut hs);
-                if conn.session.is_none() {
-                    // No rotated ticket followed (servers must not
-                    // send one post-handshake): the presented
-                    // session remains valid for the next reconnect.
-                    conn.session = Some(session.clone());
-                }
-            }
-            return Ok(conn);
-        }
-
-        // Server flight: Certificate, ServerKeyExchange, [CertificateRequest], ServerHelloDone.
-        let mut peer_ephemeral: Option<PublicKey> = None;
-        let mut ske_signed_bytes: Option<Vec<u8>> = None;
-        let mut ske_signature: Option<Vec<u8>> = None;
-        let mut cert_requested = false;
-        loop {
-            let (msg_type, raw, body) = match peeked.take() {
-                Some(m) => m,
-                None => conn.pump_until_message(&mut hs, &flight)?,
-            };
-            hs.transcript.extend_from_slice(&raw);
-            match msg_type {
-                t if t == dtls_handshake::CERTIFICATE => {
-                    let der = parse_first_cert(&body)?;
-                    conn.peer_certificate = Some(der);
-                }
-                t if t == dtls_handshake::SERVER_KEY_EXCHANGE => {
-                    // params: curve_type(1) namedcurve(2) len(1) point; then sigalg(2) len(2) sig
-                    let mut r = Reader::new(&body);
-                    let params_start = r.pos;
-                    let curve_type = r.u8()?;
-                    let group = r.u16()?;
-                    if curve_type != 3 || group != GROUP_SECP256R1 {
-                        return Err(err("server picked an unsupported ECDHE group"));
-                    }
-                    let point = r.vec8()?;
-                    let params = &body[params_start..r.pos];
-                    ske_signed_bytes = Some(params.to_vec());
-                    let _sigalg = r.u16()?;
-                    ske_signature = Some(r.vec16()?.to_vec());
-                    peer_ephemeral = Some(
-                        PublicKey::decode(point).ok_or_else(|| err("bad server ECDHE point"))?,
-                    );
-                }
-                t if t == dtls_handshake::CERTIFICATE_REQUEST => {
-                    cert_requested = true;
-                }
-                t if t == dtls_handshake::SERVER_HELLO_DONE => break,
-                _ => return Err(err("unexpected message in server flight")),
-            }
-        }
-        let peer_cert_der =
-            conn.peer_certificate.clone().ok_or_else(|| err("server sent no certificate"))?;
-        let peer_cert_key = crate::x509::parse_public_key(&peer_cert_der)
-            .ok_or_else(|| err("cannot parse server certificate key"))?;
-        // Verify ServerKeyExchange signature.
-        {
-            let params = ske_signed_bytes.ok_or_else(|| err("no ServerKeyExchange"))?;
-            let sig_der = ske_signature.ok_or_else(|| err("no ServerKeyExchange signature"))?;
-            let mut signed = Vec::new();
-            signed.extend_from_slice(&conn.client_random);
-            signed.extend_from_slice(&conn.server_random);
-            signed.extend_from_slice(&params);
-            let digest = sha256(&signed);
-            let (r, s) = parse_ecdsa_sig_der(&sig_der)?;
-            if !peer_cert_key.verify(&digest, &r, &s) {
-                return Err(err("ServerKeyExchange signature invalid"));
-            }
-        }
-        conn.check_peer_fingerprint(config)?;
-
-        // Client flight.
-        let (eph_private, eph_public) = PrivateKey::generate();
-        let peer_eph = peer_ephemeral.ok_or_else(|| err("no server ephemeral"))?;
-        let premaster = eph_private
-            .ecdh(&peer_eph)
-            .ok_or_else(|| err("ECDH failed"))?;
-        let mut out_flight: Vec<Vec<u8>> = Vec::new();
-        if cert_requested {
-            let p = conn.send_hs(
-                &mut hs,
-                dtls_handshake::CERTIFICATE,
-                &cert_list_body(&config.certificate.der),
-                0,
-            )?;
-            out_flight.push(p);
-        }
-        let cke_body = {
-            let point = eph_public.encode_uncompressed();
-            let mut v = vec![point.len() as u8];
-            v.extend_from_slice(&point);
-            v
-        };
-        let p = conn.send_hs(&mut hs, dtls_handshake::CLIENT_KEY_EXCHANGE, &cke_body, 0)?;
-        out_flight.push(p);
-
-        // Master secret (EMS snapshot is the transcript through CKE).
-        let session_hash = hs.hash();
-        conn.master_secret = if server_hello.ems {
-            prf(&premaster, "extended master secret", &session_hash, 48)
-        } else {
-            let mut seed = conn.client_random.to_vec();
-            seed.extend_from_slice(&conn.server_random);
-            prf(&premaster, "master secret", &seed, 48)
-        };
-        conn.derive_keys(&conn.master_secret.clone());
-
-        if cert_requested {
-            let (r, s) = config.certificate.private.sign(&session_hash);
-            let mut cv_body = vec![0x04, 0x03]; // sha256 + ecdsa
-            let der = ecdsa_sig_der(&r, &s);
-            cv_body.extend_from_slice(&(der.len() as u16).to_be_bytes());
-            cv_body.extend_from_slice(&der);
-            let p = conn.send_hs(&mut hs, dtls_handshake::CERTIFICATE_VERIFY, &cv_body, 0)?;
-            out_flight.push(p);
-        }
-        let ccs = conn.send_record(dtls_content::CHANGE_CIPHER_SPEC, 0, &[1])?;
-        out_flight.push(ccs);
-        let verify_data = prf(&conn.master_secret, "client finished", &hs.hash(), 12);
-        let p = conn.send_hs(&mut hs, dtls_handshake::FINISHED, &verify_data, 1)?;
-        out_flight.push(p);
-        flight = out_flight;
-
-        // Server CCS + Finished.
-        loop {
-            let (msg_type, raw, body) = conn.pump_until_message(&mut hs, &flight)?;
-            if msg_type == dtls_handshake::NEW_SESSION_TICKET {
-                conn.store_ticket_body(&body);
-            }
-            if msg_type == dtls_handshake::FINISHED {
-                let expected =
-                    prf(&conn.master_secret, "server finished", &hs.hash(), 12);
-                if body != expected.as_slice() {
-                    return Err(err("server Finished verification failed"));
-                }
-                hs.transcript.extend_from_slice(&raw);
-                break;
-            }
-            hs.transcript.extend_from_slice(&raw);
-        }
-        if config.session_resumption {
-            conn.capture_session_ticket(&mut hs);
-        }
-        Ok(conn)
+        let clock = crate::platform::clock();
+        let (machine, flight) = DtlsHandshake::new_client(config, resume, clock.now_ms())?;
+        Self::drive(io, machine, flight)
     }
 
-    /// Best-effort capture of a NewSessionTicket sent after the
-    /// server's Finished. Never fails the connection.
-    fn capture_session_ticket(&mut self, hs: &mut Hs) {
-        if self.session.is_some() {
-            return;
+    /// Drive a DtlsHandshake to establishment over this
+    /// connection's datagram IO.
+    fn drive(mut io: I, mut machine: DtlsHandshake, initial: Vec<Vec<u8>>) -> io::Result<Self> {
+        for packet in &initial {
+            io.send_packet(packet)?;
         }
-        let find_ticket = |hs: &Hs| -> Option<Vec<u8>> {
-            hs.ready
-                .values()
-                .find(|(t, _, _)| *t == dtls_handshake::NEW_SESSION_TICKET)
-                .map(|(_, _, body)| body.clone())
-        };
-        let mut body = find_ticket(hs);
-        if body.is_none() {
-            // One short poll for a ticket sent in its own datagram.
-            if let Ok(Some(packet)) = self.io.recv_packet(Duration::from_millis(250)) {
-                if let Ok(records) = self.parse_records(&packet) {
-                    for record in records {
-                        if record.content_type == dtls_content::HANDSHAKE {
-                            hs.feed_handshake_bytes(&record.body);
+        let clock = crate::platform::clock();
+        loop {
+            if machine.established() {
+                let core = machine.into_core().expect("established core");
+                return Ok(Self::from_core(core, io));
+            }
+            if let Some(failure) = machine.failure() {
+                return Err(err(failure));
+            }
+            let now = clock.now_ms();
+            match machine.next_timeout(now) {
+                Some(0) => {
+                    for packet in machine.tick(now) {
+                        io.send_packet(&packet)?;
+                    }
+                }
+                wait => {
+                    let timeout = Duration::from_millis(wait.unwrap_or(1000).max(1));
+                    match io.recv_packet(timeout)? {
+                        Some(packet) => {
+                            let now = clock.now_ms();
+                            for out in machine.handle_datagram(&packet, now) {
+                                io.send_packet(&out)?;
+                            }
+                        }
+                        None => {
+                            let now = clock.now_ms();
+                            for out in machine.tick(now) {
+                                io.send_packet(&out)?;
+                            }
                         }
                     }
                 }
-                body = find_ticket(hs);
             }
         }
-        if let Some(body) = body {
-            self.store_ticket_body(&body);
-        }
     }
 
-    /// Parse a NewSessionTicket body into resumption state.
-    /// Called directly when the handshake pump surfaces the
-    /// ticket (the usual case: it precedes the server Finished),
-    /// so capture does not depend on packet timing.
-    fn store_ticket_body(&mut self, body: &[u8]) {
-        let mut r = Reader::new(body);
-        let _ = r.take(4); // lifetime
-        if let Ok(ticket) = r.vec16() {
-            self.session = Some(DtlsSession {
-                ticket: ticket.to_vec(),
-                master_secret: self.master_secret.clone(),
-                peer_certificate: self.peer_certificate.clone().unwrap_or_default(),
-                srtp_profile: self.negotiated_srtp_profile,
-            });
-        }
-    }
-
-    /// DTLS server handshake (no HelloVerifyRequest cookie demand).
     pub fn accept(io: I, config: &DtlsConfig) -> io::Result<Self> {
-        let mut conn = dtls_new!(io, Role::Server);
-        conn.recv_cid = config.connection_id.clone();
-        let mut hs = Hs::default();
-
-        // ClientHello.
-        let (_t, raw, body) = conn.pump_until_message(&mut hs, &[])?;
-        hs.transcript.extend_from_slice(&raw);
-        let (client_ems, client_srtp_profiles, client_ticket, client_session_id) = {
-            let mut r = Reader::new(&body);
-            let _v = [r.u8()?, r.u8()?];
-            conn.client_random = r.take(32)?.try_into().unwrap();
-            let session_id = r.vec8()?.to_vec();
-            let _cookie = r.vec8()?;
-            let suites = r.vec16()?;
-            if !suites.chunks_exact(2).any(|c| u16::from_be_bytes([c[0], c[1]]) == SUITE) {
-                return Err(err("client does not offer the required cipher suite"));
-            }
-            let _compression = r.vec8()?;
-            let mut ems = false;
-            let mut profiles = Vec::new();
-            let mut ticket: Option<Vec<u8>> = None;
-            let mut client_cid: Option<Vec<u8>> = None;
-            if !r.done() {
-                let exts = r.vec16()?;
-                let mut er = Reader::new(exts);
-                while !er.done() {
-                    let ty = er.u16()?;
-                    let data = er.vec16()?;
-                    match ty {
-                        23 => ems = true,
-                        crate::proto_gen::dtls_ext::CONNECTION_ID => {
-                            let mut cr = Reader::new(data);
-                            client_cid = Some(cr.vec8()?.to_vec());
-                        }
-                        35 => ticket = Some(data.to_vec()),
-                        14 => {
-                            let mut sr = Reader::new(data);
-                            let list = sr.vec16()?;
-                            for c in list.chunks_exact(2) {
-                                profiles.push(u16::from_be_bytes([c[0], c[1]]));
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            conn.send_cid = client_cid;
-            (ems, profiles, ticket, session_id)
-        };
-        let srtp_profile = [0x0007u16, 0x0001, 0x0002, 0x0008]
-            .iter()
-            .copied()
-            .find(|p| client_srtp_profiles.contains(p));
-        conn.negotiated_srtp_profile = srtp_profile;
-        conn.server_random = random_bytes(32).try_into().unwrap();
-
-        // Abbreviated handshake when the client presents a valid
-        // ticket we sealed earlier (RFC 5077).
-        if config.session_resumption {
-            if let (Some(key), Some(ticket)) =
-                (&config.session_ticket_key, &client_ticket)
-            {
-                if !ticket.is_empty() {
-                    if let Some(session) = open_ticket(key, ticket) {
-                        if !(config.require_peer_certificate
-                            && session.peer_certificate.is_empty())
-                        {
-                            return conn.finish_resumed_accept(
-                                &mut hs,
-                                config,
-                                session,
-                                &client_session_id,
-                                client_ems,
-                            );
-                        }
-                    }
-                }
-            }
-        }
-
-        // Server flight.
-        let mut flight = Vec::new();
-        {
-            let mut sh = Vec::new();
-            sh.extend_from_slice(&DTLS_1_2);
-            sh.extend_from_slice(&conn.server_random);
-            sh.push(0);
-            sh.extend_from_slice(&SUITE.to_be_bytes());
-            sh.push(0);
-            let mut exts = Vec::new();
-            if let Some(profile) = srtp_profile {
-                exts.extend_from_slice(&14u16.to_be_bytes());
-                let data = [0u8, 2, (profile >> 8) as u8, profile as u8, 0];
-                exts.extend_from_slice(&(data.len() as u16).to_be_bytes());
-                exts.extend_from_slice(&data);
-            }
-            if client_ems {
-                exts.extend_from_slice(&23u16.to_be_bytes());
-                exts.extend_from_slice(&[0, 0]);
-            }
-            if let Some(cid) = &config.connection_id {
-                exts.extend_from_slice(
-                    &crate::proto_gen::dtls_ext::CONNECTION_ID.to_be_bytes(),
-                );
-                exts.extend_from_slice(&((cid.len() + 1) as u16).to_be_bytes());
-                exts.push(cid.len() as u8);
-                exts.extend_from_slice(cid);
-            }
-            if config.session_resumption && client_ticket.is_some() {
-                // session_ticket (35), empty: signals a
-                // NewSessionTicket follows. Without this echo
-                // OpenSSL rejects the ticket as unexpected.
-                exts.extend_from_slice(&35u16.to_be_bytes());
-                exts.extend_from_slice(&[0, 0]);
-            }
-            exts.extend_from_slice(&65281u16.to_be_bytes());
-            exts.extend_from_slice(&[0, 1, 0]);
-            sh.extend_from_slice(&(exts.len() as u16).to_be_bytes());
-            sh.extend_from_slice(&exts);
-            flight.push(conn.send_hs(&mut hs, dtls_handshake::SERVER_HELLO, &sh, 0)?);
-        }
-        flight.push(conn.send_hs(
-            &mut hs,
-            dtls_handshake::CERTIFICATE,
-            &cert_list_body(&config.certificate.der),
-            0,
-        )?);
-        let (eph_private, eph_public) = PrivateKey::generate();
-        {
-            let mut params = vec![3u8];
-            params.extend_from_slice(&GROUP_SECP256R1.to_be_bytes());
-            let point = eph_public.encode_uncompressed();
-            params.push(point.len() as u8);
-            params.extend_from_slice(&point);
-            let mut signed = Vec::new();
-            signed.extend_from_slice(&conn.client_random);
-            signed.extend_from_slice(&conn.server_random);
-            signed.extend_from_slice(&params);
-            let digest = sha256(&signed);
-            let (r, s) = config.certificate.private.sign(&digest);
-            let der = ecdsa_sig_der(&r, &s);
-            let mut ske = params;
-            ske.extend_from_slice(&[0x04, 0x03]);
-            ske.extend_from_slice(&(der.len() as u16).to_be_bytes());
-            ske.extend_from_slice(&der);
-            flight.push(conn.send_hs(&mut hs, dtls_handshake::SERVER_KEY_EXCHANGE, &ske, 0)?);
-        }
-        {
-            // CertificateRequest: ecdsa_sign(64), sign/hash pairs, empty DN list.
-            let mut cr = vec![1u8, 64u8];
-            let pairs: [u8; 12] = [0x04, 0x03, 0x05, 0x03, 0x06, 0x03, 0x04, 0x01, 0x05, 0x01, 0x06, 0x01];
-            cr.extend_from_slice(&(pairs.len() as u16).to_be_bytes());
-            cr.extend_from_slice(&pairs);
-            cr.extend_from_slice(&[0, 0]);
-            flight.push(conn.send_hs(&mut hs, dtls_handshake::CERTIFICATE_REQUEST, &cr, 0)?);
-        }
-        flight.push(conn.send_hs(&mut hs, dtls_handshake::SERVER_HELLO_DONE, &[], 0)?);
-
-        // Client flight.
-        let mut saw_client_cert = false;
-        let mut cke_transcript_hash: Option<[u8; 32]> = None;
-        loop {
-            let (msg_type, raw, body) = conn.pump_until_message(&mut hs, &flight)?;
-            match msg_type {
-                t if t == dtls_handshake::CERTIFICATE => {
-                    hs.transcript.extend_from_slice(&raw);
-                    if !body.is_empty() && body != [0u8, 0, 0] {
-                        match parse_first_cert(&body) {
-                            Ok(der) => {
-                                conn.peer_certificate = Some(der);
-                                saw_client_cert = true;
-                            }
-                            Err(_) => saw_client_cert = false,
-                        }
-                    }
-                }
-                t if t == dtls_handshake::CLIENT_KEY_EXCHANGE => {
-                    hs.transcript.extend_from_slice(&raw);
-                    let mut r = Reader::new(&body);
-                    let point = r.vec8()?;
-                    let peer_eph = PublicKey::decode(point)
-                        .ok_or_else(|| err("bad client ECDHE point"))?;
-                    let premaster = eph_private
-                        .ecdh(&peer_eph)
-                        .ok_or_else(|| err("ECDH failed"))?;
-                    cke_transcript_hash = Some(hs.hash());
-                    conn.master_secret = if client_ems {
-                        prf(&premaster, "extended master secret", &cke_transcript_hash.unwrap(), 48)
-                    } else {
-                        let mut seed = conn.client_random.to_vec();
-                        seed.extend_from_slice(&conn.server_random);
-                        prf(&premaster, "master secret", &seed, 48)
-                    };
-                    conn.derive_keys(&conn.master_secret.clone());
-                }
-                t if t == dtls_handshake::CERTIFICATE_VERIFY => {
-                    // Verify against the transcript through ClientKeyExchange.
-                    let peer_key = conn
-                        .peer_certificate
-                        .as_deref()
-                        .and_then(crate::x509::parse_public_key)
-                        .ok_or_else(|| err("CertificateVerify without certificate"))?;
-                    let hash = cke_transcript_hash
-                        .ok_or_else(|| err("CertificateVerify before ClientKeyExchange"))?;
-                    let mut r = Reader::new(&body);
-                    let _alg = r.u16()?;
-                    let sig = r.vec16()?;
-                    let (sr, ss) = parse_ecdsa_sig_der(sig)?;
-                    if !peer_key.verify(&hash, &sr, &ss) {
-                        return Err(err("CertificateVerify signature invalid"));
-                    }
-                    hs.transcript.extend_from_slice(&raw);
-                }
-                t if t == dtls_handshake::FINISHED => {
-                    let expected =
-                        prf(&conn.master_secret, "client finished", &hs.hash(), 12);
-                    if body != expected.as_slice() {
-                        return Err(err("client Finished verification failed"));
-                    }
-                    hs.transcript.extend_from_slice(&raw);
-                    break;
-                }
-                _ => return Err(err("unexpected message in client flight")),
-            }
-        }
-        if config.require_peer_certificate && !saw_client_cert {
-            return Err(err("peer presented no certificate"));
-        }
-        conn.check_peer_fingerprint(config)?;
-
-        // Issue a session ticket when resumption is enabled and
-        // the client offered ticket support. Like OpenSSL, the
-        // ticket goes out at epoch 0 before CCS: an epoch-1 ticket
-        // after Finished arrives post-handshake at OpenSSL
-        // clients, which reject it as unexpected_message. The
-        // ticket joins the Finished transcript on both sides.
-        if config.session_resumption && client_ticket.is_some() {
-            conn.issue_session_ticket(&mut hs, config, 0);
-        }
-
-        // Server CCS + Finished.
-        let ccs = conn.send_record(dtls_content::CHANGE_CIPHER_SPEC, 0, &[1])?;
-        let _ = ccs;
-        let verify_data = prf(&conn.master_secret, "server finished", &hs.hash(), 12);
-        conn.send_hs(&mut hs, dtls_handshake::FINISHED, &verify_data, 1)?;
-        Ok(conn)
-    }
-
-    /// Abbreviated server handshake for a valid ticket: ServerHello
-    /// (signaling resumption), then CCS/Finished both ways. The
-    /// peer certificate comes from the sealed ticket, so the
-    /// fingerprint check enforces exactly what the full
-    /// handshake enforced when the ticket was issued.
-    fn finish_resumed_accept(
-        mut self,
-        hs: &mut Hs,
-        config: &DtlsConfig,
-        session: DtlsSession,
-        client_session_id: &[u8],
-        client_ems: bool,
-    ) -> io::Result<Self> {
-        self.master_secret = session.master_secret.clone();
-        self.peer_certificate = Some(session.peer_certificate.clone());
-        self.negotiated_srtp_profile = session.srtp_profile;
-        self.resumed = true;
-
-        let mut sh = Vec::new();
-        sh.extend_from_slice(&DTLS_1_2);
-        sh.extend_from_slice(&self.server_random);
-        // Echo the client's session id: OpenSSL only recognizes
-        // ticket resumption when the id it offered comes back.
-        sh.push(client_session_id.len() as u8);
-        sh.extend_from_slice(client_session_id);
-        sh.extend_from_slice(&SUITE.to_be_bytes());
-        sh.push(0); // compression: null
-        let mut exts = Vec::new();
-        if let Some(profile) = session.srtp_profile {
-            exts.extend_from_slice(&14u16.to_be_bytes());
-            let data = [0u8, 2, (profile >> 8) as u8, profile as u8, 0];
-            exts.extend_from_slice(&(data.len() as u16).to_be_bytes());
-            exts.extend_from_slice(&data);
-        }
-        // No session_ticket extension in the resumed hello:
-        // OpenSSL signals ticket acceptance by the echoed
-        // session id alone (its own servers omit 35 here).
-        if client_ems {
-            exts.extend_from_slice(&23u16.to_be_bytes());
-            exts.extend_from_slice(&[0, 0]);
-        }
-        exts.extend_from_slice(&65281u16.to_be_bytes());
-        exts.extend_from_slice(&[0, 1, 0]);
-        sh.extend_from_slice(&(exts.len() as u16).to_be_bytes());
-        sh.extend_from_slice(&exts);
-        let packet = self.send_hs(hs, dtls_handshake::SERVER_HELLO, &sh, 0)?;
-
-        self.derive_keys(&self.master_secret.clone());
-
-        // Abbreviated flight order: our CCS + Finished go out
-        // before the client's Finished is read. Our verify_data
-        // covers the transcript through ServerHello; the client's
-        // answer is checked against the transcript including
-        // our Finished (send_hs has already appended it).
-        let ccs_packet = self.send_record(dtls_content::CHANGE_CIPHER_SPEC, 0, &[1])?;
-        let verify_data = prf(&self.master_secret, "server finished", &hs.hash(), 12);
-        let fin_packet = self.send_hs(hs, dtls_handshake::FINISHED, &verify_data, 1)?;
-        // Retransmit the whole flight (ServerHello included, in
-        // case the client never saw it) while awaiting the answer.
-        let flight = vec![packet, ccs_packet, fin_packet];
-
-        // Client CCS + Finished.
-        loop {
-            let (msg_type, raw, body) = self.pump_until_message(hs, &flight)?;
-            if msg_type == dtls_handshake::FINISHED {
-                let expected = prf(&self.master_secret, "client finished", &hs.hash(), 12);
-                if body != expected.as_slice() {
-                    return Err(err("client Finished verification failed"));
-                }
-                hs.transcript.extend_from_slice(&raw);
-                break;
-            }
-            hs.transcript.extend_from_slice(&raw);
-        }
-        self.check_peer_fingerprint(config)?;
-        // No ticket rotation here: a post-handshake
-        // NewSessionTicket (epoch 1, after Finished) is rejected
-        // by OpenSSL TLS 1.2 clients and poisons the data path.
-        // The presented ticket stays valid for the next reconnect.
-        Ok(self)
-    }
-
-    /// Seal and send a NewSessionTicket for the current session.
-    /// Best effort: a failed send must not fail the established
-    /// connection.
-    fn issue_session_ticket(&mut self, hs: &mut Hs, config: &DtlsConfig, epoch: u16) {
-        if let Some(key) = &config.session_ticket_key {
-            let ticket = seal_ticket(
-                key,
-                &self.master_secret,
-                self.negotiated_srtp_profile,
-                self.peer_certificate.as_deref().unwrap_or(&[]),
-            );
-            let mut body = Vec::new();
-            body.extend_from_slice(&(TICKET_LIFETIME_SECS as u32).to_be_bytes());
-            body.extend_from_slice(&(ticket.len() as u16).to_be_bytes());
-            body.extend_from_slice(&ticket);
-            let _ = self.send_hs(hs, dtls_handshake::NEW_SESSION_TICKET, &body, epoch);
-        }
+        let clock = crate::platform::clock();
+        let machine = DtlsHandshake::new_server(config, clock.now_ms());
+        Self::drive(io, machine, Vec::new())
     }
 }

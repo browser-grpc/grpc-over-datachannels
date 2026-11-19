@@ -448,6 +448,13 @@ impl PrivateKey {
         Some(Self(d))
     }
 
+    /// Scalar bytes (big-endian): provisioning surface for
+    /// FFI hosts that build certificates from raw key
+    /// material (see crates/dc-dtls-ffi).
+    pub fn to_bytes(&self) -> [u8; 32] {
+        to_be(&self.0)
+    }
+
     pub fn public_key(&self) -> PublicKey {
         let (x, y) = to_affine(&scalar_mul(&self.0, &generator())).expect("d*G not infinity");
         PublicKey { x: to_be(&x), y: to_be(&y) }

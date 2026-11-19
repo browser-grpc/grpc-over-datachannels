@@ -7,11 +7,11 @@
 import dgram from "node:dgram";
 import net from "node:net";
 import os from "node:os";
-import { DtlsConnection } from "./dtls.js";
 import { emitStackEvent } from "./trace.js";
 import { resolveMdns } from "./mdns.js";
 import { DcEndpoint } from "./endpoint.js";
-import { Candidate, IceAgent } from "./ice.js";
+import { Candidate } from "./candidate.js";
+import { loadRustCores } from "./rust_cores.js";
 import { StunAttribute, StunMessageType } from "./proto_gen.js";
 import { StunMessage, decodeMappedAddress, isIpv6, normalizeIp, parseHostPort, parseIp } from "./stun.js";
 import { generate, parse } from "./sdp.js";
@@ -46,6 +46,8 @@ export class Peer {
   #remote = null;
   #dtlsRole = "server";
   #chunkMessages = false;
+  #assocFactory = null;
+  #dtlsFactory = null;
   #requirePeerCertificate;
   #dtlsQueue = [];
   #dtlsWaiters = [];
@@ -76,8 +78,10 @@ export class Peer {
   #consentIntervalMs = 5000;
   #consentExpiryMs = 30000;
 
-  constructor(socket, agent, certificate, { requirePeerCertificate = true, chunkMessages = false } = {}) {
+  constructor(socket, agent, certificate, { requirePeerCertificate = true, chunkMessages = false, assocFactory = null, dtlsFactory = null } = {}) {
     this.#chunkMessages = chunkMessages;
+    this.#assocFactory = assocFactory;
+    this.#dtlsFactory = dtlsFactory;
     this.#socket = socket;
     this.#agent = agent;
     this.#certificate = certificate;
@@ -96,6 +100,9 @@ export class Peer {
     consentIntervalMs = 5000,
     consentExpiryMs = 30000,
     chunkMessages = false,
+    assocFactory = null,
+    iceAgentFactory = null,
+    dtlsFactory = null,
   } = {}) {
     const effectiveIps = localIps ?? defaultLocalIps();
     // A dual-stack udp6 socket serves IPv6 candidates (and IPv4
@@ -120,6 +127,9 @@ export class Peer {
       consentIntervalMs,
       consentExpiryMs,
       chunkMessages,
+      assocFactory,
+      iceAgentFactory,
+      dtlsFactory,
     });
   }
 
@@ -137,6 +147,10 @@ export class Peer {
       consentIntervalMs = 5000,
       consentExpiryMs = 30000,
       chunkMessages = false,
+      assocFactory = null,
+      iceAgentFactory = null,
+      dtlsFactory = null,
+      rustCores = true,
       // Rendezvous mode: pre-published fixed local ICE
       // credentials and DTLS certificate, so a browser can
       // synthesize this peer's description without signaling.
@@ -147,13 +161,22 @@ export class Peer {
   ) {
     const effectiveIps = localIps ?? defaultLocalIps();
     const { port } = socket.address();
-    const agent = new IceAgent(true);
+    // Resolve the shared Rust cores unless every factory
+    // was supplied explicitly.
+    const rust =
+      assocFactory && dtlsFactory && iceAgentFactory ? null : await loadRustCores();
+    const agent = iceAgentFactory ? iceAgentFactory(true) : rust.iceAgentFactory(true);
     if (iceUfrag) agent.localUfrag = iceUfrag;
     if (icePwd) agent.localPwd = icePwd;
     agent.localCandidates = effectiveIps.map((ip, i) =>
       Candidate.host(ip, port, String(i + 1)),
     );
-    const peer = new Peer(socket, agent, certificate ?? Certificate.generate(), { requirePeerCertificate, chunkMessages });
+    const peer = new Peer(socket, agent, certificate ?? Certificate.generate(), {
+      requirePeerCertificate,
+      chunkMessages,
+      assocFactory: assocFactory ?? rust?.assocFactory ?? null,
+      dtlsFactory: dtlsFactory ?? rust?.dtlsFactory ?? null,
+    });
     peer.#consentIntervalMs = consentIntervalMs;
     peer.#consentExpiryMs = consentExpiryMs;
     for (const server of stunServers) {
@@ -659,12 +682,10 @@ export class Peer {
     if (config.connectionId && this.#agent.remoteUfrag) {
       config.pairHint = Buffer.from(this.#agent.remoteUfrag, "utf8");
     }
-    const dtls =
-      this.#dtlsRole === "client"
-        ? await DtlsConnection.connect(io, config)
-        : await DtlsConnection.accept(io, config);
+    if (!this.#dtlsFactory) throw new Error("peer created without a DTLS factory");
+    const dtls = await this.#dtlsFactory(io, config, this.#dtlsRole);
     emitStackEvent("dtls.handshake", dtls.wasResumed?.() ? "resumed" : "full");
-    this.#endpoint = new DcEndpoint(dtls, this.#dtlsRole, { chunkMessages: this.#chunkMessages });
+    this.#endpoint = new DcEndpoint(dtls, this.#dtlsRole, { chunkMessages: this.#chunkMessages, assocFactory: this.#assocFactory });
     emitStackEvent("endpoint.ready", this.#dtlsRole);
     this.#startConsentLoop();
     return this.#endpoint;

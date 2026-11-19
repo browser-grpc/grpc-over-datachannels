@@ -18,15 +18,16 @@ Stack suites run via `make test-webrtc-go`, `make test-webrtc-js`, `make test-we
 - [`live_stun_test.go`](go/live_stun_test.go) — Generated suite/example
 - [`mdns_test.go`](go/mdns_test.go) — Generated suite/example
 - [`mux_test.go`](go/mux_test.go) — Generated suite/example
-- [`nomination_test.go`](go/nomination_test.go) — Generated suite/example
+- [`pair_bench_test.go`](go/pair_bench_test.go) — Generated suite/example
 - [`peer_test.go`](go/peer_test.go) — Generated suite/example
 - [`rendezvous_test.go`](go/rendezvous_test.go) — Generated suite/example
 - [`restart_test.go`](go/restart_test.go) — Generated suite/example
 - [`sctp_reassembly_test.go`](go/sctp_reassembly_test.go) — Generated suite/example
 - [`sctp_rwnd_test.go`](go/sctp_rwnd_test.go) — Generated suite/example
-- [`sctp_sack_vectors_test.go`](go/sctp_sack_vectors_test.go) — Generated suite/example
 - [`sctp_stats_test.go`](go/sctp_stats_test.go) — Generated suite/example
 - [`sctp_vectors_test.go`](go/sctp_vectors_test.go) — Generated suite/example
+- [`sctpffi_bench_test.go`](go/sctpffi/sctpffi_bench_test.go) — Generated suite/example
+- [`sctpffi_test.go`](go/sctpffi/sctpffi_test.go) — Generated suite/example
 - [`srflx_test.go`](go/srflx_test.go) — Generated suite/example
 - [`streamreset_test.go`](go/streamreset_test.go) — Generated suite/example
 - [`trace_test.go`](go/trace_test.go) — Tracing: traceparent propagation, span observers, nested calls
@@ -50,13 +51,13 @@ Stack suites run via `make test-webrtc-go`, `make test-webrtc-js`, `make test-we
 - [`live_stun.test.js`](js/test/live_stun.test.js) — Generated suite/example
 - [`mdns.test.js`](js/test/mdns.test.js) — Generated suite/example
 - [`mux.test.js`](js/test/mux.test.js) — Generated suite/example
-- [`nomination.test.js`](js/test/nomination.test.js) — Generated suite/example
 - [`peer.test.js`](js/test/peer.test.js) — Generated suite/example
 - [`restart.test.js`](js/test/restart.test.js) — Generated suite/example
-- [`sctp.test.js`](js/test/sctp.test.js) — Generated suite/example
+- [`rust_cores_peer.test.js`](js/test/rust_cores_peer.test.js) — Generated suite/example
 - [`sctp_blast.test.js`](js/test/sctp_blast.test.js) — Generated suite/example
-- [`sctp_sack_vectors.test.js`](js/test/sctp_sack_vectors.test.js) — Generated suite/example
-- [`sctp_vectors.test.js`](js/test/sctp_vectors.test.js) — Generated suite/example
+- [`sctp_bundle.test.js`](js/test/sctp_bundle.test.js) — Generated suite/example
+- [`sctp_wasm_peer.test.js`](js/test/sctp_wasm_peer.test.js) — Generated suite/example
+- [`sctp_wasm_vectors.test.js`](js/test/sctp_wasm_vectors.test.js) — Generated suite/example
 - [`srflx.test.js`](js/test/srflx.test.js) — Generated suite/example
 - [`streamreset.test.js`](js/test/streamreset.test.js) — Generated suite/example
 - [`trace.test.js`](js/test/trace.test.js) — Tracing: traceparent propagation, span observers, nested calls
@@ -70,6 +71,8 @@ Stack suites run via `make test-webrtc-go`, `make test-webrtc-js`, `make test-we
 - [`consent.rs`](rust/tests/consent.rs) — Generated suite/example
 - [`crypto_openssl.rs`](rust/tests/crypto_openssl.rs) — Generated suite/example
 - [`datachannel.rs`](rust/tests/datachannel.rs) — Generated suite/example
+- [`dtls_core.rs`](rust/tests/dtls_core.rs) — Generated suite/example
+- [`dtls_handshake.rs`](rust/tests/dtls_handshake.rs) — Generated suite/example
 - [`dtls_openssl.rs`](rust/tests/dtls_openssl.rs) — Generated suite/example
 - [`dtls_resumption.rs`](rust/tests/dtls_resumption.rs) — Generated suite/example
 - [`eth_framing.rs`](rust/tests/eth_framing.rs) — Generated suite/example
@@ -85,6 +88,7 @@ Stack suites run via `make test-webrtc-go`, `make test-webrtc-js`, `make test-we
 - [`rendezvous.rs`](rust/tests/rendezvous.rs) — Generated suite/example
 - [`restart.rs`](rust/tests/restart.rs) — Generated suite/example
 - [`sctp.rs`](rust/tests/sctp.rs) — Generated suite/example
+- [`sctp_queued_blast.rs`](rust/tests/sctp_queued_blast.rs) — Generated suite/example
 - [`sctp_sack_vectors.rs`](rust/tests/sctp_sack_vectors.rs) — Generated suite/example
 - [`sctp_vectors.rs`](rust/tests/sctp_vectors.rs) — Generated suite/example
 - [`serial_signaling.rs`](rust/tests/serial_signaling.rs) — Generated suite/example

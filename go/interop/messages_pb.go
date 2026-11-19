@@ -525,6 +525,12 @@ type BoolValue struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *BoolValue) Reset() {
+	*m = BoolValue{}
+}
+
 func (m *BoolValue) MarshalDC() []byte {
 	var out []byte
 	if m.Value {
@@ -563,6 +569,12 @@ type Payload struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *Payload) Reset() {
+	*m = Payload{}
+}
+
 func (m *Payload) MarshalDC() []byte {
 	var out []byte
 	if m.Type != 0 {
@@ -594,7 +606,7 @@ func (m *Payload) UnmarshalDC(data []byte) error {
 			}
 		case 2:
 			if b, ok := value.([]byte); ok {
-				m.Body = append([]byte(nil), b...)
+				m.Body = b
 			}
 		default:
 			m.UnknownFields = append(m.UnknownFields, raw...)
@@ -606,6 +618,12 @@ type EchoStatus struct {
 	Code          int32
 	Message       string
 	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *EchoStatus) Reset() {
+	*m = EchoStatus{}
 }
 
 func (m *EchoStatus) MarshalDC() []byte {
@@ -658,6 +676,12 @@ type SimpleRequest struct {
 	FillGrpclbRouteType bool
 	OrcaPerQueryReport  *TestOrcaReport
 	UnknownFields       []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *SimpleRequest) Reset() {
+	*m = SimpleRequest{}
 }
 
 func (m *SimpleRequest) MarshalDC() []byte {
@@ -797,6 +821,12 @@ type SimpleResponse struct {
 	UnknownFields   []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *SimpleResponse) Reset() {
+	*m = SimpleResponse{}
+}
+
 func (m *SimpleResponse) MarshalDC() []byte {
 	var out []byte
 	if m.Payload != nil {
@@ -866,6 +896,12 @@ type StreamingInputCallRequest struct {
 	UnknownFields    []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *StreamingInputCallRequest) Reset() {
+	*m = StreamingInputCallRequest{}
+}
+
 func (m *StreamingInputCallRequest) MarshalDC() []byte {
 	var out []byte
 	if m.Payload != nil {
@@ -917,6 +953,12 @@ type StreamingInputCallResponse struct {
 	UnknownFields         []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *StreamingInputCallResponse) Reset() {
+	*m = StreamingInputCallResponse{}
+}
+
 func (m *StreamingInputCallResponse) MarshalDC() []byte {
 	var out []byte
 	if m.AggregatedPayloadSize != 0 {
@@ -954,6 +996,12 @@ type ResponseParameters struct {
 	IntervalUs    int32
 	Compressed    *BoolValue
 	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *ResponseParameters) Reset() {
+	*m = ResponseParameters{}
 }
 
 func (m *ResponseParameters) MarshalDC() []byte {
@@ -1014,6 +1062,12 @@ type StreamingOutputCallRequest struct {
 	ResponseStatus     *EchoStatus
 	OrcaOobReport      *TestOrcaReport
 	UnknownFields      []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *StreamingOutputCallRequest) Reset() {
+	*m = StreamingOutputCallRequest{}
 }
 
 func (m *StreamingOutputCallRequest) MarshalDC() []byte {
@@ -1099,6 +1153,12 @@ type StreamingOutputCallResponse struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *StreamingOutputCallResponse) Reset() {
+	*m = StreamingOutputCallResponse{}
+}
+
 func (m *StreamingOutputCallResponse) MarshalDC() []byte {
 	var out []byte
 	if m.Payload != nil {
@@ -1139,6 +1199,12 @@ type ReconnectParams struct {
 	UnknownFields         []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *ReconnectParams) Reset() {
+	*m = ReconnectParams{}
+}
+
 func (m *ReconnectParams) MarshalDC() []byte {
 	var out []byte
 	if m.MaxReconnectBackoffMs != 0 {
@@ -1175,6 +1241,12 @@ type ReconnectInfo struct {
 	Passed        bool
 	BackoffMs     []int32
 	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *ReconnectInfo) Reset() {
+	*m = ReconnectInfo{}
 }
 
 func (m *ReconnectInfo) MarshalDC() []byte {
@@ -1236,6 +1308,12 @@ type LoadBalancerStatsRequest struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *LoadBalancerStatsRequest) Reset() {
+	*m = LoadBalancerStatsRequest{}
+}
+
 func (m *LoadBalancerStatsRequest) MarshalDC() []byte {
 	var out []byte
 	if m.NumRpcs != 0 {
@@ -1281,6 +1359,12 @@ type LoadBalancerStatsResponse struct {
 	NumFailures   int32
 	RpcsByMethod  map[string]*LoadBalancerStatsResponse_RpcsByPeer
 	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *LoadBalancerStatsResponse) Reset() {
+	*m = LoadBalancerStatsResponse{}
 }
 
 func (m *LoadBalancerStatsResponse) MarshalDC() []byte {
@@ -1362,6 +1446,12 @@ type LoadBalancerStatsResponse_RpcsByPeer struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *LoadBalancerStatsResponse_RpcsByPeer) Reset() {
+	*m = LoadBalancerStatsResponse_RpcsByPeer{}
+}
+
 func (m *LoadBalancerStatsResponse_RpcsByPeer) MarshalDC() []byte {
 	var out []byte
 	{
@@ -1411,6 +1501,12 @@ type LoadBalancerAccumulatedStatsRequest struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *LoadBalancerAccumulatedStatsRequest) Reset() {
+	*m = LoadBalancerAccumulatedStatsRequest{}
+}
+
 func (m *LoadBalancerAccumulatedStatsRequest) MarshalDC() []byte {
 	var out []byte
 	out = append(out, m.UnknownFields...)
@@ -1441,6 +1537,12 @@ type LoadBalancerAccumulatedStatsResponse struct {
 	NumRpcsFailedByMethod    map[string]int32
 	StatsPerMethod           map[string]*LoadBalancerAccumulatedStatsResponse_MethodStats
 	UnknownFields            []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *LoadBalancerAccumulatedStatsResponse) Reset() {
+	*m = LoadBalancerAccumulatedStatsResponse{}
 }
 
 func (m *LoadBalancerAccumulatedStatsResponse) MarshalDC() []byte {
@@ -1557,6 +1659,12 @@ type LoadBalancerAccumulatedStatsResponse_MethodStats struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *LoadBalancerAccumulatedStatsResponse_MethodStats) Reset() {
+	*m = LoadBalancerAccumulatedStatsResponse_MethodStats{}
+}
+
 func (m *LoadBalancerAccumulatedStatsResponse_MethodStats) MarshalDC() []byte {
 	var out []byte
 	if m.RpcsStarted != 0 {
@@ -1615,6 +1723,12 @@ type ClientConfigureRequest struct {
 	Metadata      []*ClientConfigureRequest_Metadata
 	TimeoutSec    int32
 	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *ClientConfigureRequest) Reset() {
+	*m = ClientConfigureRequest{}
 }
 
 func (m *ClientConfigureRequest) MarshalDC() []byte {
@@ -1690,6 +1804,12 @@ type ClientConfigureRequest_Metadata struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *ClientConfigureRequest_Metadata) Reset() {
+	*m = ClientConfigureRequest_Metadata{}
+}
+
 func (m *ClientConfigureRequest_Metadata) MarshalDC() []byte {
 	var out []byte
 	if m.Type != 0 {
@@ -1736,6 +1856,12 @@ type ClientConfigureResponse struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *ClientConfigureResponse) Reset() {
+	*m = ClientConfigureResponse{}
+}
+
 func (m *ClientConfigureResponse) MarshalDC() []byte {
 	var out []byte
 	out = append(out, m.UnknownFields...)
@@ -1766,6 +1892,12 @@ type TestOrcaReport struct {
 	RequestCost       map[string]float64
 	Utilization       map[string]float64
 	UnknownFields     []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *TestOrcaReport) Reset() {
+	*m = TestOrcaReport{}
 }
 
 func (m *TestOrcaReport) MarshalDC() []byte {

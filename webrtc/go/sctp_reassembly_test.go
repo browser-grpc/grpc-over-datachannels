@@ -12,9 +12,9 @@ import (
 // the caller) and B's SSN never completed, wedging every later
 // message on the stream while SACKs kept advancing.
 func TestSctpInterleavedFragmentsDoNotMergeAcrossMessages(t *testing.T) {
-	client := NewClientAssociation(SctpPort, SctpPort)
-	server := NewServerAssociation(SctpPort, SctpPort)
-	exchange := func(to *Association, packets [][]byte, now int64) ([][]byte, []SctpEvent) {
+	client := newSctpAssoc(true)
+	server := newSctpAssoc(false)
+	exchange := func(to sctpAssoc, packets [][]byte, now int64) ([][]byte, []SctpEvent) {
 		var out [][]byte
 		var events []SctpEvent
 		for _, p := range packets {

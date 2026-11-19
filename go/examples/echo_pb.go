@@ -146,6 +146,12 @@ type EchoRequest struct {
 	UnknownFields []byte
 }
 
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *EchoRequest) Reset() {
+	*m = EchoRequest{}
+}
+
 func (m *EchoRequest) MarshalDC() []byte {
 	var out []byte
 	out = EchoPbAppendStringField(out, 1, m.Message)
@@ -195,6 +201,12 @@ type EchoResponse struct {
 	Message string
 	Index int32
 	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *EchoResponse) Reset() {
+	*m = EchoResponse{}
 }
 
 func (m *EchoResponse) MarshalDC() []byte {

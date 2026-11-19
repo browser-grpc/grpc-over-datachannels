@@ -20,7 +20,8 @@
 // native RTCPeerConnection with relay-only ICE (see SPEC-WEBRTC).
 
 import dgram from "node:dgram";
-import { DtlsConnection, sha256, udpPacketIo } from "./dtls.js";
+import { sha256, udpPacketIo } from "./dtls_shared.js";
+import { loadRustCores } from "./rust_cores.js";
 import { DcEndpoint } from "./endpoint.js";
 import { StunMessage } from "./stun.js";
 import { StunMessageType } from "./proto_gen.js";
@@ -245,8 +246,9 @@ export class DirectListener {
   async accept() {
     const { key, io } = await this._claim();
     try {
-      const dtls = await DtlsConnection.accept(io, serverConfig(this.certificate));
-      return new DcEndpoint(dtls, "server");
+      const rust = await loadRustCores();
+      const dtls = await rust.DtlsConnection.accept(io, serverConfig(this.certificate));
+      return new DcEndpoint(dtls, "server", { assocFactory: rust.assocFactory });
     } catch (err) {
       this.routes.delete(key);
       throw err;
@@ -274,11 +276,12 @@ export async function directDial(remote, certhash, { certificate = Certificate.g
   const v6 = String(remote.address).includes(":");
   const socket = await bindSocket(v6 ? "udp6" : "udp4", 0, v6 ? "::" : "0.0.0.0");
   try {
-    const dtls = await DtlsConnection.connect(
+    const rust = await loadRustCores();
+    const dtls = await rust.DtlsConnection.connect(
       udpPacketIo(socket, remote),
       clientConfig(certificate, digest),
     );
-    return withTransportClose(new DcEndpoint(dtls, "client"), () => {
+    return withTransportClose(new DcEndpoint(dtls, "client", { assocFactory: rust.assocFactory }), () => {
       try {
         socket.close();
       } catch {}
@@ -409,8 +412,9 @@ export async function directDialTurn(remote, certhash, { certificate = Certifica
     if (!client.relayed) throw new Error("turn: no relayed address");
     await createPermissions(peer, client, [remote], 5000);
     await bindChannels(peer, client, [remote], 5000);
-    const dtls = await DtlsConnection.connect(peer.io(remote), clientConfig(certificate, digest));
-    return withTransportClose(new DcEndpoint(dtls, "client"), () => {
+    const rust = await loadRustCores();
+    const dtls = await rust.DtlsConnection.connect(peer.io(remote), clientConfig(certificate, digest));
+    return withTransportClose(new DcEndpoint(dtls, "client", { assocFactory: rust.assocFactory }), () => {
       client.stop();
       try {
         socket.close();

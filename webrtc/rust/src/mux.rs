@@ -41,6 +41,202 @@ use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
+/// Batched datagram receive (Linux recvmmsg): one syscall
+/// drains up to BATCH queued datagrams on the shared mux
+/// socket, where the reader thread previously paid a
+/// recv_from per packet. Dependency-free extern (the crate
+/// forbids external crates); non-Linux builds keep the
+/// per-packet loop. The socket's read timeout still applies
+/// (NULL timeout argument honors SO_RCVTIMEO).
+#[cfg(target_os = "linux")]
+pub(crate) mod batch {
+    use std::ffi::c_void;
+    use std::io;
+    use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
+    use std::os::unix::io::AsRawFd;
+
+    pub const BATCH: usize = 16;
+
+    #[repr(C)]
+    struct Iovec {
+        base: *mut c_void,
+        len: usize,
+    }
+
+    #[repr(C)]
+    struct Msghdr {
+        name: *mut c_void,
+        namelen: u32,
+        iov: *mut Iovec,
+        iovlen: usize,
+        control: *mut c_void,
+        controllen: usize,
+        flags: i32,
+    }
+
+    #[repr(C)]
+    struct Mmsghdr {
+        hdr: Msghdr,
+        len: u32,
+    }
+
+    #[repr(C)]
+    struct Timespec {
+        sec: i64,
+        nsec: i64,
+    }
+
+    extern "C" {
+        fn recvmmsg(
+            fd: i32,
+            msgvec: *mut Mmsghdr,
+            vlen: u32,
+            flags: i32,
+            timeout: *const Timespec,
+        ) -> i32;
+        fn sendmmsg(fd: i32, msgvec: *mut Mmsghdr, vlen: u32, flags: i32) -> i32;
+    }
+
+    fn encode_addr(addr: &SocketAddr) -> ([u8; 128], u32) {
+        let mut storage = [0u8; 128];
+        match addr {
+            SocketAddr::V4(v4) => {
+                storage[0..2].copy_from_slice(&2u16.to_ne_bytes());
+                storage[2..4].copy_from_slice(&v4.port().to_be_bytes());
+                storage[4..8].copy_from_slice(&v4.ip().octets());
+                (storage, 16)
+            }
+            SocketAddr::V6(v6) => {
+                storage[0..2].copy_from_slice(&10u16.to_ne_bytes());
+                storage[2..4].copy_from_slice(&v6.port().to_be_bytes());
+                storage[8..24].copy_from_slice(&v6.ip().octets());
+                storage[24..28].copy_from_slice(&v6.scope_id().to_ne_bytes());
+                (storage, 28)
+            }
+        }
+    }
+
+    /// Send every packet to `dest` in one sendmmsg syscall;
+    /// a partial batch (rare) finishes with plain send_to.
+    pub fn sendmmsg_batch(
+        socket: &UdpSocket,
+        packets: &[Vec<u8>],
+        dest: SocketAddr,
+    ) -> io::Result<()> {
+        if packets.is_empty() {
+            return Ok(());
+        }
+        let (storage, namelen) = encode_addr(&dest);
+        let mut iovecs: Vec<Iovec> = packets
+            .iter()
+            .map(|p| Iovec {
+                base: p.as_ptr() as *mut c_void,
+                len: p.len(),
+            })
+            .collect();
+        let mut msgs: Vec<Mmsghdr> = (0..packets.len())
+            .map(|i| Mmsghdr {
+                hdr: Msghdr {
+                    name: storage.as_ptr() as *mut c_void,
+                    namelen,
+                    iov: &mut iovecs[i],
+                    iovlen: 1,
+                    control: std::ptr::null_mut(),
+                    controllen: 0,
+                    flags: 0,
+                },
+                len: 0,
+            })
+            .collect();
+        let ret = unsafe { sendmmsg(socket.as_raw_fd(), msgs.as_mut_ptr(), packets.len() as u32, 0) };
+        if ret < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        for p in &packets[ret as usize..] {
+            socket.send_to(p, dest)?;
+        }
+        Ok(())
+    }
+
+    fn parse_addr(storage: &[u8; 128]) -> Option<SocketAddr> {
+        let family = u16::from_ne_bytes(storage[0..2].try_into().ok()?);
+        let port = u16::from_be_bytes(storage[2..4].try_into().ok()?);
+        match family {
+            2 => {
+                let ip = Ipv4Addr::from(<[u8; 4]>::try_from(&storage[4..8]).ok()?);
+                Some(SocketAddr::from((ip, port)))
+            }
+            10 => {
+                let ip = Ipv6Addr::from(<[u8; 16]>::try_from(&storage[8..24]).ok()?);
+                Some(SocketAddr::from((ip, port)))
+            }
+            _ => None,
+        }
+    }
+
+    /// Receive up to `bufs.len()` queued datagrams in one
+    /// syscall, waiting at most `timeout` for the first one
+    /// (ZERO = pure drain: callers block for the first
+    /// datagram with recv_from, then drain bursts with this).
+    /// An explicit timeout is required: with a NULL timeout
+    /// recvmmsg waits out SO_RCVTIMEO collecting a batch,
+    /// which stalls lone packets by the full socket timeout.
+    /// On success returns (buffer index, len, source) per
+    /// datagram. Errors mirror recv_from (WouldBlock /
+    /// TimedOut when the read timeout expires empty).
+    pub fn recvmmsg_batch(
+        socket: &UdpSocket,
+        bufs: &mut [Vec<u8>],
+        timeout: std::time::Duration,
+    ) -> io::Result<Vec<(usize, usize, SocketAddr)>> {
+        let timespec = Timespec {
+            sec: timeout.as_secs() as i64,
+            nsec: timeout.subsec_nanos() as i64,
+        };
+        let mut iovecs: Vec<Iovec> = bufs
+            .iter_mut()
+            .map(|b| Iovec {
+                base: b.as_mut_ptr() as *mut c_void,
+                len: b.len(),
+            })
+            .collect();
+        let mut names: Vec<[u8; 128]> = vec![[0u8; 128]; bufs.len()];
+        let mut msgs: Vec<Mmsghdr> = (0..bufs.len())
+            .map(|i| Mmsghdr {
+                hdr: Msghdr {
+                    name: names[i].as_mut_ptr() as *mut c_void,
+                    namelen: 128,
+                    iov: &mut iovecs[i],
+                    iovlen: 1,
+                    control: std::ptr::null_mut(),
+                    controllen: 0,
+                    flags: 0,
+                },
+                len: 0,
+            })
+            .collect();
+        let ret = unsafe {
+            recvmmsg(
+                socket.as_raw_fd(),
+                msgs.as_mut_ptr(),
+                bufs.len() as u32,
+                0,
+                &timespec,
+            )
+        };
+        if ret < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let mut out = Vec::with_capacity(ret as usize);
+        for (i, m) in msgs.iter().enumerate().take(ret as usize) {
+            if let Some(addr) = parse_addr(&names[i]) {
+                out.push((i, m.len as usize, addr));
+            }
+        }
+        Ok(out)
+    }
+}
+
 /// One shared UDP socket hosting many signaled peers.
 pub struct PeerMux {
     inner: Arc<MuxInner>,
@@ -338,19 +534,58 @@ impl PeerMux {
         let reader_inner = inner.clone();
         socket.set_read_timeout(Some(Duration::from_millis(200)))?;
         std::thread::spawn(move || {
-            let mut buf = vec![0u8; 65536];
-            loop {
-                match socket.recv_from(&mut buf) {
-                    Ok((n, src)) => {
-                        if n > 0 {
-                            let src = crate::stun::normalize_addr(src);
-                            reader_inner.deliver(buf[..n].to_vec(), src);
+            // Linux: drain the socket with recvmmsg batches;
+            // other platforms keep the per-packet loop.
+            #[cfg(target_os = "linux")]
+            {
+                let mut bufs: Vec<Vec<u8>> =
+                    (0..batch::BATCH).map(|_| vec![0u8; 65536]).collect();
+                loop {
+                    // Block for the first datagram exactly as
+                    // the per-packet loop did, then drain any
+                    // queued burst in one recvmmsg syscall.
+                    match socket.recv_from(&mut bufs[0]) {
+                        Ok((n, src)) => {
+                            if n > 0 {
+                                let src = crate::stun::normalize_addr(src);
+                                reader_inner.deliver(bufs[0][..n].to_vec(), src);
+                            }
+                            if let Ok(datagrams) = batch::recvmmsg_batch(
+                                &socket,
+                                &mut bufs[1..],
+                                Duration::ZERO,
+                            ) {
+                                for (i, n, src) in datagrams {
+                                    if n > 0 {
+                                        let src = crate::stun::normalize_addr(src);
+                                        reader_inner.deliver(bufs[1 + i][..n].to_vec(), src);
+                                    }
+                                }
+                            }
                         }
+                        Err(e)
+                            if e.kind() == io::ErrorKind::WouldBlock
+                                || e.kind() == io::ErrorKind::TimedOut => {}
+                        Err(_) => return,
                     }
-                    Err(e)
-                        if e.kind() == io::ErrorKind::WouldBlock
-                            || e.kind() == io::ErrorKind::TimedOut => {}
-                    Err(_) => return,
+                }
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                let mut buf = vec![0u8; 65536];
+                loop {
+                    match socket.recv_from(&mut buf) {
+                        Ok((n, src)) => {
+                            if n > 0 {
+                                let src = crate::stun::normalize_addr(src);
+                                reader_inner.deliver(buf[..n].to_vec(), src);
+                            }
+                        }
+                        Err(e)
+                            if e.kind() == io::ErrorKind::WouldBlock
+                                || e.kind() == io::ErrorKind::TimedOut => {}
+                        Err(_) => return,
+                    }
                 }
             }
         });
@@ -429,5 +664,65 @@ impl PeerMux {
             .unwrap()
             .insert(endpoint.cid.clone(), Arc::downgrade(&endpoint));
         Ok(peer)
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod batch_tests {
+    use super::batch;
+    use std::net::UdpSocket;
+    use std::time::Duration;
+
+    #[test]
+    fn recvmmsg_batch_receives_all_datagrams() {
+        let server = UdpSocket::bind("127.0.0.1:0").unwrap();
+        server
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let addr = server.local_addr().unwrap();
+        let client = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let payloads: Vec<Vec<u8>> = (0..5u8).map(|i| vec![i; 100 + i as usize]).collect();
+        for p in &payloads {
+            client.send_to(p, addr).unwrap();
+        }
+        let mut bufs: Vec<Vec<u8>> = (0..batch::BATCH).map(|_| vec![0u8; 65536]).collect();
+        let mut got: Vec<Vec<u8>> = Vec::new();
+        let mut from = None;
+        while got.len() < payloads.len() {
+            let datagrams =
+                batch::recvmmsg_batch(&server, &mut bufs, Duration::from_secs(2)).unwrap();
+            assert!(!datagrams.is_empty(), "timeout before all datagrams arrived");
+            for (i, n, src) in datagrams {
+                from = Some(src);
+                got.push(bufs[i][..n].to_vec());
+            }
+        }
+        got.sort();
+        let mut want = payloads.clone();
+        want.sort();
+        assert_eq!(got, want);
+        assert_eq!(from.unwrap().port(), client.local_addr().unwrap().port());
+    }
+
+    #[test]
+    fn sendmmsg_batch_delivers_all_packets() {
+        let server = UdpSocket::bind("127.0.0.1:0").unwrap();
+        server
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let addr = server.local_addr().unwrap();
+        let client = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let packets: Vec<Vec<u8>> = (0..4u8).map(|i| vec![i + 10; 64]).collect();
+        batch::sendmmsg_batch(&client, &packets, addr).unwrap();
+        let mut got = Vec::new();
+        let mut buf = [0u8; 256];
+        for _ in 0..packets.len() {
+            let (n, _) = server.recv_from(&mut buf).unwrap();
+            got.push(buf[..n].to_vec());
+        }
+        got.sort();
+        let mut want = packets.clone();
+        want.sort();
+        assert_eq!(got, want);
     }
 }

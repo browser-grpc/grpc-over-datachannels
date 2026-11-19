@@ -8,7 +8,7 @@ import (
 )
 
 // Generated conformance vectors (fixtures/sctp_vectors.json):
-// all three mirrored SCTP stacks run
+// the shared SCTP core runs
 // the same fragment-delivery scenarios. Thin interpreter only —
 // scenarios are generated data.
 
@@ -39,10 +39,10 @@ func TestSctpVectors(t *testing.T) {
 	}
 	for _, sc := range file.Scenarios {
 		t.Run(sc.Name, func(t *testing.T) {
-			client := NewClientAssociation(SctpPort, SctpPort)
-			server := NewServerAssociation(SctpPort, SctpPort)
+			client := newSctpAssoc(true)
+			server := newSctpAssoc(false)
 			var now int64
-			exchange := func(to *Association, packets [][]byte) {
+			exchange := func(to sctpAssoc, packets [][]byte) {
 				for _, p := range packets {
 					replies, _ := to.HandlePacket(p, now)
 					_ = replies

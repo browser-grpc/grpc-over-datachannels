@@ -1,0 +1,47 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>grpc-dc WASM client test (Rust bridge core)</title>
+<script src="/browser-test/wasm_exec.js"></script>
+<script type="module">
+import initBridge, { BridgeCore } from "/browser-test/dc_bridge_gen/dc_bridge_wasm.js";
+import { createRustGrpcDcBridge } from "/crates/dc-bridge-wasm/js/rust-bridge.mjs";
+
+// Re-point of wasm_page.html: the calls still originate in
+// Go/WASM (generated facade), but the wire is owned by the
+// Rust runtime compiled to Wasm (dc-bridge-wasm) behind the
+// same bridge object shape \u2014 window.__grpcDcBridge with
+// unary/serverStream/clientStream/bidi. Signaling mirrors
+// wasm_page.html.
+const pc = new RTCPeerConnection();
+window.__pc = pc;
+const dc = pc.createDataChannel("grpc");
+window.__dc = dc;
+
+window.__acceptAnswer = async (sdp) => {
+  await pc.setRemoteDescription({ type: "answer", sdp });
+};
+
+window.__runWasm = async () => {
+  if (dc.readyState !== "open") {
+    await new Promise((resolve) => dc.addEventListener("open", resolve, { once: true }));
+  }
+  await initBridge(await (await fetch("/browser-test/dc_bridge_gen/dc_bridge_wasm_bg.wasm")).arrayBuffer());
+  window.__grpcDcBridge = createRustGrpcDcBridge(dc, BridgeCore);
+  const go = new Go();
+  const bytes = await (await fetch("/browser-test/echo.wasm")).arrayBuffer();
+  const { instance } = await WebAssembly.instantiate(bytes, go.importObject);
+  go.run(instance); // registers window.runGoWasmEcho, then blocks
+  const json = await new Promise((resolve, reject) => window.runGoWasmEcho(resolve, reject));
+  return JSON.parse(json);
+};
+
+const offer = await pc.createOffer();
+await pc.setLocalDescription(offer);
+await new Promise((resolve) => {
+  if (pc.iceGatheringState === "complete") resolve();
+  else pc.addEventListener("icegatheringstatechange", () => {
+    if (pc.iceGatheringState === "complete") resolve();
+  });
+});
+window.__offer = pc.localDescription.sdp;
+</script>

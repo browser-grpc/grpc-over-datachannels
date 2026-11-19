@@ -23,7 +23,7 @@ func TestDtlsWithConnectionIds(t *testing.T) {
 		t.Fatal(err)
 	}
 	type res struct {
-		conn *DtlsConnection
+		conn DtlsConn
 		err  error
 	}
 	results := make(chan res, 2)
@@ -42,7 +42,7 @@ func TestDtlsWithConnectionIds(t *testing.T) {
 		})
 		results <- res{conn, err}
 	}()
-	var conns []*DtlsConnection
+	var conns []DtlsConn
 	for i := 0; i < 2; i++ {
 		select {
 		case r := <-results:

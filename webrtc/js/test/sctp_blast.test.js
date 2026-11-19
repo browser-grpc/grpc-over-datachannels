@@ -8,7 +8,12 @@
 // while SACKs kept acking.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { Association } from "../sctp.js";
+import { loadSctpWasm } from "../sctp_wasm.js";
+import { readFileSync } from "node:fs";
+
+const { Association } = await loadSctpWasm(
+  readFileSync(new URL("../../../browser-test/dc_sctp_gen/dc_sctp_wasm_bg.wasm", import.meta.url)),
+);
 
 class Link {
   constructor() {

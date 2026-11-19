@@ -1,0 +1,12 @@
+[package]
+name = "dc-dtls-ffi"
+version = "0.1.0"
+edition = "2021"
+description = "C ABI over the dc-webrtc DTLS handshake + established core (DtlsHandshake/DtlsCore): the shared Rust DTLS for generated runtimes in other languages"
+license = "Apache-2.0"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+dc-webrtc = { path = "../../webrtc/rust" }

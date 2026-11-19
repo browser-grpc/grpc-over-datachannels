@@ -43,7 +43,7 @@ class Reader {
     }
   }
   take(n) {
-    const value = this.bytes.slice(this.pos, this.pos + n);
+    const value = this.bytes.subarray(this.pos, this.pos + n);
     if (value.length !== n) throw new Error("truncated field");
     this.pos += n;
     return value;
@@ -54,25 +54,29 @@ class Reader {
     const tag = this.varint();
     const field = Number(tag >> 3n);
     const wire = Number(tag & 7n);
+    const f = this._f || (this._f = [0, 0, null, null]);
+    f[0] = field;
+    f[1] = wire;
     switch (wire) {
       case 0:
-        return [field, wire, this.varint(), this.bytes.slice(start, this.pos)];
+        f[2] = this.varint();
+        break;
       case 2: {
         const len = Number(this.varint());
-        const v = this.take(len);
-        return [field, wire, v, this.bytes.slice(start, this.pos)];
+        f[2] = this.take(len);
+        break;
       }
-      case 1: {
-        const v = this.take(8);
-        return [field, wire, v, this.bytes.slice(start, this.pos)];
-      }
-      case 5: {
-        const v = this.take(4);
-        return [field, wire, v, this.bytes.slice(start, this.pos)];
-      }
+      case 1:
+        f[2] = this.take(8);
+        break;
+      case 5:
+        f[2] = this.take(4);
+        break;
       default:
         throw new Error("bad wire type " + wire);
     }
+    f[3] = this.bytes.subarray(start, this.pos);
+    return f;
   }
 }
 
@@ -83,6 +87,9 @@ function concatBytes(a, b) {
   return out;
 }
 
+const textEncoder = new TextEncoder();
+const textDecoder = new TextDecoder();
+const EMPTY_BYTES = new Uint8Array(0);
 function putRaw(out, bytes) {
   for (let i = 0; i < bytes.length; i++) out.push(bytes[i]);
 }
@@ -105,7 +112,7 @@ function putBytesField(out, num, payload) {
 
 function putStringField(out, num, value) {
   if (!value) return;
-  putBytesField(out, num, new TextEncoder().encode(value));
+  putBytesField(out, num, textEncoder.encode(value));
 }
 
 function putFixedField(out, num, payload) {
@@ -113,10 +120,11 @@ function putFixedField(out, num, payload) {
   out.push(...payload);
 }
 
+const _fixedBuf = new Uint8Array(8);
+const _fixedView = new DataView(_fixedBuf.buffer);
 function fixedBytes(value, size, write) {
-  const bytes = new Uint8Array(size);
-  write(new DataView(bytes.buffer), value);
-  return bytes;
+  write(_fixedView, value);
+  return _fixedBuf.subarray(0, size);
 }
 
 function readFixed(bytes, read) {
@@ -125,7 +133,7 @@ function readFixed(bytes, read) {
 
 export class Empty {
   constructor({  } = {}) {
-    this.unknownFields = new Uint8Array(0);
+    this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
     const out = [];
@@ -134,6 +142,15 @@ export class Empty {
   }
   static decode(bytes) {
     const msg = new Empty();
+    Empty._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    Empty._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
     const reader = new Reader(bytes);
     let f;
     while ((f = reader.field()) !== null) {
@@ -143,6 +160,9 @@ export class Empty {
       }
     }
     return msg;
+  }
+  _reset() {
+    this.unknownFields = EMPTY_BYTES;
   }
 }
 

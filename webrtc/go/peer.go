@@ -212,7 +212,10 @@ func newPeer(options PeerOptions, socket packetConn, ips []string) (*Peer, error
 	}
 	peer := &Peer{
 		socket: socket, agent: agent, certificate: cert,
-		dtlsRole: "server", dtlsQueue: make(chan []byte, 64),
+		// Deep queue: the demux drops on full (it must not
+		// block STUN), and a shallow queue turned burst loss
+		// into SCTP retransmit storms at MiB message rates.
+		dtlsRole: "server", dtlsQueue: make(chan []byte, 4096),
 		options: options,
 	}
 	if options.RequirePeerCertificate {
@@ -722,7 +725,7 @@ func (p *Peer) ConnectWithOptions(requirePeerCert bool) (*DcEndpoint, error) {
 		config.ConnectionID = lc.LocalCID()
 	}
 	config.PairHint = []byte(p.agent.RemoteUfrag)
-	var dtls *DtlsConnection
+	var dtls DtlsConn
 	var err error
 	if p.dtlsRole == "client" {
 		dtls, err = DtlsConnect(io, config)

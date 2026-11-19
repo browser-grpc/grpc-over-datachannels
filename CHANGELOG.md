@@ -3,7 +3,7 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.43.0 — 2026-11-16 (published to GitHub/npm/PyPI/GHCR/NuGet/Maven Central/GitHub Maven/RubyGems/LuaRocks/JSR)
+## v0.43.0 — 2026-11-16 (published to GitHub/npm/PyPI/pub.dev/crates.io/GHCR/NuGet/Maven Central/GitHub Maven/RubyGems/LuaRocks/JSR + GitHub Packages npm/NuGet/RubyGems mirrors)
 
 - Host/plugin support (GitHub issue #2): one public endpoint
   with out-of-process plugins behind it. IPC transports
