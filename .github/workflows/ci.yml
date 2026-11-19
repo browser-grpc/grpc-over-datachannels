@@ -45,6 +45,8 @@ jobs:
       - name: Install browsers
         working-directory: browser-test
         run: npx playwright install --with-deps chromium firefox webkit
+      - name: Build Rust FFI cores for the Go rendezvous server
+        run: for c in sctp dtls ice; do (cd crates/dc-$c-ffi && cargo build --release); done
       - name: Build Rust peer for browser suites
         run: cargo build --manifest-path webrtc/rust/Cargo.toml --example peer_echo
       - name: Generate Rust-core Wasm glue
