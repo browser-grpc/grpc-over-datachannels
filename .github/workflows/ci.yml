@@ -8,14 +8,37 @@ name: CI
 on:
   push:
   pull_request:
+  schedule:
+    # Weekly soak/stress lane (Mondays 06:00 UTC).
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
 
 jobs:
   test:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - name: Build CI image
         run: docker build -f Dockerfile.ci -t grpc-dc-ci .
+      # Bare run uses the image CMD (scripts/ci-test.sh): the
+      # full suite plus the env-gated coverage summary, with
+      # GRPC_DC_REQUIRE_ORACLE baked into the image.
       - name: Run full test suite
-        run: docker run --rm grpc-dc-ci make test
+        run: docker run --rm grpc-dc-ci
+
+  soak-stress:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build CI image
+        run: docker build -f Dockerfile.ci -t grpc-dc-ci .
+      # Long lanes, bounded by their own knobs: soak defaults
+      # to 1000 iterations x 3 phases at a 1000 ms per-RPC cap;
+      # stress-interop repeats the official-client oracle runs
+      # under -race (see Makefile).
+      - name: Run soak and stress-interop lanes
+        run: docker run --rm grpc-dc-ci make soak stress-interop

@@ -406,6 +406,15 @@ RUN mkdir -p browser-test/scalajs_gen \
 # at image build time; tests then run offline).
 RUN cd oracle/java && mvn -q package -DskipTests
 
+# Official Python gRPC (third Google reference implementation,
+# used by python/tests/test_grpcio_oracle.py; downloaded at
+# image build time, tests then run offline).
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends python3-pip \
+  && python3 -m pip install --break-system-packages --no-cache-dir \
+       grpcio==1.85.3 grpcio-tools==1.85.3 \
+  && rm -rf /var/lib/apt/lists/*
+
 # Build the official grpc-go interop oracle binaries (second
 # interop oracle; downloads Go modules at image build time).
 # The server is our local main (./oracle-server: upstream's
@@ -444,6 +453,13 @@ ENV CARGO_NET_OFFLINE=true
 # unless WebKit's system libraries are present.
 ENV GRPC_DC_WEBKIT=1
 
+# The grpc-java / grpc-go oracle binaries are built above, so in
+# this image a missing-oracle skip is a build breakage, not a
+# legitimate skip: oracle tests hard-fail instead of skipping
+# when this is set. Host runs leave it unset and skip with a
+# stated reason.
+ENV GRPC_DC_REQUIRE_ORACLE=1
+
 # ffmpeg/ffprobe for the YouTube video pipeline (video/build.mjs:
 # slide segments, caption burn-in, loudness norm). Deliberately a
 # late layer so the toolchain caches above stay warm; the Drama 3
@@ -452,4 +468,4 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends ffmpeg \
   && rm -rf /var/lib/apt/lists/*
 
-CMD ["make", "test"]
+CMD ["bash", "scripts/ci-test.sh"]
