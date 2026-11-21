@@ -168,7 +168,7 @@ struct EventsGrpcDc {
     EventBusSubscribeServerImpl(grpcdc::Endpoint::CallContext& ctx,
                                grpcdc::Server::ServerSink& sink)
         : ctx_(ctx), sink_(sink) {}
-    void Send(Event& resp) override { sink_(resp.MarshalDc()); }
+    void Send(Event& resp) override { sink_(ctx_.EncodeMessage(resp)); }
     grpcdc::Endpoint::CallContext& Context() override { return ctx_; }
 
    private:
@@ -206,7 +206,7 @@ struct EventsGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                PublishReply resp = impl.Publish(mutable_ctx, req);
-               sink(resp.MarshalDc());
+               sink(ctx.EncodeMessage(resp));
              }},
             {"Subscribe", "/grpcdc.events.v1.EventBus/Subscribe",
              grpcdc::Server::kKindServerStreaming,

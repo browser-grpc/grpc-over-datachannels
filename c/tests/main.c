@@ -40,6 +40,7 @@ static void check(int cond, const char *what) {
 }
 
 #include "test_eventbus.h"
+#include "test_struct_codec.h"
 
 static void test_codec(void) {
     /* HEADERS frame golden bytes (same vectors as other languages). */
@@ -2710,6 +2711,7 @@ int main(int argc, char **argv) {
     if (strcmp(argv[1], "TestBddSchemas") == 0) test_bdd_schemas();
     else if (strcmp(argv[1], "TestCodec") == 0) test_codec();
     else if (strcmp(argv[1], "TestEcho") == 0) test_echo();
+    else if (strcmp(argv[1], "TestStructCodec") == 0) test_struct_codec();
     else if (strcmp(argv[1], "TestTracing") == 0) test_tracing();
     else if (strcmp(argv[1], "TestEventBus") == 0) test_eventbus();
     else if (strcmp(argv[1], "TestPbMessages") == 0) test_pb_messages();

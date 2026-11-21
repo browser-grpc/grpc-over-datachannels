@@ -12,6 +12,43 @@ pub const Headers = struct {
     metadata: std.StringHashMap([]const u8),
 };
 
+/// Marshal msg with the codec selected for a call (struct layout
+/// when negotiated). Messages generated without struct_codec=true
+/// have no marshalStruct and panic here, mirroring the Go
+/// runtime's "message has no struct codec" as a programming error.
+pub fn marshalForCodec(alloc: std.mem.Allocator, struct_codec: bool, msg: anytype) []u8 {
+    const T = @TypeOf(msg);
+    const Child = switch (@typeInfo(T)) {
+        .pointer => |ptr| ptr.child,
+        else => T,
+    };
+    const ptr = if (@typeInfo(T) == .pointer) msg else &msg;
+    if (struct_codec) {
+        if (@hasDecl(Child, "marshalStruct")) {
+            return ptr.marshalStruct(alloc);
+        }
+        @panic("message has no struct codec");
+    }
+    return ptr.marshalDc(alloc);
+}
+
+/// Decode data into msg (a pointer) with the codec selected for a call.
+pub fn unmarshalForCodec(struct_codec: bool, alloc: std.mem.Allocator, data: []const u8, msg: anytype) void {
+    const T = @TypeOf(msg);
+    const Child = switch (@typeInfo(T)) {
+        .pointer => |ptr| ptr.child,
+        else => T,
+    };
+    if (struct_codec) {
+        if (@hasDecl(Child, "unmarshalStruct")) {
+            msg.unmarshalStruct(alloc, data);
+            return;
+        }
+        @panic("message has no struct codec");
+    }
+    msg.unmarshalDc(alloc, data);
+}
+
 /// Frame codec for gRPC over WebRTC DataChannels (wire protocol in
 /// ../SPEC.md). Frame, status, channel and server semantics mirror the
 /// other grpcdc runtimes; the tables in wire.zig are stamped by the
@@ -19,6 +56,10 @@ pub const Headers = struct {
 pub const Codec = struct {
     pub const header_len: usize = 9;
     pub const max_data_payload: usize = 16 * 1024 * 1024;
+
+    /// HEADERS metadata key a client sends to request the struct codec for a call.
+    pub const struct_codec_header: []const u8 = "dc-codec";
+    pub const struct_codec_v1: []const u8 = "struct-v1";
 
     pub const Frame = struct {
         type: u8,

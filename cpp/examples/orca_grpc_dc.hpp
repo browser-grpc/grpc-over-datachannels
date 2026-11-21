@@ -145,7 +145,7 @@ struct OrcaGrpcDc {
     OpenRcaServiceStreamCoreMetricsServerImpl(grpcdc::Endpoint::CallContext& ctx,
                                grpcdc::Server::ServerSink& sink)
         : ctx_(ctx), sink_(sink) {}
-    void Send(::xds::data::orca::v3::OrcaLoadReport& resp) override { sink_(resp.MarshalDc()); }
+    void Send(::xds::data::orca::v3::OrcaLoadReport& resp) override { sink_(ctx_.EncodeMessage(resp)); }
     grpcdc::Endpoint::CallContext& Context() override { return ctx_; }
 
    private:

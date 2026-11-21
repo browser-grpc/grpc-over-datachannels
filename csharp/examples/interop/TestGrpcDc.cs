@@ -282,7 +282,7 @@ public static class TestGrpcDc
 
         public Endpoint.CallContext Context { get; }
 
-        public void Send(StreamingOutputCallResponse resp) => _sink(resp.MarshalDc());
+        public void Send(StreamingOutputCallResponse resp) => _sink(Context.EncodeMessage(resp));
     }
 
     private sealed class TestServiceStreamingInputCallServerImpl : TestServiceStreamingInputCallServer
@@ -322,7 +322,7 @@ public static class TestGrpcDc
 
         public Endpoint.CallContext Context { get; }
 
-        public void Send(StreamingOutputCallResponse resp) => _sink(resp.MarshalDc());
+        public void Send(StreamingOutputCallResponse resp) => _sink(Context.EncodeMessage(resp));
 
         public StreamingOutputCallRequest Recv()
         {
@@ -346,7 +346,7 @@ public static class TestGrpcDc
 
         public Endpoint.CallContext Context { get; }
 
-        public void Send(StreamingOutputCallResponse resp) => _sink(resp.MarshalDc());
+        public void Send(StreamingOutputCallResponse resp) => _sink(Context.EncodeMessage(resp));
 
         public StreamingOutputCallRequest Recv()
         {
@@ -431,19 +431,19 @@ public static class TestGrpcDc
                 {
                     var req = new Empty();
                     reqs.RecvInto(req);
-                    sink(impl.EmptyCall(ctx, req).MarshalDc());
+                    sink(ctx.EncodeMessage(impl.EmptyCall(ctx, req)));
                 }),
                 new Server.Method("UnaryCall", "/grpc.testing.TestService/UnaryCall", Server.KindUnary, (ctx, reqs, sink) =>
                 {
                     var req = new SimpleRequest();
                     reqs.RecvInto(req);
-                    sink(impl.UnaryCall(ctx, req).MarshalDc());
+                    sink(ctx.EncodeMessage(impl.UnaryCall(ctx, req)));
                 }),
                 new Server.Method("CacheableUnaryCall", "/grpc.testing.TestService/CacheableUnaryCall", Server.KindUnary, (ctx, reqs, sink) =>
                 {
                     var req = new SimpleRequest();
                     reqs.RecvInto(req);
-                    sink(impl.CacheableUnaryCall(ctx, req).MarshalDc());
+                    sink(ctx.EncodeMessage(impl.CacheableUnaryCall(ctx, req)));
                 }),
                 new Server.Method("StreamingOutputCall", "/grpc.testing.TestService/StreamingOutputCall", Server.KindServerStreaming, (ctx, reqs, sink) =>
                 {
@@ -460,7 +460,7 @@ public static class TestGrpcDc
                         throw new StatusException(Wire.CodeInternal,
                             "client-streaming handler never called SendAndClose");
                     }
-                    sink(stream.Resp.MarshalDc());
+                    sink(ctx.EncodeMessage(stream.Resp));
                 }),
                 new Server.Method("FullDuplexCall", "/grpc.testing.TestService/FullDuplexCall", Server.KindBidi, (ctx, reqs, sink) =>
                 {
@@ -474,7 +474,7 @@ public static class TestGrpcDc
                 {
                     var req = new Empty();
                     reqs.RecvInto(req);
-                    sink(impl.UnimplementedCall(ctx, req).MarshalDc());
+                    sink(ctx.EncodeMessage(impl.UnimplementedCall(ctx, req)));
                 }),
             }));
     }
@@ -547,7 +547,7 @@ public static class TestGrpcDc
                 {
                     var req = new Empty();
                     reqs.RecvInto(req);
-                    sink(impl.UnimplementedCall(ctx, req).MarshalDc());
+                    sink(ctx.EncodeMessage(impl.UnimplementedCall(ctx, req)));
                 }),
             }));
     }
@@ -640,13 +640,13 @@ public static class TestGrpcDc
                 {
                     var req = new ReconnectParams();
                     reqs.RecvInto(req);
-                    sink(impl.Start(ctx, req).MarshalDc());
+                    sink(ctx.EncodeMessage(impl.Start(ctx, req)));
                 }),
                 new Server.Method("Stop", "/grpc.testing.ReconnectService/Stop", Server.KindUnary, (ctx, reqs, sink) =>
                 {
                     var req = new Empty();
                     reqs.RecvInto(req);
-                    sink(impl.Stop(ctx, req).MarshalDc());
+                    sink(ctx.EncodeMessage(impl.Stop(ctx, req)));
                 }),
             }));
     }
@@ -739,13 +739,13 @@ public static class TestGrpcDc
                 {
                     var req = new LoadBalancerStatsRequest();
                     reqs.RecvInto(req);
-                    sink(impl.GetClientStats(ctx, req).MarshalDc());
+                    sink(ctx.EncodeMessage(impl.GetClientStats(ctx, req)));
                 }),
                 new Server.Method("GetClientAccumulatedStats", "/grpc.testing.LoadBalancerStatsService/GetClientAccumulatedStats", Server.KindUnary, (ctx, reqs, sink) =>
                 {
                     var req = new LoadBalancerAccumulatedStatsRequest();
                     reqs.RecvInto(req);
-                    sink(impl.GetClientAccumulatedStats(ctx, req).MarshalDc());
+                    sink(ctx.EncodeMessage(impl.GetClientAccumulatedStats(ctx, req)));
                 }),
             }));
     }
@@ -838,13 +838,13 @@ public static class TestGrpcDc
                 {
                     var req = new Empty();
                     reqs.RecvInto(req);
-                    sink(impl.SetServing(ctx, req).MarshalDc());
+                    sink(ctx.EncodeMessage(impl.SetServing(ctx, req)));
                 }),
                 new Server.Method("SetNotServing", "/grpc.testing.XdsUpdateHealthService/SetNotServing", Server.KindUnary, (ctx, reqs, sink) =>
                 {
                     var req = new Empty();
                     reqs.RecvInto(req);
-                    sink(impl.SetNotServing(ctx, req).MarshalDc());
+                    sink(ctx.EncodeMessage(impl.SetNotServing(ctx, req)));
                 }),
             }));
     }
@@ -917,7 +917,7 @@ public static class TestGrpcDc
                 {
                     var req = new ClientConfigureRequest();
                     reqs.RecvInto(req);
-                    sink(impl.Configure(ctx, req).MarshalDc());
+                    sink(ctx.EncodeMessage(impl.Configure(ctx, req)));
                 }),
             }));
     }

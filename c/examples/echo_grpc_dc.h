@@ -7,22 +7,23 @@
 
 #include "grpcdc/grpcdc.h"
 #include "echo_messages.h"
+#include "echo_struct.h"
 
 /* Service Echo (echo.Echo). */
 typedef struct { grpcdc_channel *channel; } EchoClient;
 
 static inline grpcdc_status EchoClient_unary(EchoClient *c, const EchoRequest *req, EchoResponse *resp, const grpcdc_kv *md, size_t md_count, int64_t deadline_ms) {
-    EchoPbBytes rb = EchoRequest_marshal(req);
+    EchoPbBytes rb = EchoRequest_marshal_for_codec(c->channel->struct_codec, req);
     grpcdc_bytes out; grpcdc_status st = grpcdc_channel_unary(c->channel, "/echo.Echo/Unary", rb.data, rb.len, md, md_count, deadline_ms, &out);
     free(rb.data);
-    if (st.code == 0) { memset(resp, 0, sizeof(*resp)); EchoResponse_unmarshal(resp, out.data, out.len); grpcdc_bytes_free(&out); }
+    if (st.code == 0) { memset(resp, 0, sizeof(*resp)); EchoResponse_unmarshal_for_codec(c->channel->struct_codec, resp, out.data, out.len); grpcdc_bytes_free(&out); }
     return st;
 }
 
 typedef struct { grpcdc_stream *raw; } EchoServerStreamClient;
 
 static inline grpcdc_status EchoClient_server_stream(EchoClient *c, const EchoRequest *req, EchoServerStreamClient *out_stream, const grpcdc_kv *md, size_t md_count, int64_t deadline_ms) {
-    EchoPbBytes rb = EchoRequest_marshal(req);
+    EchoPbBytes rb = EchoRequest_marshal_for_codec(c->channel->struct_codec, req);
     grpcdc_status st = grpcdc_channel_open(c->channel, "/echo.Echo/ServerStream", rb.data, rb.len, 1, md, md_count, deadline_ms, &out_stream->raw);
     free(rb.data);
     return st;
@@ -30,7 +31,7 @@ static inline grpcdc_status EchoClient_server_stream(EchoClient *c, const EchoRe
 
 static inline int EchoServerStreamClient_recv(EchoServerStreamClient *s, EchoResponse *resp, grpcdc_status *st) {
     grpcdc_bytes out; int r = grpcdc_stream_recv(s->raw, &out, st);
-    if (r == 1) { memset(resp, 0, sizeof(*resp)); EchoResponse_unmarshal(resp, out.data, out.len); grpcdc_bytes_free(&out); }
+    if (r == 1) { memset(resp, 0, sizeof(*resp)); EchoResponse_unmarshal_for_codec(grpcdc_stream_struct_codec(s->raw), resp, out.data, out.len); grpcdc_bytes_free(&out); }
     return r;
 }
 
@@ -43,14 +44,14 @@ static inline grpcdc_status EchoClient_client_stream(EchoClient *c, const EchoRe
     st = grpcdc_channel_open(c->channel, "/echo.Echo/ClientStream", NULL, 0, 0, md, md_count, deadline_ms, &raw);
     if (st.code != 0) return st;
     for (size_t i = 0; i < req_count; i++) {
-        EchoPbBytes rb = EchoRequest_marshal(&reqs[i]);
+        EchoPbBytes rb = EchoRequest_marshal_for_codec(c->channel->struct_codec, &reqs[i]);
         st = grpcdc_stream_send(raw, rb.data, rb.len); free(rb.data);
         if (st.code != 0) { grpcdc_stream_free(raw); return st; }
     }
     st = grpcdc_stream_close_send(raw);
     if (st.code != 0) { grpcdc_stream_free(raw); return st; }
     grpcdc_bytes out; int r = grpcdc_stream_recv(raw, &out, &st);
-    if (r == 1) { memset(resp, 0, sizeof(*resp)); EchoResponse_unmarshal(resp, out.data, out.len); grpcdc_bytes_free(&out); }
+    if (r == 1) { memset(resp, 0, sizeof(*resp)); EchoResponse_unmarshal_for_codec(c->channel->struct_codec, resp, out.data, out.len); grpcdc_bytes_free(&out); }
     grpcdc_stream_free(raw);
     if (r == 0) return grpcdc_status_make(2, "missing response");
     return st;
@@ -63,7 +64,7 @@ static inline grpcdc_status EchoClient_bidi(EchoClient *c, const EchoRequest *re
     st = grpcdc_channel_open(c->channel, "/echo.Echo/Bidi", NULL, 0, 0, md, md_count, deadline_ms, &out_stream->raw);
     if (st.code != 0) return st;
     for (size_t i = 0; i < req_count; i++) {
-        EchoPbBytes rb = EchoRequest_marshal(&reqs[i]);
+        EchoPbBytes rb = EchoRequest_marshal_for_codec(c->channel->struct_codec, &reqs[i]);
         st = grpcdc_stream_send(out_stream->raw, rb.data, rb.len); free(rb.data);
         if (st.code != 0) { grpcdc_stream_free(out_stream->raw); return st; }
     }
@@ -72,7 +73,7 @@ static inline grpcdc_status EchoClient_bidi(EchoClient *c, const EchoRequest *re
 
 static inline int EchoBidiClient_recv(EchoBidiClient *s, EchoResponse *resp, grpcdc_status *st) {
     grpcdc_bytes out; int r = grpcdc_stream_recv(s->raw, &out, st);
-    if (r == 1) { memset(resp, 0, sizeof(*resp)); EchoResponse_unmarshal(resp, out.data, out.len); grpcdc_bytes_free(&out); }
+    if (r == 1) { memset(resp, 0, sizeof(*resp)); EchoResponse_unmarshal_for_codec(grpcdc_stream_struct_codec(s->raw), resp, out.data, out.len); grpcdc_bytes_free(&out); }
     return r;
 }
 
@@ -81,14 +82,14 @@ static inline void EchoBidiClient_close(EchoBidiClient *s) { grpcdc_stream_free(
 static inline void EchoBidiClient_cancel(EchoBidiClient *s) { grpcdc_stream_cancel(s->raw); }
 
 typedef struct { grpcdc_server_stream *raw; } EchoServerStreamStream;
-static inline grpcdc_status EchoServerStreamStream_send(EchoServerStreamStream *s, const EchoResponse *resp) { EchoPbBytes rb = EchoResponse_marshal(resp); grpcdc_status st = grpcdc_server_stream_send(s->raw, rb.data, rb.len); free(rb.data); return st; }
+static inline grpcdc_status EchoServerStreamStream_send(EchoServerStreamStream *s, const EchoResponse *resp) { EchoPbBytes rb = EchoResponse_marshal_for_codec(grpcdc_server_stream_struct_codec(s->raw), resp); grpcdc_status st = grpcdc_server_stream_send(s->raw, rb.data, rb.len); free(rb.data); return st; }
 
 typedef struct { grpcdc_server_stream *raw; } EchoClientStreamStream;
-static inline int EchoClientStreamStream_recv(EchoClientStreamStream *s, EchoRequest *req, grpcdc_status *st) { grpcdc_bytes out; int r = grpcdc_server_stream_recv(s->raw, &out, st); if (r == 1) { memset(req, 0, sizeof(*req)); EchoRequest_unmarshal(req, out.data, out.len); grpcdc_bytes_free(&out); } return r; }
+static inline int EchoClientStreamStream_recv(EchoClientStreamStream *s, EchoRequest *req, grpcdc_status *st) { grpcdc_bytes out; int r = grpcdc_server_stream_recv(s->raw, &out, st); if (r == 1) { memset(req, 0, sizeof(*req)); EchoRequest_unmarshal_for_codec(grpcdc_server_stream_struct_codec(s->raw), req, out.data, out.len); grpcdc_bytes_free(&out); } return r; }
 
 typedef struct { grpcdc_server_stream *raw; } EchoBidiStream;
-static inline grpcdc_status EchoBidiStream_send(EchoBidiStream *s, const EchoResponse *resp) { EchoPbBytes rb = EchoResponse_marshal(resp); grpcdc_status st = grpcdc_server_stream_send(s->raw, rb.data, rb.len); free(rb.data); return st; }
-static inline int EchoBidiStream_recv(EchoBidiStream *s, EchoRequest *req, grpcdc_status *st) { grpcdc_bytes out; int r = grpcdc_server_stream_recv(s->raw, &out, st); if (r == 1) { memset(req, 0, sizeof(*req)); EchoRequest_unmarshal(req, out.data, out.len); grpcdc_bytes_free(&out); } return r; }
+static inline grpcdc_status EchoBidiStream_send(EchoBidiStream *s, const EchoResponse *resp) { EchoPbBytes rb = EchoResponse_marshal_for_codec(grpcdc_server_stream_struct_codec(s->raw), resp); grpcdc_status st = grpcdc_server_stream_send(s->raw, rb.data, rb.len); free(rb.data); return st; }
+static inline int EchoBidiStream_recv(EchoBidiStream *s, EchoRequest *req, grpcdc_status *st) { grpcdc_bytes out; int r = grpcdc_server_stream_recv(s->raw, &out, st); if (r == 1) { memset(req, 0, sizeof(*req)); EchoRequest_unmarshal_for_codec(grpcdc_server_stream_struct_codec(s->raw), req, out.data, out.len); grpcdc_bytes_free(&out); } return r; }
 
 typedef struct {
     void *ctx;
@@ -100,16 +101,16 @@ typedef struct {
 
 static grpcdc_status Echo_unary_unary_adapter(void *impl, const grpcdc_kv *md, size_t md_count, grpcdc_bytes reqb, grpcdc_bytes *respb) {
     EchoServerImpl *impl_ = (EchoServerImpl *)impl;
-    EchoRequest req; memset(&req, 0, sizeof(req)); EchoRequest_unmarshal(&req, reqb.data, reqb.len);
+    EchoRequest req; memset(&req, 0, sizeof(req)); EchoRequest_unmarshal_for_codec(grpcdc_current_struct_codec(), &req, reqb.data, reqb.len);
     EchoResponse resp; memset(&resp, 0, sizeof(resp));
     grpcdc_status st = impl_->unary(impl_->ctx, md, md_count, &req, &resp);
-    if (st.code == 0) { EchoPbBytes rb = EchoResponse_marshal(&resp); respb->data = rb.data; respb->len = rb.len; }
+    if (st.code == 0) { EchoPbBytes rb = EchoResponse_marshal_for_codec(grpcdc_current_struct_codec(), &resp); respb->data = rb.data; respb->len = rb.len; }
     return st;
 }
 
 static grpcdc_status Echo_server_stream_sstream_adapter(void *impl, const grpcdc_kv *md, size_t md_count, grpcdc_bytes reqb, grpcdc_server_stream *raw) {
     EchoServerImpl *impl_ = (EchoServerImpl *)impl;
-    EchoRequest req; memset(&req, 0, sizeof(req)); EchoRequest_unmarshal(&req, reqb.data, reqb.len);
+    EchoRequest req; memset(&req, 0, sizeof(req)); EchoRequest_unmarshal_for_codec(grpcdc_server_stream_struct_codec(raw), &req, reqb.data, reqb.len);
     EchoServerStreamStream stream; stream.raw = raw;
     return impl_->server_stream(impl_->ctx, md, md_count, &req, &stream);
 }
@@ -119,7 +120,7 @@ static grpcdc_status Echo_client_stream_cstream_adapter(void *impl, grpcdc_serve
     EchoClientStreamStream stream; stream.raw = raw;
     EchoResponse resp; memset(&resp, 0, sizeof(resp));
     grpcdc_status st = impl_->client_stream(impl_->ctx, &stream, &resp);
-    if (st.code == 0) { EchoPbBytes rb = EchoResponse_marshal(&resp); respb->data = rb.data; respb->len = rb.len; }
+    if (st.code == 0) { EchoPbBytes rb = EchoResponse_marshal_for_codec(grpcdc_server_stream_struct_codec(raw), &resp); respb->data = rb.data; respb->len = rb.len; }
     return st;
 }
 

@@ -178,8 +178,15 @@ pub const CallContext = struct {
     deadline_ms: ?i64 = null,
     /// This call's server span context (null when dormant).
     trace_context: ?status_mod.TraceContext = null,
+    /// Whether this call negotiated the struct codec (HEADERS dc-codec: struct-v1).
+    struct_codec: bool = false,
     /// Shared response-metadata state (endpoint-installed).
     response: ?*ResponseState = null,
+
+    /// Marshal a response message with this call's negotiated codec (generated server code calls this).
+    pub fn encodeMessage(self: *const CallContext, alloc: std.mem.Allocator, msg: anytype) []u8 {
+        return codec_mod.marshalForCodec(alloc, self.struct_codec, msg);
+    }
 
     /// Record response initial metadata (sent lazily, before
     /// the first response message).

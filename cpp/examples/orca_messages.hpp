@@ -75,18 +75,18 @@ class OrcaLoadReportRequest : public grpcdc::Marshaler, public grpcdc::Unmarshal
   void UnmarshalDc(const grpcdc::Bytes& data) override;
 };
 inline grpcdc::Bytes OrcaLoadReportRequest::MarshalDc() const {
-    pb_orca::Writer w;
-    w.Raw(unknown_fields);
-    return w.ToBytes();
+    pb_orca::Writer pb_w;
+    pb_w.Raw(unknown_fields);
+    return pb_w.ToBytes();
 }
 
-inline void OrcaLoadReportRequest::UnmarshalDc(const grpcdc::Bytes& data) {
+inline void OrcaLoadReportRequest::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
     unknown_fields.clear();
-    pb_orca::Reader r(data);
-    pb_orca::Field field;
-    while (r.Next(field)) {
-      switch (field.number) {
-        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
+    pb_orca::Reader pb_r(pb_data_);
+    pb_orca::Field pb_field;
+    while (pb_r.Next(pb_field)) {
+      switch (pb_field.number) {
+        default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;
       }
     }
 }

@@ -156,6 +156,11 @@ struct Codec {
   static constexpr std::size_t kHeaderLen = 9;
   static constexpr std::size_t kMaxDataPayload = 16 * 1024 * 1024;
 
+  /// HEADERS metadata key a client sends to request the struct codec for a call.
+  static constexpr const char* kStructCodecHeader = "dc-codec";
+  static constexpr const char* kStructCodecV1 = "struct-v1";
+
+
   struct Frame {
     int type = 0;
     std::uint32_t stream_id = 0;

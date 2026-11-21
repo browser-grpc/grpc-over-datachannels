@@ -898,7 +898,7 @@ struct KafkaGrpcDc {
     KafkaConsumeServerImpl(grpcdc::Endpoint::CallContext& ctx,
                                grpcdc::Server::ServerSink& sink)
         : ctx_(ctx), sink_(sink) {}
-    void Send(ConsumeResponse& resp) override { sink_(resp.MarshalDc()); }
+    void Send(ConsumeResponse& resp) override { sink_(ctx_.EncodeMessage(resp)); }
     grpcdc::Endpoint::CallContext& Context() override { return ctx_; }
 
    private:
@@ -911,7 +911,7 @@ struct KafkaGrpcDc {
     KafkaSubscribeServerImpl(grpcdc::Endpoint::CallContext& ctx,
                                grpcdc::Server::ServerSink& sink)
         : ctx_(ctx), sink_(sink) {}
-    void Send(GroupSubscribeResponse& resp) override { sink_(resp.MarshalDc()); }
+    void Send(GroupSubscribeResponse& resp) override { sink_(ctx_.EncodeMessage(resp)); }
     grpcdc::Endpoint::CallContext& Context() override { return ctx_; }
 
    private:
@@ -1061,7 +1061,7 @@ struct KafkaGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                MetadataResponse resp = impl.Metadata(mutable_ctx, req);
-               sink(resp.MarshalDc());
+               sink(ctx.EncodeMessage(resp));
              }},
             {"OpenProducer", "/grpcdc.kafka.v1.Kafka/OpenProducer", grpcdc::Server::kKindUnary,
              [&impl](const grpcdc::Endpoint::CallContext& ctx,
@@ -1071,7 +1071,7 @@ struct KafkaGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                OpenProducerResponse resp = impl.OpenProducer(mutable_ctx, req);
-               sink(resp.MarshalDc());
+               sink(ctx.EncodeMessage(resp));
              }},
             {"CloseProducer", "/grpcdc.kafka.v1.Kafka/CloseProducer", grpcdc::Server::kKindUnary,
              [&impl](const grpcdc::Endpoint::CallContext& ctx,
@@ -1081,7 +1081,7 @@ struct KafkaGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                CloseProducerResponse resp = impl.CloseProducer(mutable_ctx, req);
-               sink(resp.MarshalDc());
+               sink(ctx.EncodeMessage(resp));
              }},
             {"EndTransaction", "/grpcdc.kafka.v1.Kafka/EndTransaction", grpcdc::Server::kKindUnary,
              [&impl](const grpcdc::Endpoint::CallContext& ctx,
@@ -1091,7 +1091,7 @@ struct KafkaGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                EndTransactionResponse resp = impl.EndTransaction(mutable_ctx, req);
-               sink(resp.MarshalDc());
+               sink(ctx.EncodeMessage(resp));
              }},
             {"Produce", "/grpcdc.kafka.v1.Kafka/Produce", grpcdc::Server::kKindUnary,
              [&impl](const grpcdc::Endpoint::CallContext& ctx,
@@ -1101,7 +1101,7 @@ struct KafkaGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                ProduceResponse resp = impl.Produce(mutable_ctx, req);
-               sink(resp.MarshalDc());
+               sink(ctx.EncodeMessage(resp));
              }},
             {"Consume", "/grpcdc.kafka.v1.Kafka/Consume",
              grpcdc::Server::kKindServerStreaming,
@@ -1133,7 +1133,7 @@ struct KafkaGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                ListOffsetsResponse resp = impl.ListOffsets(mutable_ctx, req);
-               sink(resp.MarshalDc());
+               sink(ctx.EncodeMessage(resp));
              }},
             {"CommitOffset", "/grpcdc.kafka.v1.Kafka/CommitOffset", grpcdc::Server::kKindUnary,
              [&impl](const grpcdc::Endpoint::CallContext& ctx,
@@ -1143,7 +1143,7 @@ struct KafkaGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                CommitOffsetResponse resp = impl.CommitOffset(mutable_ctx, req);
-               sink(resp.MarshalDc());
+               sink(ctx.EncodeMessage(resp));
              }},
             {"FetchOffset", "/grpcdc.kafka.v1.Kafka/FetchOffset", grpcdc::Server::kKindUnary,
              [&impl](const grpcdc::Endpoint::CallContext& ctx,
@@ -1153,7 +1153,7 @@ struct KafkaGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                FetchOffsetResponse resp = impl.FetchOffset(mutable_ctx, req);
-               sink(resp.MarshalDc());
+               sink(ctx.EncodeMessage(resp));
              }},
             {"CreateTopics", "/grpcdc.kafka.v1.Kafka/CreateTopics", grpcdc::Server::kKindUnary,
              [&impl](const grpcdc::Endpoint::CallContext& ctx,
@@ -1163,7 +1163,7 @@ struct KafkaGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                CreateTopicsResponse resp = impl.CreateTopics(mutable_ctx, req);
-               sink(resp.MarshalDc());
+               sink(ctx.EncodeMessage(resp));
              }},
             {"DeleteTopics", "/grpcdc.kafka.v1.Kafka/DeleteTopics", grpcdc::Server::kKindUnary,
              [&impl](const grpcdc::Endpoint::CallContext& ctx,
@@ -1173,7 +1173,7 @@ struct KafkaGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                DeleteTopicsResponse resp = impl.DeleteTopics(mutable_ctx, req);
-               sink(resp.MarshalDc());
+               sink(ctx.EncodeMessage(resp));
              }},
             {"DescribeConfigs", "/grpcdc.kafka.v1.Kafka/DescribeConfigs", grpcdc::Server::kKindUnary,
              [&impl](const grpcdc::Endpoint::CallContext& ctx,
@@ -1183,7 +1183,7 @@ struct KafkaGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                DescribeConfigsResponse resp = impl.DescribeConfigs(mutable_ctx, req);
-               sink(resp.MarshalDc());
+               sink(ctx.EncodeMessage(resp));
              }},
             {"AlterConfigs", "/grpcdc.kafka.v1.Kafka/AlterConfigs", grpcdc::Server::kKindUnary,
              [&impl](const grpcdc::Endpoint::CallContext& ctx,
@@ -1193,7 +1193,7 @@ struct KafkaGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                AlterConfigsResponse resp = impl.AlterConfigs(mutable_ctx, req);
-               sink(resp.MarshalDc());
+               sink(ctx.EncodeMessage(resp));
              }},
             {"CreatePartitions", "/grpcdc.kafka.v1.Kafka/CreatePartitions", grpcdc::Server::kKindUnary,
              [&impl](const grpcdc::Endpoint::CallContext& ctx,
@@ -1203,7 +1203,7 @@ struct KafkaGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                CreatePartitionsResponse resp = impl.CreatePartitions(mutable_ctx, req);
-               sink(resp.MarshalDc());
+               sink(ctx.EncodeMessage(resp));
              }},
             {"DeleteRecords", "/grpcdc.kafka.v1.Kafka/DeleteRecords", grpcdc::Server::kKindUnary,
              [&impl](const grpcdc::Endpoint::CallContext& ctx,
@@ -1213,7 +1213,7 @@ struct KafkaGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                DeleteRecordsResponse resp = impl.DeleteRecords(mutable_ctx, req);
-               sink(resp.MarshalDc());
+               sink(ctx.EncodeMessage(resp));
              }},
             {"ListGroups", "/grpcdc.kafka.v1.Kafka/ListGroups", grpcdc::Server::kKindUnary,
              [&impl](const grpcdc::Endpoint::CallContext& ctx,
@@ -1223,7 +1223,7 @@ struct KafkaGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                ListGroupsResponse resp = impl.ListGroups(mutable_ctx, req);
-               sink(resp.MarshalDc());
+               sink(ctx.EncodeMessage(resp));
              }},
             {"DescribeGroups", "/grpcdc.kafka.v1.Kafka/DescribeGroups", grpcdc::Server::kKindUnary,
              [&impl](const grpcdc::Endpoint::CallContext& ctx,
@@ -1233,7 +1233,7 @@ struct KafkaGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                DescribeGroupsResponse resp = impl.DescribeGroups(mutable_ctx, req);
-               sink(resp.MarshalDc());
+               sink(ctx.EncodeMessage(resp));
              }},
             {"DeleteGroups", "/grpcdc.kafka.v1.Kafka/DeleteGroups", grpcdc::Server::kKindUnary,
              [&impl](const grpcdc::Endpoint::CallContext& ctx,
@@ -1243,7 +1243,7 @@ struct KafkaGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                DeleteGroupsResponse resp = impl.DeleteGroups(mutable_ctx, req);
-               sink(resp.MarshalDc());
+               sink(ctx.EncodeMessage(resp));
              }},
             {"DeleteGroupOffsets", "/grpcdc.kafka.v1.Kafka/DeleteGroupOffsets", grpcdc::Server::kKindUnary,
              [&impl](const grpcdc::Endpoint::CallContext& ctx,
@@ -1253,7 +1253,7 @@ struct KafkaGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                DeleteGroupOffsetsResponse resp = impl.DeleteGroupOffsets(mutable_ctx, req);
-               sink(resp.MarshalDc());
+               sink(ctx.EncodeMessage(resp));
              }},
             {"DescribeAcls", "/grpcdc.kafka.v1.Kafka/DescribeAcls", grpcdc::Server::kKindUnary,
              [&impl](const grpcdc::Endpoint::CallContext& ctx,
@@ -1263,7 +1263,7 @@ struct KafkaGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                DescribeAclsResponse resp = impl.DescribeAcls(mutable_ctx, req);
-               sink(resp.MarshalDc());
+               sink(ctx.EncodeMessage(resp));
              }},
             {"CreateAcls", "/grpcdc.kafka.v1.Kafka/CreateAcls", grpcdc::Server::kKindUnary,
              [&impl](const grpcdc::Endpoint::CallContext& ctx,
@@ -1273,7 +1273,7 @@ struct KafkaGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                CreateAclsResponse resp = impl.CreateAcls(mutable_ctx, req);
-               sink(resp.MarshalDc());
+               sink(ctx.EncodeMessage(resp));
              }},
             {"DeleteAcls", "/grpcdc.kafka.v1.Kafka/DeleteAcls", grpcdc::Server::kKindUnary,
              [&impl](const grpcdc::Endpoint::CallContext& ctx,
@@ -1283,7 +1283,7 @@ struct KafkaGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                DeleteAclsResponse resp = impl.DeleteAcls(mutable_ctx, req);
-               sink(resp.MarshalDc());
+               sink(ctx.EncodeMessage(resp));
              }},
             {"ListTransactions", "/grpcdc.kafka.v1.Kafka/ListTransactions", grpcdc::Server::kKindUnary,
              [&impl](const grpcdc::Endpoint::CallContext& ctx,
@@ -1293,7 +1293,7 @@ struct KafkaGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                ListTransactionsResponse resp = impl.ListTransactions(mutable_ctx, req);
-               sink(resp.MarshalDc());
+               sink(ctx.EncodeMessage(resp));
              }},
             {"DescribeTransactions", "/grpcdc.kafka.v1.Kafka/DescribeTransactions", grpcdc::Server::kKindUnary,
              [&impl](const grpcdc::Endpoint::CallContext& ctx,
@@ -1303,7 +1303,7 @@ struct KafkaGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                DescribeTransactionsResponse resp = impl.DescribeTransactions(mutable_ctx, req);
-               sink(resp.MarshalDc());
+               sink(ctx.EncodeMessage(resp));
              }},
             {"OpenShareGroup", "/grpcdc.kafka.v1.Kafka/OpenShareGroup", grpcdc::Server::kKindUnary,
              [&impl](const grpcdc::Endpoint::CallContext& ctx,
@@ -1313,7 +1313,7 @@ struct KafkaGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                OpenShareGroupResponse resp = impl.OpenShareGroup(mutable_ctx, req);
-               sink(resp.MarshalDc());
+               sink(ctx.EncodeMessage(resp));
              }},
             {"SharePoll", "/grpcdc.kafka.v1.Kafka/SharePoll", grpcdc::Server::kKindUnary,
              [&impl](const grpcdc::Endpoint::CallContext& ctx,
@@ -1323,7 +1323,7 @@ struct KafkaGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                SharePollResponse resp = impl.SharePoll(mutable_ctx, req);
-               sink(resp.MarshalDc());
+               sink(ctx.EncodeMessage(resp));
              }},
             {"ShareAck", "/grpcdc.kafka.v1.Kafka/ShareAck", grpcdc::Server::kKindUnary,
              [&impl](const grpcdc::Endpoint::CallContext& ctx,
@@ -1333,7 +1333,7 @@ struct KafkaGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                ShareAckResponse resp = impl.ShareAck(mutable_ctx, req);
-               sink(resp.MarshalDc());
+               sink(ctx.EncodeMessage(resp));
              }},
             {"CloseShareGroup", "/grpcdc.kafka.v1.Kafka/CloseShareGroup", grpcdc::Server::kKindUnary,
              [&impl](const grpcdc::Endpoint::CallContext& ctx,
@@ -1343,7 +1343,7 @@ struct KafkaGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                CloseShareGroupResponse resp = impl.CloseShareGroup(mutable_ctx, req);
-               sink(resp.MarshalDc());
+               sink(ctx.EncodeMessage(resp));
              }},
             {"DescribeShareGroups", "/grpcdc.kafka.v1.Kafka/DescribeShareGroups", grpcdc::Server::kKindUnary,
              [&impl](const grpcdc::Endpoint::CallContext& ctx,
@@ -1353,7 +1353,7 @@ struct KafkaGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                DescribeShareGroupsResponse resp = impl.DescribeShareGroups(mutable_ctx, req);
-               sink(resp.MarshalDc());
+               sink(ctx.EncodeMessage(resp));
              }},
         }});
   }

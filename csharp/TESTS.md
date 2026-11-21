@@ -36,6 +36,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`TestOracle.cs`](tests/TestOracle.cs) — Official-implementation oracle, via the proxy
 - [`TestPbMessages.cs`](tests/TestPbMessages.cs) — Generated suite/example
 - [`TestSidecar.cs`](tests/TestSidecar.cs) — Sidecar transport
+- [`TestStructCodec.cs`](tests/TestStructCodec.cs) — Wire codec vectors
 - [`TestTracing.cs`](tests/TestTracing.cs) — Tracing: traceparent propagation, span observers, nested calls
 
 ## Examples
@@ -47,9 +48,12 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`EchoGrpcDc.cs`](examples/EchoGrpcDc.cs) — Echo: all four call shapes
 - [`EchoPb.cs`](examples/EchoPb.cs) — Echo: all four call shapes
 - [`EchoRequest.cs`](examples/EchoRequest.cs) — Echo: all four call shapes
+- [`EchoRequestStruct.cs`](examples/EchoRequestStruct.cs) — Echo: all four call shapes
 - [`EchoResponse.cs`](examples/EchoResponse.cs) — Echo: all four call shapes
+- [`EchoResponseStruct.cs`](examples/EchoResponseStruct.cs) — Echo: all four call shapes
 - [`Program.cs`](examples/EchoServerStdio/Program.cs) — Generated suite/example
 - [`EchoServiceImpl.cs`](examples/EchoServiceImpl.cs) — Echo: all four call shapes
+- [`EchoStructDc.cs`](examples/EchoStructDc.cs) — Echo: all four call shapes
 - [`Program.cs`](examples/EventBusDemo/Program.cs) — Generated suite/example
 - [`Program.cs`](examples/InteropServerStdio/Program.cs) — Generated suite/example
 - [`Pb.cs`](examples/Pb.cs) — Generated suite/example

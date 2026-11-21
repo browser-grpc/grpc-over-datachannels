@@ -541,7 +541,7 @@ public static class KafkaGrpcDc
 
         public Endpoint.CallContext Context { get; }
 
-        public void Send(ConsumeResponse resp) => _sink(resp.MarshalDc());
+        public void Send(ConsumeResponse resp) => _sink(Context.EncodeMessage(resp));
     }
 
     private sealed class KafkaSubscribeServerImpl : KafkaSubscribeServer
@@ -556,7 +556,7 @@ public static class KafkaGrpcDc
 
         public Endpoint.CallContext Context { get; }
 
-        public void Send(GroupSubscribeResponse resp) => _sink(resp.MarshalDc());
+        public void Send(GroupSubscribeResponse resp) => _sink(Context.EncodeMessage(resp));
     }
 
     /// <summary>Async service implementation interface for grpcdc.kafka.v1.Kafka.</summary>
@@ -766,31 +766,31 @@ public static class KafkaGrpcDc
                 {
                     var req = new MetadataRequest();
                     reqs.RecvInto(req);
-                    sink(impl.Metadata(ctx, req).MarshalDc());
+                    sink(ctx.EncodeMessage(impl.Metadata(ctx, req)));
                 }),
                 new Server.Method("OpenProducer", "/grpcdc.kafka.v1.Kafka/OpenProducer", Server.KindUnary, (ctx, reqs, sink) =>
                 {
                     var req = new OpenProducerRequest();
                     reqs.RecvInto(req);
-                    sink(impl.OpenProducer(ctx, req).MarshalDc());
+                    sink(ctx.EncodeMessage(impl.OpenProducer(ctx, req)));
                 }),
                 new Server.Method("CloseProducer", "/grpcdc.kafka.v1.Kafka/CloseProducer", Server.KindUnary, (ctx, reqs, sink) =>
                 {
                     var req = new CloseProducerRequest();
                     reqs.RecvInto(req);
-                    sink(impl.CloseProducer(ctx, req).MarshalDc());
+                    sink(ctx.EncodeMessage(impl.CloseProducer(ctx, req)));
                 }),
                 new Server.Method("EndTransaction", "/grpcdc.kafka.v1.Kafka/EndTransaction", Server.KindUnary, (ctx, reqs, sink) =>
                 {
                     var req = new EndTransactionRequest();
                     reqs.RecvInto(req);
-                    sink(impl.EndTransaction(ctx, req).MarshalDc());
+                    sink(ctx.EncodeMessage(impl.EndTransaction(ctx, req)));
                 }),
                 new Server.Method("Produce", "/grpcdc.kafka.v1.Kafka/Produce", Server.KindUnary, (ctx, reqs, sink) =>
                 {
                     var req = new ProduceRequest();
                     reqs.RecvInto(req);
-                    sink(impl.Produce(ctx, req).MarshalDc());
+                    sink(ctx.EncodeMessage(impl.Produce(ctx, req)));
                 }),
                 new Server.Method("Consume", "/grpcdc.kafka.v1.Kafka/Consume", Server.KindServerStreaming, (ctx, reqs, sink) =>
                 {
@@ -808,139 +808,139 @@ public static class KafkaGrpcDc
                 {
                     var req = new ListOffsetsRequest();
                     reqs.RecvInto(req);
-                    sink(impl.ListOffsets(ctx, req).MarshalDc());
+                    sink(ctx.EncodeMessage(impl.ListOffsets(ctx, req)));
                 }),
                 new Server.Method("CommitOffset", "/grpcdc.kafka.v1.Kafka/CommitOffset", Server.KindUnary, (ctx, reqs, sink) =>
                 {
                     var req = new CommitOffsetRequest();
                     reqs.RecvInto(req);
-                    sink(impl.CommitOffset(ctx, req).MarshalDc());
+                    sink(ctx.EncodeMessage(impl.CommitOffset(ctx, req)));
                 }),
                 new Server.Method("FetchOffset", "/grpcdc.kafka.v1.Kafka/FetchOffset", Server.KindUnary, (ctx, reqs, sink) =>
                 {
                     var req = new FetchOffsetRequest();
                     reqs.RecvInto(req);
-                    sink(impl.FetchOffset(ctx, req).MarshalDc());
+                    sink(ctx.EncodeMessage(impl.FetchOffset(ctx, req)));
                 }),
                 new Server.Method("CreateTopics", "/grpcdc.kafka.v1.Kafka/CreateTopics", Server.KindUnary, (ctx, reqs, sink) =>
                 {
                     var req = new CreateTopicsRequest();
                     reqs.RecvInto(req);
-                    sink(impl.CreateTopics(ctx, req).MarshalDc());
+                    sink(ctx.EncodeMessage(impl.CreateTopics(ctx, req)));
                 }),
                 new Server.Method("DeleteTopics", "/grpcdc.kafka.v1.Kafka/DeleteTopics", Server.KindUnary, (ctx, reqs, sink) =>
                 {
                     var req = new DeleteTopicsRequest();
                     reqs.RecvInto(req);
-                    sink(impl.DeleteTopics(ctx, req).MarshalDc());
+                    sink(ctx.EncodeMessage(impl.DeleteTopics(ctx, req)));
                 }),
                 new Server.Method("DescribeConfigs", "/grpcdc.kafka.v1.Kafka/DescribeConfigs", Server.KindUnary, (ctx, reqs, sink) =>
                 {
                     var req = new DescribeConfigsRequest();
                     reqs.RecvInto(req);
-                    sink(impl.DescribeConfigs(ctx, req).MarshalDc());
+                    sink(ctx.EncodeMessage(impl.DescribeConfigs(ctx, req)));
                 }),
                 new Server.Method("AlterConfigs", "/grpcdc.kafka.v1.Kafka/AlterConfigs", Server.KindUnary, (ctx, reqs, sink) =>
                 {
                     var req = new AlterConfigsRequest();
                     reqs.RecvInto(req);
-                    sink(impl.AlterConfigs(ctx, req).MarshalDc());
+                    sink(ctx.EncodeMessage(impl.AlterConfigs(ctx, req)));
                 }),
                 new Server.Method("CreatePartitions", "/grpcdc.kafka.v1.Kafka/CreatePartitions", Server.KindUnary, (ctx, reqs, sink) =>
                 {
                     var req = new CreatePartitionsRequest();
                     reqs.RecvInto(req);
-                    sink(impl.CreatePartitions(ctx, req).MarshalDc());
+                    sink(ctx.EncodeMessage(impl.CreatePartitions(ctx, req)));
                 }),
                 new Server.Method("DeleteRecords", "/grpcdc.kafka.v1.Kafka/DeleteRecords", Server.KindUnary, (ctx, reqs, sink) =>
                 {
                     var req = new DeleteRecordsRequest();
                     reqs.RecvInto(req);
-                    sink(impl.DeleteRecords(ctx, req).MarshalDc());
+                    sink(ctx.EncodeMessage(impl.DeleteRecords(ctx, req)));
                 }),
                 new Server.Method("ListGroups", "/grpcdc.kafka.v1.Kafka/ListGroups", Server.KindUnary, (ctx, reqs, sink) =>
                 {
                     var req = new ListGroupsRequest();
                     reqs.RecvInto(req);
-                    sink(impl.ListGroups(ctx, req).MarshalDc());
+                    sink(ctx.EncodeMessage(impl.ListGroups(ctx, req)));
                 }),
                 new Server.Method("DescribeGroups", "/grpcdc.kafka.v1.Kafka/DescribeGroups", Server.KindUnary, (ctx, reqs, sink) =>
                 {
                     var req = new DescribeGroupsRequest();
                     reqs.RecvInto(req);
-                    sink(impl.DescribeGroups(ctx, req).MarshalDc());
+                    sink(ctx.EncodeMessage(impl.DescribeGroups(ctx, req)));
                 }),
                 new Server.Method("DeleteGroups", "/grpcdc.kafka.v1.Kafka/DeleteGroups", Server.KindUnary, (ctx, reqs, sink) =>
                 {
                     var req = new DeleteGroupsRequest();
                     reqs.RecvInto(req);
-                    sink(impl.DeleteGroups(ctx, req).MarshalDc());
+                    sink(ctx.EncodeMessage(impl.DeleteGroups(ctx, req)));
                 }),
                 new Server.Method("DeleteGroupOffsets", "/grpcdc.kafka.v1.Kafka/DeleteGroupOffsets", Server.KindUnary, (ctx, reqs, sink) =>
                 {
                     var req = new DeleteGroupOffsetsRequest();
                     reqs.RecvInto(req);
-                    sink(impl.DeleteGroupOffsets(ctx, req).MarshalDc());
+                    sink(ctx.EncodeMessage(impl.DeleteGroupOffsets(ctx, req)));
                 }),
                 new Server.Method("DescribeAcls", "/grpcdc.kafka.v1.Kafka/DescribeAcls", Server.KindUnary, (ctx, reqs, sink) =>
                 {
                     var req = new DescribeAclsRequest();
                     reqs.RecvInto(req);
-                    sink(impl.DescribeAcls(ctx, req).MarshalDc());
+                    sink(ctx.EncodeMessage(impl.DescribeAcls(ctx, req)));
                 }),
                 new Server.Method("CreateAcls", "/grpcdc.kafka.v1.Kafka/CreateAcls", Server.KindUnary, (ctx, reqs, sink) =>
                 {
                     var req = new CreateAclsRequest();
                     reqs.RecvInto(req);
-                    sink(impl.CreateAcls(ctx, req).MarshalDc());
+                    sink(ctx.EncodeMessage(impl.CreateAcls(ctx, req)));
                 }),
                 new Server.Method("DeleteAcls", "/grpcdc.kafka.v1.Kafka/DeleteAcls", Server.KindUnary, (ctx, reqs, sink) =>
                 {
                     var req = new DeleteAclsRequest();
                     reqs.RecvInto(req);
-                    sink(impl.DeleteAcls(ctx, req).MarshalDc());
+                    sink(ctx.EncodeMessage(impl.DeleteAcls(ctx, req)));
                 }),
                 new Server.Method("ListTransactions", "/grpcdc.kafka.v1.Kafka/ListTransactions", Server.KindUnary, (ctx, reqs, sink) =>
                 {
                     var req = new ListTransactionsRequest();
                     reqs.RecvInto(req);
-                    sink(impl.ListTransactions(ctx, req).MarshalDc());
+                    sink(ctx.EncodeMessage(impl.ListTransactions(ctx, req)));
                 }),
                 new Server.Method("DescribeTransactions", "/grpcdc.kafka.v1.Kafka/DescribeTransactions", Server.KindUnary, (ctx, reqs, sink) =>
                 {
                     var req = new DescribeTransactionsRequest();
                     reqs.RecvInto(req);
-                    sink(impl.DescribeTransactions(ctx, req).MarshalDc());
+                    sink(ctx.EncodeMessage(impl.DescribeTransactions(ctx, req)));
                 }),
                 new Server.Method("OpenShareGroup", "/grpcdc.kafka.v1.Kafka/OpenShareGroup", Server.KindUnary, (ctx, reqs, sink) =>
                 {
                     var req = new OpenShareGroupRequest();
                     reqs.RecvInto(req);
-                    sink(impl.OpenShareGroup(ctx, req).MarshalDc());
+                    sink(ctx.EncodeMessage(impl.OpenShareGroup(ctx, req)));
                 }),
                 new Server.Method("SharePoll", "/grpcdc.kafka.v1.Kafka/SharePoll", Server.KindUnary, (ctx, reqs, sink) =>
                 {
                     var req = new SharePollRequest();
                     reqs.RecvInto(req);
-                    sink(impl.SharePoll(ctx, req).MarshalDc());
+                    sink(ctx.EncodeMessage(impl.SharePoll(ctx, req)));
                 }),
                 new Server.Method("ShareAck", "/grpcdc.kafka.v1.Kafka/ShareAck", Server.KindUnary, (ctx, reqs, sink) =>
                 {
                     var req = new ShareAckRequest();
                     reqs.RecvInto(req);
-                    sink(impl.ShareAck(ctx, req).MarshalDc());
+                    sink(ctx.EncodeMessage(impl.ShareAck(ctx, req)));
                 }),
                 new Server.Method("CloseShareGroup", "/grpcdc.kafka.v1.Kafka/CloseShareGroup", Server.KindUnary, (ctx, reqs, sink) =>
                 {
                     var req = new CloseShareGroupRequest();
                     reqs.RecvInto(req);
-                    sink(impl.CloseShareGroup(ctx, req).MarshalDc());
+                    sink(ctx.EncodeMessage(impl.CloseShareGroup(ctx, req)));
                 }),
                 new Server.Method("DescribeShareGroups", "/grpcdc.kafka.v1.Kafka/DescribeShareGroups", Server.KindUnary, (ctx, reqs, sink) =>
                 {
                     var req = new DescribeShareGroupsRequest();
                     reqs.RecvInto(req);
-                    sink(impl.DescribeShareGroups(ctx, req).MarshalDc());
+                    sink(ctx.EncodeMessage(impl.DescribeShareGroups(ctx, req)));
                 }),
             }));
     }

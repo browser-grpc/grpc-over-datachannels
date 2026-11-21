@@ -105,50 +105,50 @@ inline std::pair<std::string, double> OrcaLoadReportUtilizationEntryDecode(const
 }  // namespace pb_orca_load_report
 
 inline grpcdc::Bytes OrcaLoadReport::MarshalDc() const {
-    pb_orca_load_report::Writer w;
-    if (cpu_utilization != 0) { w.Tag(1, 1); w.FixedDouble(cpu_utilization); }
-    if (mem_utilization != 0) { w.Tag(2, 1); w.FixedDouble(mem_utilization); }
-    if (rps_fractional != 0) { w.Tag(3, 1); w.FixedDouble(rps_fractional); }
-    if (!request_cost.empty()) for (const auto& e : request_cost) w.BytesField(4, pb_orca_load_report::OrcaLoadReportRequestCostEntryEncode(e.first, e.second));
-    if (!utilization.empty()) for (const auto& e : utilization) w.BytesField(5, pb_orca_load_report::OrcaLoadReportUtilizationEntryEncode(e.first, e.second));
-    w.Raw(unknown_fields);
-    return w.ToBytes();
+    pb_orca_load_report::Writer pb_w;
+    if (cpu_utilization != 0) { pb_w.Tag(1, 1); pb_w.FixedDouble(cpu_utilization); }
+    if (mem_utilization != 0) { pb_w.Tag(2, 1); pb_w.FixedDouble(mem_utilization); }
+    if (rps_fractional != 0) { pb_w.Tag(3, 1); pb_w.FixedDouble(rps_fractional); }
+    if (!request_cost.empty()) for (const auto& pb_e : request_cost) pb_w.BytesField(4, pb_orca_load_report::OrcaLoadReportRequestCostEntryEncode(pb_e.first, pb_e.second));
+    if (!utilization.empty()) for (const auto& pb_e : utilization) pb_w.BytesField(5, pb_orca_load_report::OrcaLoadReportUtilizationEntryEncode(pb_e.first, pb_e.second));
+    pb_w.Raw(unknown_fields);
+    return pb_w.ToBytes();
 }
 
-inline void OrcaLoadReport::UnmarshalDc(const grpcdc::Bytes& data) {
+inline void OrcaLoadReport::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
     unknown_fields.clear();
     cpu_utilization = 0;
     mem_utilization = 0;
     rps_fractional = 0;
     request_cost = {};
     utilization = {};
-    pb_orca_load_report::Reader r(data);
-    pb_orca_load_report::Field field;
-    while (r.Next(field)) {
-      switch (field.number) {
+    pb_orca_load_report::Reader pb_r(pb_data_);
+    pb_orca_load_report::Field pb_field;
+    while (pb_r.Next(pb_field)) {
+      switch (pb_field.number) {
         case 1: {
-            cpu_utilization = pb_orca_load_report::BitsToDouble(field.fixed);
+            cpu_utilization = pb_orca_load_report::BitsToDouble(pb_field.fixed);
             break;
         }
         case 2: {
-            mem_utilization = pb_orca_load_report::BitsToDouble(field.fixed);
+            mem_utilization = pb_orca_load_report::BitsToDouble(pb_field.fixed);
             break;
         }
         case 3: {
-            rps_fractional = pb_orca_load_report::BitsToDouble(field.fixed);
+            rps_fractional = pb_orca_load_report::BitsToDouble(pb_field.fixed);
             break;
         }
         case 4: {
-            auto kv = pb_orca_load_report::OrcaLoadReportRequestCostEntryDecode(field.bytes);
-            request_cost[kv.first] = kv.second;
+            auto pb_kv = pb_orca_load_report::OrcaLoadReportRequestCostEntryDecode(pb_field.bytes);
+            request_cost[pb_kv.first] = pb_kv.second;
             break;
         }
         case 5: {
-            auto kv = pb_orca_load_report::OrcaLoadReportUtilizationEntryDecode(field.bytes);
-            utilization[kv.first] = kv.second;
+            auto pb_kv = pb_orca_load_report::OrcaLoadReportUtilizationEntryDecode(pb_field.bytes);
+            utilization[pb_kv.first] = pb_kv.second;
             break;
         }
-        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
+        default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;
       }
     }
 }
@@ -156,21 +156,21 @@ inline void OrcaLoadReport::UnmarshalDc(const grpcdc::Bytes& data) {
 namespace pb_orca_load_report {
 
 inline grpcdc::Bytes OrcaLoadReportRequestCostEntryEncode(const std::string& key, const double& value) {
-    Writer w;
-    w.StringField(1, key);
-    if (value != 0) { w.Tag(2, 1); w.FixedDouble(value); }
-    return w.ToBytes();
+    Writer pb_w;
+    pb_w.StringField(1, key);
+    if (value != 0) { pb_w.Tag(2, 1); pb_w.FixedDouble(value); }
+    return pb_w.ToBytes();
 }
 
 inline std::pair<std::string, double> OrcaLoadReportRequestCostEntryDecode(const grpcdc::Bytes& bytes) {
     std::string key = "";
     double value = 0;
-    Reader r(bytes);
-    Field field;
-    while (r.Next(field)) {
-        switch (field.number) {
-            case 1: key = std::string(field.bytes.begin(), field.bytes.end()); break;
-            case 2: value = pb_orca_load_report::BitsToDouble(field.fixed); break;
+    Reader pb_r(bytes);
+    Field pb_field;
+    while (pb_r.Next(pb_field)) {
+        switch (pb_field.number) {
+            case 1: key = std::string(pb_field.bytes.begin(), pb_field.bytes.end()); break;
+            case 2: value = pb_orca_load_report::BitsToDouble(pb_field.fixed); break;
             default: break;
         }
     }
@@ -178,21 +178,21 @@ inline std::pair<std::string, double> OrcaLoadReportRequestCostEntryDecode(const
 }
 
 inline grpcdc::Bytes OrcaLoadReportUtilizationEntryEncode(const std::string& key, const double& value) {
-    Writer w;
-    w.StringField(1, key);
-    if (value != 0) { w.Tag(2, 1); w.FixedDouble(value); }
-    return w.ToBytes();
+    Writer pb_w;
+    pb_w.StringField(1, key);
+    if (value != 0) { pb_w.Tag(2, 1); pb_w.FixedDouble(value); }
+    return pb_w.ToBytes();
 }
 
 inline std::pair<std::string, double> OrcaLoadReportUtilizationEntryDecode(const grpcdc::Bytes& bytes) {
     std::string key = "";
     double value = 0;
-    Reader r(bytes);
-    Field field;
-    while (r.Next(field)) {
-        switch (field.number) {
-            case 1: key = std::string(field.bytes.begin(), field.bytes.end()); break;
-            case 2: value = pb_orca_load_report::BitsToDouble(field.fixed); break;
+    Reader pb_r(bytes);
+    Field pb_field;
+    while (pb_r.Next(pb_field)) {
+        switch (pb_field.number) {
+            case 1: key = std::string(pb_field.bytes.begin(), pb_field.bytes.end()); break;
+            case 2: value = pb_orca_load_report::BitsToDouble(pb_field.fixed); break;
             default: break;
         }
     }

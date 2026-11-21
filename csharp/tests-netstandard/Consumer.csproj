@@ -24,6 +24,9 @@
     <Compile Include="../examples/EchoPb.cs" Link="Echo/EchoPb.cs" />
     <Compile Include="../examples/EchoRequest.cs" Link="Echo/EchoRequest.cs" />
     <Compile Include="../examples/EchoResponse.cs" Link="Echo/EchoResponse.cs" />
+    <Compile Include="../examples/EchoRequestStruct.cs" Link="Echo/EchoRequestStruct.cs" />
+    <Compile Include="../examples/EchoResponseStruct.cs" Link="Echo/EchoResponseStruct.cs" />
+    <Compile Include="../examples/EchoStructDc.cs" Link="Echo/EchoStructDc.cs" />
     <Compile Include="../examples/EchoGrpcDc.cs" Link="Echo/EchoGrpcDc.cs" />
     <Compile Include="../examples/EchoServiceImpl.cs" Link="Echo/EchoServiceImpl.cs" />
   </ItemGroup>

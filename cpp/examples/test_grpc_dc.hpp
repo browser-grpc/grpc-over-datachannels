@@ -448,7 +448,7 @@ struct TestGrpcDc {
     TestServiceStreamingOutputCallServerImpl(grpcdc::Endpoint::CallContext& ctx,
                                grpcdc::Server::ServerSink& sink)
         : ctx_(ctx), sink_(sink) {}
-    void Send(StreamingOutputCallResponse& resp) override { sink_(resp.MarshalDc()); }
+    void Send(StreamingOutputCallResponse& resp) override { sink_(ctx_.EncodeMessage(resp)); }
     grpcdc::Endpoint::CallContext& Context() override { return ctx_; }
 
    private:
@@ -471,7 +471,7 @@ struct TestGrpcDc {
       has_resp_ = true;
     }
     grpcdc::Endpoint::CallContext& Context() override { return ctx_; }
-    StreamingInputCallResponse Resp() const { return resp_; }
+    StreamingInputCallResponse CollectedResp() const { return resp_; }
     bool HasResp() const { return has_resp_; }
 
    private:
@@ -487,7 +487,7 @@ struct TestGrpcDc {
                        grpcdc::Server::RequestStream& reqs,
                        grpcdc::Server::ServerSink& sink)
         : ctx_(ctx), reqs_(reqs), sink_(sink) {}
-    void Send(StreamingOutputCallResponse& resp) override { sink_(resp.MarshalDc()); }
+    void Send(StreamingOutputCallResponse& resp) override { sink_(ctx_.EncodeMessage(resp)); }
     StreamingOutputCallRequest Recv() override {
       StreamingOutputCallRequest req;
       reqs_.RecvInto(req);
@@ -507,7 +507,7 @@ struct TestGrpcDc {
                        grpcdc::Server::RequestStream& reqs,
                        grpcdc::Server::ServerSink& sink)
         : ctx_(ctx), reqs_(reqs), sink_(sink) {}
-    void Send(StreamingOutputCallResponse& resp) override { sink_(resp.MarshalDc()); }
+    void Send(StreamingOutputCallResponse& resp) override { sink_(ctx_.EncodeMessage(resp)); }
     StreamingOutputCallRequest Recv() override {
       StreamingOutputCallRequest req;
       reqs_.RecvInto(req);
@@ -568,7 +568,7 @@ struct TestGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                Empty resp = impl.EmptyCall(mutable_ctx, req);
-               sink(resp.MarshalDc());
+               sink(ctx.EncodeMessage(resp));
              }},
             {"UnaryCall", "/grpc.testing.TestService/UnaryCall", grpcdc::Server::kKindUnary,
              [&impl](const grpcdc::Endpoint::CallContext& ctx,
@@ -578,7 +578,7 @@ struct TestGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                SimpleResponse resp = impl.UnaryCall(mutable_ctx, req);
-               sink(resp.MarshalDc());
+               sink(ctx.EncodeMessage(resp));
              }},
             {"CacheableUnaryCall", "/grpc.testing.TestService/CacheableUnaryCall", grpcdc::Server::kKindUnary,
              [&impl](const grpcdc::Endpoint::CallContext& ctx,
@@ -588,7 +588,7 @@ struct TestGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                SimpleResponse resp = impl.CacheableUnaryCall(mutable_ctx, req);
-               sink(resp.MarshalDc());
+               sink(ctx.EncodeMessage(resp));
              }},
             {"StreamingOutputCall", "/grpc.testing.TestService/StreamingOutputCall",
              grpcdc::Server::kKindServerStreaming,
@@ -614,8 +614,8 @@ struct TestGrpcDc {
                      grpcdc::wire::kCodeInternal,
                      "client-streaming handler never called SendAndClose");
                }
-               StreamingInputCallResponse resp = stream.Resp();
-               sink(resp.MarshalDc());
+               StreamingInputCallResponse resp = stream.CollectedResp();
+               sink(ctx.EncodeMessage(resp));
              }},
             {"FullDuplexCall", "/grpc.testing.TestService/FullDuplexCall", grpcdc::Server::kKindBidi,
              [&impl](const grpcdc::Endpoint::CallContext& ctx,
@@ -641,7 +641,7 @@ struct TestGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                Empty resp = impl.UnimplementedCall(mutable_ctx, req);
-               sink(resp.MarshalDc());
+               sink(ctx.EncodeMessage(resp));
              }},
         }});
   }
@@ -743,7 +743,7 @@ struct TestGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                Empty resp = impl.UnimplementedCall(mutable_ctx, req);
-               sink(resp.MarshalDc());
+               sink(ctx.EncodeMessage(resp));
              }},
         }});
   }
@@ -873,7 +873,7 @@ struct TestGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                Empty resp = impl.Start(mutable_ctx, req);
-               sink(resp.MarshalDc());
+               sink(ctx.EncodeMessage(resp));
              }},
             {"Stop", "/grpc.testing.ReconnectService/Stop", grpcdc::Server::kKindUnary,
              [&impl](const grpcdc::Endpoint::CallContext& ctx,
@@ -883,7 +883,7 @@ struct TestGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                ReconnectInfo resp = impl.Stop(mutable_ctx, req);
-               sink(resp.MarshalDc());
+               sink(ctx.EncodeMessage(resp));
              }},
         }});
   }
@@ -1013,7 +1013,7 @@ struct TestGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                LoadBalancerStatsResponse resp = impl.GetClientStats(mutable_ctx, req);
-               sink(resp.MarshalDc());
+               sink(ctx.EncodeMessage(resp));
              }},
             {"GetClientAccumulatedStats", "/grpc.testing.LoadBalancerStatsService/GetClientAccumulatedStats", grpcdc::Server::kKindUnary,
              [&impl](const grpcdc::Endpoint::CallContext& ctx,
@@ -1023,7 +1023,7 @@ struct TestGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                LoadBalancerAccumulatedStatsResponse resp = impl.GetClientAccumulatedStats(mutable_ctx, req);
-               sink(resp.MarshalDc());
+               sink(ctx.EncodeMessage(resp));
              }},
         }});
   }
@@ -1153,7 +1153,7 @@ struct TestGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                Empty resp = impl.SetServing(mutable_ctx, req);
-               sink(resp.MarshalDc());
+               sink(ctx.EncodeMessage(resp));
              }},
             {"SetNotServing", "/grpc.testing.XdsUpdateHealthService/SetNotServing", grpcdc::Server::kKindUnary,
              [&impl](const grpcdc::Endpoint::CallContext& ctx,
@@ -1163,7 +1163,7 @@ struct TestGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                Empty resp = impl.SetNotServing(mutable_ctx, req);
-               sink(resp.MarshalDc());
+               sink(ctx.EncodeMessage(resp));
              }},
         }});
   }
@@ -1265,7 +1265,7 @@ struct TestGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                ClientConfigureResponse resp = impl.Configure(mutable_ctx, req);
-               sink(resp.MarshalDc());
+               sink(ctx.EncodeMessage(resp));
              }},
         }});
   }

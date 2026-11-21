@@ -128,9 +128,10 @@ pub const EchoBidiClient = struct {
 pub const EchoServerStreamServer = struct {
     sink: server_mod.Sink,
     alloc: std.mem.Allocator,
+    struct_codec: bool = false,
 
     pub fn send(self: *EchoServerStreamServer, resp: *const EchoResponse) Status {
-        const payload = resp.marshalDc(self.alloc);
+        const payload = grpcdc.codec.marshalForCodec(self.alloc, self.struct_codec, resp);
         defer self.alloc.free(payload);
         return self.sink.send(payload);
     }
@@ -161,6 +162,7 @@ pub const EchoBidiServer = struct {
     reqs: *server_mod.RequestStream,
     sink: server_mod.Sink,
     alloc: std.mem.Allocator,
+    struct_codec: bool = false,
 
     pub fn recv(self: *EchoBidiServer) status_mod.RecvResult(EchoRequest) {
         var req = EchoRequest{};
@@ -172,7 +174,7 @@ pub const EchoBidiServer = struct {
     }
 
     pub fn send(self: *EchoBidiServer, resp: *const EchoResponse) Status {
-        const payload = resp.marshalDc(self.alloc);
+        const payload = grpcdc.codec.marshalForCodec(self.alloc, self.struct_codec, resp);
         defer self.alloc.free(payload);
         return self.sink.send(payload);
     }
@@ -201,7 +203,7 @@ fn echoUnaryAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.R
     var resp = EchoResponse{};
     const st = impl.unary_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
     if (!st.isOk()) return st;
-    const payload = resp.marshalDc(reqs.alloc);
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
     defer reqs.alloc.free(payload);
     return sink.send(payload);
 }
@@ -214,7 +216,7 @@ fn echoServerStreamAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *serve
         .end => return Status.init(wire.codeInternal, "server-streaming call closed with no request"),
         .status => |st| return st,
     }
-    var stream = EchoServerStreamServer{ .sink = sink, .alloc = reqs.alloc };
+    var stream = EchoServerStreamServer{ .sink = sink, .alloc = reqs.alloc, .struct_codec = call_ctx.struct_codec };
     return impl.server_stream_fn(impl.ctx, call_ctx, &req, &stream);
 }
 
@@ -227,14 +229,14 @@ fn echoClientStreamAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *serve
     if (!st.isOk()) return st;
     const resp = stream.resp orelse
         return Status.init(wire.codeInternal, "client-streaming handler never called sendAndClose");
-    const payload = resp.marshalDc(reqs.alloc);
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
     defer reqs.alloc.free(payload);
     return sink.send(payload);
 }
 
 fn echoBidiAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {
     const impl: *EchoServer = @ptrCast(@alignCast(ctx));
-    var stream = EchoBidiServer{ .reqs = reqs, .sink = sink, .alloc = reqs.alloc };
+    var stream = EchoBidiServer{ .reqs = reqs, .sink = sink, .alloc = reqs.alloc, .struct_codec = call_ctx.struct_codec };
     return impl.bidi_fn(impl.ctx, call_ctx, &stream);
 }
 

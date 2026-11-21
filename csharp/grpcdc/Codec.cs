@@ -16,6 +16,39 @@ public static class Codec
     public const int HeaderLen = 9;
     public const int MaxDataPayload = 16 * 1024 * 1024;
 
+    /// <summary>HEADERS metadata key a client sends to request the struct codec for a call.</summary>
+    public const string StructCodecHeader = "dc-codec";
+    public const string StructCodecV1 = "struct-v1";
+
+    /// <summary>Marshal msg with the codec selected for a call (struct layout when negotiated).</summary>
+    public static byte[] MarshalForCodec(bool structCodec, IMarshaler msg)
+    {
+        if (structCodec)
+        {
+            if (msg is IStructMarshaler sm)
+            {
+                return sm.MarshalStruct();
+            }
+            throw new StatusException(Wire.CodeInternal, "message has no struct codec");
+        }
+        return msg.MarshalDc();
+    }
+
+    /// <summary>Decode data into msg with the codec selected for a call.</summary>
+    public static void UnmarshalForCodec(bool structCodec, byte[] data, IUnmarshaler msg)
+    {
+        if (structCodec)
+        {
+            if (msg is IStructUnmarshaler su)
+            {
+                su.UnmarshalStruct(data);
+                return;
+            }
+            throw new StatusException(Wire.CodeInternal, "message has no struct codec");
+        }
+        msg.UnmarshalDc(data);
+    }
+
     /// <summary>One parsed frame.</summary>
     public sealed class Frame
     {

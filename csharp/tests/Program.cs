@@ -14,6 +14,7 @@ public static class Program
         {
             switch (args[0])
             {
+                case "TestStructCodec": TestStructCodec.Run(); break;
                 case "TestCodec": TestCodec.Run(); break;
                 case "TestEcho": TestEcho.Run(); break;
                 case "TestEventBus": TestEventBus.Run(); break;

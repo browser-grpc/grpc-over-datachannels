@@ -38,6 +38,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`test_oracle.cpp`](tests/test_oracle.cpp) — Official-implementation oracle, via the proxy
 - [`test_pb_messages.cpp`](tests/test_pb_messages.cpp) — Generated suite/example
 - [`test_sidecar.cpp`](tests/test_sidecar.cpp) — Sidecar transport
+- [`test_struct_codec.cpp`](tests/test_struct_codec.cpp) — Wire codec vectors
 - [`test_tracing.cpp`](tests/test_tracing.cpp) — Tracing: traceparent propagation, span observers, nested calls
 - [`test_util.hpp`](tests/test_util.hpp) — Generated suite/example
 
@@ -51,6 +52,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`echo_messages.hpp`](examples/echo_messages.hpp) — Echo: all four call shapes
 - [`echo_server_stdio.cpp`](examples/echo_server_stdio.cpp) — Echo: all four call shapes
 - [`echo_service_impl.hpp`](examples/echo_service_impl.hpp) — Echo: all four call shapes
+- [`echo_struct.hpp`](examples/echo_struct.hpp) — Echo: all four call shapes
 - [`empty_grpc_dc.hpp`](examples/empty_grpc_dc.hpp) — Generated suite/example
 - [`empty_messages.hpp`](examples/empty_messages.hpp) — Generated suite/example
 - [`eventbus_demo.cpp`](examples/eventbus_demo.cpp) — Event bus end-to-end
