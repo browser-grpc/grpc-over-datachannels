@@ -10,7 +10,11 @@ RACKET ?= racket
 PROTOC ?= protoc
 CARGO  ?= cargo
 
-.PHONY: generate direct-examples plugins stubs interop-stubs compat update-baseline check-generated scalajs-gen webapp-assets webapp-dist webapp-serve release-public transcripts test test-racket test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-php test-scala test-webrtc-rust test-webrtc-nostd test-iot test-webrtc-js test-proxy test-webrtc-go eventbus-stubs kafka-stubs test-kafka test-live-stun test-live-stun-ci test-nat-e2e test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-scalajs-browser test-wasm-matrix test-browser-examples test-webapp test-interop-matrix test-webrtc-matrix test-stress-ports test-schema-shapes bench-mux demos clean-gen soak video-tts-image video-tts-up video-tts-down video-build video-preview video-grpcdc video-kafka video-tracing video-direct video-eventbus
+.PHONY: generate test-struct-corpus direct-examples plugins stubs interop-stubs compat update-baseline check-generated scalajs-gen webapp-assets webapp-dist webapp-serve release-public transcripts test test-racket test-rust test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-lua test-ruby test-php test-scala test-webrtc-rust test-webrtc-nostd test-iot test-webrtc-js test-proxy test-webrtc-go eventbus-stubs kafka-stubs test-kafka test-live-stun test-live-stun-ci test-nat-e2e test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-scalajs-browser test-wasm-matrix test-browser-examples test-webapp test-interop-matrix test-webrtc-matrix test-stress-ports test-schema-shapes bench-mux demos clean-gen soak video-tts-image video-tts-up video-tts-down video-build video-preview video-grpcdc video-kafka video-tracing video-direct video-eventbus
+
+## Struct-codec conformance corpus (golden bytes, admitted languages only)
+test-struct-corpus:
+	python3 scripts/test-struct-corpus.py
 
 ## Regenerate plugins + wire tables + fixtures from racket/spec.rkt
 plugins:
@@ -21,39 +25,39 @@ plugins:
 stubs: eventbus-stubs kafka-stubs
 	mkdir -p rust/gen js/examples go/examples
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-rust=bin/protoc-gen-grpc-dc-rust \
-		--grpc-dc-rust_out=rust/gen -I proto proto/echo.proto
+		--grpc-dc-rust_out=rust/gen --grpc-dc-rust_opt=struct_codec=true -I proto proto/echo.proto
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-js=bin/protoc-gen-grpc-dc-js \
 		--grpc-dc-js_out=js/examples -I proto proto/echo.proto
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-go=bin/protoc-gen-grpc-dc-go \
-		--grpc-dc-go_out=go/examples -I proto proto/echo.proto
-	gofmt -w go/examples/echo_grpc_dc.go
+		--grpc-dc-go_out=go/examples --grpc-dc-go_opt=struct_codec=true -I proto proto/echo.proto
+	gofmt -w go/examples/echo_grpc_dc.go go/examples/echo_pb.go
 	mkdir -p python/examples
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-python=bin/protoc-gen-grpc-dc-python \
 		--grpc-dc-python_out=python/examples -I proto proto/echo.proto
 	mkdir -p java/examples
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-java=bin/protoc-gen-grpc-dc-java \
-		--grpc-dc-java_out=java/examples -I proto proto/echo.proto
+		--grpc-dc-java_out=java/examples --grpc-dc-java_opt=struct_codec=true -I proto proto/echo.proto
 	mkdir -p csharp/examples
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-csharp=bin/protoc-gen-grpc-dc-csharp \
-		--grpc-dc-csharp_out=csharp/examples -I proto proto/echo.proto
+		--grpc-dc-csharp_out=csharp/examples --grpc-dc-csharp_opt=struct_codec=true -I proto proto/echo.proto
 	mkdir -p cpp/examples
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-cpp=bin/protoc-gen-grpc-dc-cpp \
-		--grpc-dc-cpp_out=cpp/examples -I proto proto/echo.proto
+		--grpc-dc-cpp_out=cpp/examples --grpc-dc-cpp_opt=struct_codec=true -I proto proto/echo.proto
 	mkdir -p swift/examples
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-swift=bin/protoc-gen-grpc-dc-swift \
-		--grpc-dc-swift_out=swift/examples -I proto proto/echo.proto
+		--grpc-dc-swift_out=swift/examples --grpc-dc-swift_opt=struct_codec=true -I proto proto/echo.proto
 	mkdir -p kotlin/examples
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-kotlin=bin/protoc-gen-grpc-dc-kotlin \
-		--grpc-dc-kotlin_out=kotlin/examples -I proto proto/echo.proto
+		--grpc-dc-kotlin_out=kotlin/examples --grpc-dc-kotlin_opt=struct_codec=true -I proto proto/echo.proto
 	mkdir -p dart/examples
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-dart=bin/protoc-gen-grpc-dc-dart \
-		--grpc-dc-dart_out=dart/examples -I proto proto/echo.proto
+		--grpc-dc-dart_out=dart/examples --grpc-dc-dart_opt=struct_codec=true -I proto proto/echo.proto
 	mkdir -p zig/examples
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-zig=bin/protoc-gen-grpc-dc-zig \
-		--grpc-dc-zig_out=zig/examples -I proto proto/echo.proto
+		--grpc-dc-zig_out=zig/examples --grpc-dc-zig_opt=struct_codec=true -I proto proto/echo.proto
 	mkdir -p c/examples
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-c=bin/protoc-gen-grpc-dc-c \
-		--grpc-dc-c_out=c/examples -I proto proto/echo.proto
+		--grpc-dc-c_out=c/examples --grpc-dc-c_opt=struct_codec=true -I proto proto/echo.proto
 	mkdir -p lua/examples
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-lua=bin/protoc-gen-grpc-dc-lua \
 		--grpc-dc-lua_out=lua/examples -I proto proto/echo.proto
@@ -65,7 +69,7 @@ stubs: eventbus-stubs kafka-stubs
 		--grpc-dc-php_out=php/examples -I proto proto/echo.proto
 	mkdir -p scala/examples
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-scala=bin/protoc-gen-grpc-dc-scala \
-		--grpc-dc-scala_out=scala/examples -I proto proto/echo.proto
+		--grpc-dc-scala_out=scala/examples --grpc-dc-scala_opt=struct_codec=true -I proto proto/echo.proto
 	mkdir -p wasm/go
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-wasm-go=bin/protoc-gen-grpc-dc-wasm-go \
 		--grpc-dc-wasm-go_out=wasm/go -I proto proto/echo.proto
@@ -104,11 +108,11 @@ interop-stubs:
 		grpc/testing/test.proto grpc/testing/messages.proto grpc/testing/empty.proto \
 		xds/data/orca/v3/orca_load_report.proto xds/service/orca/v3/orca.proto
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-go=bin/protoc-gen-grpc-dc-go \
-		--grpc-dc-go_out=go/interop --grpc-dc-go_opt=go_package=testing -I oracle/interop \
+		--grpc-dc-go_out=go/interop --grpc-dc-go_opt=go_package=testing,struct_codec=true -I oracle/interop \
 		grpc/testing/test.proto grpc/testing/messages.proto grpc/testing/empty.proto \
 		xds/data/orca/v3/orca_load_report.proto xds/service/orca/v3/orca.proto
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-rust=bin/protoc-gen-grpc-dc-rust \
-		--grpc-dc-rust_out=rust/gen -I oracle/interop \
+		--grpc-dc-rust_out=rust/gen --grpc-dc-rust_opt=struct_codec=true -I oracle/interop \
 		grpc/testing/test.proto grpc/testing/messages.proto grpc/testing/empty.proto \
 		xds/data/orca/v3/orca_load_report.proto xds/service/orca/v3/orca.proto
 	mkdir -p java/examples/interop
@@ -304,7 +308,8 @@ test-js:
 	cd js && node --test test/*.test.js
 
 test-go:
-	cd go && go test -race ./...
+	cd rust && cargo build --release
+	cd go && GRPCDC_STRUCTDC_LIB=$(CURDIR)/rust/target/release/libgrpc_dc.so go test -race ./...
 
 test-webrtc-rust:
 	cd webrtc/rust && $(CARGO) test
@@ -381,7 +386,10 @@ test-python:
 	cd python && python3 -m unittest discover -s tests
 
 test-java:
+	cd rust && cargo build --release
+	mkdir -p rust/target/jni && JH=$$(dirname $$(dirname $$(readlink -f $$(command -v javac)))) && cc -shared -fPIC -I$$JH/include -I$$JH/include/linux java/jni/structdc_jni.c -ldl -o rust/target/jni/libgrpcdc_structdc_jni.so
 	cd java && mkdir -p build && javac -encoding UTF-8 -d build $$(find grpcdc examples tests -name '*.java') \
+		&& GRPC_DC_STRUCTDC_JNI=$(CURDIR)/rust/target/jni/libgrpcdc_structdc_jni.so GRPCDC_STRUCTDC_LIB=$(CURDIR)/rust/target/release/libgrpc_dc.so java -cp build tests.TestStructCodec \
 		&& java -cp build tests.TestCodec && java -cp build tests.TestEcho \
 		&& java -cp build tests.TestInterop && java -cp build tests.TestInteropOracle && java -cp build tests.TestInteropServerOracle && java -cp build tests.TestOracle && java -cp build tests.TestHttp2Oracle \
 		&& java -cp build tests.TestDynamic && java -cp build tests.TestBdd && java -cp build tests.TestDeadline && java -cp build tests.TestTracing \
@@ -391,10 +399,12 @@ test-java:
 		&& java -cp build tests.TestPbMessages && java -cp build tests.TestBddSchemas
 
 test-csharp:
+	cd rust && cargo build --release
 	cd csharp && dotnet build grpcdc/Grpcdc.csproj -f netstandard2.0 --nologo -v q \
 		&& dotnet build tests/Tests.csproj --nologo -v q \
 		&& dotnet build examples/EchoServerStdio/EchoServerStdio.csproj --nologo -v q \
 		&& dotnet build examples/EchoClientStdio/EchoClientStdio.csproj --nologo -v q \
+		&& LD_LIBRARY_PATH=$(CURDIR)/rust/target/release dotnet run --project tests --no-build -- TestStructCodec \
 		&& dotnet run --project tests --no-build -- TestCodec \
 		&& dotnet run --project tests --no-build -- TestEcho \
 		&& dotnet run --project tests --no-build -- TestEventBus \
@@ -422,33 +432,35 @@ CXX ?= g++
 CXXFLAGS ?= -std=c++17 -pthread -O1 -Icpp -I.
 
 test-cpp:
+	cd rust && cargo build --release
 	mkdir -p cpp/build
-	$(CXX) $(CXXFLAGS) cpp/tests/main.cpp cpp/tests/test_codec.cpp cpp/tests/test_echo.cpp cpp/tests/test_interop.cpp cpp/tests/test_interop_oracle.cpp cpp/tests/test_interop_server_oracle.cpp cpp/tests/test_oracle.cpp cpp/tests/test_dynamic.cpp cpp/tests/test_bdd.cpp cpp/tests/test_deadline.cpp cpp/tests/test_tracing.cpp cpp/tests/test_inline_pump.cpp cpp/tests/test_pb_messages.cpp cpp/tests/test_bdd_schemas.cpp cpp/tests/test_sidecar.cpp cpp/tests/test_bdd_sidecar.cpp cpp/tests/test_eventbus.cpp cpp/tests/test_kafka_e2e.cpp -o cpp/build/tests
-	$(CXX) $(CXXFLAGS) cpp/examples/echo_server_stdio.cpp -o cpp/build/echo_server_stdio
-	$(CXX) $(CXXFLAGS) cpp/examples/echo_client_stdio.cpp -o cpp/build/echo_client_stdio
-	$(CXX) $(CXXFLAGS) cpp/examples/dynamic_echo_server_stdio.cpp -o cpp/build/dynamic_echo_server_stdio
-	$(CXX) $(CXXFLAGS) cpp/examples/interop_server_stdio.cpp -o cpp/build/interop_server_stdio
-	cd cpp && ./build/tests TestCodec && ./build/tests TestEcho \
+	$(CXX) $(CXXFLAGS) cpp/tests/main.cpp cpp/tests/test_codec.cpp cpp/tests/test_echo.cpp cpp/tests/test_interop.cpp cpp/tests/test_interop_oracle.cpp cpp/tests/test_interop_server_oracle.cpp cpp/tests/test_oracle.cpp cpp/tests/test_dynamic.cpp cpp/tests/test_bdd.cpp cpp/tests/test_deadline.cpp cpp/tests/test_tracing.cpp cpp/tests/test_inline_pump.cpp cpp/tests/test_pb_messages.cpp cpp/tests/test_bdd_schemas.cpp cpp/tests/test_sidecar.cpp cpp/tests/test_bdd_sidecar.cpp cpp/tests/test_eventbus.cpp cpp/tests/test_kafka_e2e.cpp cpp/tests/test_struct_codec.cpp -L rust/target/release -lgrpc_dc -Wl,-rpath,$(CURDIR)/rust/target/release -o cpp/build/tests
+	$(CXX) $(CXXFLAGS) cpp/examples/echo_server_stdio.cpp -L rust/target/release -lgrpc_dc -Wl,-rpath,$(CURDIR)/rust/target/release -o cpp/build/echo_server_stdio
+	$(CXX) $(CXXFLAGS) cpp/examples/echo_client_stdio.cpp -L rust/target/release -lgrpc_dc -Wl,-rpath,$(CURDIR)/rust/target/release -o cpp/build/echo_client_stdio
+	$(CXX) $(CXXFLAGS) cpp/examples/dynamic_echo_server_stdio.cpp -L rust/target/release -lgrpc_dc -Wl,-rpath,$(CURDIR)/rust/target/release -o cpp/build/dynamic_echo_server_stdio
+	$(CXX) $(CXXFLAGS) cpp/examples/interop_server_stdio.cpp -L rust/target/release -lgrpc_dc -Wl,-rpath,$(CURDIR)/rust/target/release -o cpp/build/interop_server_stdio
+	cd cpp && ./build/tests TestStructCodec && ./build/tests TestCodec && ./build/tests TestEcho \
 		&& ./build/tests TestInterop && ./build/tests TestInteropOracle && ./build/tests TestInteropServerOracle && ./build/tests TestOracle \
 		&& ./build/tests TestDynamic && ./build/tests TestBdd && ./build/tests TestDeadline && ./build/tests TestTracing \
 		&& ./build/tests TestEventBus \
 		&& ./build/tests TestInlinePump && ./build/tests TestPbMessages && ./build/tests TestBddSchemas && ./build/tests TestSidecar && ./build/tests TestBddSidecar && ./build/tests TestKafkaE2E
 	# C++20 coroutine surface test: built with zig's clang because
 	# GCC 13 hits an ICE (build_special_member_call) on this file.
-	$(ZIG) c++ -std=c++20 -pthread -O1 -Icpp -I. cpp/tests/test_async.cpp -o cpp/build/test_async
-	cd cpp && ./build/test_async
+	$(ZIG) c++ -std=c++20 -pthread -O1 -Icpp -I. cpp/tests/test_async.cpp $(CURDIR)/rust/target/release/libgrpc_dc.so -o cpp/build/test_async
+	cd cpp && LD_LIBRARY_PATH=$(CURDIR)/rust/target/release ./build/test_async
 
 SWIFTC ?= swiftc
 SWIFTFLAGS ?= -swift-version 5 -O -o
 
 test-swift:
+	cd rust && cargo build --release
 	mkdir -p swift/build
-	$(SWIFTC) -swift-version 5 -O swift/grpcdc/*.swift swift/examples/Pb.swift swift/examples/EchoMessages.swift swift/examples/EchoGrpcDc.swift swift/examples/EchoServiceImpl.swift swift/examples/StdioTransport.swift swift/examples/DynamicEchoService.swift swift/examples/interop/*.swift $(filter-out swift/tests/TestKafkaNative.swift,$(wildcard swift/tests/*.swift)) -o swift/build/tests
-	$(SWIFTC) -swift-version 5 -O swift/grpcdc/*.swift swift/examples/Pb.swift swift/examples/EchoMessages.swift swift/examples/EchoGrpcDc.swift swift/examples/EchoServiceImpl.swift swift/examples/StdioTransport.swift swift/examples/EchoServerStdio/main.swift -o swift/build/echo_server_stdio
-	$(SWIFTC) -swift-version 5 -O swift/grpcdc/*.swift swift/examples/Pb.swift swift/examples/EchoMessages.swift swift/examples/EchoGrpcDc.swift swift/examples/EchoServiceImpl.swift swift/examples/StdioTransport.swift swift/examples/EchoClientStdio/main.swift -o swift/build/echo_client_stdio
+	$(SWIFTC) -swift-version 5 -O -L $(CURDIR)/rust/target/release -lgrpc_dc -Xlinker -rpath -Xlinker $(CURDIR)/rust/target/release swift/grpcdc/*.swift swift/examples/Pb.swift swift/examples/EchoMessages.swift swift/examples/EchoRequestStruct.swift swift/examples/EchoResponseStruct.swift swift/examples/StructDcBridge.swift swift/examples/EchoGrpcDc.swift swift/examples/EchoServiceImpl.swift swift/examples/StdioTransport.swift swift/examples/DynamicEchoService.swift swift/examples/interop/*.swift $(filter-out swift/tests/TestKafkaNative.swift,$(wildcard swift/tests/*.swift)) -o swift/build/tests
+	$(SWIFTC) -swift-version 5 -O -L $(CURDIR)/rust/target/release -lgrpc_dc -Xlinker -rpath -Xlinker $(CURDIR)/rust/target/release swift/grpcdc/*.swift swift/examples/Pb.swift swift/examples/EchoMessages.swift swift/examples/EchoRequestStruct.swift swift/examples/EchoResponseStruct.swift swift/examples/StructDcBridge.swift swift/examples/EchoGrpcDc.swift swift/examples/EchoServiceImpl.swift swift/examples/StdioTransport.swift swift/examples/EchoServerStdio/main.swift -o swift/build/echo_server_stdio
+	$(SWIFTC) -swift-version 5 -O -L $(CURDIR)/rust/target/release -lgrpc_dc -Xlinker -rpath -Xlinker $(CURDIR)/rust/target/release swift/grpcdc/*.swift swift/examples/Pb.swift swift/examples/EchoMessages.swift swift/examples/EchoRequestStruct.swift swift/examples/EchoResponseStruct.swift swift/examples/StructDcBridge.swift swift/examples/EchoGrpcDc.swift swift/examples/EchoServiceImpl.swift swift/examples/StdioTransport.swift swift/examples/EchoClientStdio/main.swift -o swift/build/echo_client_stdio
 	$(SWIFTC) -swift-version 5 -O swift/grpcdc/*.swift swift/examples/StdioTransport.swift swift/examples/DynamicEchoService.swift swift/examples/DynamicEchoServerStdio/main.swift -o swift/build/dynamic_echo_server_stdio
-	$(SWIFTC) -swift-version 5 -O swift/grpcdc/*.swift swift/examples/Pb.swift swift/examples/EchoMessages.swift swift/examples/EchoGrpcDc.swift swift/examples/EchoServiceImpl.swift swift/examples/StdioTransport.swift swift/examples/interop/*.swift swift/examples/InteropServerStdio/main.swift -o swift/build/interop_server_stdio
-	cd swift && ./build/tests TestCodec && ./build/tests TestEcho \
+	$(SWIFTC) -swift-version 5 -O -L $(CURDIR)/rust/target/release -lgrpc_dc -Xlinker -rpath -Xlinker $(CURDIR)/rust/target/release swift/grpcdc/*.swift swift/examples/Pb.swift swift/examples/EchoMessages.swift swift/examples/EchoRequestStruct.swift swift/examples/EchoResponseStruct.swift swift/examples/StructDcBridge.swift swift/examples/EchoGrpcDc.swift swift/examples/EchoServiceImpl.swift swift/examples/StdioTransport.swift swift/examples/interop/*.swift swift/examples/InteropServerStdio/main.swift -o swift/build/interop_server_stdio
+	cd swift && LD_LIBRARY_PATH=$(CURDIR)/rust/target/release ./build/tests TestStructCodec && ./build/tests TestCodec && ./build/tests TestEcho \
 		&& ./build/tests TestInterop && ./build/tests TestInteropOracle && ./build/tests TestInteropServerOracle && ./build/tests TestHttp2Oracle && ./build/tests TestOracle \
 		&& ./build/tests TestDynamic && ./build/tests TestBdd && ./build/tests TestDeadline && ./build/tests TestTracing \
 		&& ./build/tests TestEventBus \
@@ -457,13 +469,15 @@ test-swift:
 KOTLINC ?= kotlinc
 
 test-kotlin:
+	cd rust && cargo build --release
+	mkdir -p rust/target/jni && JH=$$(dirname $$(dirname $$(readlink -f $$(command -v javac)))) && cc -shared -fPIC -I$$JH/include -I$$JH/include/linux java/jni/structdc_jni.c -ldl -o rust/target/jni/libgrpcdc_structdc_jni.so
 	mkdir -p kotlin/build
-	$(KOTLINC) -include-runtime kotlin/grpcdc/*.kt kotlin/examples/Pb.kt kotlin/examples/EchoMessages.kt kotlin/examples/EchoGrpcDc.kt kotlin/examples/EchoServiceImpl.kt kotlin/examples/StdioTransport.kt kotlin/examples/DynamicEchoService.kt kotlin/examples/interop/*.kt kotlin/tests/*.kt -d kotlin/build/tests.jar
-	$(KOTLINC) -include-runtime kotlin/grpcdc/*.kt kotlin/examples/Pb.kt kotlin/examples/EchoMessages.kt kotlin/examples/EchoGrpcDc.kt kotlin/examples/EchoServiceImpl.kt kotlin/examples/StdioTransport.kt kotlin/examples/EchoServerStdio/Main.kt -d kotlin/build/echo_server_stdio.jar
-	$(KOTLINC) -include-runtime kotlin/grpcdc/*.kt kotlin/examples/Pb.kt kotlin/examples/EchoMessages.kt kotlin/examples/EchoGrpcDc.kt kotlin/examples/EchoServiceImpl.kt kotlin/examples/StdioTransport.kt kotlin/examples/interop/*.kt kotlin/examples/InteropServerStdio/Main.kt -d kotlin/build/interop_server_stdio.jar
-	$(KOTLINC) -include-runtime kotlin/grpcdc/*.kt kotlin/examples/Pb.kt kotlin/examples/EchoMessages.kt kotlin/examples/EchoGrpcDc.kt kotlin/examples/EchoServiceImpl.kt kotlin/examples/StdioTransport.kt kotlin/examples/EchoClientStdio/Main.kt -d kotlin/build/echo_client_stdio.jar
+	$(KOTLINC) -include-runtime kotlin/grpcdc/*.kt kotlin/examples/Pb.kt kotlin/examples/EchoMessages.kt kotlin/examples/EchoRequestStruct.kt kotlin/examples/EchoResponseStruct.kt kotlin/examples/EchoGrpcDc.kt kotlin/examples/EchoServiceImpl.kt kotlin/examples/StdioTransport.kt kotlin/examples/DynamicEchoService.kt kotlin/examples/interop/*.kt kotlin/tests/*.kt -d kotlin/build/tests.jar
+	$(KOTLINC) -include-runtime kotlin/grpcdc/*.kt kotlin/examples/Pb.kt kotlin/examples/EchoMessages.kt kotlin/examples/EchoRequestStruct.kt kotlin/examples/EchoResponseStruct.kt kotlin/examples/EchoGrpcDc.kt kotlin/examples/EchoServiceImpl.kt kotlin/examples/StdioTransport.kt kotlin/examples/EchoServerStdio/Main.kt -d kotlin/build/echo_server_stdio.jar
+	$(KOTLINC) -include-runtime kotlin/grpcdc/*.kt kotlin/examples/Pb.kt kotlin/examples/EchoMessages.kt kotlin/examples/EchoRequestStruct.kt kotlin/examples/EchoResponseStruct.kt kotlin/examples/EchoGrpcDc.kt kotlin/examples/EchoServiceImpl.kt kotlin/examples/StdioTransport.kt kotlin/examples/interop/*.kt kotlin/examples/InteropServerStdio/Main.kt -d kotlin/build/interop_server_stdio.jar
+	$(KOTLINC) -include-runtime kotlin/grpcdc/*.kt kotlin/examples/Pb.kt kotlin/examples/EchoMessages.kt kotlin/examples/EchoRequestStruct.kt kotlin/examples/EchoResponseStruct.kt kotlin/examples/EchoGrpcDc.kt kotlin/examples/EchoServiceImpl.kt kotlin/examples/StdioTransport.kt kotlin/examples/EchoClientStdio/Main.kt -d kotlin/build/echo_client_stdio.jar
 	$(KOTLINC) -include-runtime kotlin/grpcdc/*.kt kotlin/examples/StdioTransport.kt kotlin/examples/DynamicEchoService.kt kotlin/examples/DynamicEchoServerStdio/Main.kt -d kotlin/build/dynamic_echo_server_stdio.jar
-	java -jar kotlin/build/tests.jar TestCodec && java -jar kotlin/build/tests.jar TestEcho \
+	GRPC_DC_STRUCTDC_JNI=$(CURDIR)/rust/target/jni/libgrpcdc_structdc_jni.so GRPCDC_STRUCTDC_LIB=$(CURDIR)/rust/target/release/libgrpc_dc.so java -jar kotlin/build/tests.jar TestStructCodec && java -jar kotlin/build/tests.jar TestCodec && java -jar kotlin/build/tests.jar TestEcho \
 		&& java -jar kotlin/build/tests.jar TestInterop && java -jar kotlin/build/tests.jar TestInteropOracle && java -jar kotlin/build/tests.jar TestInteropServerOracle && java -jar kotlin/build/tests.jar TestHttp2Oracle && java -jar kotlin/build/tests.jar TestOracle \
 		&& java -jar kotlin/build/tests.jar TestDynamic && java -jar kotlin/build/tests.jar TestBdd && java -jar kotlin/build/tests.jar TestDeadline && java -jar kotlin/build/tests.jar TestTracing \
 		&& java -jar kotlin/build/tests.jar TestSidecar && java -jar kotlin/build/tests.jar TestKafkaE2E && java -jar kotlin/build/tests.jar TestBddSchemas \
@@ -473,13 +487,14 @@ test-kotlin:
 DART ?= dart
 
 test-dart:
+	cd rust && cargo build --release
 	mkdir -p dart/build
 	$(DART) compile exe dart/tests/main.dart -o dart/build/tests
 	$(DART) compile exe dart/examples/EchoServerStdio/main.dart -o dart/build/echo_server_stdio
 	$(DART) compile exe dart/examples/EchoClientStdio/main.dart -o dart/build/echo_client_stdio
 	$(DART) compile exe dart/examples/DynamicEchoServerStdio/main.dart -o dart/build/dynamic_echo_server_stdio
 	$(DART) compile exe dart/examples/InteropServerStdio/main.dart -o dart/build/interop_server_stdio
-	cd dart && ./build/tests TestCodec && ./build/tests TestEcho \
+	cd dart && GRPCDC_STRUCTDC_LIB=$(CURDIR)/rust/target/release/libgrpc_dc.so ./build/tests TestStructCodec && ./build/tests TestCodec && ./build/tests TestEcho \
 		&& ./build/tests TestInterop && ./build/tests TestInteropOracle && ./build/tests TestInteropServerOracle && ./build/tests TestHttp2Oracle && ./build/tests TestOracle \
 		&& ./build/tests TestDynamic && ./build/tests TestBdd && ./build/tests TestDeadline && ./build/tests TestTracing \
 		&& ./build/tests TestEventBus \
@@ -488,8 +503,9 @@ test-dart:
 ZIG ?= zig
 
 test-zig:
+	cd rust && cargo build --release
 	cd zig && rm -rf build .zig-cache && $(ZIG) build --prefix build
-	cd zig && ./build/bin/tests TestCodec && ./build/bin/tests TestEcho \
+	cd zig && LD_LIBRARY_PATH=$(CURDIR)/rust/target/release ./build/bin/tests TestStructCodec && ./build/bin/tests TestCodec && ./build/bin/tests TestEcho \
 		&& ./build/bin/tests TestInterop && ./build/bin/tests TestInteropOracle && ./build/bin/tests TestInteropServerOracle && ./build/bin/tests TestHttp2Oracle && ./build/bin/tests TestOracle \
 		&& ./build/bin/tests TestDynamic && ./build/bin/tests TestBdd && ./build/bin/tests TestDeadline && ./build/bin/tests TestTracing \
 		&& ./build/bin/tests TestPbMessages && ./build/bin/tests TestBddSchemas && ./build/bin/tests TestSidecar \
@@ -499,14 +515,15 @@ CC ?= gcc
 CFLAGS_C ?= -std=c99 -Wall -Wextra -pthread -O1 -Ic -Ic/examples -Ic/tests
 
 test-c:
+	cd rust && cargo build --release
 	mkdir -p c/build c/tests
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-c=bin/protoc-gen-grpc-dc-c \
 		--grpc-dc-c_out=c/tests -I webapp/testdata webapp/testdata/kitchen.proto webapp/testdata/features.proto webapp/testdata/common.proto
-	$(CC) $(CFLAGS_C) c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/grpcdc/sidecar_transport.c c/grpcdc/dynamic.c c/examples/stdio_transport.c c/tests/main.c -o c/build/tests
-	$(CC) $(CFLAGS_C) c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/examples/stdio_transport.c c/examples/echo_server_stdio.c -o c/build/echo_server_stdio
-	$(CC) $(CFLAGS_C) c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/examples/stdio_transport.c c/examples/echo_client_stdio.c -o c/build/echo_client_stdio
-	$(CC) $(CFLAGS_C) c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/examples/stdio_transport.c c/examples/interop_server_stdio.c -o c/build/interop_server_stdio
-	./c/build/tests TestCodec && ./c/build/tests TestEcho && ./c/build/tests TestPbMessages && ./c/build/tests TestBdd && ./c/build/tests TestBddSchemas && ./c/build/tests TestOracle && ./c/build/tests TestInteropOracle && ./c/build/tests TestInteropServerOracle && ./c/build/tests TestDynamic && ./c/build/tests TestTracing && ./c/build/tests TestSidecar && ./c/build/tests TestKafkaE2E && ./c/build/tests TestEventBus
+	$(CC) $(CFLAGS_C) c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/grpcdc/sidecar_transport.c c/grpcdc/dynamic.c c/examples/stdio_transport.c c/tests/main.c -L rust/target/release -lgrpc_dc -Wl,-rpath,$(CURDIR)/rust/target/release -o c/build/tests
+	$(CC) $(CFLAGS_C) c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/examples/stdio_transport.c c/examples/echo_server_stdio.c -L rust/target/release -lgrpc_dc -Wl,-rpath,$(CURDIR)/rust/target/release -o c/build/echo_server_stdio
+	$(CC) $(CFLAGS_C) c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/examples/stdio_transport.c c/examples/echo_client_stdio.c -L rust/target/release -lgrpc_dc -Wl,-rpath,$(CURDIR)/rust/target/release -o c/build/echo_client_stdio
+	$(CC) $(CFLAGS_C) c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/examples/stdio_transport.c c/examples/interop_server_stdio.c -L rust/target/release -lgrpc_dc -Wl,-rpath,$(CURDIR)/rust/target/release -o c/build/interop_server_stdio
+	./c/build/tests TestStructCodec && ./c/build/tests TestCodec && ./c/build/tests TestEcho && ./c/build/tests TestPbMessages && ./c/build/tests TestBdd && ./c/build/tests TestBddSchemas && ./c/build/tests TestOracle && ./c/build/tests TestInteropOracle && ./c/build/tests TestInteropServerOracle && ./c/build/tests TestDynamic && ./c/build/tests TestTracing && ./c/build/tests TestSidecar && ./c/build/tests TestKafkaE2E && ./c/build/tests TestEventBus
 
 LUA ?= lua
 
@@ -670,13 +687,16 @@ SCALA3_HOME ?= /usr/local/scala3
 SCALA_LIBS = $(SCALA3_HOME)/lib/scala3-library_3-3.3.6.jar:$(SCALA3_HOME)/lib/scala-library-2.13.16.jar
 
 test-scala:
+	cd rust && cargo build --release
+	mkdir -p rust/target/jni && JH=$$(dirname $$(dirname $$(readlink -f $$(command -v javac)))) && cc -shared -fPIC -I$$JH/include -I$$JH/include/linux java/jni/structdc_jni.c -ldl -o rust/target/jni/libgrpcdc_structdc_jni.so
 	mkdir -p scala/build
-	$(SCALAC) -d scala/build/tests.jar scala/grpcdc/*.scala scala/examples/EchoMessages.scala scala/examples/EchoGrpcDc.scala scala/examples/EchoServiceImpl.scala scala/examples/StdioTransport.scala scala/examples/DynamicEchoService.scala scala/examples/interop/*.scala scala/tests/*.scala
-	$(SCALAC) -d scala/build/echo_server_stdio.jar scala/grpcdc/*.scala scala/examples/EchoMessages.scala scala/examples/EchoGrpcDc.scala scala/examples/EchoServiceImpl.scala scala/examples/StdioTransport.scala scala/examples/EchoServerStdio/Main.scala
-	$(SCALAC) -d scala/build/interop_server_stdio.jar scala/grpcdc/*.scala scala/examples/EchoMessages.scala scala/examples/EchoGrpcDc.scala scala/examples/EchoServiceImpl.scala scala/examples/StdioTransport.scala scala/examples/interop/*.scala scala/examples/InteropServerStdio/Main.scala
-	$(SCALAC) -d scala/build/echo_client_stdio.jar scala/grpcdc/*.scala scala/examples/EchoMessages.scala scala/examples/EchoGrpcDc.scala scala/examples/StdioTransport.scala scala/examples/EchoClientStdio/Main.scala
-	$(SCALAC) -d scala/build/dynamic_echo_server_stdio.jar scala/grpcdc/*.scala scala/examples/EchoMessages.scala scala/examples/EchoGrpcDc.scala scala/examples/StdioTransport.scala scala/examples/DynamicEchoService.scala scala/examples/DynamicEchoServerStdio/Main.scala
-	java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestCodec \
+	$(SCALAC) -d scala/build/tests.jar scala/grpcdc/*.scala scala/examples/EchoMessages.scala scala/examples/EchoRequestStruct.scala scala/examples/EchoResponseStruct.scala scala/examples/EchoGrpcDc.scala scala/examples/EchoServiceImpl.scala scala/examples/StdioTransport.scala scala/examples/DynamicEchoService.scala scala/examples/interop/*.scala scala/tests/*.scala
+	$(SCALAC) -d scala/build/echo_server_stdio.jar scala/grpcdc/*.scala scala/examples/EchoMessages.scala scala/examples/EchoRequestStruct.scala scala/examples/EchoResponseStruct.scala scala/examples/EchoGrpcDc.scala scala/examples/EchoServiceImpl.scala scala/examples/StdioTransport.scala scala/examples/EchoServerStdio/Main.scala
+	$(SCALAC) -d scala/build/interop_server_stdio.jar scala/grpcdc/*.scala scala/examples/EchoMessages.scala scala/examples/EchoRequestStruct.scala scala/examples/EchoResponseStruct.scala scala/examples/EchoGrpcDc.scala scala/examples/EchoServiceImpl.scala scala/examples/StdioTransport.scala scala/examples/interop/*.scala scala/examples/InteropServerStdio/Main.scala
+	$(SCALAC) -d scala/build/echo_client_stdio.jar scala/grpcdc/*.scala scala/examples/EchoMessages.scala scala/examples/EchoRequestStruct.scala scala/examples/EchoResponseStruct.scala scala/examples/EchoGrpcDc.scala scala/examples/StdioTransport.scala scala/examples/EchoClientStdio/Main.scala
+	$(SCALAC) -d scala/build/dynamic_echo_server_stdio.jar scala/grpcdc/*.scala scala/examples/EchoMessages.scala scala/examples/EchoRequestStruct.scala scala/examples/EchoResponseStruct.scala scala/examples/EchoGrpcDc.scala scala/examples/StdioTransport.scala scala/examples/DynamicEchoService.scala scala/examples/DynamicEchoServerStdio/Main.scala
+	GRPC_DC_STRUCTDC_JNI=$(CURDIR)/rust/target/jni/libgrpcdc_structdc_jni.so GRPCDC_STRUCTDC_LIB=$(CURDIR)/rust/target/release/libgrpc_dc.so java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestStructCodec \
+		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestCodec \
 		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestEcho \
 		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestInterop \
 		&& java -cp scala/build/tests.jar:$(SCALA_LIBS) tests.Main TestInteropOracle \
@@ -983,7 +1003,7 @@ test-kotlin-wasm-browser:
 		-ir-output-dir wasm/kotlin/build -ir-output-name echo_kotlin \
 		-module-kind es -target es2015 -main noCall -Xir-produce-klib-file \
 		wasm/kotlin/bridge.kt wasm/kotlin/Pb.kt \
-		wasm/kotlin/grpcdc/Transport.kt \
+		wasm/kotlin/grpcdc/Transport.kt wasm/kotlin/grpcdc/Status.kt wasm/kotlin/grpcdc/Wire.kt \
 		wasm/kotlin/EchoMessages.kt wasm/kotlin/EchoWasmGrpcDc.kt \
 		wasm/kotlin/echo_client.kt wasm/kotlin/echo_server_facade.kt
 	$(KOTLINC_JS) -Xwasm -Xwasm-target=wasm-js \
@@ -1052,13 +1072,13 @@ scalajs-gen:
 	$(SCALACLI) --power package --force --js --js-module-kind esmodule --scala-version 3.3.6 \
 		-o browser-test/scalajs_gen/echo_scalajs_client.mjs \
 		wasm/scalajs/bridge.scala wasm/scalajs/EchoScalaJsGrpcDc.scala \
-		scala/grpcdc/Transport.scala scala/grpcdc/Status.scala scala/grpcdc/WireGen.scala \
-		scala/examples/EchoMessages.scala wasm/scalajs/echo_client.scala
+		scala/grpcdc/Transport.scala scala/grpcdc/Status.scala scala/grpcdc/WireGen.scala wasm/scalajs/StructDcStub.scala \
+		scala/examples/EchoMessages.scala scala/examples/EchoRequestStruct.scala scala/examples/EchoResponseStruct.scala wasm/scalajs/echo_client.scala
 	$(SCALACLI) --power package --force --js --js-module-kind esmodule --scala-version 3.3.6 \
 		-o browser-test/scalajs_gen/echo_scalajs_server.mjs \
 		wasm/scalajs/bridge.scala wasm/scalajs/EchoScalaJsGrpcDc.scala \
-		scala/grpcdc/Transport.scala scala/grpcdc/Status.scala scala/grpcdc/WireGen.scala \
-		scala/examples/EchoMessages.scala \
+		scala/grpcdc/Transport.scala scala/grpcdc/Status.scala scala/grpcdc/WireGen.scala wasm/scalajs/StructDcStub.scala \
+		scala/examples/EchoMessages.scala scala/examples/EchoRequestStruct.scala scala/examples/EchoResponseStruct.scala \
 		wasm/scalajs/EchoServerImpl.scala wasm/scalajs/echo_server_facade.scala
 
 test-scalajs-browser: scalajs-gen
@@ -1197,8 +1217,8 @@ test-c-cross:
 	@if command -v aarch64-linux-gnu-gcc >/dev/null && command -v riscv64-linux-gnu-gcc >/dev/null && command -v qemu-aarch64 >/dev/null; then \
 		set -e; \
 		mkdir -p c/build; \
-		aarch64-linux-gnu-gcc -std=c99 -Wall -Wextra -pthread -O1 -Ic -Ic/examples -Ic/tests c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/grpcdc/sidecar_transport.c c/grpcdc/dynamic.c c/examples/stdio_transport.c c/tests/main.c -o c/build/tests-aarch64; \
-		riscv64-linux-gnu-gcc -std=c99 -Wall -Wextra -pthread -O1 -Ic -Ic/examples -Ic/tests c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/grpcdc/sidecar_transport.c c/grpcdc/dynamic.c c/examples/stdio_transport.c c/tests/main.c -o c/build/tests-riscv64; \
+		aarch64-linux-gnu-gcc -std=c99 -Wall -Wextra -pthread -O1 -DGRPCDC_NO_STRUCT_CODEC -Ic -Ic/examples -Ic/tests c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/grpcdc/sidecar_transport.c c/grpcdc/dynamic.c c/examples/stdio_transport.c c/tests/main.c -o c/build/tests-aarch64; \
+		riscv64-linux-gnu-gcc -std=c99 -Wall -Wextra -pthread -O1 -DGRPCDC_NO_STRUCT_CODEC -Ic -Ic/examples -Ic/tests c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/grpcdc/sidecar_transport.c c/grpcdc/dynamic.c c/examples/stdio_transport.c c/tests/main.c -o c/build/tests-riscv64; \
 		qemu-aarch64 -L /usr/aarch64-linux-gnu ./c/build/tests-aarch64 TestCodec && qemu-aarch64 -L /usr/aarch64-linux-gnu ./c/build/tests-aarch64 TestPbMessages; \
 		qemu-riscv64 -L /usr/riscv64-linux-gnu ./c/build/tests-riscv64 TestCodec && qemu-riscv64 -L /usr/riscv64-linux-gnu ./c/build/tests-riscv64 TestPbMessages; \
 		aarch64-linux-gnu-g++ -std=c++17 -pthread -O1 -Icpp -I. -fsyntax-only cpp/examples/echo_messages.hpp; \
@@ -1211,13 +1231,38 @@ test-c-cross:
 test-interop-matrix:
 	cd js && node test/interop-matrix.mjs
 
+## Env-gated coverage summary: which oracle/Kafka/EventBus e2e
+## actually ran vs skipped, from a test log captured by
+## scripts/ci-test.sh (the CI image's CMD; GRPC_DC_TEST_LOG
+## overrides the log path).
+coverage-summary:
+	python3 scripts/coverage-summary.py $(or $(GRPC_DC_TEST_LOG),/tmp/grpc-dc-test.log)
+
 ## Soak: sustained large-unary RPCs against the Java oracle
 ## (our JS client direct, plus the official Go client against
 ## both the oracle and our server through the proxy path).
-## Not part of `make test` (long-running); SOAK_ITERATIONS
-## scales it.
+## Full lane runs weekly in CI (see .github/workflows/ci.yml);
+## SOAK_ITERATIONS scales it.
 soak:
 	node scripts/soak.mjs $(SOAK_ITERATIONS)
+
+## Bounded smoke subset of soak for the per-change gate (in
+## `make test`): 50 iterations x 3 phases. Skips loudly when
+## the oracle binaries are not built (the CI image builds
+## them, so there it always runs).
+soak-smoke:
+	@if [ -f oracle/java/target/cp.txt ] && [ -x oracle/go-interop/interop-client ]; then \
+		SOAK_ITERATIONS=50 node scripts/soak.mjs; \
+	else \
+		echo "soak-smoke SKIP (oracle not built; CI image builds it)"; \
+	fi
+
+## Bounded smoke subset of stress-interop for the per-change
+## gate (in `make test`): the custom_metadata race case at
+## -count=3 (full lane uses -count=10 plus repeated whole-suite
+## runs, weekly in CI).
+stress-smoke:
+	cd go && go test -race -count=3 -timeout 280s -run 'TestInteropOfficialClientsCallGoServer/.*/custom_metadata' .
 
 ## Flake-hunting lane for the one-off Go/Java custom_metadata
 ## hang (v0.32.10): repeated -race runs of the official-client
@@ -1227,6 +1272,13 @@ stress-interop:
 	cd go && go test -race -count=10 -run 'TestInteropOfficialClientsCallGoServer/.*/custom_metadata' .
 	cd js && for i in 1 2; do node --test test/interop_oracle.test.js test/interop_server_oracle.test.js || exit 1; done
 	cd go && for i in 1 2 3 4 5; do go test -race -count=1 -timeout 280s -run 'TestInteropOfficialClientsCallGoServer' . || exit 1; done
+
+## Generated WebRTC-Direct examples: Go serve/dial smoke
+## roundtrip plus compile/syntax gates for the other
+## languages' direct_echo examples (Zig's is compiled by
+## test-zig's `zig build`).
+test-direct-examples:
+	bash scripts/direct-smoke.sh
 
 ## WebRTC-stack interop matrix: Go/JS/Rust stacks paired
 ## over real ICE/DTLS/DataChannels (gRPC cells for Go/JS,
@@ -1240,7 +1292,7 @@ test-webrtc-matrix:
 test-stress-ports:
 	python3 scripts/stress_ports.py
 
-test: check-generated test-racket compat test-schema-shapes test-rust test-rust-nostd test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-c test-c-cross test-lua test-ruby test-php test-scala test-webrtc-rust test-webrtc-nostd test-iot test-webrtc-js test-proxy test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-scalajs-browser test-wasm-matrix test-browser-examples test-webapp test-interop-matrix test-webrtc-matrix test-live-stun-ci test-kafka
+test: check-generated test-struct-corpus test-racket compat test-schema-shapes test-rust test-rust-nostd test-js test-go test-python test-java test-csharp test-cpp test-swift test-kotlin test-dart test-zig test-c test-c-cross test-lua test-ruby test-php test-scala test-webrtc-rust test-webrtc-nostd test-iot test-webrtc-js test-proxy test-webrtc-go test-grpc-webrtc test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-scalajs-browser test-wasm-matrix test-browser-examples test-webapp test-interop-matrix test-webrtc-matrix test-live-stun-ci test-kafka soak-smoke stress-smoke test-direct-examples
 
 ## Kafka proxy end-to-end (rust/python/js/go clients through the
 ## Rust kafka_proxy against Apache Kafka + Redpanda fixtures;
