@@ -296,6 +296,7 @@
          (define content
            (string-append
             (zig-pb-support)
+            (if (seg-struct-codec) (format "const _structdc = @import(\"~a_struct.zig\");\n" base) "")
             dep-imports
             (apply string-append (map cdr (reverse entry-structs)))
             (apply string-append
@@ -378,5 +379,281 @@
                         "    }\n"))
                      (hash-ref file-model 'services)))
          "};\n")))
-  (define pb-file (emit-zig-pb-file file-model))
-  (if pb-file (list stub pb-file) stub))
+  (define pb-file (parameterize ([seg-struct-codec (equal? (hash-ref params 'struct_codec #f) "true")])
+                    (emit-zig-pb-file file-model)))
+  (define struct-file (emit-zig-struct-file file-model params))
+  (if struct-file
+      (append (list stub pb-file) (list struct-file))
+      (if pb-file (list stub pb-file) stub)))
+
+;; ------------------------------------------------------------------
+;; Struct codec (struct_codec=true): <Msg>Struct namespace per
+;; message in <base>_struct.zig with the packed layout from
+;; SPEC.md (byte-identical to the other struct codecs; verified
+;; by conformance/struct).
+(define (zg-struct-fingerprint s)
+  (for/fold ([h 2166136261]) ([c (in-string s)])
+    (modulo (* (bitwise-xor h (char->integer c)) 16777619) 4294967296)))
+
+(define (zg-struct-fixed32-type? t) (member t '(2 7 15)))
+(define (zg-struct-fixed64-type? t) (member t '(1 6 16)))
+
+(define (zg-struct-slot-size f)
+  (if (zg-struct-fixed32-type? (hash-ref f 'type)) 4 8))
+
+(define (zg-struct-sorted-fields msg)
+  (sort (hash-ref msg 'fields) < #:key (lambda (f) (hash-ref f 'number))))
+
+(define (zg-struct-map-entry model f)
+  (and (= (hash-ref f 'type) 11)
+       (let ([e (zig-pb-resolve model (hash-ref f 'type-name))])
+         (and (eq? (hash-ref e 'kind) 'map) e))))
+
+(define (zg-struct-map-key-field model f)
+  (define em (hash-ref (zg-struct-map-entry model f) 'msg))
+  (findf (lambda (x) (= (hash-ref x 'number) 1)) (hash-ref em 'fields)))
+(define (zg-struct-map-val-field model f)
+  (define em (hash-ref (zg-struct-map-entry model f) 'msg))
+  (findf (lambda (x) (= (hash-ref x 'number) 2)) (hash-ref em 'fields)))
+
+(define (zg-struct-type-name model msg)
+  (string-replace (zig-pb-rel (hash-ref model 'package) (hash-ref msg 'full-name)) "." "_"))
+
+(define (zg-struct-class-name model f)
+  (define e (zig-pb-resolve model (hash-ref f 'type-name)))
+  (zig-pb-entry-struct-name model e))
+
+(define (zg-struct-companion model f)
+  (string-append (zg-struct-class-name model f) "Struct"))
+
+(define (zg-struct-present model f fn)
+  (define t (hash-ref f 'type))
+  (cond [(zg-struct-map-entry model f) (format "m.~a.len > 0" fn)]
+        [(= (hash-ref f 'label) 3) (format "m.~a.len > 0" fn)]
+        [(= t 11) (format "m.~a != null" fn)]
+        [(= t 9) (format "m.~a.len > 0" fn)]
+        [(= t 12) (format "m.~a.len > 0" fn)]
+        [(= t 8) (format "m.~a" fn)]
+        [(= t 14) (format "@intFromEnum(m.~a) != 0" fn)]
+        [else (format "m.~a != 0" fn)]))
+
+(define (zg-struct-scalar-encode f v)
+  (define t (hash-ref f 'type))
+  (cond [(zg-struct-fixed32-type? t)
+         (cond [(= t 2) (format "put32(buf, off, @as(u32, @bitCast(~a)));" v)]
+               [(= t 7) (format "put32(buf, off, ~a);" v)]
+               [else (format "put32(buf, off, @as(u32, @bitCast(~a)));" v)])]
+        [(zg-struct-fixed64-type? t)
+         (cond [(= t 1) (format "put64(buf, off, @as(u64, @bitCast(~a)));" v)]
+               [(= t 6) (format "put64(buf, off, ~a);" v)]
+               [else (format "put64(buf, off, @as(u64, @bitCast(~a)));" v)])]
+        [(= t 8) (format "buf[off] = if (~a) 1 else 0;" v)]
+        [(= t 14) (format "put64(buf, off, @as(u64, @bitCast(@as(i64, @intFromEnum(~a)))));" v)]
+        [(member t '(5 17)) (format "put64(buf, off, @as(u64, @bitCast(@as(i64, ~a))));" v)]
+        [(member t '(3 18)) (format "put64(buf, off, @as(u64, @bitCast(~a)));" v)]
+        [(= t 13) (format "put64(buf, off, @as(u64, ~a));" v)]
+        [else (format "put64(buf, off, ~a);" v)]))
+
+(define (zg-struct-scalar-value/off model f offv)
+  (define t (hash-ref f 'type))
+  (cond [(zg-struct-fixed32-type? t)
+         (cond [(= t 2) (format "@as(f32, @bitCast(get32(data, ~a)))" offv)]
+               [(= t 7) (format "get32(data, ~a)" offv)]
+               [else (format "@as(i32, @bitCast(get32(data, ~a)))" offv)])]
+        [(zg-struct-fixed64-type? t)
+         (cond [(= t 1) (format "@as(f64, @bitCast(get64(data, ~a)))" offv)]
+               [(= t 6) (format "get64(data, ~a)" offv)]
+               [else (format "@as(i64, @bitCast(get64(data, ~a)))" offv)])]
+        [(= t 8) (format "(data[~a] != 0)" offv)]
+        [(= t 14) (format "@as(~a, @enumFromInt(@as(i32, @bitCast(get32(data, ~a)))))"
+                          (zig-pb-type model (hash-set f 'label 1)) offv)]
+        [(member t '(5 17)) (format "@as(i32, @bitCast(get32(data, ~a)))" offv)]
+        [(= t 13) (format "get32(data, ~a)" offv)]
+        [(= t 3) (format "@as(i64, @bitCast(get64(data, ~a)))" offv)]
+        [else (format "get64(data, ~a)" offv)]))
+
+(define (zg-struct-value-size model f v)
+  (define t (hash-ref f 'type))
+  (cond [(= t 9) (format "~a.len" v)]
+        [(= t 12) (format "~a.len" v)]
+        [(= t 11) (format "~a.sizeOf(&~a)" (zg-struct-companion model f) v)]
+        [(zg-struct-fixed32-type? t) "4"]
+        [else "8"]))
+
+(define (zg-struct-message model msg)
+  (define type-name (zg-struct-type-name model msg))
+  (define full-name (hash-ref msg 'full-name))
+  (define out (open-output-string))
+  (fprintf out "pub const ~aStruct = struct {\n" type-name)
+  (fprintf out "    pub const fingerprint: u32 = 0x~x;\n\n" (zg-struct-fingerprint full-name))
+  (fprintf out "    pub fn marshal(m: *const ~a, alloc: std.mem.Allocator) ![]u8 {\n        const pb = m.marshalDc(alloc);\n        defer alloc.free(pb);\n        return structdc_detail.transcode(true, \"~a\", pb, alloc);\n    }\n\n" type-name full-name)
+  (fprintf out "    pub fn unmarshal(alloc: std.mem.Allocator, data: []const u8) !~a {\n        const pb = try structdc_detail.transcode(false, \"~a\", data, alloc);\n        defer alloc.free(pb);\n        var m = ~a{};\n        m.unmarshalDc(alloc, pb);\n        return m;\n    }\n};\n\n" type-name full-name type-name)
+  (get-output-string out))
+
+(define (zg-struct-value-write model f v)
+  (define t (hash-ref f 'type))
+  (define out (open-output-string))
+  (cond [(= t 9)
+         (fprintf out "                @memcpy(buf[vp..][0..~a.len], ~a); vp += ~a.len;\n" v v v)]
+        [(= t 12)
+         (fprintf out "                @memcpy(buf[vp..][0..~a.len], ~a); vp += ~a.len;\n" v v v)]
+        [(= t 11)
+         (fprintf out "                { const nb = try ~a.marshal(&~a, alloc); defer alloc.free(nb); @memcpy(buf[vp..][0..nb.len], nb); vp += nb.len; }\n"
+                  (zg-struct-companion model f) v)]
+        [else
+         (fprintf out "                { const off = vp; ~a } vp += ~a;\n"
+                  (zg-struct-scalar-encode f v) (if (zg-struct-fixed32-type? t) 4 8))])
+  (get-output-string out))
+
+(define (zg-struct-marshal-field model f off)
+  (define fn (hash-ref f 'name))
+  (define t (hash-ref f 'type))
+  (define out (open-output-string))
+  (define mv (format "m.~a" fn))
+  (cond [(zg-struct-map-entry model f)
+         (define kf (zg-struct-map-key-field model f))
+         (define vf (zg-struct-map-val-field model f))
+         (define entry (zg-struct-class-name model f))
+         (define kt (hash-ref kf 'type))
+         (define less-expr
+           (cond [(= kt 9) "std.mem.lessThan(u8, a.key, b.key)"]
+                 [else "a.key < b.key"]))
+         (fprintf out "        if (m.~a.len > 0) {\n            put32(buf, ~a, @as(u32, @truncate(vp))); put32(buf, ~a, @as(u32, @truncate(m.~a.len)));\n" fn off (+ off 4) fn)
+         (fprintf out "            const ord = try alloc.dupe(~a, m.~a);\n            std.mem.sort(~a, ord, {}, struct { fn less(_: void, a: ~a, b: ~a) bool { return ~a; } }.less);\n"
+                  entry fn entry entry entry less-expr)
+         (fprintf out "            for (ord) |e| {\n                put32(buf, vp, @as(u32, @truncate(~a))); put32(buf, vp + 4, @as(u32, @truncate(~a))); vp += 8;\n"
+                  (zg-struct-value-size model kf "e.key") (zg-struct-value-size model vf "e.value"))
+         (display (zg-struct-value-write model kf "e.key") out)
+         (display (zg-struct-value-write model vf "e.value") out)
+         (fprintf out "            }\n            alloc.free(ord);\n        }\n")]
+        [(= (hash-ref f 'label) 3)
+         (cond [(member t '(9 12))
+                (fprintf out "        if (m.~a.len > 0) {\n            put32(buf, ~a, @as(u32, @truncate(vp))); put32(buf, ~a, @as(u32, @truncate(m.~a.len)));\n            var doff = vp + 8 * m.~a.len;\n            for (m.~a) |e| { put32(buf, vp, @as(u32, @truncate(doff))); put32(buf, vp + 4, @as(u32, @truncate(e.len))); doff += e.len; vp += 8; }\n            for (m.~a) |e| { @memcpy(buf[vp..][0..e.len], e); vp += e.len; }\n        }\n"
+                         fn off (+ off 4) fn fn fn fn)]
+               [(= t 11)
+                (fprintf out "        if (m.~a.len > 0) {\n            put32(buf, ~a, @as(u32, @truncate(vp))); put32(buf, ~a, @as(u32, @truncate(m.~a.len)));\n            var doff = vp + 8 * m.~a.len;\n            for (m.~a) |e| { const es = ~a.sizeOf(&e); put32(buf, vp, @as(u32, @truncate(doff))); put32(buf, vp + 4, @as(u32, @truncate(es))); doff += es; vp += 8; }\n            for (m.~a) |e| { const nb = try ~a.marshal(&e, alloc); defer alloc.free(nb); @memcpy(buf[vp..][0..nb.len], nb); vp += nb.len; }\n        }\n"
+                         fn off (+ off 4) fn fn fn (zg-struct-companion model f)
+                         fn (zg-struct-companion model f))]
+               [else
+                (fprintf out "        if (m.~a.len > 0) {\n            put32(buf, ~a, @as(u32, @truncate(vp))); put32(buf, ~a, @as(u32, @truncate(m.~a.len)));\n            for (m.~a) |e| { const off = vp; ~a vp += ~a; }\n        }\n"
+                         fn off (+ off 4) fn
+                         fn
+                         (zg-struct-scalar-encode f "e")
+                         (if (zg-struct-fixed32-type? t) 4 8))])]
+        [(= t 11)
+         (fprintf out "        if (m.~a) |p| {\n            put32(buf, ~a, @as(u32, @truncate(vp))); put32(buf, ~a, @as(u32, @truncate(~a.sizeOf(p))));\n            const nb = try ~a.marshal(p, alloc); defer alloc.free(nb); @memcpy(buf[vp..][0..nb.len], nb); vp += nb.len;\n        }\n"
+                  fn off (+ off 4) (zg-struct-companion model f) (zg-struct-companion model f))]
+        [(member t '(9 12))
+         (fprintf out "        if (m.~a.len > 0) {\n            put32(buf, ~a, @as(u32, @truncate(vp))); put32(buf, ~a, @as(u32, @truncate(m.~a.len)));\n            @memcpy(buf[vp..][0..m.~a.len], m.~a); vp += m.~a.len;\n        }\n"
+                  fn off (+ off 4) fn fn fn fn)]
+        [else
+         (fprintf out "        { const off: usize = ~a; ~a }\n" off (zg-struct-scalar-encode f mv))])
+  (get-output-string out))
+
+(define (zg-struct-value-expr/off model f lenvar offv)
+  (define t (hash-ref f 'type))
+  (cond [(= t 9) (format "try alloc.dupe(u8, data[~a..][0..~a])" offv lenvar)]
+        [(= t 12) (format "try alloc.dupe(u8, data[~a..][0..~a])" offv lenvar)]
+        [(= t 11) (format "try ~a.unmarshal(alloc, data[~a..][0..~a])" (zg-struct-companion model f) offv lenvar)]
+        [else (zg-struct-scalar-value/off model f offv)]))
+
+(define (zg-struct-decode-field model f foff)
+  (define fn (hash-ref f 'name))
+  (define t (hash-ref f 'type))
+  (define out (open-output-string))
+  (define mv (format "m.~a" fn))
+  (cond [(zg-struct-map-entry model f)
+         (define kf (zg-struct-map-key-field model f))
+         (define vf (zg-struct-map-val-field model f))
+         (define entry (zg-struct-class-name model f))
+         (fprintf out "            const off = get32(data, ~a); const n = get32(data, ~a);\n" foff (+ foff 4))
+         (fprintf out "            var p: usize = off;\n            const entries = try alloc.alloc(~a, n);\n            for (entries) |*e| {\n" entry)
+         (fprintf out "                try check(data, p, 8);\n                const kl = get32(data, p); const vl = get32(data, p + 4); p += 8;\n                try check(data, p, kl + vl);\n")
+         (fprintf out "                e.key = blk: { const io = p; break :blk ~a; };\n" (zg-struct-value-expr/off model kf "kl" "io"))
+         (fprintf out "                e.value = blk: { const io = p + kl; break :blk ~a; };\n" (zg-struct-value-expr/off model vf "vl" "io"))
+         (fprintf out "                p += kl + vl;\n            }\n            m.~a = entries;\n            if (p > vend) vend = p;\n" fn)]
+        [(= (hash-ref f 'label) 3)
+         (define et (if (= t 11) (zg-struct-class-name model f)
+                        (zig-pb-type model (hash-set f 'label 1))))
+         (fprintf out "            const off = get32(data, ~a); const n = get32(data, ~a);\n" foff (+ foff 4))
+         (fprintf out "            const arr = try alloc.alloc(~a, n);\n            m.~a = arr;\n" et fn)
+         (cond [(member t '(9 12))
+                (fprintf out "            for (arr, 0..) |*slot, i| {\n                const eo = get32(data, off + 8 * i); const el = get32(data, off + 8 * i + 4);\n                try check(data, eo, el);\n                slot.* = try alloc.dupe(u8, data[eo..][0..el]);\n                if (eo + el > vend) vend = eo + el;\n            }\n")]
+               [(= t 11)
+                (fprintf out "            for (arr, 0..) |*slot, i| {\n                const eo = get32(data, off + 8 * i); const el = get32(data, off + 8 * i + 4);\n                if (el > 0) {\n                    try check(data, eo, el);\n                    slot.* = try ~a.unmarshal(alloc, data[eo..][0..el]);\n                    if (eo + el > vend) vend = eo + el;\n                }\n            }\n"
+                         (zg-struct-companion model f))]
+               [else
+                (define esz (if (zg-struct-fixed32-type? t) 4 8))
+                (fprintf out "            try check(data, off, n * ~a);\n            for (arr, 0..) |*slot, i| {\n                const eo = off + i * ~a;\n                slot.* = ~a;\n            }\n            if (off + n * ~a > vend) vend = off + n * ~a;\n"
+                         esz esz (zg-struct-scalar-value/off model f "eo") esz esz)])]
+        [(= t 11)
+         (fprintf out "            const off = get32(data, ~a); const el = get32(data, ~a);\n" foff (+ foff 4))
+         (fprintf out "            try check(data, off, el);\n            { const np = try alloc.create(~a); np.* = try ~a.unmarshal(alloc, data[off..][0..el]); m.~a = np; }\n            if (off + el > vend) vend = off + el;\n"
+                  (zg-struct-class-name model f) (zg-struct-companion model f) fn)]
+        [(member t '(9 12))
+         (fprintf out "            const off = get32(data, ~a); const el = get32(data, ~a);\n" foff (+ foff 4))
+         (fprintf out "            try check(data, off, el);\n            m.~a = try alloc.dupe(u8, data[off..][0..el]);\n            if (off + el > vend) vend = off + el;\n" fn)]
+        [else
+         (fprintf out "            const off: usize = ~a;\n            m.~a = ~a;\n" foff fn
+                  (zg-struct-scalar-value/off model f "off"))])
+  (get-output-string out))
+
+(define (emit-zig-struct-file file-model params)
+  (and (equal? (hash-ref params 'struct_codec #f) "true")
+       (hash-has-key? file-model 'messages)
+       (let ()
+         (define base (path->string (path-replace-extension
+                                     (file-name-from-path (hash-ref file-model 'name)) "")))
+         (define (walk msg)
+           (if (hash-ref msg 'map-entry)
+               '()
+               (append (append-map walk (hash-ref msg 'nested)) (list msg))))
+         (define all (append-map walk (hash-ref file-model 'messages)))
+         (define content
+           (string-append
+            "// @generated by protoc-gen-grpc-dc-zig. DO NOT EDIT.\n"
+            (format "// source: ~a\n\n" (hash-ref file-model 'name))
+            "const std = @import(\"std\");\n"
+            (format "const messages = @import(\"~a_messages.zig\");\n" base)
+            (apply string-append
+                   (map (lambda (m)
+                          (format "const ~a = messages.~a;\n" (zg-struct-type-name file-model m) (zg-struct-type-name file-model m)))
+                        all))
+            (let ([seen (mutable-set)] [out '()])
+                     (for ([m (in-list all)])
+                       (for ([f (in-list (hash-ref m 'fields))])
+                         (when (zg-struct-map-entry file-model f)
+                           (define en (zg-struct-class-name file-model f))
+                           (unless (set-member? seen en)
+                             (set-add! seen en)
+                             (set! out (cons (format "const ~a = messages.~a;\n" en en) out))))))
+                     (apply string-append (reverse out)))
+            (apply string-append
+                   (map (lambda (e)
+                          (format "const ~a = messages.~a;\n" (hash-ref e 'name) (hash-ref e 'name)))
+                        (hash-ref file-model 'enums)))
+            (apply string-append
+                   (map (lambda (m)
+                          (apply string-append
+                                 (map (lambda (e)
+                                        (format "const ~a_~a = messages.~a_~a;\n"
+                                                (zg-struct-type-name file-model m) (hash-ref e 'name)
+                                                (zg-struct-type-name file-model m) (hash-ref e 'name)))
+                                      (hash-ref m 'enums))))
+                        all))
+            "\n"
+            "extern \"c\" fn grpcdc_struct_encode(desc: [*]const u8, desc_len: usize, type_name: [*]const u8, type_len: usize, input: [*]const u8, input_len: usize, out: *?[*]u8, out_len: *usize, err_out: *?[*]u8) i32;\n"
+            "extern \"c\" fn grpcdc_struct_decode(desc: [*]const u8, desc_len: usize, type_name: [*]const u8, type_len: usize, input: [*]const u8, input_len: usize, out: *?[*]u8, out_len: *usize, err_out: *?[*]u8) i32;\n"
+            "extern \"c\" fn grpcdc_struct_free(ptr: [*]u8, len: usize) void;\n"
+            "extern \"c\" fn grpcdc_struct_error_free(ptr: [*]u8) void;\n\n"
+            "const structdc_detail = struct {\n"
+            (format "    const descriptor = [_]u8{~a};\n"
+                    (string-join (for/list ([b (in-bytes (hash-ref file-model 'descriptor-set #""))]) (format "0x~x" b)) ","))
+            "    fn transcode(encode: bool, type_name: []const u8, input: []const u8, alloc: std.mem.Allocator) ![]u8 {\n"
+            "        var out: ?[*]u8 = null;\n        var out_len: usize = 0;\n        var err: ?[*]u8 = null;\n"
+            "        const rc = if (encode) grpcdc_struct_encode(&descriptor, descriptor.len, type_name.ptr, type_name.len, input.ptr, input.len, &out, &out_len, &err) else grpcdc_struct_decode(&descriptor, descriptor.len, type_name.ptr, type_name.len, input.ptr, input.len, &out, &out_len, &err);\n"
+            "        if (rc != 0) { if (err) |e| grpcdc_struct_error_free(e); return error.StructCodec; }\n"
+            "        const raw = out.?[0..out_len];\n        const copy = try alloc.dupe(u8, raw);\n        grpcdc_struct_free(out.?, out_len);\n        return copy;\n    }\n};\n\n"
+            (apply string-append
+                   (map (lambda (m) (zg-struct-message file-model m)) all))))
+         (cons (string-append base "_struct.zig") content))))

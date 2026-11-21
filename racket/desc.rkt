@@ -253,17 +253,34 @@
   (define fields (pb-parse bstr))
   (define wanted (map (lambda (b) (bytes->string/utf-8 b)) (pb-get-all fields 1)))
   (define parameter (pb-get-string fields 2 ""))
+  (define raw-files (pb-get-all fields 15))
   (define files
     (merge-extensions
-     (for/list ([f (in-list (pb-get-all fields 15))])
+     (for/list ([f (in-list raw-files)])
        (parse-file-desc (pb-parse f)))))
   (define by-name (for/hash ([f (in-list files)]) (values (hash-ref f 'name) f)))
+  (define raw-by-name
+    (for/hash ([f (in-list files)] [raw (in-list raw-files)])
+      (values (hash-ref f 'name) raw)))
   (define registry (build-type-registry files))
+  ;; FileDescriptorSet bytes (this file plus its transitive
+  ;; dependencies) for consumers that need the schema as data,
+  ;; e.g. the struct-codec FFI call-in descriptor.
+  (define (descriptor-set-for name)
+    (define seen (mutable-set))
+    (define (visit n)
+      (cond [(or (set-member? seen n) (not (hash-has-key? by-name n))) '()]
+            [else
+             (set-add! seen n)
+             (append (append-map visit (hash-ref (hash-ref by-name n) 'dependencies))
+                     (list (hash-ref raw-by-name n)))]))
+    (apply bytes-append (map (lambda (raw) (pb-bytes-field 1 raw)) (visit name))))
   (values (for/list ([w (in-list wanted)])
-            (hash-set (hash-set (hash-ref by-name w
-                                          (lambda ()
-                                            (error 'parse-request "file_to_generate not in request: ~a" w)))
-                                'types registry)
+            (hash-set (hash-set (hash-set (hash-ref by-name w
+                                                    (lambda ()
+                                                      (error 'parse-request "file_to_generate not in request: ~a" w)))
+                                          'types registry)
+                                'descriptor-set (descriptor-set-for w))
                       'generate-set wanted))
           parameter))
 

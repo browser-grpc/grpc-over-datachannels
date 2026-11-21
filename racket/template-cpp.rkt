@@ -339,7 +339,8 @@
                  (format "namespace pb_~a {\n\n" base)
                  (apply string-append (map cdr (reverse helpers)))
                  (format "}  // namespace pb_~a\n\n" base)))
-            (format "}  // namespace ~a\n" (cpp-pb-ns pkg))))
+            (format "}  // namespace ~a\n" (cpp-pb-ns pkg))
+            (if (seg-struct-codec) (format "#include \"~a_struct.hpp\"\n" base) "")))
          (cons (string-append base "_messages.hpp") content))))
 
 ;; Message includes for a stub: one examples/<base>_messages.hpp
@@ -403,5 +404,267 @@
                 (map cpp-service (hash-ref file-model 'services)))
          "};\n\n"
          (format "}  // namespace ~a\n" ns)))))
-  (define pb-file (emit-cpp-pb-file file-model))
-  (if pb-file (list stub pb-file) stub))
+  (define pb-file (parameterize ([seg-struct-codec (equal? (hash-ref params 'struct_codec #f) "true")])
+                    (emit-cpp-pb-file file-model)))
+  (define struct-file (emit-cpp-struct-file file-model params))
+  (if struct-file
+      (append (list stub pb-file) (list struct-file))
+      (if pb-file (list stub pb-file) stub)))
+
+;; ------------------------------------------------------------------
+;; Struct codec (struct_codec=true): <Msg>Struct struct with static
+;; Size/Marshal/Unmarshal per message in <base>_struct.hpp, packed
+;; layout from SPEC.md (byte-identical to the other struct codecs;
+;; verified by conformance/struct).
+(define (cpp-struct-fingerprint s)
+  (for/fold ([h 2166136261]) ([c (in-string s)])
+    (modulo (* (bitwise-xor h (char->integer c)) 16777619) 4294967296)))
+
+(define (cpp-struct-fixed32-type? t) (member t '(2 7 15)))
+(define (cpp-struct-fixed64-type? t) (member t '(1 6 16)))
+
+(define (cpp-struct-slot-size f)
+  (if (cpp-struct-fixed32-type? (hash-ref f 'type)) 4 8))
+
+(define (cpp-struct-sorted-fields msg)
+  (sort (hash-ref msg 'fields) < #:key (lambda (f) (hash-ref f 'number))))
+
+(define (cpp-struct-map-entry model f)
+  (and (= (hash-ref f 'type) 11)
+       (let ([e (cpp-pb-resolve model (hash-ref f 'type-name))])
+         (and (eq? (hash-ref e 'kind) 'map) e))))
+
+(define (cpp-struct-map-key-field model f)
+  (define em (hash-ref (cpp-struct-map-entry model f) 'msg))
+  (findf (lambda (x) (= (hash-ref x 'number) 1)) (hash-ref em 'fields)))
+(define (cpp-struct-map-val-field model f)
+  (define em (hash-ref (cpp-struct-map-entry model f) 'msg))
+  (findf (lambda (x) (= (hash-ref x 'number) 2)) (hash-ref em 'fields)))
+
+(define (cpp-struct-type-name model msg)
+  (cpp-pb-rel (hash-ref model 'package) (hash-ref msg 'full-name)))
+
+(define (cpp-struct-flat-name model msg)
+  (string-replace (cpp-struct-type-name model msg) "::" "_"))
+
+(define (cpp-struct-class-name model f)
+  (define e (cpp-pb-resolve model (hash-ref f 'type-name)))
+  (cpp-struct-type-name model (hash-ref e 'msg)))
+
+(define (cpp-struct-companion model f)
+  (string-append (string-replace (cpp-struct-class-name model f) "::" "_") "Struct"))
+
+(define (cpp-struct-present model f fn)
+  (define t (hash-ref f 'type))
+  (cond [(cpp-struct-map-entry model f) (format "!m.~a.empty()" fn)]
+        [(= (hash-ref f 'label) 3) (format "!m.~a.empty()" fn)]
+        [(= t 11) (format "m.~a.has_value()" fn)]
+        [(= t 9) (format "!m.~a.empty()" fn)]
+        [(= t 12) (format "!m.~a.empty()" fn)]
+        [(= t 8) (format "m.~a" fn)]
+        [(= t 14) (format "static_cast<std::int32_t>(m.~a) != 0" fn)]
+        [else (format "m.~a != 0" fn)]))
+
+(define (cpp-struct-scalar-encode f v)
+  (define t (hash-ref f 'type))
+  (cond [(cpp-struct-fixed32-type? t)
+         (if (= t 2)
+             (format "{ float fv = ~a; std::uint32_t u; std::memcpy(&u, &fv, 4); Put32(buf, off, u); }" v)
+             (format "Put32(buf, off, static_cast<std::uint32_t>(~a));" v))]
+        [(cpp-struct-fixed64-type? t)
+         (if (= t 1)
+             (format "{ double fv = ~a; std::uint64_t u; std::memcpy(&u, &fv, 8); Put64(buf, off, u); }" v)
+             (format "Put64(buf, off, static_cast<std::uint64_t>(~a));" v))]
+        [(= t 8) (format "buf[off] = ~a ? 1 : 0;" v)]
+        [(= t 14) (format "Put64(buf, off, static_cast<std::uint64_t>(static_cast<std::int64_t>(~a)));" v)]
+        [(member t '(3 16 18)) (format "Put64(buf, off, static_cast<std::uint64_t>(static_cast<std::int64_t>(~a)));" v)]
+        [(member t '(5 17)) (format "Put64(buf, off, static_cast<std::uint64_t>(static_cast<std::int64_t>(~a)));" v)]
+        [else (format "Put64(buf, off, static_cast<std::uint64_t>(~a));" v)]))
+
+(define (cpp-struct-scalar-value/off model f offv)
+  (define t (hash-ref f 'type))
+  (cond [(cpp-struct-fixed32-type? t)
+         (if (= t 2)
+             (format "BitsToFloat(Get32(data, ~a))" offv)
+             (format "static_cast<~a>(Get32(data, ~a))" (first (scalar-type-entry 'cpp t)) offv))]
+        [(cpp-struct-fixed64-type? t)
+         (if (= t 1)
+             (format "BitsToDouble(Get64(data, ~a))" offv)
+             (format "static_cast<~a>(Get64(data, ~a))" (first (scalar-type-entry 'cpp t)) offv))]
+        [(= t 8) (format "(data[~a] != 0)" offv)]
+        [(= t 14) (format "static_cast<~a>(static_cast<std::int32_t>(Get64(data, ~a)))"
+                          (cpp-pb-type model (hash-set f 'label 1)) offv)]
+        [(member t '(3 16 18)) (format "static_cast<~a>(static_cast<std::int64_t>(Get64(data, ~a)))" (first (scalar-type-entry 'cpp t)) offv)]
+        [(member t '(5 17)) (format "static_cast<~a>(static_cast<std::int32_t>(Get64(data, ~a)))" (first (scalar-type-entry 'cpp t)) offv)]
+        [else (format "static_cast<~a>(Get64(data, ~a))" (first (scalar-type-entry 'cpp t)) offv)]))
+
+(define (cpp-struct-value-size model f v)
+  (define t (hash-ref f 'type))
+  (cond [(= t 9) (format "~a.size()" v)]
+        [(= t 12) (format "~a.size()" v)]
+        [(= t 11) (format "~aStruct::Size(~a)" (string-replace (cpp-struct-class-name model f) "::" "_") v)]
+        [(cpp-struct-fixed32-type? t) "4"]
+        [else "8"]))
+
+(define (cpp-struct-message model msg)
+  (define type-name (cpp-struct-type-name model msg))
+  (define flat (cpp-struct-flat-name model msg))
+  (define full-name (hash-ref msg 'full-name))
+  (define out (open-output-string))
+  (fprintf out "struct ~aStruct {\n" flat)
+  (fprintf out "    static std::size_t Size(const ~a& m) { return Marshal(m).size(); }\n\n" type-name)
+  (fprintf out "    static grpcdc::Bytes Marshal(const ~a& m) {\n        return structdc_detail::Transcode(true, \"~a\", m.MarshalDc());\n    }\n\n" type-name full-name)
+  (fprintf out "    static ~a Unmarshal(const grpcdc::Bytes& data) {\n        auto pb = structdc_detail::Transcode(false, \"~a\", data);\n        ~a m;\n        m.UnmarshalDc(pb);\n        return m;\n    }\n};\n\n" type-name full-name type-name)
+  (fprintf out "#if !defined(__wasm__)\n")
+  (fprintf out "inline grpcdc::Bytes ~a::MarshalStruct() const { return ~aStruct::Marshal(*this); }\n" type-name flat)
+  (fprintf out "inline void ~a::UnmarshalStruct(const grpcdc::Bytes& data) { *this = ~aStruct::Unmarshal(data); }\n" type-name flat)
+  (fprintf out "#endif\n\n")
+  (get-output-string out))
+
+(define (cpp-struct-value-write model f v)
+  (define t (hash-ref f 'type))
+  (define out (open-output-string))
+  (cond [(= t 9)
+         (fprintf out "                if (!~a.empty()) std::memcpy(buf.data() + vp, ~a.data(), ~a.size()); vp += ~a.size();\n" v v v v)]
+        [(= t 12)
+         (fprintf out "                if (!~a.empty()) std::memcpy(buf.data() + vp, ~a.data(), ~a.size()); vp += ~a.size();\n" v v v v)]
+        [(= t 11)
+         (fprintf out "                { auto nb = ~aStruct::Marshal(~a); if (!nb.empty()) std::memcpy(buf.data() + vp, nb.data(), nb.size()); vp += nb.size(); }\n"
+                  (string-replace (cpp-struct-class-name model f) "::" "_") v)]
+        [else
+         (fprintf out "                { std::size_t off = vp; ~a } vp += ~a;\n"
+                  (cpp-struct-scalar-encode f v) (if (cpp-struct-fixed32-type? t) 4 8))])
+  (get-output-string out))
+
+(define (cpp-struct-marshal-field model f off)
+  (define fn (hash-ref f 'name))
+  (define t (hash-ref f 'type))
+  (define out (open-output-string))
+  (define mv (format "m.~a" fn))
+  (cond [(cpp-struct-map-entry model f)
+         (define kf (cpp-struct-map-key-field model f))
+         (define vf (cpp-struct-map-val-field model f))
+         (fprintf out "        if (!~a.empty()) {\n            Put32(buf, ~a, static_cast<std::uint32_t>(vp)); Put32(buf, ~a, static_cast<std::uint32_t>(~a.size()));\n" mv off (+ off 4) mv)
+         (fprintf out "            for (const auto& e : ~a) {\n                Put32(buf, vp, static_cast<std::uint32_t>(~a)); Put32(buf, vp + 4, static_cast<std::uint32_t>(~a)); vp += 8;\n"
+                  mv (cpp-struct-value-size model kf "e.first") (cpp-struct-value-size model vf "e.second"))
+         (display (cpp-struct-value-write model kf "e.first") out)
+         (display (cpp-struct-value-write model vf "e.second") out)
+         (fprintf out "            }\n        }\n")]
+        [(= (hash-ref f 'label) 3)
+         (cond [(member t '(9 12))
+                (fprintf out "        if (!~a.empty()) {\n            Put32(buf, ~a, static_cast<std::uint32_t>(vp)); Put32(buf, ~a, static_cast<std::uint32_t>(~a.size()));\n            std::size_t doff = vp + 8 * ~a.size();\n            for (const auto& e : ~a) { Put32(buf, vp, static_cast<std::uint32_t>(doff)); Put32(buf, vp + 4, static_cast<std::uint32_t>(~a)); doff += ~a; vp += 8; }\n            for (const auto& e : ~a) { ~a }\n        }\n"
+                         mv off (+ off 4) mv mv mv "e.size()" "e.size()"
+                         mv "if (!e.empty()) std::memcpy(buf.data() + vp, e.data(), e.size()); vp += e.size();")]
+               [(= t 11)
+                (fprintf out "        if (!~a.empty()) {\n            Put32(buf, ~a, static_cast<std::uint32_t>(vp)); Put32(buf, ~a, static_cast<std::uint32_t>(~a.size()));\n            std::size_t doff = vp + 8 * ~a.size();\n            for (const auto& e : ~a) { std::size_t es = ~aStruct::Size(e); Put32(buf, vp, static_cast<std::uint32_t>(doff)); Put32(buf, vp + 4, static_cast<std::uint32_t>(es)); doff += es; vp += 8; }\n            for (const auto& e : ~a) { auto nb = ~aStruct::Marshal(e); if (!nb.empty()) std::memcpy(buf.data() + vp, nb.data(), nb.size()); vp += nb.size(); }\n        }\n"
+                         mv off (+ off 4) mv mv mv (string-replace (cpp-struct-class-name model f) "::" "_")
+                         mv (string-replace (cpp-struct-class-name model f) "::" "_"))]
+               [else
+                (fprintf out "        if (!~a.empty()) {\n            Put32(buf, ~a, static_cast<std::uint32_t>(vp)); Put32(buf, ~a, static_cast<std::uint32_t>(~a.size()));\n            for (const auto& e : ~a) { std::size_t off = vp; ~a vp += ~a; }\n        }\n"
+                         mv off (+ off 4) mv
+                         mv
+                         (cpp-struct-scalar-encode f "e")
+                         (if (cpp-struct-fixed32-type? t) 4 8))])]
+        [(= t 11)
+         (fprintf out "        if (~a.has_value()) {\n            Put32(buf, ~a, static_cast<std::uint32_t>(vp)); Put32(buf, ~a, static_cast<std::uint32_t>(~aStruct::Size(*~a)));\n            auto nb = ~aStruct::Marshal(*~a); if (!nb.empty()) std::memcpy(buf.data() + vp, nb.data(), nb.size()); vp += nb.size();\n        }\n"
+                  mv off (+ off 4) (string-replace (cpp-struct-class-name model f) "::" "_") mv (string-replace (cpp-struct-class-name model f) "::" "_") mv)]
+        [(member t '(9 12))
+         (fprintf out "        if (!~a.empty()) {\n            Put32(buf, ~a, static_cast<std::uint32_t>(vp)); Put32(buf, ~a, static_cast<std::uint32_t>(~a.size()));\n            if (!~a.empty()) std::memcpy(buf.data() + vp, ~a.data(), ~a.size()); vp += ~a.size();\n        }\n"
+                  mv off (+ off 4) mv mv mv mv mv)]
+        [else
+         (fprintf out "        { std::size_t off = ~a; ~a }\n" off (cpp-struct-scalar-encode f mv))])
+  (get-output-string out))
+
+(define (cpp-struct-value-expr/off model f lenvar offv)
+  (define t (hash-ref f 'type))
+  (cond [(= t 9) (format "std::string(reinterpret_cast<const char*>(data.data() + ~a), ~a)" offv lenvar)]
+        [(= t 12) (format "grpcdc::Bytes(data.begin() + ~a, data.begin() + ~a + ~a)" offv offv lenvar)]
+        [(= t 11) (format "(~a > 0 ? ~aStruct::Unmarshal(grpcdc::Bytes(data.begin() + ~a, data.begin() + ~a + ~a)) : ~a())"
+                          lenvar (string-replace (cpp-struct-class-name model f) "::" "_") offv offv lenvar
+                          (cpp-struct-class-name model f))]
+        [else (cpp-struct-scalar-value/off model f offv)]))
+
+(define (cpp-struct-decode-field model f foff)
+  (define fn (hash-ref f 'name))
+  (define t (hash-ref f 'type))
+  (define out (open-output-string))
+  (define mv (format "m.~a" fn))
+  (cond [(cpp-struct-map-entry model f)
+         (define kf (cpp-struct-map-key-field model f))
+         (define vf (cpp-struct-map-val-field model f))
+         (fprintf out "            std::size_t off = Get32(data, ~a); std::size_t n = Get32(data, ~a);\n" foff (+ foff 4))
+         (fprintf out "            std::size_t p = off;\n            for (std::size_t i = 0; i < n; i++) {\n")
+         (fprintf out "                Check(data, p, 8);\n                std::size_t kl = Get32(data, p); std::size_t vl = Get32(data, p + 4); p += 8;\n                Check(data, p, kl + vl);\n")
+         (fprintf out "                auto k = [&] { std::size_t io = p; return ~a; }();\n" (cpp-struct-value-expr/off model kf "kl" "io"))
+         (fprintf out "                auto v = [&] { std::size_t io = p + kl; return ~a; }();\n" (cpp-struct-value-expr/off model vf "vl" "io"))
+         (fprintf out "                ~a[k] = v;\n                p += kl + vl;\n            }\n            if (p > vend) { vend = p; }\n" mv)]
+        [(= (hash-ref f 'label) 3)
+         (fprintf out "            std::size_t off = Get32(data, ~a); std::size_t n = Get32(data, ~a);\n" foff (+ foff 4))
+         (cond [(member t '(9 12))
+                (fprintf out "            for (std::size_t i = 0; i < n; i++) {\n                std::size_t eo = Get32(data, off + 8 * i); std::size_t el = Get32(data, off + 8 * i + 4);\n                Check(data, eo, el);\n                ~a.push_back(~a);\n                if (eo + el > vend) { vend = eo + el; }\n            }\n"
+                         mv (if (= t 9) "std::string(reinterpret_cast<const char*>(data.data() + eo), el)" "grpcdc::Bytes(data.begin() + eo, data.begin() + eo + el)"))]
+               [(= t 11)
+                (fprintf out "            for (std::size_t i = 0; i < n; i++) {\n                std::size_t eo = Get32(data, off + 8 * i); std::size_t el = Get32(data, off + 8 * i + 4);\n                if (el > 0) {\n                    Check(data, eo, el);\n                    ~a.push_back(~aStruct::Unmarshal(grpcdc::Bytes(data.begin() + eo, data.begin() + eo + el)));\n                    if (eo + el > vend) { vend = eo + el; }\n                }\n            }\n"
+                         mv (string-replace (cpp-struct-class-name model f) "::" "_"))]
+               [else
+                (define esz (if (cpp-struct-fixed32-type? t) 4 8))
+                (fprintf out "            Check(data, off, n * ~a);\n            for (std::size_t i = 0; i < n; i++) {\n                std::size_t eo = off + i * ~a;\n                ~a.push_back(~a);\n            }\n            if (off + n * ~a > vend) { vend = off + n * ~a; }\n"
+                         esz esz mv (cpp-struct-scalar-value/off model f "eo") esz esz)])]
+        [(= t 11)
+         (fprintf out "            std::size_t off = Get32(data, ~a); std::size_t el = Get32(data, ~a);\n" foff (+ foff 4))
+         (fprintf out "            Check(data, off, el);\n            ~a = ~aStruct::Unmarshal(grpcdc::Bytes(data.begin() + off, data.begin() + off + el));\n            if (off + el > vend) { vend = off + el; }\n" mv (string-replace (cpp-struct-class-name model f) "::" "_"))]
+        [(member t '(9 12))
+         (fprintf out "            std::size_t off = Get32(data, ~a); std::size_t el = Get32(data, ~a);\n" foff (+ foff 4))
+         (fprintf out "            Check(data, off, el);\n")
+         (if (= t 9)
+             (fprintf out "            ~a = std::string(reinterpret_cast<const char*>(data.data() + off), el);\n" mv)
+             (fprintf out "            ~a = grpcdc::Bytes(data.begin() + off, data.begin() + off + el);\n" mv))
+         (fprintf out "            if (off + el > vend) { vend = off + el; }\n")]
+        [else
+         (fprintf out "            std::size_t off = ~a;\n            ~a = ~a;\n" foff mv
+                  (cpp-struct-scalar-value/off model f "off"))])
+  (get-output-string out))
+
+(define (emit-cpp-struct-file file-model params)
+  (and (equal? (hash-ref params 'struct_codec #f) "true")
+       (hash-has-key? file-model 'messages)
+       (let ()
+         (define base (path->string (path-replace-extension
+                                     (file-name-from-path (hash-ref file-model 'name)) "")))
+         (define pkg (hash-ref file-model 'package))
+         (define (walk msg)
+           (if (hash-ref msg 'map-entry)
+               '()
+               (append (walk-nested msg) (list msg))))
+         (define (walk-nested msg)
+           (append-map walk (hash-ref msg 'nested)))
+         (define all (append-map walk (hash-ref file-model 'messages)))
+         (define content
+           (string-append
+            "// @generated by protoc-gen-grpc-dc-cpp. DO NOT EDIT.\n"
+            (format "// source: ~a\n\n" (hash-ref file-model 'name))
+            "#pragma once\n\n"
+            (format "#include \"~a_messages.hpp\"\n\n" base)
+            (format "namespace ~a {\n\n" (cpp-pb-ns pkg))
+            "extern \"C\" {\n"
+            "int grpcdc_struct_encode(const std::uint8_t*, std::size_t, const std::uint8_t*, std::size_t, const std::uint8_t*, std::size_t, std::uint8_t**, std::size_t*, char**);\n"
+            "int grpcdc_struct_decode(const std::uint8_t*, std::size_t, const std::uint8_t*, std::size_t, const std::uint8_t*, std::size_t, std::uint8_t**, std::size_t*, char**);\n"
+            "void grpcdc_struct_free(std::uint8_t*, std::size_t);\n"
+            "void grpcdc_struct_error_free(char*);\n"
+            "}\n\n"
+            "namespace structdc_detail {\n"
+            (format "inline const std::uint8_t kDescriptor[] = {~a};\n"
+                    (string-join (for/list ([b (in-bytes (hash-ref file-model 'descriptor-set #""))]) (format "0x~x" b)) ","))
+            "inline grpcdc::Bytes Transcode(bool encode, const char* type, const grpcdc::Bytes& input) {\n"
+            "    std::uint8_t* out = nullptr; std::size_t out_len = 0; char* err = nullptr;\n"
+            "    auto rc = encode\n"
+            "        ? grpcdc_struct_encode(kDescriptor, sizeof(kDescriptor), reinterpret_cast<const std::uint8_t*>(type), std::strlen(type), input.data(), input.size(), &out, &out_len, &err)\n"
+            "        : grpcdc_struct_decode(kDescriptor, sizeof(kDescriptor), reinterpret_cast<const std::uint8_t*>(type), std::strlen(type), input.data(), input.size(), &out, &out_len, &err);\n"
+            "    if (rc != 0) { std::string msg = err ? err : \"struct codec transcode failed\"; grpcdc_struct_error_free(err); throw std::runtime_error(msg); }\n"
+            "    grpcdc::Bytes result(out, out + out_len); grpcdc_struct_free(out, out_len); return result;\n"
+            "}\n"
+            "}  // namespace structdc_detail\n\n"
+            (apply string-append
+                   (map (lambda (m) (cpp-struct-message file-model m)) all))
+            (format "}  // namespace ~a\n" (cpp-pb-ns pkg))))
+         (cons (string-append base "_struct.hpp") content))))

@@ -35,7 +35,8 @@
 
 (require "spec.rkt" "desc.rkt" racket/path)
 
-(provide go-register-method-program go-deprecated-program
+(provide seg-rs-field-name
+         go-register-method-program go-deprecated-program
          go-client-method-program go-server-iface-method-program
          go-server-iface-method-deprecated-program
          go-stream-ifaces-program go-stream-impls-program
@@ -49,7 +50,7 @@
          go-pb-map-helpers-program go-pb-enum-program
          go-pb-default-literal-program go-pb-constructor-program
          go-pb-message-program
-         segment-programs run-segments seg-kotlin-wasm-mode seg-cpp-pkg
+         segment-programs run-segments seg-kotlin-wasm-mode seg-cpp-pkg seg-struct-codec
          js-deprecated-program js-client-method-program
          js-method-table-entry-program js-service-program
          js-pb-varint-expr-program js-pb-varint-decode-program
@@ -292,13 +293,13 @@
 (define go-register-method-program
   '((kind-case
      (unary
-      (fmt "\t\t{Name: ~s, Path: ~s, Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {\n\t\t\treq := new(~a)\n\t\t\tif err := reqs.RecvInto(req); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t\tresp, err := srv.~a(ctx, req)\n\t\t\tif err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t\treturn sink.Send(resp.MarshalDC())\n\t\t}},\n"
+      (fmt "\t\t{Name: ~s, Path: ~s, Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {\n\t\t\treq := new(~a)\n\t\t\tif err := reqs.RecvInto(req); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t\tresp, err := srv.~a(ctx, req)\n\t\t\tif err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t\tencoded, err := grpcdc.EncodeMessageForCall(ctx, resp)\n\t\t\tif err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t\treturn sink.Send(encoded)\n\t\t}},\n"
            (ref name) (ref path) (ref input) (ref impl-name)))
      (server-streaming
       (fmt "\t\t{Name: ~s, Path: ~s, Kind: grpcdc.KindServerStreaming, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {\n\t\t\treq := new(~a)\n\t\t\tif err := reqs.RecvInto(req); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t\treturn srv.~a(req, &~a~aServerImpl{ctx: ctx, sink: sink})\n\t\t}},\n"
            (ref name) (ref path) (ref input) (ref impl-name) (svc) (ref impl-name)))
      (client-streaming
-      (fmt "\t\t{Name: ~s, Path: ~s, Kind: grpcdc.KindClientStreaming, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {\n\t\t\tstream := &~a~aServerImpl{ctx: ctx, reqs: reqs}\n\t\t\tif err := srv.~a(stream); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t\tif stream.resp == nil {\n\t\t\t\treturn grpcdc.NewStatus(grpcdc.CodeInternal, \"client-streaming handler never called SendAndClose\")\n\t\t\t}\n\t\t\treturn sink.Send(stream.resp.MarshalDC())\n\t\t}},\n"
+      (fmt "\t\t{Name: ~s, Path: ~s, Kind: grpcdc.KindClientStreaming, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {\n\t\t\tstream := &~a~aServerImpl{ctx: ctx, reqs: reqs}\n\t\t\tif err := srv.~a(stream); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t\tif stream.resp == nil {\n\t\t\t\treturn grpcdc.NewStatus(grpcdc.CodeInternal, \"client-streaming handler never called SendAndClose\")\n\t\t\t}\n\t\t\tencoded, err := grpcdc.EncodeMessageForCall(ctx, stream.resp)\n\t\t\tif err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t\treturn sink.Send(encoded)\n\t\t}},\n"
            (ref name) (ref path) (svc) (ref impl-name) (ref impl-name)))
      (bidi
       (fmt "\t\t{Name: ~s, Path: ~s, Kind: grpcdc.KindBidi, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {\n\t\t\treturn srv.~a(&~a~aServerImpl{ctx: ctx, reqs: reqs, sink: sink})\n\t\t}},\n"
@@ -356,13 +357,13 @@
   '((kind-case
      (unary)
      (server-streaming
-      (fmt "type ~a~aServerImpl struct {\n\tctx  context.Context\n\tsink grpcdc.ServerSink\n}\n\nfunc (s *~a~aServerImpl) Send(resp *~a) error {\n\treturn s.sink.Send(resp.MarshalDC())\n}\nfunc (s *~a~aServerImpl) Context() context.Context { return s.ctx }\n\n"
+      (fmt "type ~a~aServerImpl struct {\n\tctx  context.Context\n\tsink grpcdc.ServerSink\n}\n\nfunc (s *~a~aServerImpl) Send(resp *~a) error {\n\tencoded, err := grpcdc.EncodeMessageForCall(s.ctx, resp)\n\tif err != nil {\n\t\treturn err\n\t}\n\treturn s.sink.Send(encoded)\n}\nfunc (s *~a~aServerImpl) Context() context.Context { return s.ctx }\n\n"
            (svc) (ref name) (svc) (ref name) (ref output) (svc) (ref name)))
      (client-streaming
       (fmt "type ~a~aServerImpl struct {\n\tctx  context.Context\n\treqs *grpcdc.RequestStream\n\tresp *~a\n}\n\nfunc (s *~a~aServerImpl) Recv() (*~a, error) {\n\treq := new(~a)\n\tif err := s.reqs.RecvInto(req); err != nil {\n\t\treturn nil, err\n\t}\n\treturn req, nil\n}\nfunc (s *~a~aServerImpl) SendAndClose(resp *~a) error {\n\ts.resp = resp\n\treturn nil\n}\nfunc (s *~a~aServerImpl) Context() context.Context { return s.ctx }\n\n"
            (svc) (ref name) (ref output) (svc) (ref name) (ref input) (ref input) (svc) (ref name) (ref output) (svc) (ref name)))
      (bidi
-      (fmt "type ~a~aServerImpl struct {\n\tctx  context.Context\n\treqs *grpcdc.RequestStream\n\tsink grpcdc.ServerSink\n}\n\nfunc (s *~a~aServerImpl) Send(resp *~a) error {\n\treturn s.sink.Send(resp.MarshalDC())\n}\nfunc (s *~a~aServerImpl) Recv() (*~a, error) {\n\treq := new(~a)\n\tif err := s.reqs.RecvInto(req); err != nil {\n\t\treturn nil, err\n\t}\n\treturn req, nil\n}\nfunc (s *~a~aServerImpl) Context() context.Context { return s.ctx }\n\n"
+      (fmt "type ~a~aServerImpl struct {\n\tctx  context.Context\n\treqs *grpcdc.RequestStream\n\tsink grpcdc.ServerSink\n}\n\nfunc (s *~a~aServerImpl) Send(resp *~a) error {\n\tencoded, err := grpcdc.EncodeMessageForCall(s.ctx, resp)\n\tif err != nil {\n\t\treturn err\n\t}\n\treturn s.sink.Send(encoded)\n}\nfunc (s *~a~aServerImpl) Recv() (*~a, error) {\n\treq := new(~a)\n\tif err := s.reqs.RecvInto(req); err != nil {\n\t\treturn nil, err\n\t}\n\treturn req, nil\n}\nfunc (s *~a~aServerImpl) Context() context.Context { return s.ctx }\n\n"
            (svc) (ref name) (svc) (ref name) (ref output) (svc) (ref name) (ref input) (ref input) (svc) (ref name))))))
 
 (define go-service-program
@@ -2767,29 +2768,29 @@
 (define c-client-method-program
   '((call cDeprecated "")
     (kind-case
-     (unary (fmt "static inline grpcdc_status ~aClient_~a(~aClient *c, const ~a *req, ~a *resp, const grpcdc_kv *md, size_t md_count, int64_t deadline_ms) {\n    ~aBytes rb = ~a_marshal(req);\n    grpcdc_bytes out; grpcdc_status st = grpcdc_channel_unary(c->channel, ~s, rb.data, rb.len, md, md_count, deadline_ms, &out);\n    free(rb.data);\n    if (st.code == 0) { memset(resp, 0, sizeof(*resp)); ~a_unmarshal(resp, out.data, out.len); grpcdc_bytes_free(&out); }\n    return st;\n}\n\n"
+     (unary (fmt "static inline grpcdc_status ~aClient_~a(~aClient *c, const ~a *req, ~a *resp, const grpcdc_kv *md, size_t md_count, int64_t deadline_ms) {\n    ~aBytes rb = ~a;\n    grpcdc_bytes out; grpcdc_status st = grpcdc_channel_unary(c->channel, ~s, rb.data, rb.len, md, md_count, deadline_ms, &out);\n    free(rb.data);\n    if (st.code == 0) { memset(resp, 0, sizeof(*resp)); ~a; grpcdc_bytes_free(&out); }\n    return st;\n}\n\n"
                  (svc) (snake-case (ref name)) (svc) (c-type-ref input-full) (c-type-ref output-full)
-                 (c-support-of input-full) (c-type-ref input-full) (ref path) (c-type-ref output-full)))
+                 (c-support-of input-full) (c-marshal-call (c-type-ref input-full) "req" "c->channel->struct_codec") (ref path) (c-unmarshal-call (c-type-ref output-full) "resp" "c->channel->struct_codec")))
      (server-streaming
       (fmt "typedef struct { grpcdc_stream *raw; } ~a~aClient;\n\n" (svc) (ref name))
-      (fmt "static inline grpcdc_status ~aClient_~a(~aClient *c, const ~a *req, ~a~aClient *out_stream, const grpcdc_kv *md, size_t md_count, int64_t deadline_ms) {\n    ~aBytes rb = ~a_marshal(req);\n    grpcdc_status st = grpcdc_channel_open(c->channel, ~s, rb.data, rb.len, 1, md, md_count, deadline_ms, &out_stream->raw);\n    free(rb.data);\n    return st;\n}\n\n"
+      (fmt "static inline grpcdc_status ~aClient_~a(~aClient *c, const ~a *req, ~a~aClient *out_stream, const grpcdc_kv *md, size_t md_count, int64_t deadline_ms) {\n    ~aBytes rb = ~a;\n    grpcdc_status st = grpcdc_channel_open(c->channel, ~s, rb.data, rb.len, 1, md, md_count, deadline_ms, &out_stream->raw);\n    free(rb.data);\n    return st;\n}\n\n"
            (svc) (snake-case (ref name)) (svc) (c-type-ref input-full) (svc) (ref name)
-           (c-support-of input-full) (c-type-ref input-full) (ref path))
-      (fmt "static inline int ~a~aClient_recv(~a~aClient *s, ~a *resp, grpcdc_status *st) {\n    grpcdc_bytes out; int r = grpcdc_stream_recv(s->raw, &out, st);\n    if (r == 1) { memset(resp, 0, sizeof(*resp)); ~a_unmarshal(resp, out.data, out.len); grpcdc_bytes_free(&out); }\n    return r;\n}\n\n"
-           (svc) (ref name) (svc) (ref name) (c-type-ref output-full) (c-type-ref output-full))
+           (c-support-of input-full) (c-marshal-call (c-type-ref input-full) "req" "c->channel->struct_codec") (ref path))
+      (fmt "static inline int ~a~aClient_recv(~a~aClient *s, ~a *resp, grpcdc_status *st) {\n    grpcdc_bytes out; int r = grpcdc_stream_recv(s->raw, &out, st);\n    if (r == 1) { memset(resp, 0, sizeof(*resp)); ~a; grpcdc_bytes_free(&out); }\n    return r;\n}\n\n"
+           (svc) (ref name) (svc) (ref name) (c-type-ref output-full) (c-unmarshal-call (c-type-ref output-full) "resp" "grpcdc_stream_struct_codec(s->raw)"))
       (fmt "static inline void ~a~aClient_close(~a~aClient *s) { grpcdc_stream_free(s->raw); }\n\n" (svc) (ref name) (svc) (ref name))
       (fmt "static inline void ~a~aClient_cancel(~a~aClient *s) { grpcdc_stream_cancel(s->raw); }\n\n" (svc) (ref name) (svc) (ref name)))
      (client-streaming
-      (fmt "static inline grpcdc_status ~aClient_~a(~aClient *c, const ~a *reqs, size_t req_count, ~a *resp, const grpcdc_kv *md, size_t md_count, int64_t deadline_ms) {\n    grpcdc_stream *raw; grpcdc_status st;\n    st = grpcdc_channel_open(c->channel, ~s, NULL, 0, 0, md, md_count, deadline_ms, &raw);\n    if (st.code != 0) return st;\n    for (size_t i = 0; i < req_count; i++) {\n        ~aBytes rb = ~a_marshal(&reqs[i]);\n        st = grpcdc_stream_send(raw, rb.data, rb.len); free(rb.data);\n        if (st.code != 0) { grpcdc_stream_free(raw); return st; }\n    }\n    st = grpcdc_stream_close_send(raw);\n    if (st.code != 0) { grpcdc_stream_free(raw); return st; }\n    grpcdc_bytes out; int r = grpcdc_stream_recv(raw, &out, &st);\n    if (r == 1) { memset(resp, 0, sizeof(*resp)); ~a_unmarshal(resp, out.data, out.len); grpcdc_bytes_free(&out); }\n    grpcdc_stream_free(raw);\n    if (r == 0) return grpcdc_status_make(2, \"missing response\");\n    return st;\n}\n\n"
+      (fmt "static inline grpcdc_status ~aClient_~a(~aClient *c, const ~a *reqs, size_t req_count, ~a *resp, const grpcdc_kv *md, size_t md_count, int64_t deadline_ms) {\n    grpcdc_stream *raw; grpcdc_status st;\n    st = grpcdc_channel_open(c->channel, ~s, NULL, 0, 0, md, md_count, deadline_ms, &raw);\n    if (st.code != 0) return st;\n    for (size_t i = 0; i < req_count; i++) {\n        ~aBytes rb = ~a;\n        st = grpcdc_stream_send(raw, rb.data, rb.len); free(rb.data);\n        if (st.code != 0) { grpcdc_stream_free(raw); return st; }\n    }\n    st = grpcdc_stream_close_send(raw);\n    if (st.code != 0) { grpcdc_stream_free(raw); return st; }\n    grpcdc_bytes out; int r = grpcdc_stream_recv(raw, &out, &st);\n    if (r == 1) { memset(resp, 0, sizeof(*resp)); ~a; grpcdc_bytes_free(&out); }\n    grpcdc_stream_free(raw);\n    if (r == 0) return grpcdc_status_make(2, \"missing response\");\n    return st;\n}\n\n"
            (svc) (snake-case (ref name)) (svc) (c-type-ref input-full) (c-type-ref output-full)
-           (ref path) (c-support-of input-full) (c-type-ref input-full) (c-type-ref output-full)))
+           (ref path) (c-support-of input-full) (c-marshal-call (c-type-ref input-full) "&reqs[i]" "c->channel->struct_codec") (c-unmarshal-call (c-type-ref output-full) "resp" "c->channel->struct_codec")))
      (bidi
       (fmt "typedef struct { grpcdc_stream *raw; } ~a~aClient;\n\n" (svc) (ref name))
-      (fmt "static inline grpcdc_status ~aClient_~a(~aClient *c, const ~a *reqs, size_t req_count, ~a~aClient *out_stream, const grpcdc_kv *md, size_t md_count, int64_t deadline_ms) {\n    grpcdc_status st;\n    st = grpcdc_channel_open(c->channel, ~s, NULL, 0, 0, md, md_count, deadline_ms, &out_stream->raw);\n    if (st.code != 0) return st;\n    for (size_t i = 0; i < req_count; i++) {\n        ~aBytes rb = ~a_marshal(&reqs[i]);\n        st = grpcdc_stream_send(out_stream->raw, rb.data, rb.len); free(rb.data);\n        if (st.code != 0) { grpcdc_stream_free(out_stream->raw); return st; }\n    }\n    return grpcdc_stream_close_send(out_stream->raw);\n}\n\n"
+      (fmt "static inline grpcdc_status ~aClient_~a(~aClient *c, const ~a *reqs, size_t req_count, ~a~aClient *out_stream, const grpcdc_kv *md, size_t md_count, int64_t deadline_ms) {\n    grpcdc_status st;\n    st = grpcdc_channel_open(c->channel, ~s, NULL, 0, 0, md, md_count, deadline_ms, &out_stream->raw);\n    if (st.code != 0) return st;\n    for (size_t i = 0; i < req_count; i++) {\n        ~aBytes rb = ~a;\n        st = grpcdc_stream_send(out_stream->raw, rb.data, rb.len); free(rb.data);\n        if (st.code != 0) { grpcdc_stream_free(out_stream->raw); return st; }\n    }\n    return grpcdc_stream_close_send(out_stream->raw);\n}\n\n"
            (svc) (snake-case (ref name)) (svc) (c-type-ref input-full) (svc) (ref name)
-           (ref path) (c-support-of input-full) (c-type-ref input-full))
-      (fmt "static inline int ~a~aClient_recv(~a~aClient *s, ~a *resp, grpcdc_status *st) {\n    grpcdc_bytes out; int r = grpcdc_stream_recv(s->raw, &out, st);\n    if (r == 1) { memset(resp, 0, sizeof(*resp)); ~a_unmarshal(resp, out.data, out.len); grpcdc_bytes_free(&out); }\n    return r;\n}\n\n"
-           (svc) (ref name) (svc) (ref name) (c-type-ref output-full) (c-type-ref output-full))
+           (ref path) (c-support-of input-full) (c-marshal-call (c-type-ref input-full) "&reqs[i]" "c->channel->struct_codec"))
+      (fmt "static inline int ~a~aClient_recv(~a~aClient *s, ~a *resp, grpcdc_status *st) {\n    grpcdc_bytes out; int r = grpcdc_stream_recv(s->raw, &out, st);\n    if (r == 1) { memset(resp, 0, sizeof(*resp)); ~a; grpcdc_bytes_free(&out); }\n    return r;\n}\n\n"
+           (svc) (ref name) (svc) (ref name) (c-type-ref output-full) (c-unmarshal-call (c-type-ref output-full) "resp" "grpcdc_stream_struct_codec(s->raw)"))
       (fmt "static inline void ~a~aClient_close(~a~aClient *s) { grpcdc_stream_free(s->raw); }\n\n" (svc) (ref name) (svc) (ref name))
       (fmt "static inline void ~a~aClient_cancel(~a~aClient *s) { grpcdc_stream_cancel(s->raw); }\n\n" (svc) (ref name) (svc) (ref name))))))
 
@@ -2797,18 +2798,18 @@
   '((kind-case
      (server-streaming
       (fmt "typedef struct { grpcdc_server_stream *raw; } ~a~aStream;\n" (svc) (ref name))
-      (fmt "static inline grpcdc_status ~a~aStream_send(~a~aStream *s, const ~a *resp) { ~aBytes rb = ~a_marshal(resp); grpcdc_status st = grpcdc_server_stream_send(s->raw, rb.data, rb.len); free(rb.data); return st; }\n\n"
-           (svc) (ref name) (svc) (ref name) (c-type-ref output-full) (c-support-of output-full) (c-type-ref output-full)))
+      (fmt "static inline grpcdc_status ~a~aStream_send(~a~aStream *s, const ~a *resp) { ~aBytes rb = ~a; grpcdc_status st = grpcdc_server_stream_send(s->raw, rb.data, rb.len); free(rb.data); return st; }\n\n"
+           (svc) (ref name) (svc) (ref name) (c-type-ref output-full) (c-support-of output-full) (c-marshal-call (c-type-ref output-full) "resp" "grpcdc_server_stream_struct_codec(s->raw)")))
      (client-streaming
       (fmt "typedef struct { grpcdc_server_stream *raw; } ~a~aStream;\n" (svc) (ref name))
-      (fmt "static inline int ~a~aStream_recv(~a~aStream *s, ~a *req, grpcdc_status *st) { grpcdc_bytes out; int r = grpcdc_server_stream_recv(s->raw, &out, st); if (r == 1) { memset(req, 0, sizeof(*req)); ~a_unmarshal(req, out.data, out.len); grpcdc_bytes_free(&out); } return r; }\n\n"
-           (svc) (ref name) (svc) (ref name) (c-type-ref input-full) (c-type-ref input-full)))
+      (fmt "static inline int ~a~aStream_recv(~a~aStream *s, ~a *req, grpcdc_status *st) { grpcdc_bytes out; int r = grpcdc_server_stream_recv(s->raw, &out, st); if (r == 1) { memset(req, 0, sizeof(*req)); ~a; grpcdc_bytes_free(&out); } return r; }\n\n"
+           (svc) (ref name) (svc) (ref name) (c-type-ref input-full) (c-unmarshal-call (c-type-ref input-full) "req" "grpcdc_server_stream_struct_codec(s->raw)")))
      (bidi
       (fmt "typedef struct { grpcdc_server_stream *raw; } ~a~aStream;\n" (svc) (ref name))
-      (fmt "static inline grpcdc_status ~a~aStream_send(~a~aStream *s, const ~a *resp) { ~aBytes rb = ~a_marshal(resp); grpcdc_status st = grpcdc_server_stream_send(s->raw, rb.data, rb.len); free(rb.data); return st; }\n"
-           (svc) (ref name) (svc) (ref name) (c-type-ref output-full) (c-support-of output-full) (c-type-ref output-full))
-      (fmt "static inline int ~a~aStream_recv(~a~aStream *s, ~a *req, grpcdc_status *st) { grpcdc_bytes out; int r = grpcdc_server_stream_recv(s->raw, &out, st); if (r == 1) { memset(req, 0, sizeof(*req)); ~a_unmarshal(req, out.data, out.len); grpcdc_bytes_free(&out); } return r; }\n\n"
-           (svc) (ref name) (svc) (ref name) (c-type-ref input-full) (c-type-ref input-full)))
+      (fmt "static inline grpcdc_status ~a~aStream_send(~a~aStream *s, const ~a *resp) { ~aBytes rb = ~a; grpcdc_status st = grpcdc_server_stream_send(s->raw, rb.data, rb.len); free(rb.data); return st; }\n"
+           (svc) (ref name) (svc) (ref name) (c-type-ref output-full) (c-support-of output-full) (c-marshal-call (c-type-ref output-full) "resp" "grpcdc_server_stream_struct_codec(s->raw)"))
+      (fmt "static inline int ~a~aStream_recv(~a~aStream *s, ~a *req, grpcdc_status *st) { grpcdc_bytes out; int r = grpcdc_server_stream_recv(s->raw, &out, st); if (r == 1) { memset(req, 0, sizeof(*req)); ~a; grpcdc_bytes_free(&out); } return r; }\n\n"
+           (svc) (ref name) (svc) (ref name) (c-type-ref input-full) (c-unmarshal-call (c-type-ref input-full) "req" "grpcdc_server_stream_struct_codec(s->raw)")))
      (else ""))))
 
 (define c-server-impl-field-program
@@ -2820,13 +2821,13 @@
 
 (define c-server-adapter-program
   '((kind-case
-     (unary (fmt "static grpcdc_status ~a_~a_unary_adapter(void *impl, const grpcdc_kv *md, size_t md_count, grpcdc_bytes reqb, grpcdc_bytes *respb) {\n    ~aServerImpl *impl_ = (~aServerImpl *)impl;\n    ~a req; memset(&req, 0, sizeof(req)); ~a_unmarshal(&req, reqb.data, reqb.len);\n    ~a resp; memset(&resp, 0, sizeof(resp));\n    grpcdc_status st = impl_->~a(impl_->ctx, md, md_count, &req, &resp);\n    if (st.code == 0) { ~aBytes rb = ~a_marshal(&resp); respb->data = rb.data; respb->len = rb.len; }\n    return st;\n}\n\n"
-                 (svc) (snake-case (ref name)) (svc) (svc) (c-type-ref input-full) (c-type-ref input-full)
-                 (c-type-ref output-full) (snake-case (ref name)) (c-support-of output-full) (c-type-ref output-full)))
-     (server-streaming (fmt "static grpcdc_status ~a_~a_sstream_adapter(void *impl, const grpcdc_kv *md, size_t md_count, grpcdc_bytes reqb, grpcdc_server_stream *raw) {\n    ~aServerImpl *impl_ = (~aServerImpl *)impl;\n    ~a req; memset(&req, 0, sizeof(req)); ~a_unmarshal(&req, reqb.data, reqb.len);\n    ~a~aStream stream; stream.raw = raw;\n    return impl_->~a(impl_->ctx, md, md_count, &req, &stream);\n}\n\n"
-                            (svc) (snake-case (ref name)) (svc) (svc) (c-type-ref input-full) (c-type-ref input-full) (svc) (ref name) (snake-case (ref name))))
-     (client-streaming (fmt "static grpcdc_status ~a_~a_cstream_adapter(void *impl, grpcdc_server_stream *raw, grpcdc_bytes *respb) {\n    ~aServerImpl *impl_ = (~aServerImpl *)impl;\n    ~a~aStream stream; stream.raw = raw;\n    ~a resp; memset(&resp, 0, sizeof(resp));\n    grpcdc_status st = impl_->~a(impl_->ctx, &stream, &resp);\n    if (st.code == 0) { ~aBytes rb = ~a_marshal(&resp); respb->data = rb.data; respb->len = rb.len; }\n    return st;\n}\n\n"
-                            (svc) (snake-case (ref name)) (svc) (svc) (svc) (ref name) (c-type-ref output-full) (snake-case (ref name)) (c-support-of output-full) (c-type-ref output-full)))
+     (unary (fmt "static grpcdc_status ~a_~a_unary_adapter(void *impl, const grpcdc_kv *md, size_t md_count, grpcdc_bytes reqb, grpcdc_bytes *respb) {\n    ~aServerImpl *impl_ = (~aServerImpl *)impl;\n    ~a req; memset(&req, 0, sizeof(req)); ~a;\n    ~a resp; memset(&resp, 0, sizeof(resp));\n    grpcdc_status st = impl_->~a(impl_->ctx, md, md_count, &req, &resp);\n    if (st.code == 0) { ~aBytes rb = ~a; respb->data = rb.data; respb->len = rb.len; }\n    return st;\n}\n\n"
+                 (svc) (snake-case (ref name)) (svc) (svc) (c-type-ref input-full) (c-unmarshal-req-call (c-type-ref input-full) "grpcdc_current_struct_codec()")
+                 (c-type-ref output-full) (snake-case (ref name)) (c-support-of output-full) (c-marshal-call (c-type-ref output-full) "&resp" "grpcdc_current_struct_codec()")))
+     (server-streaming (fmt "static grpcdc_status ~a_~a_sstream_adapter(void *impl, const grpcdc_kv *md, size_t md_count, grpcdc_bytes reqb, grpcdc_server_stream *raw) {\n    ~aServerImpl *impl_ = (~aServerImpl *)impl;\n    ~a req; memset(&req, 0, sizeof(req)); ~a;\n    ~a~aStream stream; stream.raw = raw;\n    return impl_->~a(impl_->ctx, md, md_count, &req, &stream);\n}\n\n"
+                            (svc) (snake-case (ref name)) (svc) (svc) (c-type-ref input-full) (c-unmarshal-req-call (c-type-ref input-full) "grpcdc_server_stream_struct_codec(raw)") (svc) (ref name) (snake-case (ref name))))
+     (client-streaming (fmt "static grpcdc_status ~a_~a_cstream_adapter(void *impl, grpcdc_server_stream *raw, grpcdc_bytes *respb) {\n    ~aServerImpl *impl_ = (~aServerImpl *)impl;\n    ~a~aStream stream; stream.raw = raw;\n    ~a resp; memset(&resp, 0, sizeof(resp));\n    grpcdc_status st = impl_->~a(impl_->ctx, &stream, &resp);\n    if (st.code == 0) { ~aBytes rb = ~a; respb->data = rb.data; respb->len = rb.len; }\n    return st;\n}\n\n"
+                            (svc) (snake-case (ref name)) (svc) (svc) (svc) (ref name) (c-type-ref output-full) (snake-case (ref name)) (c-support-of output-full) (c-marshal-call (c-type-ref output-full) "&resp" "grpcdc_server_stream_struct_codec(raw)")))
      (bidi (fmt "static grpcdc_status ~a_~a_bidi_adapter(void *impl, grpcdc_server_stream *raw) {\n    ~aServerImpl *impl_ = (~aServerImpl *)impl;\n    ~a~aStream stream; stream.raw = raw;\n    return impl_->~a(impl_->ctx, &stream);\n}\n\n"
                 (svc) (snake-case (ref name)) (svc) (svc) (svc) (ref name) (snake-case (ref name)))))))
 
@@ -2888,19 +2889,19 @@
 
 (define scala-register-method-program
   '((kind-case
-     (unary (fmt "            grpcdc.Server.Method(~s, ~s, grpcdc.Server.~a, (ctx, reqs, sink) => {\n                val req = new ~a()\n                reqs.recvInto(req)\n                val resp = impl.~a(ctx, req)\n                sink.send(resp.marshalDc())\n            }),\n"
+     (unary (fmt "            grpcdc.Server.Method(~s, ~s, grpcdc.Server.~a, (ctx, reqs, sink) => {\n                val req = new ~a()\n                reqs.recvInto(req)\n                val resp = impl.~a(ctx, req)\n                sink.send(ctx.encodeMessage(resp))\n            }),\n"
                  (ref name) (ref path)
                  (kind-case (unary "KIND_UNARY") (server-streaming "KIND_SERVER_STREAMING") (client-streaming "KIND_CLIENT_STREAMING") (bidi "KIND_BIDI"))
                  (ref input) (ref impl-name)))
-     (server-streaming (fmt "            grpcdc.Server.Method(~s, ~s, grpcdc.Server.~a, (ctx, reqs, sink) => {\n                val req = new ~a()\n                reqs.recvInto(req)\n                impl.~a(req, new ~a {\n                    def send(resp: ~a): Unit = sink.send(resp.marshalDc())\n                    val context: grpcdc.Endpoint#CallContext = ctx\n                })\n            }),\n"
+     (server-streaming (fmt "            grpcdc.Server.Method(~s, ~s, grpcdc.Server.~a, (ctx, reqs, sink) => {\n                val req = new ~a()\n                reqs.recvInto(req)\n                impl.~a(req, new ~a {\n                    def send(resp: ~a): Unit = sink.send(ctx.encodeMessage(resp))\n                    val context: grpcdc.Endpoint#CallContext = ctx\n                })\n            }),\n"
                             (ref name) (ref path)
                             (kind-case (unary "KIND_UNARY") (server-streaming "KIND_SERVER_STREAMING") (client-streaming "KIND_CLIENT_STREAMING") (bidi "KIND_BIDI"))
                             (ref input) (ref impl-name) (arg 0) (ref output)))
-     (client-streaming (fmt "            grpcdc.Server.Method(~s, ~s, grpcdc.Server.~a, (ctx, reqs, sink) => {\n                var response: ~a = null\n                impl.~a(new ~a {\n                    def recv(): ~a = {\n                        val req = new ~a()\n                        reqs.recvInto(req)\n                        req\n                    }\n                    def sendAndClose(resp: ~a): Unit = { response = resp }\n                    val context: grpcdc.Endpoint#CallContext = ctx\n                })\n                if (response == null) {\n                    throw grpcdc.StatusException(grpcdc.Wire.CODE_INTERNAL, \"client-streaming handler never called sendAndClose\")\n                }\n                sink.send(response.marshalDc())\n            }),\n"
+     (client-streaming (fmt "            grpcdc.Server.Method(~s, ~s, grpcdc.Server.~a, (ctx, reqs, sink) => {\n                var response: ~a = null\n                impl.~a(new ~a {\n                    def recv(): ~a = {\n                        val req = new ~a()\n                        reqs.recvInto(req)\n                        req\n                    }\n                    def sendAndClose(resp: ~a): Unit = { response = resp }\n                    val context: grpcdc.Endpoint#CallContext = ctx\n                })\n                if (response == null) {\n                    throw grpcdc.StatusException(grpcdc.Wire.CODE_INTERNAL, \"client-streaming handler never called sendAndClose\")\n                }\n                sink.send(ctx.encodeMessage(response))\n            }),\n"
                             (ref name) (ref path)
                             (kind-case (unary "KIND_UNARY") (server-streaming "KIND_SERVER_STREAMING") (client-streaming "KIND_CLIENT_STREAMING") (bidi "KIND_BIDI"))
                             (ref output) (ref impl-name) (arg 1) (ref input) (ref input) (ref output)))
-     (bidi (fmt "            grpcdc.Server.Method(~s, ~s, grpcdc.Server.~a, (ctx, reqs, sink) => {\n                impl.~a(new ~a {\n                    def send(resp: ~a): Unit = sink.send(resp.marshalDc())\n                    def recv(): ~a = {\n                        val req = new ~a()\n                        reqs.recvInto(req)\n                        req\n                    }\n                    val context: grpcdc.Endpoint#CallContext = ctx\n                })\n            }),\n"
+     (bidi (fmt "            grpcdc.Server.Method(~s, ~s, grpcdc.Server.~a, (ctx, reqs, sink) => {\n                impl.~a(new ~a {\n                    def send(resp: ~a): Unit = sink.send(ctx.encodeMessage(resp))\n                    def recv(): ~a = {\n                        val req = new ~a()\n                        reqs.recvInto(req)\n                        req\n                    }\n                    val context: grpcdc.Endpoint#CallContext = ctx\n                })\n            }),\n"
                 (ref name) (ref path)
                 (kind-case (unary "KIND_UNARY") (server-streaming "KIND_SERVER_STREAMING") (client-streaming "KIND_CLIENT_STREAMING") (bidi "KIND_BIDI"))
                 (ref impl-name) (arg 2) (ref output) (ref input) (ref input))))))
@@ -3117,39 +3118,39 @@
   '((case-on (category)
       ("varint"
        (if (proto2)
-           (then (fmt "~a{\n~a  w.tag(~a, 0)\n~a  w.varint(~a)\n~a}\n" (arg 2) (arg 2) (ref number) (arg 2) (call scPbVarintExpr (arg 1)) (arg 2)))
-           (else (fmt "~aif (~a) {\n~a  w.tag(~a, 0)\n~a  w.varint(~a)\n~a}\n" (arg 2) (call scPbNonzero (arg 1)) (arg 2) (ref number) (arg 2) (call scPbVarintExpr (arg 1)) (arg 2)))))
+           (then (fmt "~a{\n~a  pbW.tag(~a, 0)\n~a  pbW.varint(~a)\n~a}\n" (arg 2) (arg 2) (ref number) (arg 2) (call scPbVarintExpr (arg 1)) (arg 2)))
+           (else (fmt "~aif (~a) {\n~a  pbW.tag(~a, 0)\n~a  pbW.varint(~a)\n~a}\n" (arg 2) (call scPbNonzero (arg 1)) (arg 2) (ref number) (arg 2) (call scPbVarintExpr (arg 1)) (arg 2)))))
       ("fixed"
        (if (proto2)
-           (then (fmt "~a{\n~a  w.fixed(~a, ~a, ~a)\n~a}\n" (arg 2) (arg 2) (ref number) (case-on (sc-fixed-size) (8 "1") (else "5")) (call scPbFixedEncode (arg 0) (arg 1)) (arg 2)))
-           (else (fmt "~aif (~a != 0) {\n~a  w.fixed(~a, ~a, ~a)\n~a}\n" (arg 2) (arg 1) (arg 2) (ref number) (case-on (sc-fixed-size) (8 "1") (else "5")) (call scPbFixedEncode (arg 0) (arg 1)) (arg 2)))))
+           (then (fmt "~a{\n~a  pbW.fixed(~a, ~a, ~a)\n~a}\n" (arg 2) (arg 2) (ref number) (case-on (sc-fixed-size) (8 "1") (else "5")) (call scPbFixedEncode (arg 0) (arg 1)) (arg 2)))
+           (else (fmt "~aif (~a != 0) {\n~a  pbW.fixed(~a, ~a, ~a)\n~a}\n" (arg 2) (arg 1) (arg 2) (ref number) (case-on (sc-fixed-size) (8 "1") (else "5")) (call scPbFixedEncode (arg 0) (arg 1)) (arg 2)))))
       ("string"
        (if (proto2)
-           (then (fmt "~aw.bytesField(~a, ~a.getBytes(java.nio.charset.StandardCharsets.UTF_8))\n" (arg 2) (ref number) (arg 1)))
-           (else (fmt "~aw.stringField(~a, ~a)\n" (arg 2) (ref number) (arg 1)))))
+           (then (fmt "~apbW.bytesField(~a, ~a.getBytes(java.nio.charset.StandardCharsets.UTF_8))\n" (arg 2) (ref number) (arg 1)))
+           (else (fmt "~apbW.stringField(~a, ~a)\n" (arg 2) (ref number) (arg 1)))))
       ("bytes"
        (if (proto2)
-           (then (fmt "~aw.bytesField(~a, ~a)\n" (arg 2) (ref number) (arg 1)))
-           (else (fmt "~aif (~a.nonEmpty) {\n~a  w.bytesField(~a, ~a)\n~a}\n" (arg 2) (arg 1) (arg 2) (ref number) (arg 1) (arg 2)))))
+           (then (fmt "~apbW.bytesField(~a, ~a)\n" (arg 2) (ref number) (arg 1)))
+           (else (fmt "~aif (~a.nonEmpty) {\n~a  pbW.bytesField(~a, ~a)\n~a}\n" (arg 2) (arg 1) (arg 2) (ref number) (arg 1) (arg 2)))))
       ("message"
-       (fmt "~aif (~a != null) {\n~a  w.bytesField(~a, ~a.marshalDc())\n~a}\n" (arg 2) (arg 1) (arg 2) (ref number) (arg 1) (arg 2)))
+       (fmt "~aif (~a != null) {\n~a  pbW.bytesField(~a, ~a.marshalDc())\n~a}\n" (arg 2) (arg 1) (arg 2) (ref number) (arg 1) (arg 2)))
       (else (fail)))))
 
 (define sc-pb-encode-field-program
   '((if (is-map)
-        (then (fmt "    for (k <- ~a.keys.toArray.sorted) {\n      w.bytesField(~a, ~a(k, ~a(k)))\n    }\n"
+        (then (fmt "    for (k <- ~a.keys.toArray.sorted) {\n      pbW.bytesField(~a, ~a(k, ~a(k)))\n    }\n"
                    (sc-field-name) (ref number) (fmt "~a.encode~a" (arg 0) (sc-entry-ref)) (sc-field-name)))
         (else
          (if (repeated)
              (then
               (case-on (category)
-                ("varint" (fmt "    if (~a.nonEmpty) {\n      val payload = new java.io.ByteArrayOutputStream()\n      for (x <- ~a) {\n        payload.write(~a.varintBytes(~a))\n      }\n      w.bytesField(~a, payload.toByteArray)\n    }\n"
-                               (sc-field-name) (sc-field-name) (arg 0) (call scPbVarintExpr "x") (ref number)))
-                ("fixed" (fmt "    if (~a.nonEmpty) {\n      val payload = new java.io.ByteArrayOutputStream()\n      for (x <- ~a) {\n        payload.write(~a)\n      }\n      w.bytesField(~a, payload.toByteArray)\n    }\n"
-                              (sc-field-name) (sc-field-name) (call scPbFixedEncode (arg 0) "x") (ref number)))
-                ("string" (fmt "    for (x <- ~a) {\n      w.bytesField(~a, x.getBytes(java.nio.charset.StandardCharsets.UTF_8))\n    }\n" (sc-field-name) (ref number)))
-                ("bytes" (fmt "    for (x <- ~a) {\n      w.bytesField(~a, x)\n    }\n" (sc-field-name) (ref number)))
-                ("message" (fmt "    for (x <- ~a) {\n      w.bytesField(~a, x.marshalDc())\n    }\n" (sc-field-name) (ref number)))
+                ("varint" (fmt "    if (~a.nonEmpty) {\n      val pbPayload = new java.io.ByteArrayOutputStream()\n      for (pbX <- ~a) {\n        pbPayload.write(~a.varintBytes(~a))\n      }\n      pbW.bytesField(~a, pbPayload.toByteArray)\n    }\n"
+                               (sc-field-name) (sc-field-name) (arg 0) (call scPbVarintExpr "pbX") (ref number)))
+                ("fixed" (fmt "    if (~a.nonEmpty) {\n      val pbPayload = new java.io.ByteArrayOutputStream()\n      for (pbX <- ~a) {\n        pbPayload.write(~a)\n      }\n      pbW.bytesField(~a, pbPayload.toByteArray)\n    }\n"
+                              (sc-field-name) (sc-field-name) (call scPbFixedEncode (arg 0) "pbX") (ref number)))
+                ("string" (fmt "    for (pbX <- ~a) {\n      pbW.bytesField(~a, pbX.getBytes(java.nio.charset.StandardCharsets.UTF_8))\n    }\n" (sc-field-name) (ref number)))
+                ("bytes" (fmt "    for (pbX <- ~a) {\n      pbW.bytesField(~a, pbX)\n    }\n" (sc-field-name) (ref number)))
+                ("message" (fmt "    for (pbX <- ~a) {\n      pbW.bytesField(~a, pbX.marshalDc())\n    }\n" (sc-field-name) (ref number)))
                 (else (fail))))
              (else (call scPbEncodeSingular (arg 0) (sc-field-name) "    ")))))))
 
@@ -3165,68 +3166,76 @@
 (define sc-pb-decode-case-program
   '((fmt "        case ~a =>\n" (ref number))
     (if (is-map)
-        (then (fmt "          val (kk, vv) = ~a(field.bytesValue)\n          ~a = ~a + (kk -> vv)\n"
+        (then (fmt "          val (kk, vv) = ~a(pbField.bytesValue)\n          ~a = ~a + (kk -> vv)\n"
                    (fmt "~a.decode~a" (arg 0) (sc-entry-ref)) (sc-field-name) (sc-field-name)))
         (else
          (if (repeated)
              (then
               (case-on (category)
-                ("varint" (fmt "          if (field.wire == 2) {\n            val sub = new ~a.Reader(field.bytesValue)\n            while (!sub.done) {\n              val raw = sub.varint()\n              ~a = ~a :+ ~a\n            }\n          } else {\n            ~a = ~a :+ ~a\n          }\n"
-                               (arg 0) (sc-field-name) (sc-field-name) (call scPbVarintDecode "raw") (sc-field-name) (sc-field-name) (call scPbVarintDecode "field.varintValue")))
-                ("fixed" (fmt "          if (field.wire == 2) {\n            var i = 0\n            while (i < field.bytesValue.length) {\n              ~a = ~a :+ ~a\n              i += ~a\n            }\n          } else {\n            ~a = ~a :+ ~a\n          }\n"
+                ("varint" (fmt "          if (pbField.wire == 2) {\n            val pbSub = new ~a.Reader(pbField.bytesValue)\n            while (!pbSub.done) {\n              val raw = pbSub.varint()\n              ~a = ~a :+ ~a\n            }\n          } else {\n            ~a = ~a :+ ~a\n          }\n"
+                               (arg 0) (sc-field-name) (sc-field-name) (call scPbVarintDecode "raw") (sc-field-name) (sc-field-name) (call scPbVarintDecode "pbField.varintValue")))
+                ("fixed" (fmt "          if (pbField.wire == 2) {\n            var i = 0\n            while (i < pbField.bytesValue.length) {\n              ~a = ~a :+ ~a\n              i += ~a\n            }\n          } else {\n            ~a = ~a :+ ~a\n          }\n"
                               (sc-field-name) (sc-field-name)
-                              (call scPbFixedDecode (arg 0) (fmt "java.util.Arrays.copyOfRange(field.bytesValue, i, i + ~a)" (sc-fixed-size)))
+                              (call scPbFixedDecode (arg 0) (fmt "java.util.Arrays.copyOfRange(pbField.bytesValue, i, i + ~a)" (sc-fixed-size)))
                               (sc-fixed-size)
-                              (sc-field-name) (sc-field-name) (call scPbFixedDecode (arg 0) "field.fixedValue")))
-                ("string" (fmt "          ~a = ~a :+ new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)\n" (sc-field-name) (sc-field-name)))
-                ("bytes" (fmt "          ~a = ~a :+ field.bytesValue\n" (sc-field-name) (sc-field-name)))
-                ("message" (fmt "          val item = new ~a()\n          item.unmarshalDc(field.bytesValue)\n          ~a = ~a :+ item\n" (sc-entry-ref) (sc-field-name) (sc-field-name)))
+                              (sc-field-name) (sc-field-name) (call scPbFixedDecode (arg 0) "pbField.fixedValue")))
+                ("string" (fmt "          ~a = ~a :+ new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)\n" (sc-field-name) (sc-field-name)))
+                ("bytes" (fmt "          ~a = ~a :+ pbField.bytesValue\n" (sc-field-name) (sc-field-name)))
+                ("message" (fmt "          val pbItem = new ~a()\n          pbItem.unmarshalDc(pbField.bytesValue)\n          ~a = ~a :+ pbItem\n" (sc-entry-ref) (sc-field-name) (sc-field-name)))
                 (else (fail))))
              (else (call scPbOneofClearing)
                    (call scPbDecodeSingular (arg 0) (sc-field-name)
                          (case-on (category)
-                           ("varint" "field.varintValue")
-                           ("fixed" "field.fixedValue")
-                           (else "field.bytesValue"))
+                           ("varint" "pbField.varintValue")
+                           ("fixed" "pbField.fixedValue")
+                           (else "pbField.bytesValue"))
                          "          ")))))))
 
 (define sc-pb-map-helpers-program
-  '((fmt "  def encode~a(key: ~a, value: ~a): Array[Byte] = {\n    val w = new Writer()\n"
+  '((fmt "  def encode~a(key: ~a, value: ~a): Array[Byte] = {\n    val pbW = new Writer()\n"
          (sc-entry-ref) (call-on (key-field) scPbElemType) (call-on (val-field) scPbElemType))
     (call-on (with-label (key-field) 1) scPbEncodeSingular (arg 0) "key" "    ")
     (call-on (with-label (val-field) 1) scPbEncodeSingular (arg 0) "value" "    ")
-    "    w.toBytes\n  }\n\n"
+    "    pbW.toBytes\n  }\n\n"
     (fmt "  def decode~a(data: Array[Byte]): (~a, ~a) = {\n"
          (sc-entry-ref) (call-on (key-field) scPbElemType) (call-on (val-field) scPbElemType))
     (fmt "    var key: ~a = ~a\n    var value: ~a = ~a\n"
          (call-on (key-field) scPbElemType) (call-on (with-label (key-field) 1) scPbDefault)
          (call-on (val-field) scPbElemType) (call-on (with-label (val-field) 1) scPbDefault))
-    "    val r = new Reader(data)\n    var field = r.next()\n    while (field != null) {\n      field.number match {\n"
+    "    val pbR = new Reader(data)\n    var pbField = pbR.next()\n    while (pbField != null) {\n      pbField.number match {\n"
     (fmt "        case ~a =>\n~a" (get (key-field) number)
          (call-on (with-label (key-field) 1) scPbDecodeSingular (arg 0) "key"
-                  (case-on (category-of (key-field)) ("varint" "field.varintValue") ("fixed" "field.fixedValue") (else "field.bytesValue"))
+                  (case-on (category-of (key-field)) ("varint" "pbField.varintValue") ("fixed" "pbField.fixedValue") (else "pbField.bytesValue"))
                   "          "))
     (fmt "        case ~a =>\n~a" (get (val-field) number)
          (case-on (get (val-field) type)
-           (11 (fmt "          value = new ~a()\n          value.unmarshalDc(field.bytesValue)\n" (sc-entry-ref (val-field))))
+           (11 (fmt "          value = new ~a()\n          value.unmarshalDc(pbField.bytesValue)\n" (sc-entry-ref (val-field))))
            (else (call-on (with-label (val-field) 1) scPbDecodeSingular (arg 0) "value"
-                          (case-on (category-of (val-field)) ("varint" "field.varintValue") ("fixed" "field.fixedValue") (else "field.bytesValue"))
+                          (case-on (category-of (val-field)) ("varint" "pbField.varintValue") ("fixed" "pbField.fixedValue") (else "pbField.bytesValue"))
                           "          "))))
-    "        case _ => ()\n      }\n      field = r.next()\n    }\n    (key, value)\n  }\n\n"))
+    "        case _ => ()\n      }\n      pbField = pbR.next()\n    }\n    (key, value)\n  }\n\n"))
 
 (define sc-pb-message-program
   '((fmt "class ~a(\n" (flat))
     (each-sep ",\n" fields (fmt "    var ~a: ~a = ~a" (sc-field-name) (call scPbType) (call scPbDefault)))
     (if (no-fields) (then "") (else "\n"))
     ") extends grpcdc.Marshaler with grpcdc.Unmarshaler {\n  var unknownFields: Array[Byte] = Array.empty[Byte]\n  def marshalDc(): Array[Byte] = {\n"
-    (fmt "    val w = new ~a.Writer()\n" (arg 0))
+    (fmt "    val pbW = new ~a.Writer()\n" (arg 0))
     (each fields (guarded scPbSetExpr "    if (!(~a)) {\n" "    }\n" (call scPbEncodeField (arg 0))))
-    "    w.raw(unknownFields)\n    w.toBytes\n  }\n\n  def unmarshalDc(data: Array[Byte]): Unit = {\n    unknownFields = Array.empty[Byte]\n"
+    "    pbW.raw(unknownFields)\n    pbW.toBytes\n  }\n\n  def unmarshalDc(data: Array[Byte]): Unit = {\n    unknownFields = Array.empty[Byte]\n"
     (each fields (fmt "    ~a = ~a\n" (sc-field-name) (call scPbDefault)))
-    (fmt "    val r = new ~a.Reader(data)\n" (arg 0))
-    "    var field = r.next()\n    while (field != null) {\n      field.number match {\n"
+    (fmt "    val pbR = new ~a.Reader(data)\n" (arg 0))
+    "    var pbField = pbR.next()\n    while (pbField != null) {\n      pbField.number match {\n"
     (each fields (call scPbDecodeCase (arg 0)))
-    "        case _ => unknownFields = unknownFields ++ field.rawValue\n      }\n      field = r.next()\n    }\n  }\n}\n\n"
+    "        case _ => unknownFields = unknownFields ++ pbField.rawValue\n      }\n      pbField = pbR.next()\n    }\n  }\n"
+    (if (struct-codec)
+        (then (if (ref map-entry) (then "") (else (fmt "  override def marshalStruct(): Array[Byte] = ~aStruct.marshal(this)\n" (flat))
+              "  override def unmarshalStruct(data: Array[Byte]): Unit = {\n"
+              (fmt "    val _s = ~aStruct.unmarshal(data)\n" (flat))
+              (each fields (fmt "    ~a = _s.~a\n" (sc-field-name) (sc-field-name)))
+              "    unknownFields = _s.unknownFields\n  }\n")))
+        (else ""))
+    "}\n\n"
     (each nested (call scPbMessage (arg 0)))))
 
 (define sc-pb-enum-program
@@ -3274,13 +3283,13 @@
 (define dart-stream-impl-program
   '((kind-case
      (unary "")
-     (server-streaming (fmt "class _~a~aServerImpl implements ~a~aServer {\n  @override\n  final CallContext context;\n  final ServerSink _sink;\n\n  _~a~aServerImpl(this.context, this._sink);\n\n  @override\n  void send(~a resp) {\n    _sink(resp.marshalDc());\n  }\n}\n\n" (svc) (ref name) (svc) (ref name) (svc) (ref name) (ref output)))
+     (server-streaming (fmt "class _~a~aServerImpl implements ~a~aServer {\n  @override\n  final CallContext context;\n  final ServerSink _sink;\n\n  _~a~aServerImpl(this.context, this._sink);\n\n  @override\n  void send(~a resp) {\n    _sink(context.encodeMessage(resp));\n  }\n}\n\n" (svc) (ref name) (svc) (ref name) (svc) (ref name) (ref output)))
      (client-streaming (fmt "class _~a~aServerImpl implements ~a~aServer {\n  @override\n  final CallContext context;\n  final RequestStream _reqs;\n  ~a? resp;\n\n  _~a~aServerImpl(this.context, this._reqs);\n\n  @override\n  Future<~a> recv() async {\n    final req = ~a();\n    await _reqs.recvInto(req);\n    return req;\n  }\n\n  @override\n  void sendAndClose(~a resp) {\n    this.resp = resp;\n  }\n}\n\n" (svc) (ref name) (svc) (ref name) (ref output) (svc) (ref name) (ref input) (ref input) (ref output)))
-     (bidi (fmt "class _~a~aServerImpl implements ~a~aServer {\n  @override\n  final CallContext context;\n  final RequestStream _reqs;\n  final ServerSink _sink;\n\n  _~a~aServerImpl(this.context, this._reqs, this._sink);\n\n  @override\n  void send(~a resp) {\n    _sink(resp.marshalDc());\n  }\n\n  @override\n  Future<~a> recv() async {\n    final req = ~a();\n    await _reqs.recvInto(req);\n    return req;\n  }\n}\n\n" (svc) (ref name) (svc) (ref name) (svc) (ref name) (ref output) (ref input) (ref input))))))
+     (bidi (fmt "class _~a~aServerImpl implements ~a~aServer {\n  @override\n  final CallContext context;\n  final RequestStream _reqs;\n  final ServerSink _sink;\n\n  _~a~aServerImpl(this.context, this._reqs, this._sink);\n\n  @override\n  void send(~a resp) {\n    _sink(context.encodeMessage(resp));\n  }\n\n  @override\n  Future<~a> recv() async {\n    final req = ~a();\n    await _reqs.recvInto(req);\n    return req;\n  }\n}\n\n" (svc) (ref name) (svc) (ref name) (svc) (ref name) (ref output) (ref input) (ref input))))))
 
 (define dart-register-method-program
   '((kind-case
-     (unary (fmt "      Method(~s, ~s, Server.~a,\n          (ctx, reqs, sink) async {\n        final req = ~a();\n        await reqs.recvInto(req);\n        sink((await impl.~a(ctx, req)).marshalDc());\n      }),\n"
+     (unary (fmt "      Method(~s, ~s, Server.~a,\n          (ctx, reqs, sink) async {\n        final req = ~a();\n        await reqs.recvInto(req);\n        sink(ctx.encodeMessage(await impl.~a(ctx, req)));\n      }),\n"
                  (ref name) (ref path)
                  (kind-case (unary "kindUnary") (server-streaming "kindServerStreaming") (client-streaming "kindClientStreaming") (bidi "kindBidi"))
                  (ref input) (lower-first (ref impl-name))))
@@ -3288,7 +3297,7 @@
                             (ref name) (ref path)
                             (kind-case (unary "kindUnary") (server-streaming "kindServerStreaming") (client-streaming "kindClientStreaming") (bidi "kindBidi"))
                             (ref input) (lower-first (ref impl-name)) (svc) (ref name)))
-     (client-streaming (fmt "      Method(~s, ~s,\n          Server.~a, (ctx, reqs, sink) async {\n        final stream = _~a~aServerImpl(ctx, reqs);\n        await impl.~a(stream);\n        final resp = stream.resp;\n        if (resp == null) {\n          throw StatusException(Wire.codeInternal,\n              'client-streaming handler never called sendAndClose');\n        }\n        sink(resp.marshalDc());\n      }),\n"
+     (client-streaming (fmt "      Method(~s, ~s,\n          Server.~a, (ctx, reqs, sink) async {\n        final stream = _~a~aServerImpl(ctx, reqs);\n        await impl.~a(stream);\n        final resp = stream.resp;\n        if (resp == null) {\n          throw StatusException(Wire.codeInternal,\n              'client-streaming handler never called sendAndClose');\n        }\n        sink(ctx.encodeMessage(resp));\n      }),\n"
                             (ref name) (ref path)
                             (kind-case (unary "kindUnary") (server-streaming "kindServerStreaming") (client-streaming "kindClientStreaming") (bidi "kindBidi"))
                             (svc) (ref name) (lower-first (ref impl-name))))
@@ -3398,39 +3407,39 @@
   '((case-on (category)
       ("varint"
        (if (proto2)
-           (then (fmt "~a{ w.tag(~a, 0); w.varint(~a); }\n" (arg 1) (ref number) (call dtPbVarintExpr (arg 0))))
-           (else (fmt "~aif (~a) { w.tag(~a, 0); w.varint(~a); }\n" (arg 1) (call dtPbNonzero (arg 0)) (ref number) (call dtPbVarintExpr (arg 0))))))
+           (then (fmt "~a{ pbW.tag(~a, 0); pbW.varint(~a); }\n" (arg 1) (ref number) (call dtPbVarintExpr (arg 0))))
+           (else (fmt "~aif (~a) { pbW.tag(~a, 0); pbW.varint(~a); }\n" (arg 1) (call dtPbNonzero (arg 0)) (ref number) (call dtPbVarintExpr (arg 0))))))
       ("fixed"
        (if (proto2)
-           (then (fmt "~a{ w.tag(~a, ~a); w.fixed~a(~a); }\n" (arg 1) (ref number) (case-on (dart-fixed-size) (8 "1") (else "5")) (dart-fixed-name) (arg 0)))
-           (else (fmt "~aif (~a) { w.tag(~a, ~a); w.fixed~a(~a); }\n" (arg 1) (call dtPbNonzero (arg 0)) (ref number) (case-on (dart-fixed-size) (8 "1") (else "5")) (dart-fixed-name) (arg 0)))))
+           (then (fmt "~a{ pbW.tag(~a, ~a); pbW.fixed~a(~a); }\n" (arg 1) (ref number) (case-on (dart-fixed-size) (8 "1") (else "5")) (dart-fixed-name) (arg 0)))
+           (else (fmt "~aif (~a) { pbW.tag(~a, ~a); pbW.fixed~a(~a); }\n" (arg 1) (call dtPbNonzero (arg 0)) (ref number) (case-on (dart-fixed-size) (8 "1") (else "5")) (dart-fixed-name) (arg 0)))))
       ("string"
        (if (proto2)
-           (then (fmt "~aw.bytesField(~a, utf8.encode(~a));\n" (arg 1) (ref number) (arg 0)))
-           (else (fmt "~aw.stringField(~a, ~a);\n" (arg 1) (ref number) (arg 0)))))
+           (then (fmt "~apbW.bytesField(~a, utf8.encode(~a));\n" (arg 1) (ref number) (arg 0)))
+           (else (fmt "~apbW.stringField(~a, ~a);\n" (arg 1) (ref number) (arg 0)))))
       ("bytes"
        (if (proto2)
-           (then (fmt "~aw.bytesField(~a, ~a);\n" (arg 1) (ref number) (arg 0)))
-           (else (fmt "~aif (~a.isNotEmpty) w.bytesField(~a, ~a);\n" (arg 1) (arg 0) (ref number) (arg 0)))))
+           (then (fmt "~apbW.bytesField(~a, ~a);\n" (arg 1) (ref number) (arg 0)))
+           (else (fmt "~aif (~a.isNotEmpty) pbW.bytesField(~a, ~a);\n" (arg 1) (arg 0) (ref number) (arg 0)))))
       ("message"
-       (fmt "~aif (~a != null) w.bytesField(~a, ~a!.marshalDc());\n" (arg 1) (arg 0) (ref number) (arg 0)))
+       (fmt "~aif (~a != null) pbW.bytesField(~a, ~a!.marshalDc());\n" (arg 1) (arg 0) (ref number) (arg 0)))
       (else (fail)))))
 
 (define dt-pb-encode-field-program
   '((if (is-map)
-        (then (fmt "    ~a.forEach((k, val) { w.bytesField(~a, ~a(k, val)); });\n"
+        (then (fmt "    ~a.forEach((k, val) { pbW.bytesField(~a, ~a(k, val)); });\n"
                    (dart-field-name) (ref number) (fmt "~a~aEncode" (arg 0) (resolved-flat))))
         (else
          (if (repeated)
              (then
               (case-on (category)
-                ("varint" (fmt "    if (~a.isNotEmpty) {\n        final payload = ~aWriter();\n        for (final x in ~a) { payload.varint(~a); }\n        w.bytesField(~a, payload.toBytes());\n    }\n"
-                               (dart-field-name) (arg 0) (dart-field-name) (call dtPbVarintExpr "x") (ref number)))
-                ("fixed" (fmt "    if (~a.isNotEmpty) {\n        final payload = ~aWriter();\n        for (final x in ~a) { payload.fixed~a(x); }\n        w.bytesField(~a, payload.toBytes());\n    }\n"
+                ("varint" (fmt "    if (~a.isNotEmpty) {\n        final pbPayload = ~aWriter();\n        for (final pbX in ~a) { pbPayload.varint(~a); }\n        pbW.bytesField(~a, pbPayload.toBytes());\n    }\n"
+                               (dart-field-name) (arg 0) (dart-field-name) (call dtPbVarintExpr "pbX") (ref number)))
+                ("fixed" (fmt "    if (~a.isNotEmpty) {\n        final pbPayload = ~aWriter();\n        for (final pbX in ~a) { pbPayload.fixed~a(pbX); }\n        pbW.bytesField(~a, pbPayload.toBytes());\n    }\n"
                               (dart-field-name) (arg 0) (dart-field-name) (dart-fixed-name) (ref number)))
-                ("string" (fmt "    for (final x in ~a) { w.bytesField(~a, utf8.encode(x)); }\n" (dart-field-name) (ref number)))
-                ("bytes" (fmt "    for (final x in ~a) { w.bytesField(~a, x); }\n" (dart-field-name) (ref number)))
-                ("message" (fmt "    for (final x in ~a) { w.bytesField(~a, x.marshalDc()); }\n" (dart-field-name) (ref number)))
+                ("string" (fmt "    for (final pbX in ~a) { pbW.bytesField(~a, utf8.encode(pbX)); }\n" (dart-field-name) (ref number)))
+                ("bytes" (fmt "    for (final pbX in ~a) { pbW.bytesField(~a, pbX); }\n" (dart-field-name) (ref number)))
+                ("message" (fmt "    for (final pbX in ~a) { pbW.bytesField(~a, pbX.marshalDc()); }\n" (dart-field-name) (ref number)))
                 (else (fail))))
              (else (call dtPbEncodeSingular (dart-field-name) "    ")))))))
 
@@ -3457,48 +3466,48 @@
 (define dt-pb-decode-case-program
   '((fmt "        case ~a:\n" (ref number))
     (if (is-map)
-        (then (fmt "          final kv = ~a(field.bytesValue);\n          ~a[kv.key] = kv.value;\n          break;\n"
+        (then (fmt "          final pbKv = ~a(pbField.bytesValue);\n          ~a[pbKv.key] = pbKv.value;\n          break;\n"
                    (fmt "~a~aDecode" (arg 0) (resolved-flat)) (dart-field-name)))
         (else
          (if (repeated)
              (then
               (case-on (category)
-                ("varint" (fmt "          if (field.wire == 2) {\n            final sub = ~aReader(field.bytesValue);\n            while (!sub.done()) {\n              ~a.add(~a);\n            }\n          } else {\n            ~a.add(~a);\n          }\n          break;\n"
+                ("varint" (fmt "          if (pbField.wire == 2) {\n            final pbSub = ~aReader(pbField.bytesValue);\n            while (!pbSub.done()) {\n              ~a.add(~a);\n            }\n          } else {\n            ~a.add(~a);\n          }\n          break;\n"
                                (arg 0) (dart-field-name)
                                (if (type-is 14)
-                                   (then (fmt "~a.values[~a]" (dart-type-ref) (call-on (with-type (self) 5) dtPbVarintDecode "sub.varint()")))
-                                   (else (call dtPbVarintDecode "sub.varint()")))
+                                   (then (fmt "~a.values[~a]" (dart-type-ref) (call-on (with-type (self) 5) dtPbVarintDecode "pbSub.varint()")))
+                                   (else (call dtPbVarintDecode "pbSub.varint()")))
                                (dart-field-name)
                                (if (type-is 14)
-                                   (then (fmt "~a.values[~a]" (dart-type-ref) (call-on (with-type (self) 5) dtPbVarintDecode "field.varintValue")))
-                                   (else (call dtPbVarintDecode "field.varintValue")))))
-                ("fixed" (fmt "          if (field.wire == 2) {\n            final sub = ~aReader(field.bytesValue);\n            while (!sub.done()) { ~a.add(~a); }\n          } else {\n            ~a.add(~a);\n          }\n          break;\n"
+                                   (then (fmt "~a.values[~a]" (dart-type-ref) (call-on (with-type (self) 5) dtPbVarintDecode "pbField.varintValue")))
+                                   (else (call dtPbVarintDecode "pbField.varintValue")))))
+                ("fixed" (fmt "          if (pbField.wire == 2) {\n            final pbSub = ~aReader(pbField.bytesValue);\n            while (!pbSub.done()) { ~a.add(~a); }\n          } else {\n            ~a.add(~a);\n          }\n          break;\n"
                               (arg 0) (dart-field-name)
                               (case-on (type)
-                                (2 (fmt "~aBitsToFloat32(sub.fixed32())" (arg 0)))
-                                (1 (fmt "~aBitsToFloat64(sub.fixed64())" (arg 0)))
-                                (7 "(sub.fixed32()).toUnsigned(32)")
-                                (15 "(sub.fixed32()).toSigned(32)")
-                                (6 "(sub.fixed64()).toUnsigned(64)")
-                                (else "(sub.fixed64()).toSigned(64)"))
+                                (2 (fmt "~aBitsToFloat32(pbSub.fixed32())" (arg 0)))
+                                (1 (fmt "~aBitsToFloat64(pbSub.fixed64())" (arg 0)))
+                                (7 "(pbSub.fixed32()).toUnsigned(32)")
+                                (15 "(pbSub.fixed32()).toSigned(32)")
+                                (6 "(pbSub.fixed64()).toUnsigned(64)")
+                                (else "(pbSub.fixed64()).toSigned(64)"))
                               (dart-field-name)
                               (case-on (type)
-                                (2 (fmt "~aBitsToFloat32(field.fixedValue)" (arg 0)))
-                                (1 (fmt "~aBitsToFloat64(field.fixedValue)" (arg 0)))
-                                (7 "(field.fixedValue).toUnsigned(32)")
-                                (15 "(field.fixedValue).toSigned(32)")
-                                (6 "(field.fixedValue).toUnsigned(64)")
-                                (else "(field.fixedValue).toSigned(64)"))))
-                ("string" (fmt "          ~a.add(utf8.decode(field.bytesValue));\n          break;\n" (dart-field-name)))
-                ("bytes" (fmt "          ~a.add(field.bytesValue);\n          break;\n" (dart-field-name)))
-                ("message" (fmt "          final item = ~a();\n          item.unmarshalDc(field.bytesValue);\n          ~a.add(item);\n          break;\n" (dart-type-ref) (dart-field-name)))
+                                (2 (fmt "~aBitsToFloat32(pbField.fixedValue)" (arg 0)))
+                                (1 (fmt "~aBitsToFloat64(pbField.fixedValue)" (arg 0)))
+                                (7 "(pbField.fixedValue).toUnsigned(32)")
+                                (15 "(pbField.fixedValue).toSigned(32)")
+                                (6 "(pbField.fixedValue).toUnsigned(64)")
+                                (else "(pbField.fixedValue).toSigned(64)"))))
+                ("string" (fmt "          ~a.add(utf8.decode(pbField.bytesValue));\n          break;\n" (dart-field-name)))
+                ("bytes" (fmt "          ~a.add(pbField.bytesValue);\n          break;\n" (dart-field-name)))
+                ("message" (fmt "          final item = ~a();\n          item.unmarshalDc(pbField.bytesValue);\n          ~a.add(item);\n          break;\n" (dart-type-ref) (dart-field-name)))
                 (else (fail))))
              (else (call dtPbOneofClearing)
                    (call dtPbDecodeSingular (dart-field-name)
                          (case-on (category)
-                           ("varint" "field.varintValue")
-                           ("fixed" "field.fixedValue")
-                           (else "field.bytesValue"))
+                           ("varint" "pbField.varintValue")
+                           ("fixed" "pbField.fixedValue")
+                           (else "pbField.bytesValue"))
                          "          " (arg 0))
                    "          break;\n"))))))
 
@@ -3509,12 +3518,12 @@
          (case-on (get (val-field) type)
            (11 (dart-type-ref (val-field)))
            (else (call-on (with-label (val-field) 1) dtPbType))))
-    (fmt "  final w = ~aWriter();\n" (arg 0))
+    (fmt "  final pbW = ~aWriter();\n" (arg 0))
     (call-on (with-label (key-field) 1) dtPbEncodeSingular "key" "  ")
     (case-on (get (val-field) type)
-      (11 (fmt "  w.bytesField(~a, value.marshalDc());\n" (get (val-field) number)))
+      (11 (fmt "  pbW.bytesField(~a, value.marshalDc());\n" (get (val-field) number)))
       (else (call-on (with-label (val-field) 1) dtPbEncodeSingular "value" "  ")))
-    "  return w.toBytes();\n}\n\n"
+    "  return pbW.toBytes();\n}\n\n"
     (fmt "MapEntry<~a, ~a> ~a~aDecode(Uint8List bytes) {\n"
          (call-on (with-label (key-field) 1) dtPbType)
          (case-on (get (val-field) type)
@@ -3529,22 +3538,23 @@
          (case-on (get (val-field) type)
            (11 (fmt "~a()" (dart-type-ref (val-field))))
            (else (call-on (with-label (val-field) 1) dtPbDefault))))
-    (fmt "  final r = ~aReader(bytes);\n" (arg 0))
-    "  while (true) {\n    final field = r.next();\n    if (field == null) break;\n    switch (field.number) {\n"
+    (fmt "  final pbR = ~aReader(bytes);\n" (arg 0))
+    "  while (true) {\n    final pbField = pbR.next();\n    if (pbField == null) break;\n    switch (pbField.number) {\n"
     (fmt "      case ~a:\n~a        break;\n" (get (key-field) number)
          (call-on (with-label (key-field) 1) dtPbDecodeSingular "key"
-                  (case-on (category-of (key-field)) ("varint" "field.varintValue") ("fixed" "field.fixedValue") (else "field.bytesValue"))
+                  (case-on (category-of (key-field)) ("varint" "pbField.varintValue") ("fixed" "pbField.fixedValue") (else "pbField.bytesValue"))
                   "        " (arg 0)))
     (fmt "      case ~a:\n~a        break;\n" (get (val-field) number)
          (case-on (get (val-field) type)
-           (11 "        value.unmarshalDc(field.bytesValue);\n")
+           (11 "        value.unmarshalDc(pbField.bytesValue);\n")
            (else (call-on (with-label (val-field) 1) dtPbDecodeSingular "value"
-                          (case-on (category-of (val-field)) ("varint" "field.varintValue") ("fixed" "field.fixedValue") (else "field.bytesValue"))
+                          (case-on (category-of (val-field)) ("varint" "pbField.varintValue") ("fixed" "pbField.fixedValue") (else "pbField.bytesValue"))
                           "        " (arg 0)))))
     "      default:\n        break;\n    }\n  }\n  return MapEntry(key, value);\n}\n\n"))
 
 (define dt-pb-message-program
-  '((fmt "~aclass ~a implements Marshaler, Unmarshaler {\n" (arg 1) (flat))
+  '((fmt "~aclass ~a implements Marshaler, Unmarshaler~a {\n" (arg 1) (flat)
+         (if (struct-codec) (then (if (ref map-entry) (then "") (else ", StructMarshaler, StructUnmarshaler"))) (else "")))
     (each fields (fmt "~a  ~a ~a;\n" (arg 1) (call dtPbType) (dart-field-name)))
     (fmt "~a  Uint8List unknownFields = Uint8List(0);\n" (arg 1))
     (if (any-where fields (or (repeated) (type-is 12) (is-map)))
@@ -3560,14 +3570,22 @@
                              (each-sep-where ", " fields (not (or (repeated) (type-is 12) (is-map)))
                                              (fmt "this.~a = ~a" (dart-field-name) (call dtPbDefault)))))
                   (else (fmt "~a  ~a();\n" (arg 1) (flat))))))
-    (fmt "~a  @override\n~a  Uint8List marshalDc() {\n~a    final w = ~aWriter();\n" (arg 1) (arg 1) (arg 1) (arg 0))
+    (fmt "~a  @override\n~a  Uint8List marshalDc() {\n~a    final pbW = ~aWriter();\n" (arg 1) (arg 1) (arg 1) (arg 0))
     (each fields (guarded dtPbSetExpr "    if (!(~a)) {\n" "    }\n" (call dtPbEncodeField (arg 0))))
-    (fmt "~a    w.raw(unknownFields);\n~a    return w.toBytes();\n~a  }\n" (arg 1) (arg 1) (arg 1))
+    (fmt "~a    pbW.raw(unknownFields);\n~a    return pbW.toBytes();\n~a  }\n" (arg 1) (arg 1) (arg 1))
     (fmt "~a  @override\n~a  void unmarshalDc(List<int> data) {\n~a    unknownFields = Uint8List(0);\n" (arg 1) (arg 1) (arg 1))
     (each fields (fmt "~a    ~a = ~a;\n" (arg 1) (dart-field-name) (call dtPbDefault)))
-    (fmt "~a    final r = ~aReader(Uint8List.fromList(data));\n~a    while (true) {\n~a      final field = r.next();\n~a      if (field == null) break;\n~a      switch (field.number) {\n" (arg 1) (arg 0) (arg 1) (arg 1) (arg 1) (arg 1))
+    (fmt "~a    final pbR = ~aReader(Uint8List.fromList(data));\n~a    while (true) {\n~a      final pbField = pbR.next();\n~a      if (pbField == null) break;\n~a      switch (pbField.number) {\n" (arg 1) (arg 0) (arg 1) (arg 1) (arg 1) (arg 1))
     (each fields (call dtPbDecodeCase (arg 0)))
-    (fmt "~a        default:\n~a          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);\n~a          break;\n~a      }\n~a    }\n~a  }\n~a}\n" (arg 1) (arg 1) (arg 1) (arg 1) (arg 1) (arg 1) (arg 1))
+    (fmt "~a        default:\n~a          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);\n~a          break;\n~a      }\n~a    }\n~a  }\n" (arg 1) (arg 1) (arg 1) (arg 1) (arg 1) (arg 1))
+    (if (struct-codec)
+        (then (if (ref map-entry) (then "") (else (fmt "~a  @override\n~a  Uint8List marshalStruct() => ~aStruct.marshal(this);\n" (arg 1) (arg 1) (flat))
+              (fmt "~a  @override\n~a  void unmarshalStruct(List<int> data) {\n" (arg 1) (arg 1))
+              (fmt "~a    final _s = ~aStruct.unmarshal(Uint8List.fromList(data));\n" (arg 1) (flat))
+              (each fields (fmt "~a    ~a = _s.~a;\n" (arg 1) (dart-field-name) (dart-field-name)))
+              (fmt "~a    unknownFields = _s.unknownFields;\n~a  }\n" (arg 1) (arg 1)))))
+        (else ""))
+    (fmt "~a}\n" (arg 1))
     (each nested (call dtPbMessage (arg 0) (arg 1)))
     (each enums (call dtPbEnum (arg 1) (fmt "~a_~a" (flat-of (get (parent) full-name)) (ref name))))))
 
@@ -3660,20 +3678,20 @@
   '((kind-case
      (unary "")
      (server-streaming
-      (fmt "    private final class ~a~aServerImpl: ~a~aServer {\n        private var ctxRef: Endpoint.CallContext\n        private let sink: Server.ServerSink\n        init(_ ctx: Endpoint.CallContext, _ sink: @escaping Server.ServerSink) {\n            ctxRef = ctx\n            self.sink = sink\n        }\n        func Send(_ resp: ~a) throws { try sink(resp.MarshalDc()) }\n        var context: Endpoint.CallContext { ctxRef }\n    }\n\n" (svc) (ref name) (svc) (ref name) (ref output)))
+      (fmt "    private final class ~a~aServerImpl: ~a~aServer {\n        private var ctxRef: Endpoint.CallContext\n        private let sink: Server.ServerSink\n        init(_ ctx: Endpoint.CallContext, _ sink: @escaping Server.ServerSink) {\n            ctxRef = ctx\n            self.sink = sink\n        }\n        func Send(_ resp: ~a) throws { try sink(ctxRef.EncodeMessage(resp)) }\n        var context: Endpoint.CallContext { ctxRef }\n    }\n\n" (svc) (ref name) (svc) (ref name) (ref output)))
      (client-streaming
       (fmt "    private final class ~a~aServerImpl: ~a~aServer {\n        private var ctxRef: Endpoint.CallContext\n        private let reqs: Server.RequestStream\n        private(set) var resp: ~a?\n        init(_ ctx: Endpoint.CallContext, _ reqs: Server.RequestStream) {\n            ctxRef = ctx\n            self.reqs = reqs\n        }\n        func Recv() throws -> ~a {\n            let req = ~a()\n            try reqs.RecvInto(req)\n            return req\n        }\n        func SendAndClose(_ resp: ~a) { self.resp = resp }\n        var context: Endpoint.CallContext { ctxRef }\n    }\n\n" (svc) (ref name) (svc) (ref name) (ref output) (ref input) (ref input) (ref output)))
      (bidi
-      (fmt "    private final class ~a~aServerImpl: ~a~aServer {\n        private var ctxRef: Endpoint.CallContext\n        private let reqs: Server.RequestStream\n        private let sink: Server.ServerSink\n        init(_ ctx: Endpoint.CallContext, _ reqs: Server.RequestStream, _ sink: @escaping Server.ServerSink) {\n            ctxRef = ctx\n            self.reqs = reqs\n            self.sink = sink\n        }\n        func Send(_ resp: ~a) throws { try sink(resp.MarshalDc()) }\n        func Recv() throws -> ~a {\n            let req = ~a()\n            try reqs.RecvInto(req)\n            return req\n        }\n        var context: Endpoint.CallContext { ctxRef }\n    }\n\n" (svc) (ref name) (svc) (ref name) (ref output) (ref input) (ref input))))))
+      (fmt "    private final class ~a~aServerImpl: ~a~aServer {\n        private var ctxRef: Endpoint.CallContext\n        private let reqs: Server.RequestStream\n        private let sink: Server.ServerSink\n        init(_ ctx: Endpoint.CallContext, _ reqs: Server.RequestStream, _ sink: @escaping Server.ServerSink) {\n            ctxRef = ctx\n            self.reqs = reqs\n            self.sink = sink\n        }\n        func Send(_ resp: ~a) throws { try sink(ctxRef.EncodeMessage(resp)) }\n        func Recv() throws -> ~a {\n            let req = ~a()\n            try reqs.RecvInto(req)\n            return req\n        }\n        var context: Endpoint.CallContext { ctxRef }\n    }\n\n" (svc) (ref name) (svc) (ref name) (ref output) (ref input) (ref input))))))
 
 (define swift-register-method-program
   '((kind-case
      (unary
-      (fmt "            Server.Method(name: ~s, path: ~s, kind: Server.KindUnary) { ctx, reqs, sink in\n                let req = ~a()\n                try reqs.RecvInto(req)\n                let resp = try impl.~a(ctx, req)\n                try sink(resp.MarshalDc())\n            },\n" (ref name) (ref path) (ref input) (ref impl-name)))
+      (fmt "            Server.Method(name: ~s, path: ~s, kind: Server.KindUnary) { ctx, reqs, sink in\n                let req = ~a()\n                try reqs.RecvInto(req)\n                let resp = try impl.~a(ctx, req)\n                try sink(ctx.EncodeMessage(resp))\n            },\n" (ref name) (ref path) (ref input) (ref impl-name)))
      (server-streaming
       (fmt "            Server.Method(name: ~s, path: ~s, kind: Server.KindServerStreaming) { ctx, reqs, sink in\n                let req = ~a()\n                try reqs.RecvInto(req)\n                try impl.~a(req, ~a~aServerImpl(ctx, sink))\n            },\n" (ref name) (ref path) (ref input) (ref impl-name) (svc) (ref name)))
      (client-streaming
-      (fmt "            Server.Method(name: ~s, path: ~s, kind: Server.KindClientStreaming) { ctx, reqs, sink in\n                let stream = ~a~aServerImpl(ctx, reqs)\n                try impl.~a(stream)\n                guard let resp = stream.resp else {\n                    throw StatusException(Wire.CodeInternal, \"client-streaming handler never called SendAndClose\")\n                }\n                try sink(resp.MarshalDc())\n            },\n" (ref name) (ref path) (svc) (ref name) (ref impl-name)))
+      (fmt "            Server.Method(name: ~s, path: ~s, kind: Server.KindClientStreaming) { ctx, reqs, sink in\n                let stream = ~a~aServerImpl(ctx, reqs)\n                try impl.~a(stream)\n                guard let resp = stream.resp else {\n                    throw StatusException(Wire.CodeInternal, \"client-streaming handler never called SendAndClose\")\n                }\n                try sink(ctx.EncodeMessage(resp))\n            },\n" (ref name) (ref path) (svc) (ref name) (ref impl-name)))
      (bidi
       (fmt "            Server.Method(name: ~s, path: ~s, kind: Server.KindBidi) { ctx, reqs, sink in\n                try impl.~a(~a~aServerImpl(ctx, reqs, sink))\n            },\n" (ref name) (ref path) (ref impl-name) (svc) (ref name))))))
 
@@ -3798,26 +3816,26 @@
   '((case-on (category)
       ("varint"
        (if (proto2)
-           (then (fmt "~a{ w.Tag(~a, 0); w.Varint(~a) }\n" (arg 1) (ref number) (call swiftPbVarintExpr (arg 0))))
-           (else (fmt "~aif ~a { w.Tag(~a, 0); w.Varint(~a) }\n" (arg 1) (call swiftPbNonzero (arg 0)) (ref number) (call swiftPbVarintExpr (arg 0))))))
+           (then (fmt "~ado { pbW.Tag(~a, 0); pbW.Varint(~a) }\n" (arg 1) (ref number) (call swiftPbVarintExpr (arg 0))))
+           (else (fmt "~aif ~a { pbW.Tag(~a, 0); pbW.Varint(~a) }\n" (arg 1) (call swiftPbNonzero (arg 0)) (ref number) (call swiftPbVarintExpr (arg 0))))))
       ("fixed"
        (if (proto2)
-           (then (fmt "~a{ w.Tag(~a, ~a); w.Fixed~a(~a) }\n" (arg 1) (ref number)
+           (then (fmt "~ado { pbW.Tag(~a, ~a); pbW.Fixed~a(~a) }\n" (arg 1) (ref number)
                       (case-on (swift-fixed-size) ((8) "1") (else "5"))
                       (swift-fixed-name) (arg 0)))
-           (else (fmt "~aif ~a { w.Tag(~a, ~a); w.Fixed~a(~a) }\n" (arg 1) (call swiftPbNonzero (arg 0)) (ref number)
+           (else (fmt "~aif ~a { pbW.Tag(~a, ~a); pbW.Fixed~a(~a) }\n" (arg 1) (call swiftPbNonzero (arg 0)) (ref number)
                       (case-on (swift-fixed-size) ((8) "1") (else "5"))
                       (swift-fixed-name) (arg 0)))))
       ("string"
        (if (proto2)
-           (then (fmt "~aw.BytesField(~a, [UInt8](~a.utf8))\n" (arg 1) (ref number) (arg 0)))
-           (else (fmt "~aw.StringField(~a, ~a)\n" (arg 1) (ref number) (arg 0)))))
+           (then (fmt "~apbW.BytesField(~a, [UInt8](~a.utf8))\n" (arg 1) (ref number) (arg 0)))
+           (else (fmt "~apbW.StringField(~a, ~a)\n" (arg 1) (ref number) (arg 0)))))
       ("bytes"
        (if (proto2)
-           (then (fmt "~aw.BytesField(~a, ~a)\n" (arg 1) (ref number) (arg 0)))
-           (else (fmt "~aif !~a.isEmpty { w.BytesField(~a, ~a) }\n" (arg 1) (arg 0) (ref number) (arg 0)))))
+           (then (fmt "~apbW.BytesField(~a, ~a)\n" (arg 1) (ref number) (arg 0)))
+           (else (fmt "~aif !~a.isEmpty { pbW.BytesField(~a, ~a) }\n" (arg 1) (arg 0) (ref number) (arg 0)))))
       ("message"
-       (fmt "~aif let v = ~a { w.BytesField(~a, v.MarshalDc()) }\n" (arg 1) (arg 0) (ref number)))
+       (fmt "~aif let v = ~a { pbW.BytesField(~a, v.MarshalDc()) }\n" (arg 1) (arg 0) (ref number)))
       (else (fail)))))
 
 (define swift-pb-set-expr-program
@@ -3833,21 +3851,21 @@
 
 (define swift-pb-encode-field-program
   '((if (is-map)
-        (then (fmt "        for (k, val) in ~a.sorted(by: { $0.key < $1.key }) { w.BytesField(~a, ~a.~aEncode(k, val)) }\n"
+        (then (fmt "        for (k, val) in ~a.sorted(by: { $0.key < $1.key }) { pbW.BytesField(~a, ~a.~aEncode(k, val)) }\n"
                    (swift-field-name) (ref number) (arg 0) (swift-map-name)))
         (else
          (if (repeated)
              (then (fmt "~a"
                         (case-on (category)
                           ("varint"
-                           (fmt "        if !~a.isEmpty {\n            let payload = ~a.Writer()\n            for x in ~a { payload.Varint(~a) }\n            w.BytesField(~a, payload.ToBytes())\n        }\n"
-                                (swift-field-name) (arg 0) (swift-field-name) (call swiftPbVarintExpr "x") (ref number)))
+                           (fmt "        if !~a.isEmpty {\n            let pbPayload = ~a.Writer()\n            for pbX in ~a { pbPayload.Varint(~a) }\n            pbW.BytesField(~a, pbPayload.ToBytes())\n        }\n"
+                                (swift-field-name) (arg 0) (swift-field-name) (call swiftPbVarintExpr "pbX") (ref number)))
                           ("fixed"
-                           (fmt "        if !~a.isEmpty {\n            let payload = ~a.Writer()\n            for x in ~a { payload.Fixed~a(x) }\n            w.BytesField(~a, payload.ToBytes())\n        }\n"
+                           (fmt "        if !~a.isEmpty {\n            let pbPayload = ~a.Writer()\n            for pbX in ~a { pbPayload.Fixed~a(pbX) }\n            pbW.BytesField(~a, pbPayload.ToBytes())\n        }\n"
                                 (swift-field-name) (arg 0) (swift-field-name) (swift-fixed-name) (ref number)))
-                          ("string" (fmt "        for x in ~a { w.BytesField(~a, [UInt8](x.utf8)) }\n" (swift-field-name) (ref number)))
-                          ("bytes" (fmt "        for x in ~a { w.BytesField(~a, x) }\n" (swift-field-name) (ref number)))
-                          ("message" (fmt "        for x in ~a { w.BytesField(~a, x.MarshalDc()) }\n" (swift-field-name) (ref number)))
+                          ("string" (fmt "        for pbX in ~a { pbW.BytesField(~a, [UInt8](pbX.utf8)) }\n" (swift-field-name) (ref number)))
+                          ("bytes" (fmt "        for pbX in ~a { pbW.BytesField(~a, pbX) }\n" (swift-field-name) (ref number)))
+                          ("message" (fmt "        for pbX in ~a { pbW.BytesField(~a, pbX.MarshalDc()) }\n" (swift-field-name) (ref number)))
                           (else (fail)))))
              (else (call swiftPbEncodeSingular (swift-field-name) "        ")))))))
 
@@ -3892,49 +3910,49 @@
   '((if (is-map)
         (then
          (fmt "            case ~a:\n" (ref number))
-         (fmt "                let kv = ~a.~aDecode(field.bytesValue)\n" (arg 0) (swift-map-name))
-         (fmt "                ~a[kv.0] = kv.1\n" (swift-field-name)))
+         (fmt "                let pbKv = ~a.~aDecode(pbField.bytesValue)\n" (arg 0) (swift-map-name))
+         (fmt "                ~a[pbKv.0] = pbKv.1\n" (swift-field-name)))
         (else
          (fmt "            case ~a:\n" (ref number))
          (if (repeated)
              (then
               (case-on (category)
                 ("varint"
-                 "                if field.wire == 2 {\n"
-                 (fmt "                    let sub = ~a.Reader(field.bytesValue)\n" (arg 0))
-                 "                    while !sub.Done() {\n"
-                 (fmt "                        ~a.append(~a)\n" (swift-field-name) (call swiftPbEnumConv "sub.Varint()"))
+                 "                if pbField.wire == 2 {\n"
+                 (fmt "                    let pbSub = ~a.Reader(pbField.bytesValue)\n" (arg 0))
+                 "                    while !pbSub.Done() {\n"
+                 (fmt "                        ~a.append(~a)\n" (swift-field-name) (call swiftPbEnumConv "pbSub.Varint()"))
                  "                    }\n                } else {\n"
-                 (fmt "                    ~a.append(~a)\n" (swift-field-name) (call swiftPbEnumConv "field.varintValue"))
+                 (fmt "                    ~a.append(~a)\n" (swift-field-name) (call swiftPbEnumConv "pbField.varintValue"))
                  "                }\n")
                 ("fixed"
-                 "                if field.wire == 2 {\n"
-                 (fmt "                    let sub = ~a.Reader(field.bytesValue)\n" (arg 0))
-                 (fmt "                    while !sub.Done() { ~a.append(~a) }\n" (swift-field-name)
+                 "                if pbField.wire == 2 {\n"
+                 (fmt "                    let pbSub = ~a.Reader(pbField.bytesValue)\n" (arg 0))
+                 (fmt "                    while !pbSub.Done() { ~a.append(~a) }\n" (swift-field-name)
                       (case-on (ref type)
-                        ((2) (fmt "~a.BitsToFloat(sub.Fixed32())" (arg 0)))
-                        ((1) (fmt "~a.BitsToDouble(sub.Fixed64())" (arg 0)))
-                        ((7) "sub.Fixed32()")
-                        ((15) "Int32(bitPattern: sub.Fixed32())")
-                        (else "sub.Fixed64()")))
+                        ((2) (fmt "~a.BitsToFloat(pbSub.Fixed32())" (arg 0)))
+                        ((1) (fmt "~a.BitsToDouble(pbSub.Fixed64())" (arg 0)))
+                        ((7) "pbSub.Fixed32()")
+                        ((15) "Int32(bitPattern: pbSub.Fixed32())")
+                        (else "pbSub.Fixed64()")))
                  "                } else {\n"
                  (fmt "                    ~a.append(~a)\n" (swift-field-name)
                       (case-on (ref type)
-                        ((2) (fmt "~a.BitsToFloat(UInt32(truncatingIfNeeded: field.fixedValue))" (arg 0)))
-                        ((1) (fmt "~a.BitsToDouble(field.fixedValue)" (arg 0)))
-                        ((7) "UInt32(truncatingIfNeeded: field.fixedValue)")
-                        ((15) "Int32(bitPattern: field.fixedValue)")
-                        (else "field.fixedValue")))
+                        ((2) (fmt "~a.BitsToFloat(UInt32(truncatingIfNeeded: pbField.fixedValue))" (arg 0)))
+                        ((1) (fmt "~a.BitsToDouble(pbField.fixedValue)" (arg 0)))
+                        ((7) "UInt32(truncatingIfNeeded: pbField.fixedValue)")
+                        ((15) "Int32(bitPattern: pbField.fixedValue)")
+                        (else "pbField.fixedValue")))
                  "                }\n")
-                ("string" (fmt "                ~a.append(String(decoding: field.bytesValue, as: UTF8.self))\n" (swift-field-name)))
-                ("bytes" (fmt "                ~a.append(field.bytesValue)\n" (swift-field-name)))
+                ("string" (fmt "                ~a.append(String(decoding: pbField.bytesValue, as: UTF8.self))\n" (swift-field-name)))
+                ("bytes" (fmt "                ~a.append(pbField.bytesValue)\n" (swift-field-name)))
                 ("message"
-                 (fmt "                let item = ~a()\n" (swift-entry-ref))
-                 "                item.UnmarshalDc(field.bytesValue)\n"
-                 (fmt "                ~a.append(item)\n" (swift-field-name)))
+                 (fmt "                let pbItem = ~a()\n" (swift-entry-ref))
+                 "                pbItem.UnmarshalDc(pbField.bytesValue)\n"
+                 (fmt "                ~a.append(pbItem)\n" (swift-field-name)))
                 (else (fail))))
              (else (call swiftPbClearing)
-                   (call swiftPbDecodeSingular (swift-field-name) (case-on (category) ("varint" "field.varintValue") ("fixed" "field.fixedValue") (else "field.bytesValue")) "                " (arg 0))))))))
+                   (call swiftPbDecodeSingular (swift-field-name) (case-on (category) ("varint" "pbField.varintValue") ("fixed" "pbField.fixedValue") (else "pbField.bytesValue")) "                " (arg 0))))))))
 
 (define swift-pb-type-or-ref-program
   '((case-on (ref type)
@@ -3943,7 +3961,7 @@
 
 (define swift-pb-map-val-encode-program
   '((case-on (category)
-      ("message" (fmt "        w.BytesField(~a, value.MarshalDc())\n" (ref number)))
+      ("message" (fmt "        pbW.BytesField(~a, value.MarshalDc())\n" (ref number)))
       (else (call swiftPbEncodeSingular "value" "        ")))))
 
 (define swift-pb-map-val-init-program
@@ -3953,24 +3971,24 @@
 
 (define swift-pb-map-val-decode-case-program
   '((case-on (category)
-      ("message" (fmt "            case ~a: value.UnmarshalDc(field.bytesValue)\n" (ref number)))
+      ("message" (fmt "            case ~a: value.UnmarshalDc(pbField.bytesValue)\n" (ref number)))
       (else (fmt "            case ~a: ~a\n" (ref number)
-                 (trim-end (call swiftPbDecodeSingular "value" (case-on (category) ("varint" "field.varintValue") ("fixed" "field.fixedValue") (else "field.bytesValue")) "" (arg 0))))))))
+                 (trim-end (call swiftPbDecodeSingular "value" (case-on (category) ("varint" "pbField.varintValue") ("fixed" "pbField.fixedValue") (else "pbField.bytesValue")) "" (arg 0))))))))
 
 
 (define swift-pb-map-key-decode-case-program
   '((fmt "            case ~a: ~a\n" (ref number)
-         (trim-end (call swiftPbDecodeSingular "key" (case-on (category) ("varint" "field.varintValue") ("fixed" "field.fixedValue") (else "field.bytesValue")) "" (arg 0))))))
+         (trim-end (call swiftPbDecodeSingular "key" (case-on (category) ("varint" "pbField.varintValue") ("fixed" "pbField.fixedValue") (else "pbField.bytesValue")) "" (arg 0))))))
 
 (define swift-pb-map-helpers-program
   '((fmt "    static func ~aEncode(_ key: ~a, _ value: ~a) -> [UInt8] {\n"
          (swift-map-name)
          (call-on (key-field) swiftPbType)
          (call-on (val-field) swiftPbTypeOrRef))
-    "        let w = Writer()\n"
+    "        let pbW = Writer()\n"
     (call-on (key-field) swiftPbEncodeSingular "key" "        ")
     (call-on (val-field) swiftPbMapValEncode)
-    "        return w.ToBytes()\n    }\n\n"
+    "        return pbW.ToBytes()\n    }\n\n"
     (fmt "    static func ~aDecode(_ bytes: [UInt8]) -> (~a, ~a) {\n"
          (swift-map-name)
          (call-on (key-field) swiftPbType)
@@ -3981,7 +3999,7 @@
     (fmt "        var value: ~a = ~a\n"
          (call-on (val-field) swiftPbTypeOrRef)
          (call-on (val-field) swiftPbMapValInit))
-    "        let r = Reader(bytes)\n        while true {\n            let next: Field?\n            do { next = try r.Next() } catch { break }\n            guard let field = next else { break }\n            switch field.number {\n"
+    "        let pbR = Reader(bytes)\n        while true {\n            let next: Field?\n            do { next = try pbR.Next() } catch { break }\n            guard let pbField = next else { break }\n            switch pbField.number {\n"
     (call-on (key-field) swiftPbMapKeyDecodeCase (arg 0))
     (call-on (val-field) swiftPbMapValDecodeCase (arg 0))
     "            default: break\n            }\n        }\n        return (key, value)\n    }\n\n"))
@@ -4004,21 +4022,30 @@
          (each fields (fmt "~a        self.~a = ~a\n" (arg 1) (swift-field-name) (swift-field-name)))
          (fmt "~a    }\n" (arg 1))))
     (fmt "~a    func MarshalDc() -> [UInt8] {\n" (arg 1))
-    (fmt "~a        let w = ~a.Writer()\n" (arg 1) (arg 0))
+    (fmt "~a        let pbW = ~a.Writer()\n" (arg 1) (arg 0))
     (each fields (call swiftPbEncodeGuard (arg 0)))
-    (fmt "~a        w.Raw(unknownFields)\n" (arg 1))
-    (fmt "~a        return w.ToBytes()\n~a    }\n" (arg 1) (arg 1))
+    (fmt "~a        pbW.Raw(unknownFields)\n" (arg 1))
+    (fmt "~a        return pbW.ToBytes()\n~a    }\n" (arg 1) (arg 1))
     (fmt "~a    func UnmarshalDc(_ data: [UInt8]) {\n" (arg 1))
     (fmt "~a        unknownFields = []\n" (arg 1))
     (each fields (fmt "~a        ~a = ~a\n" (arg 1) (swift-field-name) (call swiftPbDefault)))
-    (fmt "~a        let r = ~a.Reader(data)\n" (arg 1) (arg 0))
+    (fmt "~a        let pbR = ~a.Reader(data)\n" (arg 1) (arg 0))
     (fmt "~a        while true {\n" (arg 1))
     (fmt "~a            let next: ~a.Field?\n" (arg 1) (arg 0))
-    (fmt "~a            do { next = try r.Next() } catch { break }\n" (arg 1))
-    (fmt "~a            guard let field = next else { break }\n" (arg 1))
-    (fmt "~a            switch field.number {\n" (arg 1))
+    (fmt "~a            do { next = try pbR.Next() } catch { break }\n" (arg 1))
+    (fmt "~a            guard let pbField = next else { break }\n" (arg 1))
+    (fmt "~a            switch pbField.number {\n" (arg 1))
     (each fields (call swiftPbDecodeCase (arg 0)))
-    (fmt "~a            default: unknownFields += field.rawValue\n~a            }\n~a        }\n~a    }\n" (arg 1) (arg 1) (arg 1) (arg 1))
+    (fmt "~a            default: unknownFields += pbField.rawValue\n~a            }\n~a        }\n~a    }\n" (arg 1) (arg 1) (arg 1) (arg 1))
+    (if (struct-codec)
+        (then (if (ref map-entry) (then "") (else (fmt "~a#if canImport(Foundation)\n" (arg 1))
+              (fmt "~a    func MarshalStruct() throws -> [UInt8] { ~aStruct.Marshal(self) }\n" (arg 1) (ref name))
+              (fmt "~a    func UnmarshalStruct(_ data: [UInt8]) throws {\n" (arg 1))
+              (fmt "~a        let _s = ~aStruct.Unmarshal(data)\n" (arg 1) (ref name))
+              (each fields (fmt "~a        ~a = _s.~a\n" (arg 1) (swift-field-name) (swift-field-name)))
+              (fmt "~a        unknownFields = _s.unknownFields\n~a    }\n" (arg 1) (arg 1))
+              (fmt "~a#endif\n" (arg 1)))))
+        (else ""))
     (each nested (call swiftPbMessage (arg 0) (fmt "~a    " (arg 1)) "final"))
     (each enums (call swiftPbNestedEnum (fmt "~a    " (arg 1))))
     (fmt "~a}\n" (arg 1))))
@@ -4381,11 +4408,11 @@
   '((kind-case
      (unary "")
      (server-streaming
-      (fmt "/// Sends responses of a ~a call.\npub const ~a~aServer = struct {\n    sink: server_mod.Sink,\n    alloc: std.mem.Allocator,\n\n    pub fn send(self: *~a~aServer, resp: *const ~a) Status {\n        const payload = resp.marshalDc(self.alloc);\n        defer self.alloc.free(payload);\n        return self.sink.send(payload);\n    }\n};\n\n" (ref name) (svc) (ref name) (svc) (ref name) (ref output)))
+      (fmt "/// Sends responses of a ~a call.\npub const ~a~aServer = struct {\n    sink: server_mod.Sink,\n    alloc: std.mem.Allocator,\n    struct_codec: bool = false,\n\n    pub fn send(self: *~a~aServer, resp: *const ~a) Status {\n        const payload = grpcdc.codec.marshalForCodec(self.alloc, self.struct_codec, resp);\n        defer self.alloc.free(payload);\n        return self.sink.send(payload);\n    }\n};\n\n" (ref name) (svc) (ref name) (svc) (ref name) (ref output)))
      (client-streaming
       (fmt "/// Receives requests of a ~a call.\npub const ~a~aServer = struct {\n    reqs: *server_mod.RequestStream,\n    alloc: std.mem.Allocator,\n    resp: ?~a = null,\n\n    pub fn recv(self: *~a~aServer) status_mod.RecvResult(~a) {\n        var req = ~a{};\n        switch (self.reqs.recvInto(&req)) {\n            .message => return .{ .message = req },\n            .end => return .end,\n            .status => |st| return .{ .status = st },\n        }\n    }\n\n    pub fn sendAndClose(self: *~a~aServer, resp: ~a) void {\n        self.resp = resp;\n    }\n};\n\n" (ref name) (svc) (ref name) (ref output) (svc) (ref name) (ref input) (ref input) (svc) (ref name) (ref output)))
      (bidi
-      (fmt "/// Full-duplex stream of a ~a call.\npub const ~a~aServer = struct {\n    reqs: *server_mod.RequestStream,\n    sink: server_mod.Sink,\n    alloc: std.mem.Allocator,\n\n    pub fn recv(self: *~a~aServer) status_mod.RecvResult(~a) {\n        var req = ~a{};\n        switch (self.reqs.recvInto(&req)) {\n            .message => return .{ .message = req },\n            .end => return .end,\n            .status => |st| return .{ .status = st },\n        }\n    }\n\n    pub fn send(self: *~a~aServer, resp: *const ~a) Status {\n        const payload = resp.marshalDc(self.alloc);\n        defer self.alloc.free(payload);\n        return self.sink.send(payload);\n    }\n};\n\n" (ref name) (svc) (ref name) (svc) (ref name) (ref input) (ref input) (svc) (ref name) (ref output))))))
+      (fmt "/// Full-duplex stream of a ~a call.\npub const ~a~aServer = struct {\n    reqs: *server_mod.RequestStream,\n    sink: server_mod.Sink,\n    alloc: std.mem.Allocator,\n    struct_codec: bool = false,\n\n    pub fn recv(self: *~a~aServer) status_mod.RecvResult(~a) {\n        var req = ~a{};\n        switch (self.reqs.recvInto(&req)) {\n            .message => return .{ .message = req },\n            .end => return .end,\n            .status => |st| return .{ .status = st },\n        }\n    }\n\n    pub fn send(self: *~a~aServer, resp: *const ~a) Status {\n        const payload = grpcdc.codec.marshalForCodec(self.alloc, self.struct_codec, resp);\n        defer self.alloc.free(payload);\n        return self.sink.send(payload);\n    }\n};\n\n" (ref name) (svc) (ref name) (svc) (ref name) (ref input) (ref input) (svc) (ref name) (ref output))))))
 
 (define zig-server-vtable-field-program
   '((kind-case
@@ -4401,13 +4428,13 @@
 (define zig-adapter-program
   '((kind-case
      (unary
-      (fmt "fn ~a~aAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {\n    const impl: *~aServer = @ptrCast(@alignCast(ctx));\n    var req = ~a{};\n    switch (reqs.recvInto(&req)) {\n        .message => {},\n        .end => return Status.init(wire.codeInternal, \"unary call closed with no request\"),\n        .status => |st| return st,\n    }\n    var arena = std.heap.ArenaAllocator.init(reqs.alloc);\n    defer arena.deinit();\n    var resp = ~a{};\n    const st = impl.~a_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());\n    if (!st.isOk()) return st;\n    const payload = resp.marshalDc(reqs.alloc);\n    defer reqs.alloc.free(payload);\n    return sink.send(payload);\n}\n\n" (lower-first (svc)) (ref name) (svc) (ref input) (ref output) (snake-case (ref impl-name))))
+      (fmt "fn ~a~aAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {\n    const impl: *~aServer = @ptrCast(@alignCast(ctx));\n    var req = ~a{};\n    switch (reqs.recvInto(&req)) {\n        .message => {},\n        .end => return Status.init(wire.codeInternal, \"unary call closed with no request\"),\n        .status => |st| return st,\n    }\n    var arena = std.heap.ArenaAllocator.init(reqs.alloc);\n    defer arena.deinit();\n    var resp = ~a{};\n    const st = impl.~a_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());\n    if (!st.isOk()) return st;\n    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);\n    defer reqs.alloc.free(payload);\n    return sink.send(payload);\n}\n\n" (lower-first (svc)) (ref name) (svc) (ref input) (ref output) (snake-case (ref impl-name))))
      (server-streaming
-      (fmt "fn ~a~aAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {\n    const impl: *~aServer = @ptrCast(@alignCast(ctx));\n    var req = ~a{};\n    switch (reqs.recvInto(&req)) {\n        .message => {},\n        .end => return Status.init(wire.codeInternal, \"server-streaming call closed with no request\"),\n        .status => |st| return st,\n    }\n    var stream = ~a~aServer{ .sink = sink, .alloc = reqs.alloc };\n    return impl.~a_fn(impl.ctx, call_ctx, &req, &stream);\n}\n\n" (lower-first (svc)) (ref name) (svc) (ref input) (svc) (ref name) (snake-case (ref impl-name))))
+      (fmt "fn ~a~aAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {\n    const impl: *~aServer = @ptrCast(@alignCast(ctx));\n    var req = ~a{};\n    switch (reqs.recvInto(&req)) {\n        .message => {},\n        .end => return Status.init(wire.codeInternal, \"server-streaming call closed with no request\"),\n        .status => |st| return st,\n    }\n    var stream = ~a~aServer{ .sink = sink, .alloc = reqs.alloc, .struct_codec = call_ctx.struct_codec };\n    return impl.~a_fn(impl.ctx, call_ctx, &req, &stream);\n}\n\n" (lower-first (svc)) (ref name) (svc) (ref input) (svc) (ref name) (snake-case (ref impl-name))))
      (client-streaming
-      (fmt "fn ~a~aAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {\n    const impl: *~aServer = @ptrCast(@alignCast(ctx));\n    var arena = std.heap.ArenaAllocator.init(reqs.alloc);\n    defer arena.deinit();\n    var stream = ~a~aServer{ .reqs = reqs, .alloc = arena.allocator() };\n    const st = impl.~a_fn(impl.ctx, call_ctx, &stream);\n    if (!st.isOk()) return st;\n    const resp = stream.resp orelse\n        return Status.init(wire.codeInternal, \"client-streaming handler never called sendAndClose\");\n    const payload = resp.marshalDc(reqs.alloc);\n    defer reqs.alloc.free(payload);\n    return sink.send(payload);\n}\n\n" (lower-first (svc)) (ref name) (svc) (svc) (ref name) (snake-case (ref impl-name))))
+      (fmt "fn ~a~aAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {\n    const impl: *~aServer = @ptrCast(@alignCast(ctx));\n    var arena = std.heap.ArenaAllocator.init(reqs.alloc);\n    defer arena.deinit();\n    var stream = ~a~aServer{ .reqs = reqs, .alloc = arena.allocator() };\n    const st = impl.~a_fn(impl.ctx, call_ctx, &stream);\n    if (!st.isOk()) return st;\n    const resp = stream.resp orelse\n        return Status.init(wire.codeInternal, \"client-streaming handler never called sendAndClose\");\n    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);\n    defer reqs.alloc.free(payload);\n    return sink.send(payload);\n}\n\n" (lower-first (svc)) (ref name) (svc) (svc) (ref name) (snake-case (ref impl-name))))
      (bidi
-      (fmt "fn ~a~aAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {\n    const impl: *~aServer = @ptrCast(@alignCast(ctx));\n    var stream = ~a~aServer{ .reqs = reqs, .sink = sink, .alloc = reqs.alloc };\n    return impl.~a_fn(impl.ctx, call_ctx, &stream);\n}\n\n" (lower-first (svc)) (ref name) (svc) (svc) (ref name) (snake-case (ref impl-name)))))))
+      (fmt "fn ~a~aAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {\n    const impl: *~aServer = @ptrCast(@alignCast(ctx));\n    var stream = ~a~aServer{ .reqs = reqs, .sink = sink, .alloc = reqs.alloc, .struct_codec = call_ctx.struct_codec };\n    return impl.~a_fn(impl.ctx, call_ctx, &stream);\n}\n\n" (lower-first (svc)) (ref name) (svc) (svc) (ref name) (snake-case (ref impl-name)))))))
 
 (define zig-register-method-program
   '((fmt "                .{ .name = ~s, .path = ~s, .kind = .~a, .ctx = impl, .handler = ~a~aAdapter },\n"
@@ -4746,6 +4773,12 @@
     (fmt "~a        self.unknown_fields = unknown_fields_list.toOwnedSlice(alloc) catch &.{};\n" (arg 0))
     (each fields (call zigPbListAssign (arg 0)))
     (fmt "~a    }\n" (arg 0))
+    (if (struct-codec)
+        (then (fmt "~a    pub fn marshalStruct(self: *const ~a, alloc: std.mem.Allocator) []u8 {\n" (arg 0) (ref name))
+              (fmt "~a        if (@import(\"builtin\").target.os.tag == .freestanding) @panic(\"struct codec unavailable on freestanding targets\");\n~a        return _structdc.~aStruct.marshal(self, alloc) catch @panic(\"struct codec encode failed\");\n~a    }\n" (arg 0) (arg 0) (ref name) (arg 0))
+              (fmt "~a    pub fn unmarshalStruct(self: *~a, alloc: std.mem.Allocator, data: []const u8) void {\n" (arg 0) (ref name))
+              (fmt "~a        if (@import(\"builtin\").target.os.tag == .freestanding) @panic(\"struct codec unavailable on freestanding targets\");\n~a        const s = _structdc.~aStruct.unmarshal(alloc, data) catch return;\n~a        self.* = s;\n~a    }\n" (arg 0) (arg 0) (ref name) (arg 0) (arg 0)))
+        (else ""))
     (each-where nested (not (ref map-entry)) (call zigPbMessage (fmt "~a    " (arg 0))))
     (each enums (call zigPbNestedEnum (fmt "~a    " (arg 0))))
     (fmt "~a};\n" (arg 0))))
@@ -4842,20 +4875,20 @@
   '((kind-case
      (unary "")
      (server-streaming
-      (fmt "    private class ~a~aServerImpl(\n        override val context: Endpoint.CallContext,\n        private val sink: Server.ServerSink\n    ) : ~a~aServer {\n        override fun send(resp: ~a) {\n            sink.send(resp.marshalDc())\n        }\n    }\n\n" (svc) (ref name) (svc) (ref name) (ref output)))
+      (fmt "    private class ~a~aServerImpl(\n        override val context: Endpoint.CallContext,\n        private val sink: Server.ServerSink\n    ) : ~a~aServer {\n        override fun send(resp: ~a) {\n            sink.send(context.encodeMessage(resp))\n        }\n    }\n\n" (svc) (ref name) (svc) (ref name) (ref output)))
      (client-streaming
       (fmt "    private class ~a~aServerImpl(\n        override val context: Endpoint.CallContext,\n        private val reqs: Server.RequestStream\n    ) : ~a~aServer {\n        var resp: ~a? = null\n            private set\n\n        override fun recv(): ~a {\n            val req = ~a()\n            reqs.recvInto(req)\n            return req\n        }\n\n        override fun sendAndClose(resp: ~a) {\n            this.resp = resp\n        }\n    }\n\n" (svc) (ref name) (svc) (ref name) (ref output) (ref input) (ref input) (ref output)))
      (bidi
-      (fmt "    private class ~a~aServerImpl(\n        override val context: Endpoint.CallContext,\n        private val reqs: Server.RequestStream,\n        private val sink: Server.ServerSink\n    ) : ~a~aServer {\n        override fun send(resp: ~a) {\n            sink.send(resp.marshalDc())\n        }\n\n        override fun recv(): ~a {\n            val req = ~a()\n            reqs.recvInto(req)\n            return req\n        }\n    }\n\n" (svc) (ref name) (svc) (ref name) (ref output) (ref input) (ref input))))))
+      (fmt "    private class ~a~aServerImpl(\n        override val context: Endpoint.CallContext,\n        private val reqs: Server.RequestStream,\n        private val sink: Server.ServerSink\n    ) : ~a~aServer {\n        override fun send(resp: ~a) {\n            sink.send(context.encodeMessage(resp))\n        }\n\n        override fun recv(): ~a {\n            val req = ~a()\n            reqs.recvInto(req)\n            return req\n        }\n    }\n\n" (svc) (ref name) (svc) (ref name) (ref output) (ref input) (ref input))))))
 
 (define kotlin-register-method-program
   '((kind-case
      (unary
-      (fmt "                    Server.Method(~s, ~s, Server.KIND_UNARY) { ctx, reqs, sink ->\n                        val req = ~a()\n                        reqs.recvInto(req)\n                        sink.send(impl.~a(ctx, req).marshalDc())\n                    },\n" (ref name) (ref path) (ref input) (ref impl-name)))
+      (fmt "                    Server.Method(~s, ~s, Server.KIND_UNARY) { ctx, reqs, sink ->\n                        val req = ~a()\n                        reqs.recvInto(req)\n                        sink.send(ctx.encodeMessage(impl.~a(ctx, req)))\n                    },\n" (ref name) (ref path) (ref input) (ref impl-name)))
      (server-streaming
       (fmt "                    Server.Method(~s, ~s, Server.KIND_SERVER_STREAMING) { ctx, reqs, sink ->\n                        val req = ~a()\n                        reqs.recvInto(req)\n                        impl.~a(req, ~a~aServerImpl(ctx, sink))\n                    },\n" (ref name) (ref path) (ref input) (ref impl-name) (svc) (ref name)))
      (client-streaming
-      (fmt "                    Server.Method(~s, ~s, Server.KIND_CLIENT_STREAMING) { ctx, reqs, sink ->\n                        val stream = ~a~aServerImpl(ctx, reqs)\n                        impl.~a(stream)\n                        val resp = stream.resp\n                            ?: throw StatusException(\n                                Wire.CODE_INTERNAL,\n                                \"client-streaming handler never called sendAndClose\"\n                            )\n                        sink.send(resp.marshalDc())\n                    },\n" (ref name) (ref path) (svc) (ref name) (ref impl-name)))
+      (fmt "                    Server.Method(~s, ~s, Server.KIND_CLIENT_STREAMING) { ctx, reqs, sink ->\n                        val stream = ~a~aServerImpl(ctx, reqs)\n                        impl.~a(stream)\n                        val resp = stream.resp\n                            ?: throw StatusException(\n                                Wire.CODE_INTERNAL,\n                                \"client-streaming handler never called sendAndClose\"\n                            )\n                        sink.send(ctx.encodeMessage(resp))\n                    },\n" (ref name) (ref path) (svc) (ref name) (ref impl-name)))
      (bidi
       (fmt "                    Server.Method(~s, ~s, Server.KIND_BIDI) { ctx, reqs, sink ->\n                        impl.~a(~a~aServerImpl(ctx, reqs, sink))\n                    },\n" (ref name) (ref path) (ref impl-name) (svc) (ref name))))))
 
@@ -4989,24 +5022,24 @@
   '((case-on (category)
       ("varint"
        (if (proto2)
-           (then (fmt "~a{ w.tag(~a, 0); w.varint(~a) }\n" (arg 1) (ref number) (call ktPbVarintExpr (arg 0))))
-           (else (fmt "~aif (~a) { w.tag(~a, 0); w.varint(~a) }\n" (arg 1) (call ktPbNonzero (arg 0)) (ref number) (call ktPbVarintExpr (arg 0))))))
+           (then (fmt "~a{ pbW.tag(~a, 0); pbW.varint(~a) }\n" (arg 1) (ref number) (call ktPbVarintExpr (arg 0))))
+           (else (fmt "~aif (~a) { pbW.tag(~a, 0); pbW.varint(~a) }\n" (arg 1) (call ktPbNonzero (arg 0)) (ref number) (call ktPbVarintExpr (arg 0))))))
       ("fixed"
        (if (proto2)
-           (then (fmt "~a{ w.tag(~a, ~a); w.fixed~a(~a) }\n" (arg 1) (ref number)
+           (then (fmt "~a{ pbW.tag(~a, ~a); pbW.fixed~a(~a) }\n" (arg 1) (ref number)
                       (case-on (kt-fixed-size) ((8) "1") (else "5")) (kt-fixed-name) (arg 0)))
-           (else (fmt "~aif (~a) { w.tag(~a, ~a); w.fixed~a(~a) }\n" (arg 1) (call ktPbNonzero (arg 0)) (ref number)
+           (else (fmt "~aif (~a) { pbW.tag(~a, ~a); pbW.fixed~a(~a) }\n" (arg 1) (call ktPbNonzero (arg 0)) (ref number)
                       (case-on (kt-fixed-size) ((8) "1") (else "5")) (kt-fixed-name) (arg 0)))))
       ("string"
        (if (proto2)
-           (then (fmt "~aw.bytesField(~a, ~a.toByteArray(Charsets.UTF_8))\n" (arg 1) (ref number) (arg 0)))
-           (else (fmt "~aw.stringField(~a, ~a)\n" (arg 1) (ref number) (arg 0)))))
+           (then (fmt "~apbW.bytesField(~a, ~a.toByteArray(Charsets.UTF_8))\n" (arg 1) (ref number) (arg 0)))
+           (else (fmt "~apbW.stringField(~a, ~a)\n" (arg 1) (ref number) (arg 0)))))
       ("bytes"
        (if (proto2)
-           (then (fmt "~aw.bytesField(~a, ~a)\n" (arg 1) (ref number) (arg 0)))
-           (else (fmt "~aif (~a.isNotEmpty()) w.bytesField(~a, ~a)\n" (arg 1) (arg 0) (ref number) (arg 0)))))
+           (then (fmt "~apbW.bytesField(~a, ~a)\n" (arg 1) (ref number) (arg 0)))
+           (else (fmt "~aif (~a.isNotEmpty()) pbW.bytesField(~a, ~a)\n" (arg 1) (arg 0) (ref number) (arg 0)))))
       ("message"
-       (fmt "~a~a?.let { w.bytesField(~a, it.marshalDc()) }\n" (arg 1) (arg 0) (ref number)))
+       (fmt "~a~a?.let { pbW.bytesField(~a, it.marshalDc()) }\n" (arg 1) (arg 0) (ref number)))
       (else (fail)))))
 
 (define kt-pb-set-expr-program
@@ -5020,7 +5053,7 @@
 
 (define kt-pb-encode-field-program
   '((if (is-map)
-        (then (fmt "        for (e in ~a) w.bytesField(~a, ~a.~aEncode(e.key, e.value))\n"
+        (then (fmt "        for (pbE in ~a) pbW.bytesField(~a, ~a.~aEncode(pbE.key, pbE.value))\n"
                    (kt-field-name) (ref number) (arg 0) (kt-map-name)))
         (else
          (if (repeated)
@@ -5028,17 +5061,17 @@
               (case-on (category)
                 ("varint"
                  (fmt "        if (~a.isNotEmpty()) {\n" (kt-field-name))
-                 (fmt "            val payload = ~a.Writer()\n" (arg 0))
-                 (fmt "            for (x in ~a) payload.varint(~a)\n" (kt-field-name) (call ktPbVarintExpr "x"))
-                 (fmt "            w.bytesField(~a, payload.toBytes())\n        }\n" (ref number)))
+                 (fmt "            val pbPayload = ~a.Writer()\n" (arg 0))
+                 (fmt "            for (pbX in ~a) pbPayload.varint(~a)\n" (kt-field-name) (call ktPbVarintExpr "pbX"))
+                 (fmt "            pbW.bytesField(~a, pbPayload.toBytes())\n        }\n" (ref number)))
                 ("fixed"
                  (fmt "        if (~a.isNotEmpty()) {\n" (kt-field-name))
-                 (fmt "            val payload = ~a.Writer()\n" (arg 0))
-                 (fmt "            for (x in ~a) payload.fixed~a(x)\n" (kt-field-name) (kt-fixed-name))
-                 (fmt "            w.bytesField(~a, payload.toBytes())\n        }\n" (ref number)))
-                ("string" (fmt "        for (x in ~a) w.bytesField(~a, x.toByteArray(Charsets.UTF_8))\n" (kt-field-name) (ref number)))
-                ("bytes" (fmt "        for (x in ~a) w.bytesField(~a, x)\n" (kt-field-name) (ref number)))
-                ("message" (fmt "        for (x in ~a) w.bytesField(~a, x.marshalDc())\n" (kt-field-name) (ref number)))
+                 (fmt "            val pbPayload = ~a.Writer()\n" (arg 0))
+                 (fmt "            for (pbX in ~a) pbPayload.fixed~a(pbX)\n" (kt-field-name) (kt-fixed-name))
+                 (fmt "            pbW.bytesField(~a, pbPayload.toBytes())\n        }\n" (ref number)))
+                ("string" (fmt "        for (pbX in ~a) pbW.bytesField(~a, pbX.toByteArray(Charsets.UTF_8))\n" (kt-field-name) (ref number)))
+                ("bytes" (fmt "        for (pbX in ~a) pbW.bytesField(~a, pbX)\n" (kt-field-name) (ref number)))
+                ("message" (fmt "        for (pbX in ~a) pbW.bytesField(~a, pbX.marshalDc())\n" (kt-field-name) (ref number)))
                 (else (fail))))
              (else (call ktPbEncodeSingular (kt-field-name) "        ")))))))
 
@@ -5080,54 +5113,54 @@
   '((fmt "                ~a -> {\n" (ref number))
     (if (is-map)
         (then
-         (fmt "                    val kv = ~a.~aDecode(field.bytesValue)\n" (arg 0) (kt-map-name))
-         (fmt "                    ~a[kv.first] = kv.second\n" (kt-field-name)))
+         (fmt "                    val pbKv = ~a.~aDecode(pbField.bytesValue)\n" (arg 0) (kt-map-name))
+         (fmt "                    ~a[pbKv.first] = pbKv.second\n" (kt-field-name)))
         (else
          (if (repeated)
              (then
               (case-on (category)
                 ("varint"
-                 "                    if (field.wire == 2) {\n"
-                 (fmt "                        val sub = ~a.Reader(field.bytesValue)\n" (arg 0))
-                 "                        while (!sub.done()) {\n"
-                 (fmt "                            ~a.add(~a)\n" (kt-field-name) (call ktPbEnumConv "sub.varint()"))
+                 "                    if (pbField.wire == 2) {\n"
+                 (fmt "                        val pbSub = ~a.Reader(pbField.bytesValue)\n" (arg 0))
+                 "                        while (!pbSub.done()) {\n"
+                 (fmt "                            ~a.add(~a)\n" (kt-field-name) (call ktPbEnumConv "pbSub.varint()"))
                  "                        }\n                    } else {\n"
-                 (fmt "                        ~a.add(~a)\n" (kt-field-name) (call ktPbEnumConv "field.varintValue"))
+                 (fmt "                        ~a.add(~a)\n" (kt-field-name) (call ktPbEnumConv "pbField.varintValue"))
                  "                    }\n")
                 ("fixed"
-                 "                    if (field.wire == 2) {\n"
-                 (fmt "                        val sub = ~a.Reader(field.bytesValue)\n" (arg 0))
-                 (fmt "                        while (!sub.done()) ~a.add(~a)\n" (kt-field-name)
+                 "                    if (pbField.wire == 2) {\n"
+                 (fmt "                        val pbSub = ~a.Reader(pbField.bytesValue)\n" (arg 0))
+                 (fmt "                        while (!pbSub.done()) ~a.add(~a)\n" (kt-field-name)
                       (case-on (ref type)
-                        ((2) (fmt "~a.bitsToFloat(sub.fixed32())" (arg 0)))
-                        ((1) (fmt "~a.bitsToDouble(sub.fixed64())" (arg 0)))
-                        ((7) "sub.fixed32()")
-                        ((15) "sub.fixed32().toInt()")
-                        (else "sub.fixed64()")))
+                        ((2) (fmt "~a.bitsToFloat(pbSub.fixed32())" (arg 0)))
+                        ((1) (fmt "~a.bitsToDouble(pbSub.fixed64())" (arg 0)))
+                        ((7) "pbSub.fixed32()")
+                        ((15) "pbSub.fixed32().toInt()")
+                        (else "pbSub.fixed64()")))
                  "                    } else {\n"
                  (fmt "                        ~a.add(~a)\n" (kt-field-name)
                       (case-on (ref type)
-                        ((2) (fmt "~a.bitsToFloat(field.fixedValue.toUInt())" (arg 0)))
-                        ((1) (fmt "~a.bitsToDouble(field.fixedValue.toULong())" (arg 0)))
-                        ((7) "field.fixedValue.toUInt()")
-                        ((15) "field.fixedValue.toInt()")
-                        ((6) "field.fixedValue.toULong()")
-                        (else "field.fixedValue")))
+                        ((2) (fmt "~a.bitsToFloat(pbField.fixedValue.toUInt())" (arg 0)))
+                        ((1) (fmt "~a.bitsToDouble(pbField.fixedValue.toULong())" (arg 0)))
+                        ((7) "pbField.fixedValue.toUInt()")
+                        ((15) "pbField.fixedValue.toInt()")
+                        ((6) "pbField.fixedValue.toULong()")
+                        (else "pbField.fixedValue")))
                  "                    }\n")
-                ("string" (fmt "                    ~a.add(String(field.bytesValue, Charsets.UTF_8))\n" (kt-field-name)))
-                ("bytes" (fmt "                    ~a.add(field.bytesValue)\n" (kt-field-name)))
+                ("string" (fmt "                    ~a.add(String(pbField.bytesValue, Charsets.UTF_8))\n" (kt-field-name)))
+                ("bytes" (fmt "                    ~a.add(pbField.bytesValue)\n" (kt-field-name)))
                 ("message"
-                 (fmt "                    val item = ~a()\n" (kt-entry-ref))
-                 "                    item.unmarshalDc(field.bytesValue)\n"
-                 (fmt "                    ~a.add(item)\n" (kt-field-name)))
+                 (fmt "                    val pbItem = ~a()\n" (kt-entry-ref))
+                 "                    pbItem.unmarshalDc(pbField.bytesValue)\n"
+                 (fmt "                    ~a.add(pbItem)\n" (kt-field-name)))
                 (else (fail))))
              (else (call ktPbClearing)
-                   (call ktPbDecodeSingular (kt-field-name) (case-on (category) ("varint" "field.varintValue") ("fixed" "field.fixedValue") (else "field.bytesValue")) "                    " (arg 0))))))
+                   (call ktPbDecodeSingular (kt-field-name) (case-on (category) ("varint" "pbField.varintValue") ("fixed" "pbField.fixedValue") (else "pbField.bytesValue")) "                    " (arg 0))))))
     "                }\n"))
 
 (define kt-pb-map-val-encode-program
   '((case-on (ref type)
-      ((11) (fmt "        w.bytesField(~a, value.marshalDc())\n" (ref number)))
+      ((11) (fmt "        pbW.bytesField(~a, value.marshalDc())\n" (ref number)))
       (else (call ktPbEncodeSingular "value" "        ")))))
 
 (define kt-pb-map-val-init-program
@@ -5137,23 +5170,23 @@
 
 (define kt-pb-map-key-decode-program
   '((fmt "                ~a -> ~a\n" (ref number)
-         (trim-end (call ktPbDecodeSingular "key" (case-on (category) ("varint" "field.varintValue") ("fixed" "field.fixedValue") (else "field.bytesValue")) "" (arg 0))))))
+         (trim-end (call ktPbDecodeSingular "key" (case-on (category) ("varint" "pbField.varintValue") ("fixed" "pbField.fixedValue") (else "pbField.bytesValue")) "" (arg 0))))))
 
 (define kt-pb-map-val-decode-program
   '((case-on (ref type)
-      ((11) (fmt "                ~a -> value.unmarshalDc(field.bytesValue)\n" (ref number)))
+      ((11) (fmt "                ~a -> value.unmarshalDc(pbField.bytesValue)\n" (ref number)))
       (else (fmt "                ~a -> ~a\n" (ref number)
-                 (trim-end (call ktPbDecodeSingular "value" (case-on (category) ("varint" "field.varintValue") ("fixed" "field.fixedValue") (else "field.bytesValue")) "" (arg 0))))))))
+                 (trim-end (call ktPbDecodeSingular "value" (case-on (category) ("varint" "pbField.varintValue") ("fixed" "pbField.fixedValue") (else "pbField.bytesValue")) "" (arg 0))))))))
 
 (define kt-pb-map-helpers-program
   '((fmt "    fun ~aEncode(key: ~a, value: ~a): ByteArray {\n"
          (kt-map-name)
          (call-on (key-field) ktPbType)
          (call-on (val-field) ktPbTypeOrRef))
-    "        val w = Writer()\n"
+    "        val pbW = Writer()\n"
     (call-on (key-field) ktPbEncodeSingular "key" "        ")
     (call-on (val-field) ktPbMapValEncode)
-    "        return w.toBytes()\n    }\n\n"
+    "        return pbW.toBytes()\n    }\n\n"
     (fmt "    fun ~aDecode(bytes: ByteArray): Pair<~a, ~a> {\n"
          (kt-map-name)
          (call-on (key-field) ktPbType)
@@ -5164,7 +5197,7 @@
     (fmt "        var value: ~a = ~a\n"
          (call-on (val-field) ktPbTypeOrRef)
          (call-on (val-field) ktPbMapValInit))
-    "        val r = Reader(bytes)\n        while (true) {\n            val field = r.next() ?: break\n            when (field.number) {\n"
+    "        val pbR = Reader(bytes)\n        while (true) {\n            val pbField = pbR.next() ?: break\n            when (pbField.number) {\n"
     (call-on (key-field) ktPbMapKeyDecode (arg 0))
     (call-on (val-field) ktPbMapValDecode (arg 0))
     "                else -> {}\n            }\n        }\n        return Pair(key, value)\n    }\n\n"))
@@ -5185,19 +5218,26 @@
     (fmt "\n~a) : Marshaler, Unmarshaler {\n" (arg 1))
     (fmt "~a    var unknownFields: ByteArray = ByteArray(0)\n" (arg 1))
     (fmt "~a    override fun marshalDc(): ByteArray {\n" (arg 1))
-    (fmt "~a        val w = ~a.Writer()\n" (arg 1) (arg 0))
+    (fmt "~a        val pbW = ~a.Writer()\n" (arg 1) (arg 0))
     (each fields (call ktPbEncodeGuard (arg 0)))
-    (fmt "~a        w.raw(unknownFields)\n" (arg 1))
-    (fmt "~a        return w.toBytes()\n~a    }\n" (arg 1) (arg 1))
+    (fmt "~a        pbW.raw(unknownFields)\n" (arg 1))
+    (fmt "~a        return pbW.toBytes()\n~a    }\n" (arg 1) (arg 1))
     (fmt "~a    override fun unmarshalDc(data: ByteArray) {\n" (arg 1))
     (fmt "~a        unknownFields = ByteArray(0)\n" (arg 1))
     (each fields (fmt "~a        ~a = ~a\n" (arg 1) (kt-field-name) (call ktPbDefault)))
-    (fmt "~a        val r = ~a.Reader(data)\n" (arg 1) (arg 0))
+    (fmt "~a        val pbR = ~a.Reader(data)\n" (arg 1) (arg 0))
     (fmt "~a        while (true) {\n" (arg 1))
-    (fmt "~a            val field = r.next() ?: break\n" (arg 1))
-    (fmt "~a            when (field.number) {\n" (arg 1))
+    (fmt "~a            val pbField = pbR.next() ?: break\n" (arg 1))
+    (fmt "~a            when (pbField.number) {\n" (arg 1))
     (each fields (call ktPbDecodeCase (arg 0)))
-    (fmt "~a                else -> { unknownFields = unknownFields + field.rawValue }\n~a            }\n~a        }\n~a    }\n" (arg 1) (arg 1) (arg 1) (arg 1))
+    (fmt "~a                else -> { unknownFields = unknownFields + pbField.rawValue }\n~a            }\n~a        }\n~a    }\n" (arg 1) (arg 1) (arg 1) (arg 1))
+    (if (struct-codec)
+        (then (if (ref map-entry) (then "") (else (fmt "~a    override fun marshalStruct(): ByteArray = ~aStruct.marshal(this)\n" (arg 1) (ref name))
+              (fmt "~a    override fun unmarshalStruct(data: ByteArray) {\n" (arg 1))
+              (fmt "~a        val _s = ~aStruct.unmarshal(data)\n" (arg 1) (ref name))
+              (each fields (fmt "~a        ~a = _s.~a\n" (arg 1) (kt-field-name) (kt-field-name)))
+              (fmt "~a        unknownFields = _s.unknownFields\n~a    }\n" (arg 1) (arg 1)))))
+        (else ""))
     (each nested (call ktPbMessage (arg 0) (fmt "~a    " (arg 1)) ""))
     (each enums (call ktPbNestedEnum (fmt "~a    " (arg 1))))
     (fmt "~a}\n" (arg 1))))
@@ -5254,11 +5294,11 @@
 (define cs-register-method-program
   '((kind-case
      (unary
-      (fmt "                new Server.Method(~s, ~s, Server.KindUnary, (ctx, reqs, sink) =>\n                {\n                    var req = new ~a();\n                    reqs.RecvInto(req);\n                    sink(impl.~a(ctx, req).MarshalDc());\n                }),\n" (ref name) (ref path) (ref input) (ref impl-name)))
+      (fmt "                new Server.Method(~s, ~s, Server.KindUnary, (ctx, reqs, sink) =>\n                {\n                    var req = new ~a();\n                    reqs.RecvInto(req);\n                    sink(ctx.EncodeMessage(impl.~a(ctx, req)));\n                }),\n" (ref name) (ref path) (ref input) (ref impl-name)))
      (server-streaming
       (fmt "                new Server.Method(~s, ~s, Server.KindServerStreaming, (ctx, reqs, sink) =>\n                {\n                    var req = new ~a();\n                    reqs.RecvInto(req);\n                    impl.~a(req, new ~a~aServerImpl(ctx, sink));\n                }),\n" (ref name) (ref path) (ref input) (ref impl-name) (svc) (ref name)))
      (client-streaming
-      (fmt "                new Server.Method(~s, ~s, Server.KindClientStreaming, (ctx, reqs, sink) =>\n                {\n                    var stream = new ~a~aServerImpl(ctx, reqs);\n                    impl.~a(stream);\n                    if (stream.Resp == null)\n                    {\n                        throw new StatusException(Wire.CodeInternal,\n                            \"client-streaming handler never called SendAndClose\");\n                    }\n                    sink(stream.Resp.MarshalDc());\n                }),\n" (ref name) (ref path) (svc) (ref name) (ref impl-name)))
+      (fmt "                new Server.Method(~s, ~s, Server.KindClientStreaming, (ctx, reqs, sink) =>\n                {\n                    var stream = new ~a~aServerImpl(ctx, reqs);\n                    impl.~a(stream);\n                    if (stream.Resp == null)\n                    {\n                        throw new StatusException(Wire.CodeInternal,\n                            \"client-streaming handler never called SendAndClose\");\n                    }\n                    sink(ctx.EncodeMessage(stream.Resp));\n                }),\n" (ref name) (ref path) (svc) (ref name) (ref impl-name)))
      (bidi
       (fmt "                new Server.Method(~s, ~s, Server.KindBidi, (ctx, reqs, sink) =>\n                {\n                    impl.~a(new ~a~aServerImpl(ctx, reqs, sink));\n                }),\n" (ref name) (ref path) (ref impl-name) (svc) (ref name))))))
 
@@ -5266,11 +5306,11 @@
   '((kind-case
      (unary "")
      (server-streaming
-      (fmt "    private sealed class ~a~aServerImpl : ~a~aServer\n    {\n        private readonly Server.ServerSink _sink;\n\n        internal ~a~aServerImpl(Endpoint.CallContext ctx, Server.ServerSink sink)\n        {\n            Context = ctx;\n            _sink = sink;\n        }\n\n        public Endpoint.CallContext Context { get; }\n\n        public void Send(~a resp) => _sink(resp.MarshalDc());\n    }\n\n" (svc) (ref name) (svc) (ref name) (svc) (ref name) (ref output)))
+      (fmt "    private sealed class ~a~aServerImpl : ~a~aServer\n    {\n        private readonly Server.ServerSink _sink;\n\n        internal ~a~aServerImpl(Endpoint.CallContext ctx, Server.ServerSink sink)\n        {\n            Context = ctx;\n            _sink = sink;\n        }\n\n        public Endpoint.CallContext Context { get; }\n\n        public void Send(~a resp) => _sink(Context.EncodeMessage(resp));\n    }\n\n" (svc) (ref name) (svc) (ref name) (svc) (ref name) (ref output)))
      (client-streaming
       (fmt "    private sealed class ~a~aServerImpl : ~a~aServer\n    {\n        private readonly Server.RequestStream _reqs;\n\n        internal ~a~aServerImpl(Endpoint.CallContext ctx, Server.RequestStream reqs)\n        {\n            Context = ctx;\n            _reqs = reqs;\n        }\n\n        public Endpoint.CallContext Context { get; }\n        public ~a Resp { get; private set; }\n\n        public ~a Recv()\n        {\n            var req = new ~a();\n            _reqs.RecvInto(req);\n            return req;\n        }\n\n        public void SendAndClose(~a resp) => Resp = resp;\n    }\n\n" (svc) (ref name) (svc) (ref name) (svc) (ref name) (ref output) (ref input) (ref input) (ref output)))
      (bidi
-      (fmt "    private sealed class ~a~aServerImpl : ~a~aServer\n    {\n        private readonly Server.RequestStream _reqs;\n        private readonly Server.ServerSink _sink;\n\n        internal ~a~aServerImpl(Endpoint.CallContext ctx, Server.RequestStream reqs, Server.ServerSink sink)\n        {\n            Context = ctx;\n            _reqs = reqs;\n            _sink = sink;\n        }\n\n        public Endpoint.CallContext Context { get; }\n\n        public void Send(~a resp) => _sink(resp.MarshalDc());\n\n        public ~a Recv()\n        {\n            var req = new ~a();\n            _reqs.RecvInto(req);\n            return req;\n        }\n    }\n\n" (svc) (ref name) (svc) (ref name) (svc) (ref name) (ref output) (ref input) (ref input))))))
+      (fmt "    private sealed class ~a~aServerImpl : ~a~aServer\n    {\n        private readonly Server.RequestStream _reqs;\n        private readonly Server.ServerSink _sink;\n\n        internal ~a~aServerImpl(Endpoint.CallContext ctx, Server.RequestStream reqs, Server.ServerSink sink)\n        {\n            Context = ctx;\n            _reqs = reqs;\n            _sink = sink;\n        }\n\n        public Endpoint.CallContext Context { get; }\n\n        public void Send(~a resp) => _sink(Context.EncodeMessage(resp));\n\n        public ~a Recv()\n        {\n            var req = new ~a();\n            _reqs.RecvInto(req);\n            return req;\n        }\n    }\n\n" (svc) (ref name) (svc) (ref name) (svc) (ref name) (ref output) (ref input) (ref input))))))
 
 (define cs-client-async-method-program
   '((kind-case
@@ -5585,7 +5625,8 @@
     (fmt "\n~a}\n" (arg 0))))
 
 (define cs-pb-message-program
-  '((fmt "~a~a class ~a : IMarshaler, IUnmarshaler {\n" (arg 1) (arg 2) (ref name))
+  '((fmt "~a~a class ~a : IMarshaler, IUnmarshaler~a {\n" (arg 1) (arg 2) (ref name)
+         (if (struct-codec) (then (if (ref map-entry) (then "") (else ", IStructMarshaler, IStructUnmarshaler"))) (else "")))
     (each fields (fmt "~a    public ~a ~a = ~a;\n" (arg 1) (call csPbType) (cs-field-name) (call csPbDefault)))
     (fmt "~a    public byte[] UnknownFields = new byte[0];\n" (arg 1))
     (fmt "~a    public ~a() {}\n" (arg 1) (ref name))
@@ -5609,6 +5650,13 @@
     (fmt "~a        while ((field = r.Next()) != null) {\n~a            switch (field.Number) {\n" (arg 1) (arg 1))
     (each fields (call csPbDecodeCase (arg 0)))
     (fmt "~a                default: UnknownFields = ~a.ConcatBytes(UnknownFields, field.RawValue); break;\n~a            }\n~a        }\n~a    }\n" (arg 1) (arg 0) (arg 1) (arg 1) (arg 1))
+    (if (struct-codec)
+        (then (if (ref map-entry) (then "") (else (fmt "~a    public byte[] MarshalStruct() => ~aStruct.Marshal(this);\n" (arg 1) (flat))
+              (fmt "~a    public void UnmarshalStruct(byte[] data) {\n" (arg 1))
+              (fmt "~a        var _s = ~aStruct.Unmarshal(data);\n" (arg 1) (flat))
+              (each fields (fmt "~a        ~a = _s.~a;\n" (arg 1) (cs-field-name) (cs-field-name)))
+              (fmt "~a        UnknownFields = _s.UnknownFields;\n~a    }\n" (arg 1) (arg 1)))))
+        (else ""))
     (each nested (call csPbMessage (arg 0) (fmt "~a    " (arg 1)) "public sealed"))
     (each enums (call csPbNestedEnum (fmt "~a    " (arg 1))))
     (fmt "~a}\n" (arg 1))))
@@ -5700,11 +5748,11 @@
   (list
    (list 'kind-case
          (list 'unary
-               (list 'fmt "                    new Server.Method(~s, ~s, Server.~a, (ctx, reqs, sink) -> {\n                        ~a req = new ~a();\n                        reqs.recvInto(req);\n                        sink.send(impl.~a(ctx, req).marshalDc());\n                    }),\n" '(ref name) '(ref path) java-kind-const-expr '(ref input) '(ref input) '(ref impl-name)))
+               (list 'fmt "                    new Server.Method(~s, ~s, Server.~a, (ctx, reqs, sink) -> {\n                        ~a req = new ~a();\n                        reqs.recvInto(req);\n                        sink.send(ctx.encodeMessage(impl.~a(ctx, req)));\n                    }),\n" '(ref name) '(ref path) java-kind-const-expr '(ref input) '(ref input) '(ref impl-name)))
          (list 'server-streaming
                (list 'fmt "                    new Server.Method(~s, ~s, Server.~a, (ctx, reqs, sink) -> {\n                        ~a req = new ~a();\n                        reqs.recvInto(req);\n                        impl.~a(req, new ~a~aServerImpl(ctx, sink));\n                    }),\n" '(ref name) '(ref path) java-kind-const-expr '(ref input) '(ref input) '(ref impl-name) '(svc) '(ref name)))
          (list 'client-streaming
-               (list 'fmt "                    new Server.Method(~s, ~s, Server.~a, (ctx, reqs, sink) -> {\n                        ~a~aServerImpl stream = new ~a~aServerImpl(ctx, reqs);\n                        impl.~a(stream);\n                        if (stream.resp == null) {\n                            throw new StatusException(Wire.CODE_INTERNAL,\n                                    \"client-streaming handler never called SendAndClose\");\n                        }\n                        sink.send(stream.resp.marshalDc());\n                    }),\n" '(ref name) '(ref path) java-kind-const-expr '(svc) '(ref name) '(svc) '(ref name) '(ref impl-name)))
+               (list 'fmt "                    new Server.Method(~s, ~s, Server.~a, (ctx, reqs, sink) -> {\n                        ~a~aServerImpl stream = new ~a~aServerImpl(ctx, reqs);\n                        impl.~a(stream);\n                        if (stream.resp == null) {\n                            throw new StatusException(Wire.CODE_INTERNAL,\n                                    \"client-streaming handler never called SendAndClose\");\n                        }\n                        sink.send(ctx.encodeMessage(stream.resp));\n                    }),\n" '(ref name) '(ref path) java-kind-const-expr '(svc) '(ref name) '(svc) '(ref name) '(ref impl-name)))
          (list 'bidi
                (list 'fmt "                    new Server.Method(~s, ~s, Server.~a, (ctx, reqs, sink) -> {\n                        impl.~a(new ~a~aServerImpl(ctx, reqs, sink));\n                    }),\n" '(ref name) '(ref path) java-kind-const-expr '(ref impl-name) '(svc) '(ref name))))))
 
@@ -5712,11 +5760,11 @@
   '((kind-case
      (unary "")
      (server-streaming
-      (fmt "    private static final class ~a~aServerImpl implements ~a~aServer {\n        private final Endpoint.CallContext ctx;\n        private final Server.ServerSink sink;\n\n        ~a~aServerImpl(Endpoint.CallContext ctx, Server.ServerSink sink) {\n            this.ctx = ctx;\n            this.sink = sink;\n        }\n\n        public void send(~a resp) throws Exception {\n            sink.send(resp.marshalDc());\n        }\n\n        public Endpoint.CallContext context() {\n            return ctx;\n        }\n    }\n\n" (svc) (ref name) (svc) (ref name) (svc) (ref name) (ref output)))
+      (fmt "    private static final class ~a~aServerImpl implements ~a~aServer {\n        private final Endpoint.CallContext ctx;\n        private final Server.ServerSink sink;\n\n        ~a~aServerImpl(Endpoint.CallContext ctx, Server.ServerSink sink) {\n            this.ctx = ctx;\n            this.sink = sink;\n        }\n\n        public void send(~a resp) throws Exception {\n            sink.send(ctx.encodeMessage(resp));\n        }\n\n        public Endpoint.CallContext context() {\n            return ctx;\n        }\n    }\n\n" (svc) (ref name) (svc) (ref name) (svc) (ref name) (ref output)))
      (client-streaming
       (fmt "    private static final class ~a~aServerImpl implements ~a~aServer {\n        private final Endpoint.CallContext ctx;\n        private final Server.RequestStream reqs;\n        ~a resp;\n\n        ~a~aServerImpl(Endpoint.CallContext ctx, Server.RequestStream reqs) {\n            this.ctx = ctx;\n            this.reqs = reqs;\n        }\n\n        public ~a recv() throws Exception {\n            ~a req = new ~a();\n            reqs.recvInto(req);\n            return req;\n        }\n\n        public void sendAndClose(~a resp) {\n            this.resp = resp;\n        }\n\n        public Endpoint.CallContext context() {\n            return ctx;\n        }\n    }\n\n" (svc) (ref name) (svc) (ref name) (ref output) (svc) (ref name) (ref input) (ref input) (ref input) (ref output)))
      (bidi
-      (fmt "    private static final class ~a~aServerImpl implements ~a~aServer {\n        private final Endpoint.CallContext ctx;\n        private final Server.RequestStream reqs;\n        private final Server.ServerSink sink;\n\n        ~a~aServerImpl(Endpoint.CallContext ctx, Server.RequestStream reqs, Server.ServerSink sink) {\n            this.ctx = ctx;\n            this.reqs = reqs;\n            this.sink = sink;\n        }\n\n        public void send(~a resp) throws Exception {\n            sink.send(resp.marshalDc());\n        }\n\n        public ~a recv() throws Exception {\n            ~a req = new ~a();\n            reqs.recvInto(req);\n            return req;\n        }\n\n        public Endpoint.CallContext context() {\n            return ctx;\n        }\n    }\n\n" (svc) (ref name) (svc) (ref name) (svc) (ref name) (ref output) (ref input) (ref input) (ref input))))))
+      (fmt "    private static final class ~a~aServerImpl implements ~a~aServer {\n        private final Endpoint.CallContext ctx;\n        private final Server.RequestStream reqs;\n        private final Server.ServerSink sink;\n\n        ~a~aServerImpl(Endpoint.CallContext ctx, Server.RequestStream reqs, Server.ServerSink sink) {\n            this.ctx = ctx;\n            this.reqs = reqs;\n            this.sink = sink;\n        }\n\n        public void send(~a resp) throws Exception {\n            sink.send(ctx.encodeMessage(resp));\n        }\n\n        public ~a recv() throws Exception {\n            ~a req = new ~a();\n            reqs.recvInto(req);\n            return req;\n        }\n\n        public Endpoint.CallContext context() {\n            return ctx;\n        }\n    }\n\n" (svc) (ref name) (svc) (ref name) (svc) (ref name) (ref output) (ref input) (ref input) (ref input))))))
 
 (define java-client-async-method-program
   '((kind-case
@@ -5874,24 +5922,24 @@
   '((case-on (category)
       ("varint"
        (if (proto2)
-           (then (fmt "~a{ w.tag(~a, 0); w.varint(~a); }\n" (arg 1) (ref number) (call javaPbVarintPayload (arg 0))))
-           (else (fmt "~aif (~a) { w.tag(~a, 0); w.varint(~a); }\n" (arg 1) (call javaPbNonzero (arg 0)) (ref number) (call javaPbVarintPayload (arg 0))))))
+           (then (fmt "~a{ pbW.tag(~a, 0); pbW.varint(~a); }\n" (arg 1) (ref number) (call javaPbVarintPayload (arg 0))))
+           (else (fmt "~aif (~a) { pbW.tag(~a, 0); pbW.varint(~a); }\n" (arg 1) (call javaPbNonzero (arg 0)) (ref number) (call javaPbVarintPayload (arg 0))))))
       ("fixed"
        (if (proto2)
-           (then (fmt "~a{ w.tag(~a, ~a); w.fixed~a(~a); }\n" (arg 1) (ref number)
+           (then (fmt "~a{ pbW.tag(~a, ~a); pbW.fixed~a(~a); }\n" (arg 1) (ref number)
                       (case-on (java-fixed-size) ((8) "1") (else "5")) (java-fixed-name) (arg 0)))
-           (else (fmt "~aif (~a) { w.tag(~a, ~a); w.fixed~a(~a); }\n" (arg 1) (call javaPbNonzero (arg 0)) (ref number)
+           (else (fmt "~aif (~a) { pbW.tag(~a, ~a); pbW.fixed~a(~a); }\n" (arg 1) (call javaPbNonzero (arg 0)) (ref number)
                       (case-on (java-fixed-size) ((8) "1") (else "5")) (java-fixed-name) (arg 0)))))
       ("string"
        (if (proto2)
-           (then (fmt "~aif (~a != null) w.bytesField(~a, ~a.getBytes(java.nio.charset.StandardCharsets.UTF_8));\n" (arg 1) (arg 0) (ref number) (arg 0)))
-           (else (fmt "~aw.stringField(~a, ~a);\n" (arg 1) (ref number) (arg 0)))))
+           (then (fmt "~aif (~a != null) pbW.bytesField(~a, ~a.getBytes(java.nio.charset.StandardCharsets.UTF_8));\n" (arg 1) (arg 0) (ref number) (arg 0)))
+           (else (fmt "~apbW.stringField(~a, ~a);\n" (arg 1) (ref number) (arg 0)))))
       ("bytes"
        (if (proto2)
-           (then (fmt "~aif (~a != null) w.bytesField(~a, ~a);\n" (arg 1) (arg 0) (ref number) (arg 0)))
-           (else (fmt "~aif (~a != null && ~a.length > 0) w.bytesField(~a, ~a);\n" (arg 1) (arg 0) (arg 0) (ref number) (arg 0)))))
+           (then (fmt "~aif (~a != null) pbW.bytesField(~a, ~a);\n" (arg 1) (arg 0) (ref number) (arg 0)))
+           (else (fmt "~aif (~a != null && ~a.length > 0) pbW.bytesField(~a, ~a);\n" (arg 1) (arg 0) (arg 0) (ref number) (arg 0)))))
       ("message"
-       (fmt "~aif (~a != null) w.bytesField(~a, ~a.marshalDc());\n" (arg 1) (arg 0) (ref number) (arg 0)))
+       (fmt "~aif (~a != null) pbW.bytesField(~a, ~a.marshalDc());\n" (arg 1) (arg 0) (ref number) (arg 0)))
       (else (fail)))))
 
 (define java-pb-set-expr-program
@@ -5906,7 +5954,7 @@
 
 (define java-pb-encode-field-program
   '((if (is-map)
-        (then (fmt "        if (~a != null) for (java.util.Map.Entry<~a, ~a> e : ~a.entrySet()) w.bytesField(~a, ~a(e.getKey(), e.getValue()));\n"
+        (then (fmt "        if (~a != null) for (java.util.Map.Entry<~a, ~a> pbE : ~a.entrySet()) pbW.bytesField(~a, ~a(pbE.getKey(), pbE.getValue()));\n"
                    (java-field-name)
                    (call-on (key-field (resolved-entry)) javaPbType "boxed")
                    (call-on (val-field (resolved-entry)) javaPbType "boxed")
@@ -5918,22 +5966,22 @@
               (case-on (category)
                 ("varint"
                  (fmt "        if (~a != null && !~a.isEmpty()) {\n" (java-field-name) (java-field-name))
-                 (fmt "            ~a.Writer payload = new ~a.Writer();\n" (arg 0) (arg 0))
-                 (fmt "            for (~a x : ~a) payload.varint(~a);\n"
+                 (fmt "            ~a.Writer pbPayload = new ~a.Writer();\n" (arg 0) (arg 0))
+                 (fmt "            for (~a pbX : ~a) pbPayload.varint(~a);\n"
                       (call-on (with-label (self) 1) javaPbType "boxed")
                       (java-field-name)
-                      (call javaPbVarintPayload "x"))
-                 (fmt "            w.bytesField(~a, payload.toBytes());\n        }\n" (ref number)))
+                      (call javaPbVarintPayload "pbX"))
+                 (fmt "            pbW.bytesField(~a, pbPayload.toBytes());\n        }\n" (ref number)))
                 ("fixed"
                  (fmt "        if (~a != null && !~a.isEmpty()) {\n" (java-field-name) (java-field-name))
-                 (fmt "            ~a.Writer payload = new ~a.Writer();\n" (arg 0) (arg 0))
-                 (fmt "            for (~a x : ~a) payload.fixed~a(~a);\n"
+                 (fmt "            ~a.Writer pbPayload = new ~a.Writer();\n" (arg 0) (arg 0))
+                 (fmt "            for (~a pbX : ~a) pbPayload.fixed~a(~a);\n"
                       (call-on (with-label (self) 1) javaPbType "boxed")
-                      (java-field-name) (java-fixed-name) "x")
-                 (fmt "            w.bytesField(~a, payload.toBytes());\n        }\n" (ref number)))
-                ("string" (fmt "        if (~a != null) for (String x : ~a) w.bytesField(~a, x.getBytes(java.nio.charset.StandardCharsets.UTF_8));\n" (java-field-name) (java-field-name) (ref number)))
-                ("bytes" (fmt "        if (~a != null) for (byte[] x : ~a) w.bytesField(~a, x);\n" (java-field-name) (java-field-name) (ref number)))
-                ("message" (fmt "        if (~a != null) for (~a x : ~a) w.bytesField(~a, x.marshalDc());\n"
+                      (java-field-name) (java-fixed-name) "pbX")
+                 (fmt "            pbW.bytesField(~a, pbPayload.toBytes());\n        }\n" (ref number)))
+                ("string" (fmt "        if (~a != null) for (String pbX : ~a) pbW.bytesField(~a, pbX.getBytes(java.nio.charset.StandardCharsets.UTF_8));\n" (java-field-name) (java-field-name) (ref number)))
+                ("bytes" (fmt "        if (~a != null) for (byte[] pbX : ~a) pbW.bytesField(~a, x);\n" (java-field-name) (java-field-name) (ref number)))
+                ("message" (fmt "        if (~a != null) for (~a pbX : ~a) pbW.bytesField(~a, pbX.marshalDc());\n"
                                 (java-field-name)
                                 (call-on (with-label (self) 1) javaPbType "boxed")
                                 (java-field-name) (ref number)))
@@ -5976,8 +6024,8 @@
   '((fmt "                case ~a -> {\n" (ref number))
     (if (is-map)
         (then
-         (fmt "                    Object[] kv = ~a(field.bytesValue);\n" (fmt "~a.~aDecode" (arg 0) (java-map-name)))
-         (fmt "                    ~a.put((~a) kv[0], (~a) kv[1]);\n" (java-field-name)
+         (fmt "                    Object[] pbKv = ~a(pbField.bytesValue);\n" (fmt "~a.~aDecode" (arg 0) (java-map-name)))
+         (fmt "                    ~a.put((~a) pbKv[0], (~a) pbKv[1]);\n" (java-field-name)
               (call-on (key-field (resolved-entry)) javaPbType "boxed")
               (call-on (val-field (resolved-entry)) javaPbType "boxed")))
         (else
@@ -5985,45 +6033,45 @@
              (then
               (case-on (category)
                 ("varint"
-                 "                    if (field.wire == 2) {\n"
-                 (fmt "                        ~a.Reader sub = new ~a.Reader(field.bytesValue);\n" (arg 0) (arg 0))
-                 "                        while (!sub.done()) {\n"
-                 (fmt "                            ~a.add(~a);\n" (java-field-name) (call javaPbEnumConv "sub.varint()"))
+                 "                    if (pbField.wire == 2) {\n"
+                 (fmt "                        ~a.Reader pbSub = new ~a.Reader(pbField.bytesValue);\n" (arg 0) (arg 0))
+                 "                        while (!pbSub.done()) {\n"
+                 (fmt "                            ~a.add(~a);\n" (java-field-name) (call javaPbEnumConv "pbSub.varint()"))
                  "                        }\n                    } else {\n"
-                 (fmt "                        ~a.add(~a);\n" (java-field-name) (call javaPbEnumConv "field.varintValue"))
+                 (fmt "                        ~a.add(~a);\n" (java-field-name) (call javaPbEnumConv "pbField.varintValue"))
                  "                    }\n")
                 ("fixed"
-                 "                    if (field.wire == 2) {\n"
-                 (fmt "                        ~a.Reader sub = new ~a.Reader(field.bytesValue);\n" (arg 0) (arg 0))
-                 (fmt "                        while (!sub.done()) ~a.add(~a);\n" (java-field-name)
+                 "                    if (pbField.wire == 2) {\n"
+                 (fmt "                        ~a.Reader pbSub = new ~a.Reader(pbField.bytesValue);\n" (arg 0) (arg 0))
+                 (fmt "                        while (!pbSub.done()) ~a.add(~a);\n" (java-field-name)
                       (case-on (ref type)
-                        ((2) "Float.intBitsToFloat(sub.fixed32())")
-                        ((1) "Double.longBitsToDouble(sub.fixed64())")
-                        ((7 15) "sub.fixed32()")
-                        (else "sub.fixed64()")))
+                        ((2) "Float.intBitsToFloat(pbSub.fixed32())")
+                        ((1) "Double.longBitsToDouble(pbSub.fixed64())")
+                        ((7 15) "pbSub.fixed32()")
+                        (else "pbSub.fixed64()")))
                  "                    } else {\n"
                  (fmt "                        ~a.add(~a);\n" (java-field-name)
                       (case-on (ref type)
-                        ((2) "Float.intBitsToFloat((int) field.fixedValue)")
-                        ((1) "Double.longBitsToDouble(field.fixedValue)")
-                        ((7 15) "(int) field.fixedValue")
-                        (else "field.fixedValue")))
+                        ((2) "Float.intBitsToFloat((int) pbField.fixedValue)")
+                        ((1) "Double.longBitsToDouble(pbField.fixedValue)")
+                        ((7 15) "(int) pbField.fixedValue")
+                        (else "pbField.fixedValue")))
                  "                    }\n")
-                ("string" (fmt "                    ~a.add(new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8));\n" (java-field-name)))
-                ("bytes" (fmt "                    ~a.add(field.bytesValue);\n" (java-field-name)))
+                ("string" (fmt "                    ~a.add(new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8));\n" (java-field-name)))
+                ("bytes" (fmt "                    ~a.add(pbField.bytesValue);\n" (java-field-name)))
                 ("message"
-                 (fmt "                    ~a item = new ~a();\n"
+                 (fmt "                    ~a pbItem = new ~a();\n"
                       (call-on (with-label (self) 1) javaPbType "boxed")
                       (call-on (with-label (self) 1) javaPbType "boxed"))
-                 "                    item.unmarshalDc(field.bytesValue);\n"
-                 (fmt "                    ~a.add(item);\n" (java-field-name)))
+                 "                    pbItem.unmarshalDc(pbField.bytesValue);\n"
+                 (fmt "                    ~a.add(pbItem);\n" (java-field-name)))
                 (else (fail))))
              (else (call javaPbClearing)
-                   (call javaPbDecodeSingular (java-field-name) (case-on (category) ("varint" "field.varintValue") ("fixed" "field.fixedValue") (else "field.bytesValue")) "                    ")))))
+                   (call javaPbDecodeSingular (java-field-name) (case-on (category) ("varint" "pbField.varintValue") ("fixed" "pbField.fixedValue") (else "pbField.bytesValue")) "                    ")))))
     "                }\n"))
 
 (define java-pb-map-decode-stmt-program
-  '((trim-end (call javaPbDecodeSingular (arg 0) (case-on (category) ("varint" "field.varintValue") ("fixed" "field.fixedValue") (else "field.bytesValue")) ""))))
+  '((trim-end (call javaPbDecodeSingular (arg 0) (case-on (category) ("varint" "pbField.varintValue") ("fixed" "pbField.fixedValue") (else "pbField.bytesValue")) ""))))
 
 
 (define java-pb-map-case-head-program
@@ -6034,10 +6082,10 @@
          (java-map-name)
          (call-on (key-field) javaPbType "boxed")
          (call-on (val-field) javaPbType "boxed"))
-    "        Writer w = new Writer();\n"
+    "        Writer pbW = new Writer();\n"
     (call-on (key-field) javaPbEncodeSingular "key" "        ")
     (call-on (val-field) javaPbEncodeSingular "value" "        ")
-    "        return w.toBytes();\n    }\n\n"
+    "        return pbW.toBytes();\n    }\n\n"
     (fmt "    static Object[] ~aDecode(byte[] bytes) {\n" (java-map-name))
     (fmt "        ~a key = ~a;\n"
          (call-on (key-field) javaPbType "boxed")
@@ -6045,7 +6093,7 @@
     (fmt "        ~a value = ~a;\n"
          (call-on (val-field) javaPbType "boxed")
          (call-on (val-field) javaPbBoxedDefault))
-    "        Reader r = new Reader(bytes);\n        Field field;\n        while ((field = r.next()) != null) {\n            switch (field.number) {\n"
+    "        Reader pbR = new Reader(bytes);\n        Field pbField;\n        while ((pbField = pbR.next()) != null) {\n            switch (pbField.number) {\n"
     (call-on (key-field) javaPbMapCaseHead)
     (call-on (key-field) javaPbMapDecodeStmt "key")
     " break;\n"
@@ -6087,18 +6135,18 @@
          (each fields (fmt "            this.~a = ~a;\n" (java-field-name) (java-field-name)))
          "        }\n"))
     "\n        @Override\n        public byte[] marshalDc() {\n"
-    (fmt "            ~a.Writer w = new ~a.Writer();\n" (arg 0) (arg 0))
+    (fmt "            ~a.Writer pbW = new ~a.Writer();\n" (arg 0) (arg 0))
     (each fields (call javaPbEncodeGuard (arg 0)))
-    "            w.raw(unknownFields);\n"
-    "            return w.toBytes();\n        }\n\n"
+    "            pbW.raw(unknownFields);\n"
+    "            return pbW.toBytes();\n        }\n\n"
     "        @Override\n        public void unmarshalDc(byte[] data) {\n"
     "            unknownFields = new byte[0];\n"
     (each fields (fmt "            ~a = ~a;\n" (java-field-name) (call javaPbDefault)))
-    (fmt "            ~a.Reader r = new ~a.Reader(data);\n" (arg 0) (arg 0))
-    (fmt "            ~a.Field field;\n" (arg 0))
-    "            while ((field = r.next()) != null) {\n                switch (field.number) {\n"
+    (fmt "            ~a.Reader pbR = new ~a.Reader(data);\n" (arg 0) (arg 0))
+    (fmt "            ~a.Field pbField;\n" (arg 0))
+    "            while ((pbField = pbR.next()) != null) {\n                switch (pbField.number) {\n"
     (each fields (call javaPbDecodeCase (arg 0)))
-    (fmt "                    default -> { unknownFields = ~a.concatBytes(unknownFields, field.rawValue); }\n                }\n            }\n        }\n" (arg 0))
+    (fmt "                    default -> { unknownFields = ~a.concatBytes(unknownFields, pbField.rawValue); }\n                }\n            }\n        }\n" (arg 0))
     (each nested (call javaPbMessage (arg 0)))
     (each enums (call javaPbNestedEnum))
     "    }\n"))
@@ -6227,13 +6275,13 @@
   '((kind-case
      (unary "")
      (server-streaming
-      (fmt "  class ~a~aServerImpl : public ~a~aServer {\n   public:\n    ~a~aServerImpl(grpcdc::Endpoint::CallContext& ctx,\n                               grpcdc::Server::ServerSink& sink)\n        : ctx_(ctx), sink_(sink) {}\n    void Send(~a& resp) override { sink_(resp.MarshalDc()); }\n    grpcdc::Endpoint::CallContext& Context() override { return ctx_; }\n\n   private:\n    grpcdc::Endpoint::CallContext& ctx_;\n    grpcdc::Server::ServerSink& sink_;\n  };\n\n"
+      (fmt "  class ~a~aServerImpl : public ~a~aServer {\n   public:\n    ~a~aServerImpl(grpcdc::Endpoint::CallContext& ctx,\n                               grpcdc::Server::ServerSink& sink)\n        : ctx_(ctx), sink_(sink) {}\n    void Send(~a& resp) override { sink_(ctx_.EncodeMessage(resp)); }\n    grpcdc::Endpoint::CallContext& Context() override { return ctx_; }\n\n   private:\n    grpcdc::Endpoint::CallContext& ctx_;\n    grpcdc::Server::ServerSink& sink_;\n  };\n\n"
            (svc) (ref name) (svc) (ref name) (svc) (ref name) (cpp-stub-type 'output-full)))
      (client-streaming
-      (fmt "  class ~a~aServerImpl : public ~a~aServer {\n   public:\n    ~a~aServerImpl(grpcdc::Endpoint::CallContext& ctx,\n                               grpcdc::Server::RequestStream& reqs)\n        : ctx_(ctx), reqs_(reqs) {}\n    ~a Recv() override {\n      ~a req;\n      reqs_.RecvInto(req);\n      return req;\n    }\n    void SendAndClose(~a& resp) override {\n      resp_ = resp;\n      has_resp_ = true;\n    }\n    grpcdc::Endpoint::CallContext& Context() override { return ctx_; }\n    ~a Resp() const { return resp_; }\n    bool HasResp() const { return has_resp_; }\n\n   private:\n    grpcdc::Endpoint::CallContext& ctx_;\n    grpcdc::Server::RequestStream& reqs_;\n    ~a resp_;\n    bool has_resp_ = false;\n  };\n\n"
+      (fmt "  class ~a~aServerImpl : public ~a~aServer {\n   public:\n    ~a~aServerImpl(grpcdc::Endpoint::CallContext& ctx,\n                               grpcdc::Server::RequestStream& reqs)\n        : ctx_(ctx), reqs_(reqs) {}\n    ~a Recv() override {\n      ~a req;\n      reqs_.RecvInto(req);\n      return req;\n    }\n    void SendAndClose(~a& resp) override {\n      resp_ = resp;\n      has_resp_ = true;\n    }\n    grpcdc::Endpoint::CallContext& Context() override { return ctx_; }\n    ~a CollectedResp() const { return resp_; }\n    bool HasResp() const { return has_resp_; }\n\n   private:\n    grpcdc::Endpoint::CallContext& ctx_;\n    grpcdc::Server::RequestStream& reqs_;\n    ~a resp_;\n    bool has_resp_ = false;\n  };\n\n"
            (svc) (ref name) (svc) (ref name) (svc) (ref name) (cpp-stub-type 'input-full) (cpp-stub-type 'input-full) (cpp-stub-type 'output-full) (cpp-stub-type 'output-full) (cpp-stub-type 'output-full)))
      (bidi
-      (fmt "  class ~a~aServerImpl : public ~a~aServer {\n   public:\n    ~a~aServerImpl(grpcdc::Endpoint::CallContext& ctx,\n                       grpcdc::Server::RequestStream& reqs,\n                       grpcdc::Server::ServerSink& sink)\n        : ctx_(ctx), reqs_(reqs), sink_(sink) {}\n    void Send(~a& resp) override { sink_(resp.MarshalDc()); }\n    ~a Recv() override {\n      ~a req;\n      reqs_.RecvInto(req);\n      return req;\n    }\n    grpcdc::Endpoint::CallContext& Context() override { return ctx_; }\n\n   private:\n    grpcdc::Endpoint::CallContext& ctx_;\n    grpcdc::Server::RequestStream& reqs_;\n    grpcdc::Server::ServerSink& sink_;\n  };\n\n"
+      (fmt "  class ~a~aServerImpl : public ~a~aServer {\n   public:\n    ~a~aServerImpl(grpcdc::Endpoint::CallContext& ctx,\n                       grpcdc::Server::RequestStream& reqs,\n                       grpcdc::Server::ServerSink& sink)\n        : ctx_(ctx), reqs_(reqs), sink_(sink) {}\n    void Send(~a& resp) override { sink_(ctx_.EncodeMessage(resp)); }\n    ~a Recv() override {\n      ~a req;\n      reqs_.RecvInto(req);\n      return req;\n    }\n    grpcdc::Endpoint::CallContext& Context() override { return ctx_; }\n\n   private:\n    grpcdc::Endpoint::CallContext& ctx_;\n    grpcdc::Server::RequestStream& reqs_;\n    grpcdc::Server::ServerSink& sink_;\n  };\n\n"
            (svc) (ref name) (svc) (ref name) (svc) (ref name) (cpp-stub-type 'output-full) (cpp-stub-type 'input-full) (cpp-stub-type 'input-full))))))
 
 (define cpp-register-method-program
@@ -6245,11 +6293,11 @@
     (list
      (list 'kind-case
            (list 'unary
-                 (list 'fmt "            {~s, ~s, grpcdc::Server::~a,\n             [&impl](const grpcdc::Endpoint::CallContext& ctx,\n                     grpcdc::Server::RequestStream& reqs,\n                     grpcdc::Server::ServerSink& sink) {\n               ~a req;\n               reqs.RecvInto(req);\n               auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);\n               ~a resp = impl.~a(mutable_ctx, req);\n               sink(resp.MarshalDc());\n             }},\n" '(ref name) '(ref path) kind-const '(cpp-stub-type 'input-full) '(cpp-stub-type 'output-full) '(ref impl-name)))
+                 (list 'fmt "            {~s, ~s, grpcdc::Server::~a,\n             [&impl](const grpcdc::Endpoint::CallContext& ctx,\n                     grpcdc::Server::RequestStream& reqs,\n                     grpcdc::Server::ServerSink& sink) {\n               ~a req;\n               reqs.RecvInto(req);\n               auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);\n               ~a resp = impl.~a(mutable_ctx, req);\n               sink(ctx.EncodeMessage(resp));\n             }},\n" '(ref name) '(ref path) kind-const '(cpp-stub-type 'input-full) '(cpp-stub-type 'output-full) '(ref impl-name)))
            (list 'server-streaming
                  (list 'fmt "            {~s, ~s,\n             grpcdc::Server::~a,\n             [&impl](const grpcdc::Endpoint::CallContext& ctx,\n                     grpcdc::Server::RequestStream& reqs,\n                     grpcdc::Server::ServerSink& sink) {\n               ~a req;\n               reqs.RecvInto(req);\n               ~a~aServerImpl stream(\n                   const_cast<grpcdc::Endpoint::CallContext&>(ctx), sink);\n               impl.~a(req, stream);\n             }},\n" '(ref name) '(ref path) kind-const '(cpp-stub-type 'input-full) '(svc) '(ref name) '(ref impl-name)))
            (list 'client-streaming
-                 (list 'fmt "            {~s, ~s,\n             grpcdc::Server::~a,\n             [&impl](const grpcdc::Endpoint::CallContext& ctx,\n                     grpcdc::Server::RequestStream& reqs,\n                     grpcdc::Server::ServerSink& sink) {\n               ~a~aServerImpl stream(\n                   const_cast<grpcdc::Endpoint::CallContext&>(ctx), reqs);\n               impl.~a(stream);\n               if (!stream.HasResp()) {\n                 throw grpcdc::StatusException(\n                     grpcdc::wire::kCodeInternal,\n                     \"client-streaming handler never called SendAndClose\");\n               }\n               ~a resp = stream.Resp();\n               sink(resp.MarshalDc());\n             }},\n" '(ref name) '(ref path) kind-const '(svc) '(ref name) '(ref impl-name) '(cpp-stub-type 'output-full)))
+                 (list 'fmt "            {~s, ~s,\n             grpcdc::Server::~a,\n             [&impl](const grpcdc::Endpoint::CallContext& ctx,\n                     grpcdc::Server::RequestStream& reqs,\n                     grpcdc::Server::ServerSink& sink) {\n               ~a~aServerImpl stream(\n                   const_cast<grpcdc::Endpoint::CallContext&>(ctx), reqs);\n               impl.~a(stream);\n               if (!stream.HasResp()) {\n                 throw grpcdc::StatusException(\n                     grpcdc::wire::kCodeInternal,\n                     \"client-streaming handler never called SendAndClose\");\n               }\n               ~a resp = stream.CollectedResp();\n               sink(ctx.EncodeMessage(resp));\n             }},\n" '(ref name) '(ref path) kind-const '(svc) '(ref name) '(ref impl-name) '(cpp-stub-type 'output-full)))
            (list 'bidi
                  (list 'fmt "            {~s, ~s, grpcdc::Server::~a,\n             [&impl](const grpcdc::Endpoint::CallContext& ctx,\n                     grpcdc::Server::RequestStream& reqs,\n                     grpcdc::Server::ServerSink& sink) {\n               ~a~aServerImpl stream(\n                   const_cast<grpcdc::Endpoint::CallContext&>(ctx), reqs, sink);\n               impl.~a(stream);\n             }},\n" '(ref name) '(ref path) kind-const '(svc) '(ref name) '(ref impl-name)))))))
 
@@ -6382,24 +6430,24 @@
   '((case-on (category)
       ("varint"
        (if (proto2)
-           (then (fmt "~a{ w.Tag(~a, 0); w.Varint(~a); }\n" (arg 1) (ref number) (call cppPbVarintExpr (arg 0))))
-           (else (fmt "~aif (~a) { w.Tag(~a, 0); w.Varint(~a); }\n" (arg 1) (call cppPbNonzero (arg 0)) (ref number) (call cppPbVarintExpr (arg 0))))))
+           (then (fmt "~a{ pb_w.Tag(~a, 0); pb_w.Varint(~a); }\n" (arg 1) (ref number) (call cppPbVarintExpr (arg 0))))
+           (else (fmt "~aif (~a) { pb_w.Tag(~a, 0); pb_w.Varint(~a); }\n" (arg 1) (call cppPbNonzero (arg 0)) (ref number) (call cppPbVarintExpr (arg 0))))))
       ("fixed"
        (if (proto2)
-           (then (fmt "~a{ w.Tag(~a, ~a); w.Fixed~a(~a); }\n" (arg 1) (ref number)
+           (then (fmt "~a{ pb_w.Tag(~a, ~a); pb_w.Fixed~a(~a); }\n" (arg 1) (ref number)
                       (case-on (cpp-fixed-size) ((8) "1") (else "5")) (cpp-fixed-name) (arg 0)))
-           (else (fmt "~aif (~a) { w.Tag(~a, ~a); w.Fixed~a(~a); }\n" (arg 1) (call cppPbNonzero (arg 0)) (ref number)
+           (else (fmt "~aif (~a) { pb_w.Tag(~a, ~a); pb_w.Fixed~a(~a); }\n" (arg 1) (call cppPbNonzero (arg 0)) (ref number)
                       (case-on (cpp-fixed-size) ((8) "1") (else "5")) (cpp-fixed-name) (arg 0)))))
       ("string"
        (if (proto2)
-           (then (fmt "~aw.BytesField(~a, grpcdc::Bytes(~a.begin(), ~a.end()));\n" (arg 1) (ref number) (arg 0) (arg 0)))
-           (else (fmt "~aw.StringField(~a, ~a);\n" (arg 1) (ref number) (arg 0)))))
+           (then (fmt "~apb_w.BytesField(~a, grpcdc::Bytes(~a.begin(), ~a.end()));\n" (arg 1) (ref number) (arg 0) (arg 0)))
+           (else (fmt "~apb_w.StringField(~a, ~a);\n" (arg 1) (ref number) (arg 0)))))
       ("bytes"
        (if (proto2)
-           (then (fmt "~aw.BytesField(~a, ~a);\n" (arg 1) (ref number) (arg 0)))
-           (else (fmt "~aif (!~a.empty()) w.BytesField(~a, ~a);\n" (arg 1) (arg 0) (ref number) (arg 0)))))
+           (then (fmt "~apb_w.BytesField(~a, ~a);\n" (arg 1) (ref number) (arg 0)))
+           (else (fmt "~aif (!~a.empty()) pb_w.BytesField(~a, ~a);\n" (arg 1) (arg 0) (ref number) (arg 0)))))
       ("message"
-       (fmt "~aif (~a) w.BytesField(~a, ~a->MarshalDc());\n" (arg 1) (arg 0) (ref number) (arg 0)))
+       (fmt "~aif (~a) pb_w.BytesField(~a, ~a->MarshalDc());\n" (arg 1) (arg 0) (ref number) (arg 0)))
       (else (fail)))))
 
 (define cpp-pb-set-expr-program
@@ -6413,7 +6461,7 @@
 
 (define cpp-pb-encode-field-program
   '((if (is-map)
-        (then (fmt "    if (!~a.empty()) for (const auto& e : ~a) w.BytesField(~a, ~a(e.first, e.second));\n"
+        (then (fmt "    if (!~a.empty()) for (const auto& pb_e : ~a) pb_w.BytesField(~a, ~a(pb_e.first, pb_e.second));\n"
                    (ref name) (ref name) (ref number)
                    (fmt "~a::~aEncode" (arg 0) (cpp-map-name))))
         (else
@@ -6422,17 +6470,17 @@
               (case-on (category)
                 ("varint"
                  (fmt "    if (!~a.empty()) {\n" (ref name))
-                 (fmt "        ~a::Writer payload;\n" (arg 0))
-                 (fmt "        for (auto x : ~a) payload.Varint(~a);\n" (ref name) (call cppPbVarintExpr "x"))
-                 (fmt "        w.BytesField(~a, payload.ToBytes());\n    }\n" (ref number)))
+                 (fmt "        ~a::Writer pb_payload;\n" (arg 0))
+                 (fmt "        for (auto pb_x : ~a) pb_payload.Varint(~a);\n" (ref name) (call cppPbVarintExpr "pb_x"))
+                 (fmt "        pb_w.BytesField(~a, pb_payload.ToBytes());\n    }\n" (ref number)))
                 ("fixed"
                  (fmt "    if (!~a.empty()) {\n" (ref name))
-                 (fmt "        ~a::Writer payload;\n" (arg 0))
-                 (fmt "        for (auto x : ~a) payload.Fixed~a(x);\n" (ref name) (cpp-fixed-name))
-                 (fmt "        w.BytesField(~a, payload.ToBytes());\n    }\n" (ref number)))
-                ("string" (fmt "    for (const auto& x : ~a) w.BytesField(~a, grpcdc::Bytes(x.begin(), x.end()));\n" (ref name) (ref number)))
-                ("bytes" (fmt "    for (const auto& x : ~a) w.BytesField(~a, x);\n" (ref name) (ref number)))
-                ("message" (fmt "    for (const auto& x : ~a) w.BytesField(~a, x.MarshalDc());\n" (ref name) (ref number)))
+                 (fmt "        ~a::Writer pb_payload;\n" (arg 0))
+                 (fmt "        for (auto pb_x : ~a) pb_payload.Fixed~a(pb_x);\n" (ref name) (cpp-fixed-name))
+                 (fmt "        pb_w.BytesField(~a, pb_payload.ToBytes());\n    }\n" (ref number)))
+                ("string" (fmt "    for (const auto& pb_x : ~a) pb_w.BytesField(~a, grpcdc::Bytes(pb_x.begin(), pb_x.end()));\n" (ref name) (ref number)))
+                ("bytes" (fmt "    for (const auto& pb_x : ~a) pb_w.BytesField(~a, pb_x);\n" (ref name) (ref number)))
+                ("message" (fmt "    for (const auto& pb_x : ~a) pb_w.BytesField(~a, pb_x.MarshalDc());\n" (ref name) (ref number)))
                 (else (fail))))
              (else (call cppPbEncodeSingular (ref name) "    ")))))))
 
@@ -6473,63 +6521,63 @@
   '((fmt "        case ~a: {\n" (ref number))
     (if (is-map)
         (then
-         (fmt "            auto kv = ~a(field.bytes);\n" (fmt "~a::~aDecode" (arg 0) (cpp-map-name)))
-         (fmt "            ~a[kv.first] = kv.second;\n" (ref name)))
+         (fmt "            auto pb_kv = ~a(pb_field.bytes);\n" (fmt "~a::~aDecode" (arg 0) (cpp-map-name)))
+         (fmt "            ~a[pb_kv.first] = pb_kv.second;\n" (ref name)))
         (else
          (if (repeated)
              (then
               (case-on (category)
                 ("varint"
-                 "            if (field.wire == 2) {\n"
-                 (fmt "                ~a::Reader sub(field.bytes);\n" (arg 0))
-                 "                while (!sub.Done()) {\n"
-                 (fmt "                    ~a.push_back(~a);\n" (ref name) (call cppPbEnumConv "sub.Varint()"))
+                 "            if (pb_field.wire == 2) {\n"
+                 (fmt "                ~a::Reader pb_sub(pb_field.bytes);\n" (arg 0))
+                 "                while (!pb_sub.Done()) {\n"
+                 (fmt "                    ~a.push_back(~a);\n" (ref name) (call cppPbEnumConv "pb_sub.Varint()"))
                  "                }\n            } else {\n"
-                 (fmt "                ~a.push_back(~a);\n" (ref name) (call cppPbEnumConv "field.varint"))
+                 (fmt "                ~a.push_back(~a);\n" (ref name) (call cppPbEnumConv "pb_field.varint"))
                  "            }\n")
                 ("fixed"
-                 "            if (field.wire == 2) {\n"
-                 (fmt "                ~a::Reader sub(field.bytes);\n" (arg 0))
-                 (fmt "                while (!sub.Done()) ~a.push_back(~a);\n" (ref name)
+                 "            if (pb_field.wire == 2) {\n"
+                 (fmt "                ~a::Reader pb_sub(pb_field.bytes);\n" (arg 0))
+                 (fmt "                while (!pb_sub.Done()) ~a.push_back(~a);\n" (ref name)
                       (case-on (ref type)
-                        ((2) (fmt "~a::BitsToFloat(sub.Fixed32())" (arg 0)))
-                        ((1) (fmt "~a::BitsToDouble(sub.Fixed64())" (arg 0)))
-                        ((7) "static_cast<std::uint32_t>(sub.Fixed32())")
-                        ((15) "sub.Fixed32()")
-                        (else "sub.Fixed64()")))
+                        ((2) (fmt "~a::BitsToFloat(pb_sub.Fixed32())" (arg 0)))
+                        ((1) (fmt "~a::BitsToDouble(pb_sub.Fixed64())" (arg 0)))
+                        ((7) "static_cast<std::uint32_t>(pb_sub.Fixed32())")
+                        ((15) "pb_sub.Fixed32()")
+                        (else "pb_sub.Fixed64()")))
                  "            } else {\n"
                  (fmt "                ~a.push_back(~a);\n" (ref name)
                       (case-on (ref type)
-                        ((2) (fmt "~a::BitsToFloat(static_cast<std::uint32_t>(field.fixed))" (arg 0)))
-                        ((1) (fmt "~a::BitsToDouble(field.fixed)" (arg 0)))
-                        ((7) "static_cast<std::uint32_t>(field.fixed)")
-                        ((15) "static_cast<std::int32_t>(field.fixed)")
-                        (else "field.fixed")))
+                        ((2) (fmt "~a::BitsToFloat(static_cast<std::uint32_t>(pb_field.fixed))" (arg 0)))
+                        ((1) (fmt "~a::BitsToDouble(pb_field.fixed)" (arg 0)))
+                        ((7) "static_cast<std::uint32_t>(pb_field.fixed)")
+                        ((15) "static_cast<std::int32_t>(pb_field.fixed)")
+                        (else "pb_field.fixed")))
                  "            }\n")
-                ("string" (fmt "            ~a.push_back(std::string(field.bytes.begin(), field.bytes.end()));\n" (ref name)))
-                ("bytes" (fmt "            ~a.push_back(field.bytes);\n" (ref name)))
+                ("string" (fmt "            ~a.push_back(std::string(pb_field.bytes.begin(), pb_field.bytes.end()));\n" (ref name)))
+                ("bytes" (fmt "            ~a.push_back(pb_field.bytes);\n" (ref name)))
                 ("message"
-                 (fmt "            ~a item;\n" (cpp-entry-ref))
-                 "            item.UnmarshalDc(field.bytes);\n"
-                 (fmt "            ~a.push_back(item);\n" (ref name)))
+                 (fmt "            ~a pb_item;\n" (cpp-entry-ref))
+                 "            pb_item.UnmarshalDc(pb_field.bytes);\n"
+                 (fmt "            ~a.push_back(pb_item);\n" (ref name)))
                 (else (fail))))
              (else (call cppPbClearing)
-                   (call cppPbDecodeSingular (ref name) (case-on (category) ("varint" "field.varint") ("fixed" "field.fixed") (else "field.bytes")) "            " (arg 0))))))
+                   (call cppPbDecodeSingular (ref name) (case-on (category) ("varint" "pb_field.varint") ("fixed" "pb_field.fixed") (else "pb_field.bytes")) "            " (arg 0))))))
     "            break;\n        }\n"))
 
 (define cpp-pb-map-decode-line-program
   '((fmt "            case ~a: ~a break;\n" (ref number)
-         (trim-end (call cppPbDecodeSingular (arg 0) (case-on (category) ("varint" "field.varint") ("fixed" "field.fixed") (else "field.bytes")) "" (arg 1))))))
+         (trim-end (call cppPbDecodeSingular (arg 0) (case-on (category) ("varint" "pb_field.varint") ("fixed" "pb_field.fixed") (else "pb_field.bytes")) "" (arg 1))))))
 
 (define cpp-pb-map-val-encode-program
   '((case-on (ref type)
-      ((11) (fmt "    w.BytesField(~a, value.MarshalDc());\n" (ref number)))
+      ((11) (fmt "    pb_w.BytesField(~a, value.MarshalDc());\n" (ref number)))
       (else (call cppPbEncodeSingular "value" "    ")))))
 
 
 (define cpp-pb-map-val-decode-line-program
   '((case-on (ref type)
-      ((11) (fmt "            case ~a: value.UnmarshalDc(field.bytes); break;\n" (ref number)))
+      ((11) (fmt "            case ~a: value.UnmarshalDc(pb_field.bytes); break;\n" (ref number)))
       (else (call cppPbMapDecodeLine "value" (arg 0))))))
 
 
@@ -6553,10 +6601,10 @@
          (cpp-map-name)
          (call-on (key-field) cppPbType)
          (call-on (val-field) cppPbTypeOrRef))
-    "    Writer w;\n"
+    "    Writer pb_w;\n"
     (call-on (key-field) cppPbEncodeSingular "key" "    ")
     (call-on (val-field) cppPbMapValEncode)
-    "    return w.ToBytes();\n}\n\n"
+    "    return pb_w.ToBytes();\n}\n\n"
     (fmt "inline std::pair<~a, ~a> ~aDecode(const grpcdc::Bytes& bytes) {\n"
          (call-on (key-field) cppPbType)
          (call-on (val-field) cppPbTypeOrRef)
@@ -6567,7 +6615,7 @@
     (fmt "    ~a value~a;\n"
          (call-on (val-field) cppPbTypeOrRef)
          (call-on (val-field) cppPbMapValSuffix))
-    "    Reader r(bytes);\n    Field field;\n    while (r.Next(field)) {\n        switch (field.number) {\n"
+    "    Reader pb_r(bytes);\n    Field pb_field;\n    while (pb_r.Next(pb_field)) {\n        switch (pb_field.number) {\n"
     (call-on (key-field) cppPbMapDecodeLine "key" (arg 0))
     (call-on (val-field) cppPbMapValDecodeLine (arg 0))
     "            default: break;\n        }\n    }\n    return {key, value};\n}\n\n"))
@@ -6586,22 +6634,28 @@
     (fmt "~a  ~a() = default;\n" (arg 1) (ref name))
     (fmt "~a  grpcdc::Bytes MarshalDc() const override;\n" (arg 1))
     (fmt "~a  void UnmarshalDc(const grpcdc::Bytes& data) override;\n" (arg 1))
+    (if (struct-codec)
+        (then (if (ref map-entry) (then "") (else (fmt "~a#if !defined(__wasm__)\n" (arg 1))
+              (fmt "~a  grpcdc::Bytes MarshalStruct() const override;\n" (arg 1))
+              (fmt "~a  void UnmarshalStruct(const grpcdc::Bytes& data) override;\n" (arg 1))
+              (fmt "~a#endif\n" (arg 1)))))
+        (else ""))
     (fmt "~a};\n" (arg 1))))
 
 (define cpp-pb-message-impls-program
   '((fmt "inline grpcdc::Bytes ~a::MarshalDc() const {\n" (if (arg 1) (then (fmt "~a::~a" (arg 1) (ref name))) (else (ref name))))
-    (fmt "    ~a::Writer w;\n" (arg 0))
+    (fmt "    ~a::Writer pb_w;\n" (arg 0))
     (each fields (call cppPbEncodeGuard (arg 0)))
-    "    w.Raw(unknown_fields);\n"
-    "    return w.ToBytes();\n}\n\n"
-    (fmt "inline void ~a::UnmarshalDc(const grpcdc::Bytes& data) {\n" (if (arg 1) (then (fmt "~a::~a" (arg 1) (ref name))) (else (ref name))))
+    "    pb_w.Raw(unknown_fields);\n"
+    "    return pb_w.ToBytes();\n}\n\n"
+    (fmt "inline void ~a::UnmarshalDc(const grpcdc::Bytes& pb_data_) {\n" (if (arg 1) (then (fmt "~a::~a" (arg 1) (ref name))) (else (ref name))))
     "    unknown_fields.clear();\n"
     (each fields (fmt "    ~a = ~a;\n" (ref name) (call cppPbDefault)))
-    (fmt "    ~a::Reader r(data);\n" (arg 0))
-    (fmt "    ~a::Field field;\n" (arg 0))
-    "    while (r.Next(field)) {\n      switch (field.number) {\n"
+    (fmt "    ~a::Reader pb_r(pb_data_);\n" (arg 0))
+    (fmt "    ~a::Field pb_field;\n" (arg 0))
+    "    while (pb_r.Next(pb_field)) {\n      switch (pb_field.number) {\n"
     (each fields (call cppPbDecodeCase (arg 0)))
-    "        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;\n      }\n    }\n}\n\n"
+    "        default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;\n      }\n    }\n}\n\n"
     (each-where nested (not (ref map-entry))
                 (call cppPbMessageImpls (arg 0) (if (arg 1) (then (fmt "~a::~a" (arg 1) (get (parent) name))) (else (get (parent) name)))))))
 
@@ -7113,6 +7167,9 @@
 (define seg-rust-no-std (make-parameter #f))
 (define seg-kotlin-wasm-mode (make-parameter #f))
 (define seg-cpp-pkg (make-parameter ""))
+;; Set by templates when the struct_codec plugin option is on;
+;; read by the (struct-codec) builtin in message programs.
+(define seg-struct-codec (make-parameter #f))
 
 (define (seg-truthy? v)
   (not (or (not v) (equal? v "") (equal? v 0))))
@@ -7814,6 +7871,21 @@
     [(eq? (car seg) 'c-type-ref) (seg-c-entry-ref model (seg-resolve model (hash-ref node (second seg))))]
     [(eq? (car seg) 'c-support-of)
      (seg-c-support (seg-resolve model (hash-ref node (second seg))))]
+    [(eq? (car seg) 'c-marshal-call)
+     ;; (c-marshal-call Type "msg" "codec-expr"): codec-aware marshal call.
+     (if (seg-struct-codec)
+         (format "~a_marshal_for_codec(~a, ~a)" (seg-eval (second seg) env) (seg-eval (fourth seg) env) (seg-eval (third seg) env))
+         (format "~a_marshal(~a)" (seg-eval (second seg) env) (seg-eval (third seg) env)))]
+    [(eq? (car seg) 'c-unmarshal-call)
+     ;; (c-unmarshal-call Type "target" "codec-expr"): codec-aware unmarshal statement.
+     (if (seg-struct-codec)
+         (format "~a_unmarshal_for_codec(~a, ~a, out.data, out.len)" (seg-eval (second seg) env) (seg-eval (fourth seg) env) (seg-eval (third seg) env))
+         (format "~a_unmarshal(~a, out.data, out.len)" (seg-eval (second seg) env) (seg-eval (third seg) env)))]
+    [(eq? (car seg) 'c-unmarshal-req-call)
+     ;; Like c-unmarshal-call but for server adapters (target &req from reqb).
+     (if (seg-struct-codec)
+         (format "~a_unmarshal_for_codec(~a, &req, reqb.data, reqb.len)" (seg-eval (second seg) env) (seg-eval (third seg) env))
+         (format "~a_unmarshal(&req, reqb.data, reqb.len)" (seg-eval (second seg) env)))]
     [(eq? (car seg) 'c-scalar-type) (first (scalar-type-entry 'c (hash-ref node 'type)))]
     [(eq? (car seg) 'c-scalar-zero) (second (scalar-type-entry 'c (hash-ref node 'type)))]
     [(eq? (car seg) 'c-fixed-size)
@@ -7879,6 +7951,7 @@
     [(eq? (car seg) 'cs-fixed-name)
      (third (assv (hash-ref node 'type) (fixed-scalar-table 'csharp)))]
     [(eq? (car seg) 'kotlin-wasm-mode) (seg-kotlin-wasm-mode)]
+    [(eq? (car seg) 'struct-codec) (seg-struct-codec)]
     [(eq? (car seg) 'first-value-name)
      (hash-ref (car (hash-ref node 'values)) 'name)]
     [(eq? (car seg) 'kt-field-name) (seg-dart-field-name node)]

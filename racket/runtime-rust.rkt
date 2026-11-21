@@ -36,6 +36,9 @@
 pub mod channel;
 pub mod codec;
 pub mod dynamic;
+pub mod structdc;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod structdc_ffi;
 pub mod endpoint;
 pub mod eventbus;
 #[cfg(not(target_arch = "wasm32"))]
@@ -735,6 +738,19 @@ use bytes::Bytes;
 pub trait Message: Sized + Send {
     fn encode(&self) -> Vec<u8>;
     fn decode(bytes: &[u8]) -> Result<Self, Status>;
+
+    /// Struct-layout encoding (see crate::structdc). Messages
+    /// without a struct codec inherit this error, mirroring the
+    /// Go runtime's "message has no struct codec" failure.
+    fn encode_struct(&self) -> Result<Vec<u8>, Status> {
+        Err(Status::internal("message has no struct codec"))
+    }
+
+    /// Decoding side of `encode_struct`.
+    fn decode_struct(bytes: &[u8]) -> Result<Self, Status> {
+        let _ = bytes;
+        Err(Status::internal("message has no struct codec"))
+    }
 }
 
 impl Message for Bytes {
@@ -744,6 +760,12 @@ impl Message for Bytes {
     fn decode(bytes: &[u8]) -> Result<Self, Status> {
         Ok(Bytes::copy_from_slice(bytes))
     }
+    fn encode_struct(&self) -> Result<Vec<u8>, Status> {
+        Ok(self.to_vec())
+    }
+    fn decode_struct(bytes: &[u8]) -> Result<Self, Status> {
+        Ok(Bytes::copy_from_slice(bytes))
+    }
 }
 
 impl Message for Vec<u8> {
@@ -751,6 +773,12 @@ impl Message for Vec<u8> {
         self.clone()
     }
     fn decode(bytes: &[u8]) -> Result<Self, Status> {
+        Ok(bytes.to_vec())
+    }
+    fn encode_struct(&self) -> Result<Vec<u8>, Status> {
+        Ok(self.clone())
+    }
+    fn decode_struct(bytes: &[u8]) -> Result<Self, Status> {
         Ok(bytes.to_vec())
     }
 }
@@ -1080,6 +1108,7 @@ pub struct Endpoint {
     traces: Mutex<HashMap<u32, (crate::status::TraceContext, String)>>,
     rendezvous_auth: RwLock<Option<Arc<crate::server::RendezvousAuth>>>,
     interceptors: RwLock<Vec<Arc<dyn Fn(&str, &crate::status::Metadata) -> Result<(), Status> + Send + Sync>>>,
+    struct_codec: std::sync::atomic::AtomicBool,
 }
 
 impl Endpoint {
@@ -1097,7 +1126,21 @@ impl Endpoint {
             traces: Mutex::new(HashMap::new()),
             rendezvous_auth: RwLock::new(None),
             interceptors: RwLock::new(Vec::new()),
+            struct_codec: std::sync::atomic::AtomicBool::new(false),
         })
+    }
+
+    /// Enable the struct codec for calls this endpoint serves:
+    /// a call carrying HEADERS dc-codec: struct-v1 is decoded
+    /// with the struct layout; any other dc-codec value is
+    /// rejected UNIMPLEMENTED. Mirrors the Go Server.SetStructCodec.
+    pub fn set_struct_codec(&self, enabled: bool) {
+        self.struct_codec.store(enabled, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Whether the struct codec is enabled on this endpoint.
+    pub fn struct_codec(&self) -> bool {
+        self.struct_codec.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Record the client span for a locally-initiated stream.
@@ -1298,6 +1341,25 @@ impl Endpoint {
                         }
                     }
                 }
+                // Struct codec negotiation: an explicit dc-codec
+                // marker must be struct-v1 and enabled here, else
+                // the call ends UNIMPLEMENTED before the handler.
+                let struct_codec = match headers.metadata.get(crate::structdc::STRUCT_CODEC_HEADER) {
+                    None => false,
+                    Some(v) if v == crate::structdc::STRUCT_CODEC_V1 && self.struct_codec() => true,
+                    Some(_) => {
+                        let _ = self
+                            .send_frame(
+                                Frame::trailers(
+                                    frame.stream_id,
+                                    &Status::unimplemented("struct codec not enabled"),
+                                )
+                                .unwrap(),
+                            )
+                            .await;
+                        return;
+                    }
+                };
                 let (tx, rx) = mpsc::unbounded();
                 self.streams.lock().unwrap().insert(frame.stream_id, tx);
                 // No eager HEADERS: initial metadata flushes
@@ -1325,6 +1387,7 @@ impl Endpoint {
                             .and_then(|t| crate::codec::parse_timeout(t))
                             .map(|d| crate::platform_time::Instant::now() + d),
                         response_meta: response_meta.clone(),
+                        struct_codec,
                     },
                     requests: RequestStream::<Bytes>::from_events(rx),
                     sink,
@@ -1513,6 +1576,7 @@ async fn next_with_deadline(
 #[derive(Clone)]
 pub struct Channel {
     ep: Arc<Endpoint>,
+    struct_codec: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Channel {
@@ -1526,15 +1590,29 @@ impl Channel {
     pub fn with_parity(transport: Arc<dyn DcTransport>, parity: StreamIdParity) -> Self {
         let ep = Endpoint::new(transport, parity);
         crate::spawn_task(ep.clone().run());
-        Self { ep }
+        Self { ep, struct_codec: Arc::new(std::sync::atomic::AtomicBool::new(false)) }
     }
 
     pub fn from_endpoint(ep: Arc<Endpoint>) -> Self {
-        Self { ep }
+        Self { ep, struct_codec: Arc::new(std::sync::atomic::AtomicBool::new(false)) }
     }
 
     pub fn endpoint(&self) -> Arc<Endpoint> {
         self.ep.clone()
+    }
+
+    /// Make every call on this channel request the struct codec
+    /// (HEADERS marker dc-codec: struct-v1) and encode requests
+    /// with the struct layout. Peers must negotiate it (see
+    /// Endpoint::set_struct_codec on the server side); otherwise
+    /// the call is rejected UNIMPLEMENTED. Mirrors the Go
+    /// Channel.SetStructCodec.
+    pub fn set_struct_codec(&self, enabled: bool) {
+        self.struct_codec.store(enabled, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    fn use_struct_codec(&self) -> bool {
+        self.struct_codec.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     async fn open_with_options(
@@ -1550,6 +1628,12 @@ impl Channel {
             Instant::now() + timeout
         });
         let mut metadata = options.metadata;
+        if self.use_struct_codec() {
+            metadata.insert(
+                crate::structdc::STRUCT_CODEC_HEADER.to_string(),
+                crate::structdc::STRUCT_CODEC_V1.to_string(),
+            );
+        }
         let mut trace_ctx = None;
         if crate::status::tracing_enabled() {
             let parent = crate::status::parse_traceparent(metadata.get("traceparent"))
@@ -1578,7 +1662,8 @@ impl Channel {
     }
 
     async fn send_data<Req: Message>(&self, id: u32, req: &Req) -> Result<(), Status> {
-        self.ep.send_frame(Frame::data(id, req.encode())).await
+        let bytes = if self.use_struct_codec() { req.encode_struct()? } else { req.encode() };
+        self.ep.send_frame(Frame::data(id, bytes)).await
     }
 
     async fn collect_one_with_deadline<Resp: Message>(
@@ -1596,7 +1681,11 @@ impl Channel {
                     fill_capture(&capture.0, &headers.metadata);
                     continue;
                 }
-                Ok(Some(StreamEvent::Data(bytes))) => match Resp::decode(&bytes) {
+                Ok(Some(StreamEvent::Data(bytes))) => match if self.use_struct_codec() {
+                    Resp::decode_struct(&bytes)
+                } else {
+                    Resp::decode(&bytes)
+                } {
                     Ok(msg) => {
                         if response.is_some() {
                             break Err(Status::internal("unary call received more than one response"));
@@ -1711,7 +1800,7 @@ impl Channel {
         let (id, rx, deadline, capture) = self.open_with_options(path, options).await?;
         self.send_data(id, &req).await?;
         self.ep.send_frame(Frame::half_close(id)).await?;
-        Ok(typed_response_stream(self.ep.clone(), id, rx, deadline, capture))
+        Ok(typed_response_stream(self.ep.clone(), id, rx, deadline, capture, self.use_struct_codec()))
     }
 
     // -- client-streaming ------------------------------------------------------
@@ -1801,7 +1890,7 @@ impl Channel {
     {
         let (id, rx, deadline, capture) = self.open_with_options(path, options).await?;
         self.spawn_pump(id, reqs);
-        Ok(typed_response_stream(self.ep.clone(), id, rx, deadline, capture))
+        Ok(typed_response_stream(self.ep.clone(), id, rx, deadline, capture, self.use_struct_codec()))
     }
 
     fn spawn_pump<Req, S>(&self, id: u32, reqs: S)
@@ -1810,10 +1899,19 @@ impl Channel {
         S: Stream<Item = Req> + Send + 'static,
     {
         let ep = self.ep.clone();
+        let struct_codec = self.use_struct_codec();
         crate::spawn_task(async move {
             futures_util::pin_mut!(reqs);
             while let Some(req) = reqs.next().await {
-                if ep.send_frame(Frame::data(id, req.encode())).await.is_err() {
+                let bytes = if struct_codec {
+                    match req.encode_struct() {
+                        Ok(b) => b,
+                        Err(_) => return,
+                    }
+                } else {
+                    req.encode()
+                };
+                if ep.send_frame(Frame::data(id, bytes)).await.is_err() {
                     return;
                 }
             }
@@ -1875,6 +1973,7 @@ fn typed_response_stream<Resp>(
     rx: UnboundedReceiver<StreamEvent>,
     deadline: Option<Instant>,
     capture: Capture,
+    struct_codec: bool,
 ) -> ResponseStream<Resp>
 where
     Resp: Message + 'static,
@@ -1898,7 +1997,11 @@ where
                     continue;
                 }
                 Some(StreamEvent::HalfClose) => continue,
-                Some(StreamEvent::Data(bytes)) => match Resp::decode(&bytes) {
+                Some(StreamEvent::Data(bytes)) => match if struct_codec {
+                    Resp::decode_struct(&bytes)
+                } else {
+                    Resp::decode(&bytes)
+                } {
                     Ok(msg) => return Some((Ok(msg), (guard, rx, false, capture))),
                     Err(e) => {
                         guard.disarm();
@@ -2370,6 +2473,9 @@ pub struct CallCtx {
     /// Deadline propagated via grpc-timeout, when the client set one.
     pub deadline: Option<crate::platform_time::Instant>,
     pub(crate) response_meta: SharedMeta,
+    /// Whether this call negotiated the struct codec
+    /// (HEADERS dc-codec: struct-v1, endpoint-enabled).
+    pub struct_codec: bool,
 }
 
 impl CallCtx {
@@ -2385,6 +2491,7 @@ impl CallCtx {
             stream_id: 0,
             deadline: None,
             response_meta: Arc::new(std::sync::Mutex::new(ResponseMeta::default())),
+            struct_codec: false,
         }
     }
 
@@ -2424,6 +2531,7 @@ pub type ResponseStream<T> = Pin<Box<dyn Stream<Item = Result<T, Status>> + Send
 /// A stream of requests decoded from DATA frames.
 pub struct RequestStream<T> {
     inner: Pin<Box<dyn Stream<Item = Result<Bytes, Status>> + Send>>,
+    struct_codec: bool,
     _marker: PhantomData<fn() -> T>,
 }
 
@@ -2444,11 +2552,18 @@ impl<T> RequestStream<T> {
                 }
             }
         });
-        RequestStream { inner: Box::pin(stream), _marker: PhantomData }
+        RequestStream { inner: Box::pin(stream), struct_codec: false, _marker: PhantomData }
     }
 
     pub(crate) fn from_bytes(inner: RequestStream<Bytes>) -> Self {
-        Self { inner: inner.inner, _marker: PhantomData }
+        Self { inner: inner.inner, struct_codec: false, _marker: PhantomData }
+    }
+
+    /// Decode requests with the struct layout instead of
+    /// protobuf (set from the negotiated call codec).
+    pub(crate) fn with_struct_codec(mut self, enabled: bool) -> Self {
+        self.struct_codec = enabled;
+        self
     }
 }
 
@@ -2457,7 +2572,11 @@ impl<T: Message> Stream for RequestStream<T> {
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match self.inner.as_mut().poll_next(cx) {
-            Poll::Ready(Some(Ok(bytes))) => Poll::Ready(Some(T::decode(&bytes))),
+            Poll::Ready(Some(Ok(bytes))) => Poll::Ready(Some(if self.struct_codec {
+                T::decode_struct(&bytes)
+            } else {
+                T::decode(&bytes)
+            })),
             Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(e))),
             Poll::Ready(None) => Poll::Ready(None),
             Poll::Pending => Poll::Pending,
@@ -2741,7 +2860,9 @@ where
             let f = f.clone();
             Box::pin(async move {
                 let ServerCall { ctx, requests, sink } = call;
-                let mut stream = RequestStream::<Req>::from_bytes(requests);
+                let struct_codec = ctx.struct_codec;
+                let mut stream =
+                    RequestStream::<Req>::from_bytes(requests).with_struct_codec(struct_codec);
                 let req = match stream.next().await {
                     Some(Ok(req)) => req,
                     Some(Err(e)) => return Err(e),
@@ -2750,7 +2871,11 @@ where
                     }
                 };
                 let resp = f(req, ctx).await?;
-                sink.send(resp.encode()).await
+                if struct_codec {
+                    sink.send(resp.encode_struct()?).await
+                } else {
+                    sink.send(resp.encode()).await
+                }
             })
         }),
     }
@@ -2771,7 +2896,9 @@ where
             let f = f.clone();
             Box::pin(async move {
                 let ServerCall { ctx, requests, sink } = call;
-                let mut stream = RequestStream::<Req>::from_bytes(requests);
+                let struct_codec = ctx.struct_codec;
+                let mut stream =
+                    RequestStream::<Req>::from_bytes(requests).with_struct_codec(struct_codec);
                 let req = match stream.next().await {
                     Some(Ok(req)) => req,
                     Some(Err(e)) => return Err(e),
@@ -2788,7 +2915,12 @@ where
                 loop {
                     match futures_util::future::select(responses.next(), sink.cancelled()).await {
                         futures_util::future::Either::Left((Some(item), _)) => {
-                            sink.send(item?.encode()).await?;
+                            let item = item?;
+                            if struct_codec {
+                                sink.send(item.encode_struct()?).await?;
+                            } else {
+                                sink.send(item.encode()).await?;
+                            }
                         }
                         futures_util::future::Either::Left((None, _)) => break,
                         futures_util::future::Either::Right(((), _)) => return Ok(()),
@@ -2815,9 +2947,15 @@ where
             let f = f.clone();
             Box::pin(async move {
                 let ServerCall { ctx, requests, sink } = call;
-                let stream = RequestStream::<Req>::from_bytes(requests);
+                let struct_codec = ctx.struct_codec;
+                let stream =
+                    RequestStream::<Req>::from_bytes(requests).with_struct_codec(struct_codec);
                 let resp = f(stream, ctx).await?;
-                sink.send(resp.encode()).await
+                if struct_codec {
+                    sink.send(resp.encode_struct()?).await
+                } else {
+                    sink.send(resp.encode()).await
+                }
             })
         }),
     }
@@ -2838,7 +2976,9 @@ where
             let f = f.clone();
             Box::pin(async move {
                 let ServerCall { ctx, requests, sink } = call;
-                let stream = RequestStream::<Req>::from_bytes(requests);
+                let struct_codec = ctx.struct_codec;
+                let stream =
+                    RequestStream::<Req>::from_bytes(requests).with_struct_codec(struct_codec);
                 let mut responses = f(stream, ctx).await?;
                 // Same cancellation race as server-streaming:
                 // stop when the peer RSTs, even if the
@@ -2846,7 +2986,12 @@ where
                 loop {
                     match futures_util::future::select(responses.next(), sink.cancelled()).await {
                         futures_util::future::Either::Left((Some(item), _)) => {
-                            sink.send(item?.encode()).await?;
+                            let item = item?;
+                            if struct_codec {
+                                sink.send(item.encode_struct()?).await?;
+                            } else {
+                                sink.send(item.encode()).await?;
+                            }
                         }
                         futures_util::future::Either::Left((None, _)) => break,
                         futures_util::future::Either::Right(((), _)) => return Ok(()),
@@ -2874,6 +3019,14 @@ impl Server {
     pub fn add_service(self, service: ServiceDef) -> Self {
         self.ep.register_service(service);
         self
+    }
+
+    /// Enable the struct codec on this server (see
+    /// Endpoint::set_struct_codec). Calls carrying HEADERS
+    /// dc-codec: struct-v1 are decoded with the struct layout;
+    /// any other dc-codec value is rejected UNIMPLEMENTED.
+    pub fn set_struct_codec(&self, enabled: bool) {
+        self.ep.set_struct_codec(enabled);
     }
 
     /// Serve the given services over one transport until it closes.
@@ -3215,6 +3368,7 @@ pub struct MessageModel {
     pub full_name: String,
     pub fields: BTreeMap<u32, FieldModel>,
     pub by_name: HashMap<String, u32>,
+    pub map_entry: bool,
 }
 
 impl MessageModel {
@@ -3657,10 +3811,66 @@ pub fn decode_generic(
             message.unknown.push(chunk);
             continue;
         };
+        // Packed repeated scalars arrive as one LEN field;
+        // split them into elements (protobuf packable types).
+        if field.repeated {
+            if let PbValue::Len(b) = &raw {
+                if !matches!(field.ty, TYPE_STRING | TYPE_BYTES | TYPE_MESSAGE | TYPE_GROUP) {
+                    for value in decode_packed(field, b, file)? {
+                        message.values.entry(number).or_default().push(value);
+                    }
+                    continue;
+                }
+            }
+        }
         let value = decode_value(field, wire, &raw, file)?;
         message.values.entry(number).or_default().push(value);
     }
     Ok(message)
+}
+
+fn decode_packed(
+    field: &FieldModel,
+    bytes: &[u8],
+    file: &FileModel,
+) -> Result<Vec<GenericValue>, Status> {
+    let mut out = Vec::new();
+    match wire_type(field.ty) {
+        Some(0) => {
+            let mut reader = PbReader::new(bytes);
+            while reader.pos < bytes.len() {
+                let v = reader.varint()?;
+                out.push(decode_value(field, 0, &PbValue::Varint(v), file)?);
+            }
+        }
+        Some(1) => {
+            if bytes.len() % 8 != 0 {
+                return Err(Status::invalid_argument("truncated packed fixed64 field"));
+            }
+            for chunk in bytes.chunks_exact(8) {
+                let mut b = [0u8; 8];
+                b.copy_from_slice(chunk);
+                out.push(decode_value(field, 1, &PbValue::Fixed64(b), file)?);
+            }
+        }
+        Some(5) => {
+            if bytes.len() % 4 != 0 {
+                return Err(Status::invalid_argument("truncated packed fixed32 field"));
+            }
+            for chunk in bytes.chunks_exact(4) {
+                let mut b = [0u8; 4];
+                b.copy_from_slice(chunk);
+                out.push(decode_value(field, 5, &PbValue::Fixed32(b), file)?);
+            }
+        }
+        _ => {
+            return Err(Status::invalid_argument(format!(
+                "unsupported packed field type {}",
+                field.ty
+            )))
+        }
+    }
+    Ok(out)
 }
 
 fn decode_value(
@@ -3744,10 +3954,22 @@ pub fn parse_descriptor_set(data: &[u8]) -> Result<FileModel, Status> {
     Ok(file)
 }
 
+fn parse_map_entry(data: &[u8]) -> Result<bool, Status> {
+    let mut reader = PbReader::new(data);
+    while let Some(field_result) = reader.next_field() {
+        let (fnum, _w, fval, _c) = field_result?;
+        if fnum == 7 {
+            return Ok(as_varint(&fval)? != 0);
+        }
+    }
+    Ok(false)
+}
+
 fn parse_message(prefix: &str, data: &[u8], file: &mut FileModel) -> Result<(), Status> {
     let mut name = String::new();
     let mut raw_fields: Vec<Vec<u8>> = Vec::new();
     let mut nested: Vec<Vec<u8>> = Vec::new();
+    let mut map_entry = false;
     let mut reader = PbReader::new(data);
     while let Some(field_result) = reader.next_field() {
         let (fnum, _w, fval, _c) = field_result?;
@@ -3755,6 +3977,7 @@ fn parse_message(prefix: &str, data: &[u8], file: &mut FileModel) -> Result<(), 
             (1, _) => name = as_str(&fval)?.to_string(),
             (2, PbValue::Len(b)) => raw_fields.push(b.to_vec()),
             (3, PbValue::Len(b)) => nested.push(b.to_vec()),
+            (7, PbValue::Len(b)) => map_entry = parse_map_entry(b)?,
             _ => {}
         }
     }
@@ -3772,7 +3995,7 @@ fn parse_message(prefix: &str, data: &[u8], file: &mut FileModel) -> Result<(), 
     }
     file.messages.insert(
         format!(".{full_name}"),
-        Arc::new(MessageModel { full_name: full_name.clone(), fields, by_name }),
+        Arc::new(MessageModel { full_name: full_name.clone(), fields, by_name, map_entry }),
     );
     for nested_bytes in &nested {
         parse_message(&full_name, nested_bytes, file)?;
@@ -3873,11 +4096,40 @@ fn parse_service(package: &str, data: &[u8], file: &mut FileModel) -> Result<(),
 pub struct DynamicClient {
     channel: Channel,
     model: Arc<FileModel>,
+    struct_codec: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl DynamicClient {
     pub fn new(channel: Channel, model: Arc<FileModel>) -> Self {
-        Self { channel, model }
+        Self { channel, model, struct_codec: Arc::new(std::sync::atomic::AtomicBool::new(false)) }
+    }
+
+    /// Encode calls with the shared struct codec (crate::structdc)
+    /// instead of protobuf, and request it via HEADERS
+    /// dc-codec: struct-v1. The server must enable it too.
+    pub fn set_struct_codec(&self, enabled: bool) {
+        self.struct_codec.store(enabled, std::sync::atomic::Ordering::Relaxed);
+        self.channel.set_struct_codec(enabled);
+    }
+
+    fn use_struct_codec(&self) -> bool {
+        self.struct_codec.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn encode(&self, model: &MessageModel, message: &GenericMessage) -> Result<Vec<u8>, Status> {
+        if self.use_struct_codec() {
+            crate::structdc::encode_struct(model, message, &self.model)
+        } else {
+            encode_generic(model, message, &self.model)
+        }
+    }
+
+    fn decode(&self, model: &MessageModel, bytes: &[u8]) -> Result<GenericMessage, Status> {
+        if self.use_struct_codec() {
+            crate::structdc::decode_struct(model, bytes, &self.model)
+        } else {
+            decode_generic(model, bytes, &self.model)
+        }
     }
 
     fn method(&self, service_name: &str, method_name: &str) -> Result<Arc<MethodModel>, Status> {
@@ -3898,9 +4150,9 @@ impl DynamicClient {
         request: GenericMessage,
     ) -> Result<GenericMessage, Status> {
         let method = self.method(service_name, method_name)?;
-        let bytes = encode_generic(&method.input, &request, &self.model)?;
+        let bytes = self.encode(&method.input, &request)?;
         let resp: Vec<u8> = self.channel.unary(&method.path, bytes).await?;
-        decode_generic(&method.output, &resp, &self.model)
+        self.decode(&method.output, &resp)
     }
 
     pub async fn server_stream(
@@ -3910,10 +4162,10 @@ impl DynamicClient {
         request: GenericMessage,
     ) -> Result<ResponseStream<GenericMessage>, Status> {
         let method = self.method(service_name, method_name)?;
-        let bytes = encode_generic(&method.input, &request, &self.model)?;
+        let bytes = self.encode(&method.input, &request)?;
         let raw: ResponseStream<Vec<u8>> =
             self.channel.server_stream(&method.path, bytes).await?;
-        Ok(decode_stream(raw, method.output.clone(), self.model.clone()))
+        Ok(decode_stream(raw, method.output.clone(), self.model.clone(), self.use_struct_codec()))
     }
 
     pub async fn client_stream(
@@ -3925,13 +4177,13 @@ impl DynamicClient {
         let method = self.method(service_name, method_name)?;
         let mut encoded = Vec::with_capacity(requests.len());
         for request in &requests {
-            encoded.push(encode_generic(&method.input, request, &self.model)?);
+            encoded.push(self.encode(&method.input, request)?);
         }
         let resp: Vec<u8> = self
             .channel
             .client_stream(&method.path, futures_util::stream::iter(encoded))
             .await?;
-        decode_generic(&method.output, &resp, &self.model)
+        self.decode(&method.output, &resp)
     }
 
     pub async fn bidi(
@@ -3943,13 +4195,13 @@ impl DynamicClient {
         let method = self.method(service_name, method_name)?;
         let mut encoded = Vec::with_capacity(requests.len());
         for request in &requests {
-            encoded.push(encode_generic(&method.input, request, &self.model)?);
+            encoded.push(self.encode(&method.input, request)?);
         }
         let raw: ResponseStream<Vec<u8>> = self
             .channel
             .bidi(&method.path, futures_util::stream::iter(encoded))
             .await?;
-        Ok(decode_stream(raw, method.output.clone(), self.model.clone()))
+        Ok(decode_stream(raw, method.output.clone(), self.model.clone(), self.use_struct_codec()))
     }
 }
 
@@ -3957,9 +4209,16 @@ fn decode_stream(
     raw: ResponseStream<Vec<u8>>,
     model: Arc<MessageModel>,
     file: Arc<FileModel>,
+    struct_codec: bool,
 ) -> ResponseStream<GenericMessage> {
     Box::pin(raw.map(move |item| {
-        item.and_then(|bytes| decode_generic(&model, &bytes, &file))
+        item.and_then(|bytes| {
+            if struct_codec {
+                crate::structdc::decode_struct(&model, &bytes, &file)
+            } else {
+                decode_generic(&model, &bytes, &file)
+            }
+        })
     }))
 }
 
@@ -3973,13 +4232,17 @@ pub struct DynamicSink {
     sink: ResponseSink,
     model: Arc<MessageModel>,
     file: Arc<FileModel>,
+    struct_codec: bool,
 }
 
 impl DynamicSink {
     pub async fn send(&self, message: &GenericMessage) -> Result<(), Status> {
-        self.sink
-            .send(encode_generic(&self.model, message, &self.file)?)
-            .await
+        let bytes = if self.struct_codec {
+            crate::structdc::encode_struct(&self.model, message, &self.file)?
+        } else {
+            encode_generic(&self.model, message, &self.file)?
+        };
+        self.sink.send(bytes).await
     }
 }
 
@@ -4056,11 +4319,14 @@ pub fn dynamic_service(
                 let file = file_for_call.clone();
                 Box::pin(async move {
                     let ServerCall { ctx, requests, sink } = call;
-                    let mut decoded = decode_requests(requests, method.input.clone(), file.clone());
+                    let struct_codec = ctx.struct_codec;
+                    let mut decoded =
+                        decode_requests(requests, method.input.clone(), file.clone(), struct_codec);
                     let out_sink = DynamicSink {
                         sink: sink.clone(),
                         model: method.output.clone(),
                         file: file.clone(),
+                        struct_codec,
                     };
                     match method.kind {
                         MethodKind::Unary => {
@@ -4101,10 +4367,770 @@ fn decode_requests(
     requests: crate::server::RequestStream<Bytes>,
     model: Arc<MessageModel>,
     file: Arc<FileModel>,
+    struct_codec: bool,
 ) -> DynamicRequestStream {
     Box::pin(requests.map(move |item| {
-        item.and_then(|bytes| decode_generic(&model, &bytes, &file))
+        item.and_then(|bytes| {
+            if struct_codec {
+                crate::structdc::decode_struct(&model, &bytes, &file)
+            } else {
+                decode_generic(&model, &bytes, &file)
+            }
+        })
     }))
+}
+GRPC_RUNTIME_EOF
+)
+
+(define rust-structdc-body
+#<<GRPC_RUNTIME_EOF
+//! Descriptor-driven struct codec (layout v1, `DCS1`): the one
+//! shared implementation of the packed struct format, used by the
+//! Rust runtime and available to every consumer of this crate.
+//! Generated per-language codecs must match these bytes exactly
+//! (see conformance/struct). Protobuf remains the interop format;
+//! this codec serves low-latency internal paths.
+
+use crate::dynamic::{
+    FieldModel, FileModel, GenericMessage, GenericValue, MessageModel, TYPE_BOOL, TYPE_BYTES,
+    TYPE_DOUBLE, TYPE_ENUM, TYPE_FIXED32, TYPE_FIXED64, TYPE_FLOAT, TYPE_INT32, TYPE_INT64,
+    TYPE_MESSAGE, TYPE_SFIXED32, TYPE_SFIXED64, TYPE_SINT32, TYPE_SINT64, TYPE_STRING,
+    TYPE_UINT32, TYPE_UINT64,
+};
+use crate::status::Status;
+use std::cmp::Ordering;
+use std::sync::Arc;
+
+fn fingerprint(full_name: &str) -> u32 {
+    let mut h: u32 = 2166136261;
+    for b in full_name.bytes() {
+        h = (h ^ b as u32).wrapping_mul(16777619);
+    }
+    h
+}
+
+fn fixed32_type(ty: i32) -> bool {
+    matches!(ty, TYPE_FLOAT | TYPE_FIXED32 | TYPE_SFIXED32)
+}
+
+fn slot_size(field: &FieldModel) -> usize {
+    if fixed32_type(field.ty) {
+        4
+    } else {
+        8
+    }
+}
+
+fn value_as_i64(value: &GenericValue) -> i64 {
+    match value {
+        GenericValue::I64(v) => *v,
+        GenericValue::U64(v) => *v as i64,
+        GenericValue::Bool(v) => *v as i64,
+        GenericValue::F32(v) => *v as i64,
+        GenericValue::F64(v) => *v as i64,
+        _ => 0,
+    }
+}
+
+fn value_as_u64(value: &GenericValue) -> u64 {
+    match value {
+        GenericValue::U64(v) => *v,
+        GenericValue::I64(v) => *v as u64,
+        GenericValue::Bool(v) => *v as u64,
+        GenericValue::F32(v) => *v as u64,
+        GenericValue::F64(v) => *v as u64,
+        _ => 0,
+    }
+}
+
+fn value_as_f64(value: &GenericValue) -> f64 {
+    match value {
+        GenericValue::F64(v) => *v,
+        GenericValue::F32(v) => *v as f64,
+        GenericValue::I64(v) => *v as f64,
+        GenericValue::U64(v) => *v as f64,
+        _ => 0.0,
+    }
+}
+
+fn value_as_bytes<'a>(field: &FieldModel, value: &'a GenericValue) -> Result<&'a [u8], Status> {
+    match (field.ty, value) {
+        (TYPE_STRING, GenericValue::Str(s)) => Ok(s.as_bytes()),
+        (_, GenericValue::Bytes(b)) => Ok(b),
+        (_, GenericValue::Str(s)) => Ok(s.as_bytes()),
+        _ => Err(Status::invalid_argument(format!(
+            "value does not match field {} type {}",
+            field.name, field.ty
+        ))),
+    }
+}
+
+fn nonzero(field: &FieldModel, value: &GenericValue) -> bool {
+    match field.ty {
+        TYPE_STRING => match value {
+            GenericValue::Str(s) => !s.is_empty(),
+            GenericValue::Bytes(b) => !b.is_empty(),
+            _ => false,
+        },
+        TYPE_BYTES => match value {
+            GenericValue::Bytes(b) => !b.is_empty(),
+            GenericValue::Str(s) => !s.is_empty(),
+            _ => false,
+        },
+        TYPE_MESSAGE => matches!(value, GenericValue::Msg(_)),
+        TYPE_BOOL => matches!(value, GenericValue::Bool(true)) || value_as_i64(value) != 0,
+        TYPE_FLOAT | TYPE_DOUBLE => value_as_f64(value) != 0.0,
+        _ => value_as_i64(value) != 0 || value_as_u64(value) != 0,
+    }
+}
+
+fn map_model(field: &FieldModel, file: &FileModel) -> Option<Arc<MessageModel>> {
+    if field.ty != TYPE_MESSAGE || !field.repeated {
+        return None;
+    }
+    let model = file.message(&field.type_name).ok()?;
+    if model.map_entry {
+        Some(model)
+    } else {
+        None
+    }
+}
+
+fn is_map(field: &FieldModel, file: &FileModel) -> bool {
+    map_model(field, file).is_some()
+}
+
+fn value_size(field: &FieldModel, value: &GenericValue, file: &FileModel) -> Result<usize, Status> {
+    Ok(match field.ty {
+        TYPE_STRING | TYPE_BYTES => value_as_bytes(field, value)?.len(),
+        TYPE_MESSAGE => {
+            let GenericValue::Msg(m) = value else {
+                return Err(Status::invalid_argument(format!(
+                    "value does not match field {} type {}",
+                    field.name, field.ty
+                )));
+            };
+            let nested = file.message(&field.type_name)?;
+            encode_struct(&nested, m, file)?.len()
+        }
+        t if fixed32_type(t) => 4,
+        _ => 8,
+    })
+}
+
+fn field_present(field: &FieldModel, msg: &GenericMessage, file: &FileModel) -> bool {
+    let values = msg.get_all(field.number);
+    if is_map(field, file) || field.repeated {
+        return !values.is_empty();
+    }
+    values.first().is_some_and(|v| nonzero(field, v))
+}
+
+fn struct_size(model: &MessageModel, msg: &GenericMessage, file: &FileModel) -> Result<usize, Status> {
+    let nfields = model.fields.len();
+    let words = ((nfields + 31) / 32).max(1);
+    let mut size = 12 + 4 * words + model.fields.values().map(slot_size).sum::<usize>();
+    for field in model.fields.values() {
+        let values = msg.get_all(field.number);
+        if is_map(field, file) {
+            let entry_model = map_model(field, file).unwrap();
+            for (k, v) in map_entries(field, values, &entry_model)? {
+                size += 8
+                    + value_size(entry_model.field(1).unwrap(), &k, file)?
+                    + value_size(entry_model.field(2).unwrap(), &v, file)?;
+            }
+        } else if field.repeated {
+            if values.is_empty() {
+                continue;
+            }
+            if matches!(field.ty, TYPE_STRING | TYPE_BYTES | TYPE_MESSAGE) {
+                size += 8 * values.len();
+            }
+            for v in values {
+                size += value_size(field, v, file)?;
+            }
+        } else if matches!(field.ty, TYPE_STRING | TYPE_BYTES | TYPE_MESSAGE)
+            && field_present(field, msg, file)
+        {
+            size += value_size(field, &values[0], file)?;
+        }
+    }
+    size += msg.unknown.iter().map(|c| c.len()).sum::<usize>();
+    Ok(size)
+}
+
+fn map_entries(
+    field: &FieldModel,
+    values: &[GenericValue],
+    entry_model: &MessageModel,
+) -> Result<Vec<(GenericValue, GenericValue)>, Status> {
+    let kf = entry_model.field(1).ok_or_else(|| {
+        Status::invalid_argument(format!("map field {} entry has no key field", field.name))
+    })?;
+    let vf = entry_model.field(2).ok_or_else(|| {
+        Status::invalid_argument(format!("map field {} entry has no value field", field.name))
+    })?;
+    let mut entries = Vec::with_capacity(values.len());
+    for value in values {
+        let GenericValue::Msg(entry) = value else {
+            return Err(Status::invalid_argument(format!(
+                "map field {} entry is not a message",
+                field.name
+            )));
+        };
+        let key = entry
+            .get(1)
+            .cloned()
+            .ok_or_else(|| {
+                Status::invalid_argument(format!("map field {} entry missing key", field.name))
+            })?;
+        let val = entry.get(2).cloned().unwrap_or_else(|| default_value(vf));
+        entries.push((key, val));
+    }
+    entries.sort_by(|a, b| key_cmp(kf, &a.0, &b.0));
+    Ok(entries)
+}
+
+fn default_value(field: &FieldModel) -> GenericValue {
+    match field.ty {
+        TYPE_STRING => GenericValue::Str(String::new()),
+        TYPE_BYTES => GenericValue::Bytes(Vec::new()),
+        TYPE_BOOL => GenericValue::Bool(false),
+        TYPE_FLOAT => GenericValue::F32(0.0),
+        TYPE_DOUBLE => GenericValue::F64(0.0),
+        TYPE_MESSAGE => GenericValue::Msg(Box::new(GenericMessage::new())),
+        _ => GenericValue::I64(0),
+    }
+}
+
+fn key_cmp(kf: &FieldModel, a: &GenericValue, b: &GenericValue) -> Ordering {
+    match kf.ty {
+        TYPE_STRING => {
+            let av = match a {
+                GenericValue::Str(s) => s.as_bytes(),
+                _ => &[],
+            };
+            let bv = match b {
+                GenericValue::Str(s) => s.as_bytes(),
+                _ => &[],
+            };
+            av.cmp(bv)
+        }
+        TYPE_BOOL => value_as_u64(a).cmp(&value_as_u64(b)),
+        TYPE_UINT32 | TYPE_UINT64 | TYPE_FIXED32 | TYPE_FIXED64 => {
+            value_as_u64(a).cmp(&value_as_u64(b))
+        }
+        _ => value_as_i64(a).cmp(&value_as_i64(b)),
+    }
+}
+
+fn put_u32(buf: &mut [u8], off: usize, v: u32) {
+    buf[off..off + 4].copy_from_slice(&v.to_le_bytes());
+}
+
+fn put_u64(buf: &mut [u8], off: usize, v: u64) {
+    buf[off..off + 8].copy_from_slice(&v.to_le_bytes());
+}
+
+fn get_u32(data: &[u8], off: usize) -> Result<u32, Status> {
+    let end = off
+        .checked_add(4)
+        .filter(|e| *e <= data.len())
+        .ok_or_else(|| Status::invalid_argument("struct codec: out of bounds"))?;
+    Ok(u32::from_le_bytes(data[off..end].try_into().unwrap()))
+}
+
+fn get_u64(data: &[u8], off: usize) -> Result<u64, Status> {
+    Ok((get_u32(data, off)? as u64) | ((get_u32(data, off + 4)? as u64) << 32))
+}
+
+fn check(data: &[u8], off: usize, n: usize) -> Result<(), Status> {
+    if off.checked_add(n).is_some_and(|e| e <= data.len()) {
+        Ok(())
+    } else {
+        Err(Status::invalid_argument("struct codec: out of bounds"))
+    }
+}
+
+fn write_scalar(buf: &mut [u8], off: usize, field: &FieldModel, value: &GenericValue) {
+    match field.ty {
+        TYPE_FLOAT => put_u32(buf, off, (value_as_f64(value) as f32).to_bits()),
+        TYPE_FIXED32 => put_u32(buf, off, value_as_u64(value) as u32),
+        TYPE_SFIXED32 => put_u32(buf, off, value_as_i64(value) as i32 as u32),
+        TYPE_DOUBLE => put_u64(buf, off, value_as_f64(value).to_bits()),
+        TYPE_FIXED64 => put_u64(buf, off, value_as_u64(value)),
+        TYPE_SFIXED64 => put_u64(buf, off, value_as_i64(value) as u64),
+        TYPE_BOOL => buf[off] = if value_as_i64(value) != 0 { 1 } else { 0 },
+        _ => put_u64(buf, off, value_as_i64(value) as u64),
+    }
+}
+
+fn write_value(
+    buf: &mut [u8],
+    off: usize,
+    field: &FieldModel,
+    value: &GenericValue,
+    file: &FileModel,
+) -> Result<(), Status> {
+    match field.ty {
+        TYPE_STRING | TYPE_BYTES => {
+            let b = value_as_bytes(field, value)?;
+            buf[off..off + b.len()].copy_from_slice(b);
+        }
+        TYPE_MESSAGE => {
+            let GenericValue::Msg(m) = value else {
+                return Err(Status::invalid_argument(format!(
+                    "value does not match field {} type {}",
+                    field.name, field.ty
+                )));
+            };
+            let nested = file.message(&field.type_name)?;
+            let encoded = encode_struct(&nested, m, file)?;
+            buf[off..off + encoded.len()].copy_from_slice(&encoded);
+        }
+        _ => write_scalar(buf, off, field, value),
+    }
+    Ok(())
+}
+
+/// HEADERS metadata key a client sends to request the struct
+/// codec for a call (mirrors the Go runtime's dc-codec marker).
+pub const STRUCT_CODEC_HEADER: &str = "dc-codec";
+/// The only struct codec version this layout implements.
+pub const STRUCT_CODEC_V1: &str = "struct-v1";
+
+/// Encode `message` in the struct layout for `model`.
+pub fn encode_struct(
+    model: &MessageModel,
+    message: &GenericMessage,
+    file: &FileModel,
+) -> Result<Vec<u8>, Status> {
+    let fields: Vec<&FieldModel> = model.fields.values().collect();
+    let words = ((fields.len() + 31) / 32).max(1);
+    let header = 12 + 4 * words;
+    let mut offsets = Vec::with_capacity(fields.len());
+    let mut cursor = header;
+    for f in &fields {
+        offsets.push(cursor);
+        cursor += slot_size(f);
+    }
+    let fixed_end = cursor;
+    let size = struct_size(model, message, file)?;
+    let mut buf = vec![0u8; size];
+    buf[0..4].copy_from_slice(b"DCS1");
+    put_u32(&mut buf, 4, size as u32);
+    put_u32(&mut buf, 8, fingerprint(&model.full_name));
+    for (i, f) in fields.iter().enumerate() {
+        if field_present(f, message, file) {
+            let word = get_u32(&buf, 12 + 4 * (i / 32))?;
+            put_u32(&mut buf, 12 + 4 * (i / 32), word | (1u32 << (i % 32)));
+        }
+    }
+    let mut vp = fixed_end;
+    for (i, f) in fields.iter().enumerate() {
+        let off = offsets[i];
+        let values = message.get_all(f.number);
+        if is_map(f, file) {
+            if values.is_empty() {
+                continue;
+            }
+            let entry_model = map_model(f, file).unwrap();
+            let kf = entry_model.field(1).unwrap();
+            let vf = entry_model.field(2).unwrap();
+            put_u32(&mut buf, off, vp as u32);
+            put_u32(&mut buf, off + 4, values.len() as u32);
+            for (k, v) in map_entries(f, values, &entry_model)? {
+                let klen = value_size(kf, &k, file)?;
+                let vlen = value_size(vf, &v, file)?;
+                put_u32(&mut buf, vp, klen as u32);
+                put_u32(&mut buf, vp + 4, vlen as u32);
+                vp += 8;
+                write_value(&mut buf, vp, kf, &k, file)?;
+                vp += klen;
+                write_value(&mut buf, vp, vf, &v, file)?;
+                vp += vlen;
+            }
+        } else if f.repeated {
+            if values.is_empty() {
+                continue;
+            }
+            put_u32(&mut buf, off, vp as u32);
+            put_u32(&mut buf, off + 4, values.len() as u32);
+            if matches!(f.ty, TYPE_STRING | TYPE_BYTES | TYPE_MESSAGE) {
+                let mut doff = vp + 8 * values.len();
+                for v in values {
+                    let len = value_size(f, v, file)?;
+                    put_u32(&mut buf, vp, doff as u32);
+                    put_u32(&mut buf, vp + 4, len as u32);
+                    doff += len;
+                    vp += 8;
+                }
+                for v in values {
+                    let len = value_size(f, v, file)?;
+                    write_value(&mut buf, vp, f, v, file)?;
+                    vp += len;
+                }
+            } else {
+                for v in values {
+                    write_scalar(&mut buf, vp, f, v);
+                    vp += slot_size(f);
+                }
+            }
+        } else if matches!(f.ty, TYPE_STRING | TYPE_BYTES | TYPE_MESSAGE) {
+            if !field_present(f, message, file) {
+                continue;
+            }
+            let len = value_size(f, &values[0], file)?;
+            put_u32(&mut buf, off, vp as u32);
+            put_u32(&mut buf, off + 4, len as u32);
+            write_value(&mut buf, vp, f, &values[0], file)?;
+            vp += len;
+        } else if field_present(f, message, file) {
+            write_scalar(&mut buf, off, f, &values[0]);
+        }
+    }
+    for chunk in &message.unknown {
+        buf[vp..vp + chunk.len()].copy_from_slice(chunk);
+        vp += chunk.len();
+    }
+    Ok(buf)
+}
+
+fn read_scalar(data: &[u8], off: usize, field: &FieldModel) -> Result<GenericValue, Status> {
+    Ok(match field.ty {
+        TYPE_FLOAT => GenericValue::F32(f32::from_bits(get_u32(data, off)?)),
+        TYPE_FIXED32 => GenericValue::U64(get_u32(data, off)? as u64),
+        TYPE_SFIXED32 => GenericValue::I64(get_u32(data, off)? as i32 as i64),
+        TYPE_DOUBLE => GenericValue::F64(f64::from_bits(get_u64(data, off)?)),
+        TYPE_FIXED64 => GenericValue::U64(get_u64(data, off)?),
+        TYPE_SFIXED64 => GenericValue::I64(get_u64(data, off)? as i64),
+        TYPE_BOOL => GenericValue::Bool(data[off] != 0),
+        TYPE_ENUM | TYPE_INT32 | TYPE_SINT32 => {
+            GenericValue::I64(get_u64(data, off)? as u32 as i32 as i64)
+        }
+        TYPE_INT64 | TYPE_SINT64 => GenericValue::I64(get_u64(data, off)? as i64),
+        TYPE_UINT32 => GenericValue::U64(get_u64(data, off)? as u32 as u64),
+        _ => GenericValue::U64(get_u64(data, off)?),
+    })
+}
+
+fn read_value(
+    data: &[u8],
+    off: usize,
+    len: usize,
+    field: &FieldModel,
+    file: &FileModel,
+) -> Result<GenericValue, Status> {
+    check(data, off, len)?;
+    Ok(match field.ty {
+        TYPE_STRING => GenericValue::Str(
+            String::from_utf8(data[off..off + len].to_vec())
+                .map_err(|e| Status::invalid_argument(format!("invalid utf-8: {e}")))?,
+        ),
+        TYPE_BYTES => GenericValue::Bytes(data[off..off + len].to_vec()),
+        TYPE_MESSAGE => {
+            if len == 0 {
+                GenericValue::Msg(Box::new(GenericMessage::new()))
+            } else {
+                let nested = file.message(&field.type_name)?;
+                GenericValue::Msg(Box::new(decode_struct(
+                    &nested,
+                    &data[off..off + len],
+                    file,
+                )?))
+            }
+        }
+        _ => read_scalar(data, off, field)?,
+    })
+}
+
+/// Decode struct-layout bytes for `model`.
+pub fn decode_struct(
+    model: &MessageModel,
+    data: &[u8],
+    file: &FileModel,
+) -> Result<GenericMessage, Status> {
+    let fields: Vec<&FieldModel> = model.fields.values().collect();
+    let words = ((fields.len() + 31) / 32).max(1);
+    let header = 12 + 4 * words;
+    if data.len() < header || &data[0..4] != b"DCS1" {
+        return Err(Status::invalid_argument("struct codec: bad header"));
+    }
+    if get_u32(data, 8)? != fingerprint(&model.full_name) {
+        return Err(Status::invalid_argument(
+            "struct codec: schema fingerprint mismatch",
+        ));
+    }
+    if get_u32(data, 4)? as usize != data.len() {
+        return Err(Status::invalid_argument("struct codec: length mismatch"));
+    }
+    let mut offsets = Vec::with_capacity(fields.len());
+    let mut cursor = header;
+    for f in &fields {
+        offsets.push(cursor);
+        cursor += slot_size(f);
+    }
+    let fixed_end = cursor;
+    let mut message = GenericMessage::new();
+    let mut vend = fixed_end;
+    for (i, f) in fields.iter().enumerate() {
+        if (get_u32(data, 12 + 4 * (i / 32))? & (1u32 << (i % 32))) == 0 {
+            continue;
+        }
+        let off = offsets[i];
+        if is_map(f, file) {
+            let entry_model = map_model(f, file).unwrap();
+            let kf = entry_model.field(1).unwrap();
+            let vf = entry_model.field(2).unwrap();
+            let base = get_u32(data, off)? as usize;
+            let n = get_u32(data, off + 4)? as usize;
+            let mut p = base;
+            for _ in 0..n {
+                check(data, p, 8)?;
+                let kl = get_u32(data, p)? as usize;
+                let vl = get_u32(data, p + 4)? as usize;
+                p += 8;
+                check(data, p, kl + vl)?;
+                let key = read_value(data, p, kl, kf, file)?;
+                let val = read_value(data, p + kl, vl, vf, file)?;
+                let mut entry = GenericMessage::new();
+                entry.set(1, key);
+                entry.set(2, val);
+                message.add(f.number, entry);
+                p += kl + vl;
+            }
+            vend = vend.max(p);
+        } else if f.repeated {
+            let base = get_u32(data, off)? as usize;
+            let n = get_u32(data, off + 4)? as usize;
+            if matches!(f.ty, TYPE_STRING | TYPE_BYTES | TYPE_MESSAGE) {
+                for j in 0..n {
+                    let eo = get_u32(data, base + 8 * j)? as usize;
+                    let el = get_u32(data, base + 8 * j + 4)? as usize;
+                    if el > 0 || f.ty != TYPE_MESSAGE {
+                        message.add(f.number, read_value(data, eo, el, f, file)?);
+                    }
+                    vend = vend.max(eo + el);
+                }
+            } else {
+                check(data, base, n * slot_size(f))?;
+                for j in 0..n {
+                    let eo = base + j * slot_size(f);
+                    message.add(f.number, read_scalar(data, eo, f)?);
+                }
+                vend = vend.max(base + n * slot_size(f));
+            }
+        } else if matches!(f.ty, TYPE_STRING | TYPE_BYTES | TYPE_MESSAGE) {
+            let base = get_u32(data, off)? as usize;
+            let len = get_u32(data, off + 4)? as usize;
+            message.add(f.number, read_value(data, base, len, f, file)?);
+            vend = vend.max(base + len);
+        } else {
+            message.add(f.number, read_scalar(data, off, f)?);
+        }
+    }
+    if vend < data.len() {
+        message.unknown.push(data[vend..].to_vec());
+    }
+    Ok(message)
+}
+GRPC_RUNTIME_EOF
+)
+
+(define rust-structdc-ffi-body
+#<<GRPC_RUNTIME_EOF
+//! C ABI for the shared struct codec: protobuf <-> struct
+//! transcode driven by a FileDescriptorSet. Generated code in
+//! other languages shrinks to a call into these functions; the
+//! descriptor set is parsed once and cached by content.
+
+use crate::dynamic::{parse_descriptor_set, FileModel};
+use std::collections::HashMap;
+use std::ffi::CString;
+use std::sync::{Arc, Mutex, OnceLock};
+
+fn model_cache() -> &'static Mutex<HashMap<Vec<u8>, Arc<FileModel>>> {
+    static CACHE: OnceLock<Mutex<HashMap<Vec<u8>, Arc<FileModel>>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn model_for(descriptor_set: &[u8]) -> Result<Arc<FileModel>, String> {
+    // Bounded cache: descriptor sets are caller-controlled, so an
+    // unbounded map would be a memory-growth vector in long-lived
+    // processes. 128 live schemas is far past realistic use.
+    const MAX_CACHED_MODELS: usize = 128;
+    let mut cache = model_cache().lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(model) = cache.get(descriptor_set) {
+        return Ok(model.clone());
+    }
+    let model = Arc::new(parse_descriptor_set(descriptor_set).map_err(|e| e.to_string())?);
+    if cache.len() >= MAX_CACHED_MODELS {
+        cache.clear();
+    }
+    cache.insert(descriptor_set.to_vec(), model.clone());
+    Ok(model)
+}
+
+fn bytes_from_raw(ptr: *const u8, len: usize) -> Result<&'static [u8], String> {
+    if len == 0 {
+        return Ok(&[]);
+    }
+    if ptr.is_null() {
+        return Err("null input pointer".to_string());
+    }
+    // SAFETY: callers pass a valid buffer of len bytes.
+    Ok(unsafe { std::slice::from_raw_parts(ptr, len) })
+}
+
+fn set_error(err_out: *mut *mut std::os::raw::c_char, message: String) {
+    if !err_out.is_null() {
+        if let Ok(c) = CString::new(message) {
+            unsafe { *err_out = c.into_raw() };
+        }
+    }
+}
+
+fn transcode_inner(
+    descriptor_set: *const u8,
+    descriptor_len: usize,
+    type_name: *const u8,
+    type_len: usize,
+    input: *const u8,
+    input_len: usize,
+    out: *mut *mut u8,
+    out_len: *mut usize,
+    err_out: *mut *mut std::os::raw::c_char,
+    encode: bool,
+) -> i32 {
+    let result = (|| -> Result<Vec<u8>, String> {
+        if out.is_null() || out_len.is_null() {
+            return Err("null output pointer".to_string());
+        }
+        let descriptor_set = bytes_from_raw(descriptor_set, descriptor_len)?;
+        let type_bytes = bytes_from_raw(type_name, type_len)?;
+        let input = bytes_from_raw(input, input_len)?;
+        let type_name = std::str::from_utf8(type_bytes).map_err(|e| e.to_string())?;
+        let full_name = if type_name.starts_with('.') {
+            type_name.to_string()
+        } else {
+            format!(".{type_name}")
+        };
+        let file = model_for(descriptor_set)?;
+        let model = file.message(&full_name).map_err(|e| e.to_string())?;
+        if encode {
+            let msg = crate::dynamic::decode_generic(&model, input, &file).map_err(|e| e.to_string())?;
+            crate::structdc::encode_struct(&model, &msg, &file).map_err(|e| e.to_string())
+        } else {
+            let msg = crate::structdc::decode_struct(&model, input, &file).map_err(|e| e.to_string())?;
+            crate::dynamic::encode_generic(&model, &msg, &file).map_err(|e| e.to_string())
+        }
+    })();
+    match result {
+        Ok(mut bytes) => {
+            bytes.shrink_to_fit();
+            let ptr = bytes.as_mut_ptr();
+            let len = bytes.len();
+            std::mem::forget(bytes);
+            unsafe {
+                *out = ptr;
+                *out_len = len;
+            }
+            0
+        }
+        Err(e) => {
+            set_error(err_out, e);
+            -1
+        }
+    }
+}
+
+fn transcode(
+    descriptor_set: *const u8,
+    descriptor_len: usize,
+    type_name: *const u8,
+    type_len: usize,
+    input: *const u8,
+    input_len: usize,
+    out: *mut *mut u8,
+    out_len: *mut usize,
+    err_out: *mut *mut std::os::raw::c_char,
+    encode: bool,
+) -> i32 {
+    // A panic crossing the C ABI would abort the host process;
+    // convert it into an ordinary -1 error instead.
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        transcode_inner(
+            descriptor_set,
+            descriptor_len,
+            type_name,
+            type_len,
+            input,
+            input_len,
+            out,
+            out_len,
+            err_out,
+            encode,
+        )
+    })) {
+        Ok(rc) => rc,
+        Err(_) => {
+            set_error(err_out, "panic in struct codec".to_string());
+            -1
+        }
+    }
+}
+
+/// Transcode protobuf bytes to struct-layout bytes.
+/// Returns 0 on success, -1 on error (see grpcdc_struct_error_free).
+#[no_mangle]
+pub extern "C" fn grpcdc_struct_encode(
+    descriptor_set: *const u8,
+    descriptor_len: usize,
+    type_name: *const u8,
+    type_len: usize,
+    input: *const u8,
+    input_len: usize,
+    out: *mut *mut u8,
+    out_len: *mut usize,
+    err_out: *mut *mut std::os::raw::c_char,
+) -> i32 {
+    transcode(descriptor_set, descriptor_len, type_name, type_len, input, input_len, out, out_len, err_out, true)
+}
+
+/// Transcode struct-layout bytes back to protobuf bytes.
+#[no_mangle]
+pub extern "C" fn grpcdc_struct_decode(
+    descriptor_set: *const u8,
+    descriptor_len: usize,
+    type_name: *const u8,
+    type_len: usize,
+    input: *const u8,
+    input_len: usize,
+    out: *mut *mut u8,
+    out_len: *mut usize,
+    err_out: *mut *mut std::os::raw::c_char,
+) -> i32 {
+    transcode(descriptor_set, descriptor_len, type_name, type_len, input, input_len, out, out_len, err_out, false)
+}
+
+/// Free a buffer returned by grpcdc_struct_encode/decode.
+#[no_mangle]
+pub extern "C" fn grpcdc_struct_free(ptr: *mut u8, len: usize) {
+    if !ptr.is_null() {
+        unsafe {
+            let _ = Vec::from_raw_parts(ptr, len, len);
+        }
+    }
+}
+
+/// Free an error string returned via err_out.
+#[no_mangle]
+pub extern "C" fn grpcdc_struct_error_free(ptr: *mut std::os::raw::c_char) {
+    if !ptr.is_null() {
+        unsafe {
+            let _ = CString::from_raw(ptr);
+        }
+    }
 }
 GRPC_RUNTIME_EOF
 )
@@ -4877,6 +5903,8 @@ GRPC_RUNTIME_EOF
    (cons "link_stats.rs" rust-link-stats-body)
    (cons "server.rs" rust-server-body)
    (cons "dynamic.rs" rust-dynamic-body)
+   (cons "structdc.rs" rust-structdc-body)
+   (cons "structdc_ffi.rs" rust-structdc-ffi-body)
    (cons "webrtc_transport.rs" rust-webrtc-transport-body)
    (cons "webrtc_direct.rs" rust-webrtc-direct-body)
    (cons "http_signaling.rs" rust-http-signaling-body)

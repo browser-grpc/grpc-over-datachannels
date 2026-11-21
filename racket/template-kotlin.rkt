@@ -290,8 +290,12 @@
                 (map kotlin-service
                      (kotlin-qualify-services pkg (hash-ref file-model 'services))))
          "}\n")))
-  (define pb-file (emit-kotlin-pb-file file-model))
-  (if pb-file (list stub pb-file) stub))
+  (define pb-file (parameterize ([seg-struct-codec (equal? (hash-ref params 'struct_codec #f) "true")])
+                    (emit-kotlin-pb-file file-model)))
+  (define struct-files (emit-kotlin-struct-files file-model params pkg))
+  (if (null? struct-files)
+      (if pb-file (list stub pb-file) stub)
+      (append (list stub pb-file) struct-files)))
 
 ;; ---------------------------------------------------------------------------
 ;; Kotlin/Wasm native stubs: the same template over the Wasm
@@ -318,3 +322,272 @@
               (string-replace text (car pair) (cdr pair))
               text)))
         (cdr files)))
+
+;; ------------------------------------------------------------------
+;; Struct codec (struct_codec=true): <Msg>Struct object per message
+;; with the packed layout from SPEC.md (byte-identical to the
+;; Go/Rust/Java struct codecs; verified by conformance/struct).
+(define (kt-descriptor-hex bstr)
+  (apply string-append
+         (for/list ([b (in-bytes bstr)])
+           (let ([h (format "~x" b)])
+             (if (= (string-length h) 1) (string-append "0" h) h)))))
+
+(define (kt-struct-fingerprint s)
+  (for/fold ([h 2166136261]) ([c (in-string s)])
+    (modulo (* (bitwise-xor h (char->integer c)) 16777619) 4294967296)))
+
+(define (kt-struct-fixed32-type? t) (member t '(2 7 15)))
+(define (kt-struct-fixed64-type? t) (member t '(1 6 16)))
+
+(define (kt-struct-slot-size f)
+  (define t (hash-ref f 'type))
+  (cond [(kt-struct-fixed32-type? t) 4] [else 8]))
+
+(define (kt-struct-sorted-fields msg)
+  (sort (hash-ref msg 'fields) < #:key (lambda (f) (hash-ref f 'number))))
+
+(define (kt-struct-resolve model type-name)
+  (hash-ref (hash-ref model 'types) type-name
+            (lambda () (error 'emit-kotlin-struct "unresolved type ~a" type-name))))
+
+(define (kt-struct-map-entry model f)
+  (and (= (hash-ref f 'type) 11)
+       (let ([e (kt-struct-resolve model (hash-ref f 'type-name))])
+         (and (eq? (hash-ref e 'kind) 'map) e))))
+
+(define (kt-struct-map-key-field model f)
+  (define em (hash-ref (kt-struct-map-entry model f) 'msg))
+  (findf (lambda (x) (= (hash-ref x 'number) 1)) (hash-ref em 'fields)))
+(define (kt-struct-map-val-field model f)
+  (define em (hash-ref (kt-struct-map-entry model f) 'msg))
+  (findf (lambda (x) (= (hash-ref x 'number) 2)) (hash-ref em 'fields)))
+
+(define (kt-struct-simple-name full)
+  (car (reverse (string-split full "."))))
+
+(define (kt-struct-type-name model msg)
+  (kt-struct-simple-name (hash-ref msg 'full-name)))
+
+(define (kt-struct-companion model f)
+  (define e (kt-struct-resolve model (hash-ref f 'type-name)))
+  (string-append (kt-struct-simple-name (hash-ref (hash-ref e 'msg) 'full-name)) "Struct"))
+
+(define (kt-struct-field-name f)
+  (define jn (hash-ref f 'json-name ""))
+  (if (string=? jn "") (hash-ref f 'name) jn))
+
+(define (kt-struct-zero f)
+  (case (hash-ref f 'type)
+    [(1) "0.0"] [(2) "0f"] [(3 16 18) "0L"] [(4 6) "0uL"] [(7 13) "0u"]
+    [else "0"]))
+
+(define (kt-struct-present f kn)
+  (define t (hash-ref f 'type))
+  (cond [(= (hash-ref f 'label) 3) (format "m.~a.isNotEmpty()" kn)]
+        [(= t 11) (format "m.~a != null" kn)]
+        [(= t 9) (format "m.~a.isNotEmpty()" kn)]
+        [(= t 12) (format "m.~a.isNotEmpty()" kn)]
+        [(= t 8) (format "m.~a" kn)]
+        [(= t 14) (format "m.~a.number != 0" kn)]
+        [else (format "m.~a != ~a" kn (kt-struct-zero f))]))
+
+;; put32/put64 statements writing v (in a slot at `off`)
+(define (kt-struct-scalar-encode f v)
+  (define t (hash-ref f 'type))
+  (cond [(kt-struct-fixed32-type? t)
+         (cond [(= t 2) (format "put32(buf, off, ~a.toBits())" v)]
+               [(= t 7) (format "put32(buf, off, ~a.toInt())" v)]
+               [else (format "put32(buf, off, ~a)" v)])]
+        [(kt-struct-fixed64-type? t)
+         (cond [(= t 1) (format "put64(buf, off, ~a.toBits())" v)]
+               [(= t 6) (format "put64(buf, off, ~a.toLong())" v)]
+               [else (format "put64(buf, off, ~a)" v)])]
+        [(= t 8) (format "buf[off] = if (~a) 1 else 0" v)]
+        [(= t 14) (format "put64(buf, off, ~a.number.toLong())" v)]
+        [(member t '(4)) (format "put64(buf, off, ~a.toLong())" v)]
+        [(member t '(5 17)) (format "put64(buf, off, ~a.toLong())" v)]
+        [else (format "put64(buf, off, ~a)" v)]))
+
+;; expression reading a scalar of field f's type at data[offv]
+(define (kt-struct-scalar-value/off model f offv)
+  (define t (hash-ref f 'type))
+  (cond [(kt-struct-fixed32-type? t)
+         (cond [(= t 2) (format "Float.fromBits(get32(data, ~a))" offv)]
+               [(= t 7) (format "get32(data, ~a).toUInt()" offv)]
+               [else (format "get32(data, ~a)" offv)])]
+        [(kt-struct-fixed64-type? t)
+         (cond [(= t 1) (format "Double.fromBits(get64(data, ~a))" offv)]
+               [(= t 6) (format "get64(data, ~a).toULong()" offv)]
+               [else (format "get64(data, ~a)" offv)])]
+        [(= t 8) (format "(data[~a].toInt() != 0)" offv)]
+        [(= t 14) (format "~a.fromNumber(get64(data, ~a).toInt())"
+                        (kt-pb-type model (hash-set f 'label 1)) offv)]
+        [(member t '(5 17)) (format "get64(data, ~a).toInt()" offv)]
+        [(member t '(7 13)) (format "get64(data, ~a).toUInt()" offv)]
+        [(= t 4) (format "get64(data, ~a).toULong()" offv)]
+        [else (format "get64(data, ~a)" offv)]))
+
+(define (kt-struct-value-size model f v)
+  (define t (hash-ref f 'type))
+  (cond [(= t 9) (format "~a.toByteArray(Charsets.UTF_8).size" v)]
+        [(= t 12) (format "~a.size" v)]
+        [(= t 11) (format "(if (~a == null) 0 else ~a.size(~a))" v (kt-struct-companion model f) v)]
+        [(kt-struct-fixed32-type? t) "4"]
+        [else "8"]))
+
+(define (kt-struct-message model msg)
+  (define type-name (kt-struct-type-name model msg))
+  (define fp (kt-struct-fingerprint (hash-ref msg 'full-name)))
+  (define fp-dec (if (>= fp 2147483648) (- fp 4294967296) fp))
+  (define out (open-output-string))
+  (fprintf out "object ~aStruct {\n" type-name)
+  (fprintf out "    const val FINGERPRINT: Int = ~a\n\n" fp-dec)
+  (fprintf out "    private val descriptor: ByteArray = java.util.HexFormat.of().parseHex(\"~a\")\n\n"
+           (kt-descriptor-hex (hash-ref model 'descriptor-set #"")))
+  (fprintf out "    fun size(m: ~a): Int = marshal(m).size\n\n" type-name)
+  (fprintf out "    fun marshal(m: ~a): ByteArray = grpcdc.StructDc.encode(descriptor, \"~a\", m.marshalDc())\n\n"
+           type-name (hash-ref msg 'full-name))
+  (fprintf out "    fun unmarshal(data: ByteArray): ~a {\n        val m = ~a()\n        m.unmarshalDc(grpcdc.StructDc.decode(descriptor, \"~a\", data))\n        return m\n    }\n}\n"
+           type-name type-name (hash-ref msg 'full-name))
+  (get-output-string out))
+
+(define (kt-struct-value-write model f v)
+  (define t (hash-ref f 'type))
+  (define out (open-output-string))
+  (cond [(= t 9)
+         (fprintf out "                val sb = ~a.toByteArray(Charsets.UTF_8); sb.copyInto(buf, vp); vp += sb.size\n" v)]
+        [(= t 12)
+         (fprintf out "                ~a.copyInto(buf, vp); vp += ~a.size\n" v v)]
+        [(= t 11)
+         (fprintf out "                if (~a != null) { val nb = ~a.marshal(~a); nb.copyInto(buf, vp); vp += nb.size }\n" v (kt-struct-companion model f) v)]
+        [else
+         (fprintf out "                run { val off = vp; ~a }; vp += ~a\n"
+                  (kt-struct-scalar-encode f v) (if (kt-struct-fixed32-type? t) 4 8))])
+  (get-output-string out))
+
+(define (kt-struct-marshal-field model f off)
+  (define kn (kt-struct-field-name f))
+  (define t (hash-ref f 'type))
+  (define out (open-output-string))
+  (define mv (format "m.~a" kn))
+  (cond [(kt-struct-map-entry model f)
+         (define kf (kt-struct-map-key-field model f))
+         (define vf (kt-struct-map-val-field model f))
+         (fprintf out "        if (~a.isNotEmpty()) {\n            put32(buf, ~a, vp); put32(buf, ~a, ~a.size)\n" mv off (+ off 4) mv)
+         (fprintf out "            val keys = ~a.keys.sorted()\n" mv)
+         (fprintf out "            for (k in keys) {\n                val v = ~a.getValue(k)\n                put32(buf, vp, ~a); put32(buf, vp + 4, ~a); vp += 8\n"
+                  mv (kt-struct-value-size model kf "k") (kt-struct-value-size model vf "v"))
+         (display (kt-struct-value-write model kf "k") out)
+         (display (kt-struct-value-write model vf "v") out)
+         (fprintf out "            }\n        }\n")]
+        [(= (hash-ref f 'label) 3)
+         (cond [(member t '(9 12))
+                (fprintf out "        if (~a.isNotEmpty()) {\n            put32(buf, ~a, vp); put32(buf, ~a, ~a.size)\n            var doff = vp + 8 * ~a.size\n            for (e in ~a) { put32(buf, vp, doff); put32(buf, vp + 4, ~a); doff += ~a; vp += 8 }\n            for (e in ~a) { ~a }\n        }\n"
+                         mv off (+ off 4) mv mv mv
+                         (if (= t 9) "e.toByteArray(Charsets.UTF_8).size" "e.size")
+                         (if (= t 9) "e.toByteArray(Charsets.UTF_8).size" "e.size")
+                         mv
+                         (if (= t 9) "val sb = e.toByteArray(Charsets.UTF_8); sb.copyInto(buf, vp); vp += sb.size"
+                             "e.copyInto(buf, vp); vp += e.size"))]
+               [(= t 11)
+                (fprintf out "        if (~a.isNotEmpty()) {\n            put32(buf, ~a, vp); put32(buf, ~a, ~a.size)\n            var doff = vp + 8 * ~a.size\n            for (e in ~a) { val es = ~a.size(e); put32(buf, vp, doff); put32(buf, vp + 4, es); doff += es; vp += 8 }\n            for (e in ~a) { val nb = ~a.marshal(e); nb.copyInto(buf, vp); vp += nb.size }\n        }\n"
+                         mv off (+ off 4) mv mv mv (kt-struct-companion model f)
+                         mv (kt-struct-companion model f))]
+               [else
+                (fprintf out "        if (~a.isNotEmpty()) {\n            put32(buf, ~a, vp); put32(buf, ~a, ~a.size)\n            for (e in ~a) { val off = vp; ~a; vp += ~a }\n        }\n"
+                         mv off (+ off 4) mv
+                         mv
+                         (kt-struct-scalar-encode f "e")
+                         (if (kt-struct-fixed32-type? t) 4 8))])]
+        [(= t 11)
+         (fprintf out "        val sv~a = ~a\n        if (sv~a != null) {\n            put32(buf, ~a, vp); put32(buf, ~a, ~a.size(sv~a))\n            val nb = ~a.marshal(sv~a); nb.copyInto(buf, vp); vp += nb.size\n        }\n"
+                  off mv off off (+ off 4) (kt-struct-companion model f) off (kt-struct-companion model f) off)]
+        [(member t '(9 12))
+         (fprintf out "        if (~a.isNotEmpty()) {\n            put32(buf, ~a, vp); put32(buf, ~a, ~a)\n            ~a\n        }\n"
+                  mv off (+ off 4)
+                  (if (= t 9) (format "~a.toByteArray(Charsets.UTF_8).size" mv) (format "~a.size" mv))
+                  (if (= t 9)
+                      (format "val sb = ~a.toByteArray(Charsets.UTF_8); sb.copyInto(buf, vp); vp += sb.size" mv)
+                      (format "~a.copyInto(buf, vp); vp += ~a.size" mv mv)))]
+        [else
+         (fprintf out "        run { val off = ~a; ~a }\n" off (kt-struct-scalar-encode f mv))])
+  (get-output-string out))
+
+(define (kt-struct-value-read/off model f target lenvar offv)
+  (define t (hash-ref f 'type))
+  (cond [(= t 9) (format "~a = String(data, ~a, ~a, Charsets.UTF_8)" target offv lenvar)]
+        [(= t 12) (format "~a = data.copyOfRange(~a, ~a + ~a)" target offv offv lenvar)]
+        [(= t 11) (format "if (~a > 0) { ~a = ~a.unmarshal(data.copyOfRange(~a, ~a + ~a)) } else { ~a = ~a() }"
+                          lenvar target (kt-struct-companion model f) offv offv lenvar
+                          target (kt-struct-simple-name (hash-ref f 'type-name)))]
+        [else (format "~a = ~a" target (kt-struct-scalar-value/off model f offv))]))
+
+(define (kt-struct-value-expr/off model f lenvar offv)
+  (define t (hash-ref f 'type))
+  (cond [(= t 9) (format "String(data, ~a, ~a, Charsets.UTF_8)" offv lenvar)]
+        [(= t 12) (format "data.copyOfRange(~a, ~a + ~a)" offv offv lenvar)]
+        [(= t 11) (format "if (~a > 0) ~a.unmarshal(data.copyOfRange(~a, ~a + ~a)) else ~a()"
+                          lenvar (kt-struct-companion model f) offv offv lenvar
+                          (kt-struct-simple-name (hash-ref f 'type-name)))]
+        [else (kt-struct-scalar-value/off model f offv)]))
+
+(define (kt-struct-decode-field model f foff)
+  (define kn (kt-struct-field-name f))
+  (define t (hash-ref f 'type))
+  (define out (open-output-string))
+  (define mv (format "m.~a" kn))
+  (cond [(kt-struct-map-entry model f)
+         (define kf (kt-struct-map-key-field model f))
+         (define vf (kt-struct-map-val-field model f))
+         (fprintf out "            val off = get32(data, ~a); val n = get32(data, ~a)\n" foff (+ foff 4))
+         (fprintf out "            var p = off\n            for (i in 0 until n) {\n")
+         (fprintf out "                check(data, p, 8)\n                val kl = get32(data, p); val vl = get32(data, p + 4); p += 8\n                check(data, p, kl + vl)\n")
+         (fprintf out "                val k = run { val io = p; ~a }\n" (kt-struct-value-expr/off model kf "kl" "io"))
+         (fprintf out "                val v = run { val io = p + kl; ~a }\n" (kt-struct-value-expr/off model vf "vl" "io"))
+         (fprintf out "                ~a[k] = v\n                p += kl + vl\n            }\n            if (p > vend) { vend = p }\n" mv)]
+        [(= (hash-ref f 'label) 3)
+         (fprintf out "            val off = get32(data, ~a); val n = get32(data, ~a)\n" foff (+ foff 4))
+         (cond [(member t '(9 12))
+                (fprintf out "            for (i in 0 until n) {\n                val eo = get32(data, off + 8 * i); val el = get32(data, off + 8 * i + 4)\n                check(data, eo, el)\n                ~a.add(~a)\n                if (eo + el > vend) { vend = eo + el }\n            }\n"
+                         mv (if (= t 9) "String(data, eo, el, Charsets.UTF_8)" "data.copyOfRange(eo, eo + el)"))]
+               [(= t 11)
+                (fprintf out "            for (i in 0 until n) {\n                val eo = get32(data, off + 8 * i); val el = get32(data, off + 8 * i + 4)\n                if (el > 0) {\n                    check(data, eo, el)\n                    ~a.add(~a.unmarshal(data.copyOfRange(eo, eo + el)))\n                    if (eo + el > vend) { vend = eo + el }\n                }\n            }\n"
+                         mv (kt-struct-companion model f))]
+               [else
+                (define esz (if (kt-struct-fixed32-type? t) 4 8))
+                (fprintf out "            check(data, off, n * ~a)\n            for (i in 0 until n) {\n                val eo = off + i * ~a\n                ~a.add(~a)\n            }\n            if (off + n * ~a > vend) { vend = off + n * ~a }\n"
+                         esz esz mv (kt-struct-scalar-value/off model f "eo") esz esz)])]
+        [(= t 11)
+         (fprintf out "            val off = get32(data, ~a); val el = get32(data, ~a)\n" foff (+ foff 4))
+         (fprintf out "            check(data, off, el)\n            ~a = ~a.unmarshal(data.copyOfRange(off, off + el))\n            if (off + el > vend) { vend = off + el }\n" mv (kt-struct-companion model f))]
+        [(member t '(9 12))
+         (fprintf out "            val off = get32(data, ~a); val el = get32(data, ~a)\n" foff (+ foff 4))
+         (fprintf out "            check(data, off, el)\n")
+         (if (= t 9)
+             (fprintf out "            ~a = String(data, off, el, Charsets.UTF_8)\n" mv)
+             (fprintf out "            ~a = data.copyOfRange(off, off + el)\n" mv))
+         (fprintf out "            if (off + el > vend) { vend = off + el }\n")]
+        [else
+         (fprintf out "            val off = ~a\n            ~a = ~a\n" foff mv
+                  (kt-struct-scalar-value/off model f "off"))])
+  (get-output-string out))
+
+(define (emit-kotlin-struct-files file-model params pkg)
+  (if (equal? (hash-ref params 'struct_codec #f) "true")
+      (let ()
+        (define comps '())
+        (define (emit-comp msg)
+          (unless (hash-ref msg 'map-entry)
+            (set! comps
+                  (cons (cons (string-append (kt-struct-type-name file-model msg) "Struct.kt")
+                              (string-append
+                               "// @generated by protoc-gen-grpc-dc-kotlin. DO NOT EDIT.\n"
+                               (format "// source: ~a\n\n" (hash-ref file-model 'name))
+                               (format "package ~a\n\n" (if (string=? pkg "") "proto" pkg))
+                               (kt-struct-message file-model msg)))
+                        comps)))
+          (for ([n (in-list (hash-ref msg 'nested))]) (emit-comp n)))
+        (for ([m (in-list (hash-ref file-model 'messages))]) (emit-comp m))
+        (reverse comps))
+      '()))

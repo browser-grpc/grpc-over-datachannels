@@ -116,7 +116,7 @@
   (for ([t (in-list service-types)])
     (define e (hash-ref (hash-ref file-model 'types) t #f))
     (when (and e (not (eq? (hash-ref e 'kind) 'enum))) (add-import! e #t)))
-  (and (or (pair? messages) (positive? (hash-count reexports)))
+  (and (or (pair? messages) (pair? (hash-ref file-model 'enums)) (positive? (hash-count reexports)))
        (let ()
          (define base (path->string (path-replace-extension
                                      (file-name-from-path (hash-ref file-model 'name)) "")))

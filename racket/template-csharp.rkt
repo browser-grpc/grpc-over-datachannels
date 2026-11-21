@@ -311,5 +311,322 @@
                 (map csharp-service
                      (cs-qualify-services pkg (hash-ref file-model 'services))))
          "}\n")))
-  (define pb-files (emit-csharp-pb-files file-model))
-  (if pb-files (cons stub pb-files) stub))
+  (define pb-files (parameterize ([seg-struct-codec (equal? (hash-ref params 'struct_codec #f) "true")])
+                     (emit-csharp-pb-files file-model)))
+  (define struct-files (emit-csharp-struct-files file-model params))
+  (if (null? struct-files)
+      (if pb-files (cons stub pb-files) stub)
+      (append (cons stub pb-files) struct-files)))
+
+;; ------------------------------------------------------------------
+;; Struct codec (struct_codec=true): <Msg>Struct static class per
+;; message with the packed layout from SPEC.md (byte-identical to
+;; the other struct codecs; verified by conformance/struct).
+(define (cs-struct-fingerprint s)
+  (for/fold ([h 2166136261]) ([c (in-string s)])
+    (modulo (* (bitwise-xor h (char->integer c)) 16777619) 4294967296)))
+
+(define (cs-struct-fixed32-type? t) (member t '(2 7 15)))
+(define (cs-struct-fixed64-type? t) (member t '(1 6 16)))
+
+(define (cs-struct-slot-size f)
+  (if (cs-struct-fixed32-type? (hash-ref f 'type)) 4 8))
+
+(define (cs-struct-sorted-fields msg)
+  (sort (hash-ref msg 'fields) < #:key (lambda (f) (hash-ref f 'number))))
+
+(define (cs-struct-map-entry model f)
+  (and (= (hash-ref f 'type) 11)
+       (let ([e (cs-pb-resolve model (hash-ref f 'type-name))])
+         (and (eq? (hash-ref e 'kind) 'map) e))))
+
+(define (cs-struct-map-key-field model f)
+  (define em (hash-ref (cs-struct-map-entry model f) 'msg))
+  (findf (lambda (x) (= (hash-ref x 'number) 1)) (hash-ref em 'fields)))
+(define (cs-struct-map-val-field model f)
+  (define em (hash-ref (cs-struct-map-entry model f) 'msg))
+  (findf (lambda (x) (= (hash-ref x 'number) 2)) (hash-ref em 'fields)))
+
+(define (cs-struct-type-name model msg)
+  (define full (hash-ref msg 'full-name))
+  (define pkg (hash-ref model 'package))
+  (define rel (if (and pkg (not (string=? pkg ""))
+                       (string-prefix? full (string-append pkg ".")))
+                  (substring full (add1 (string-length pkg)))
+                  full))
+  (string-join (string-split rel ".") "_"))
+
+(define (cs-struct-class-name model f)
+  (define e (cs-pb-resolve model (hash-ref f 'type-name)))
+  (cs-struct-type-name model (hash-ref e 'msg)))
+
+(define (cs-struct-companion model f)
+  (string-append (cs-struct-class-name model f) "Struct"))
+
+(define (cs-struct-bridge-name model)
+  (string-append (pascal (string->symbol
+                          (path->string (path-replace-extension
+                                         (file-name-from-path (hash-ref model 'name)) ""))))
+                 "StructDc"))
+
+(define (cs-struct-field-name f)
+  (seg-cs-pascal-struct (hash-ref f 'name)))
+
+(define (seg-cs-pascal-struct s)
+  (string-join
+   (map (lambda (part)
+          (if (string=? part "") "" (string-append (string (char-upcase (string-ref part 0))) (substring part 1))))
+        (string-split s "_")) ""))
+
+(define (cs-struct-present f cn)
+  (define t (hash-ref f 'type))
+  (cond [(cs-struct-map-entry (current-struct-model) f) (format "m.~a.Count > 0" cn)]
+        [(= (hash-ref f 'label) 3) (format "m.~a.Count > 0" cn)]
+        [(= t 11) (format "m.~a != null" cn)]
+        [(= t 9) (format "m.~a.Length > 0" cn)]
+        [(= t 12) (format "m.~a.Length > 0" cn)]
+        [(= t 8) (format "m.~a" cn)]
+        [(= t 14) (format "(int)m.~a != 0" cn)]
+        [else (format "m.~a != 0" cn)]))
+
+(define current-struct-model (make-parameter #f))
+
+(define (cs-struct-scalar-encode f v)
+  (define t (hash-ref f 'type))
+  (cond [(cs-struct-fixed32-type? t)
+         (if (= t 2)
+             (format "Put32(buf, off, BitConverter.ToInt32(BitConverter.GetBytes(~a), 0));" v)
+             (format "Put32(buf, off, (int)~a);" v))]
+        [(cs-struct-fixed64-type? t)
+         (if (= t 1)
+             (format "Put64(buf, off, BitConverter.DoubleToInt64Bits(~a));" v)
+             (format "Put64(buf, off, (long)~a);" v))]
+        [(= t 8) (format "buf[off] = (byte)(~a ? 1 : 0);" v)]
+        [(= t 14) (format "Put64(buf, off, (int)~a);" v)]
+        [else (format "Put64(buf, off, (long)~a);" v)]))
+
+(define (cs-struct-scalar-decode/off model f target offv)
+  (define t (hash-ref f 'type))
+  (cond [(cs-struct-fixed32-type? t)
+         (if (= t 2)
+             (format "~a = BitConverter.ToSingle(BitConverter.GetBytes(Get32(data, ~a)), 0);" target offv)
+             (format "~a = Get32(data, ~a);" target offv))]
+        [(cs-struct-fixed64-type? t)
+         (if (= t 1)
+             (format "~a = BitConverter.Int64BitsToDouble(Get64(data, ~a));" target offv)
+             (format "~a = (~a)Get64(data, ~a);" target (cs-pb-type model (hash-set f 'label 1)) offv))]
+        [(= t 8) (format "~a = data[~a] != 0;" target offv)]
+        [(= t 14) (format "~a = (~a)(int)Get64(data, ~a);" target
+                          (cs-pb-type model (hash-set f 'label 1)) offv)]
+        [(member t '(5 17)) (format "~a = (int)Get64(data, ~a);" target offv)]
+        [else (format "~a = (~a)Get64(data, ~a);" target (cs-pb-type model (hash-set f 'label 1)) offv)]))
+
+(define (cs-struct-scalar-value/off model f offv)
+  (define t (hash-ref f 'type))
+  (cond [(cs-struct-fixed32-type? t)
+         (if (= t 2) (format "BitConverter.ToSingle(BitConverter.GetBytes(Get32(data, ~a)), 0)" offv)
+             (format "Get32(data, ~a)" offv))]
+        [(cs-struct-fixed64-type? t)
+         (if (= t 1) (format "BitConverter.Int64BitsToDouble(Get64(data, ~a))" offv)
+             (format "Get64(data, ~a)" offv))]
+        [(= t 8) (format "(data[~a] != 0)" offv)]
+        [(= t 14) (format "(~a)(int)Get64(data, ~a)" (cs-pb-type model (hash-set f 'label 1)) offv)]
+        [(member t '(5 17)) (format "(int)Get64(data, ~a)" offv)]
+        [else (format "(~a)Get64(data, ~a)" (cs-pb-type model (hash-set f 'label 1)) offv)]))
+
+(define (cs-struct-value-size model f v)
+  (define t (hash-ref f 'type))
+  (cond [(= t 9) (format "System.Text.Encoding.UTF8.GetBytes(~a).Length" v)]
+        [(= t 12) (format "~a.Length" v)]
+        [(= t 11) (format "(~a == null ? 0 : ~a.Size(~a))" v (cs-struct-companion model f) v)]
+        [(cs-struct-fixed32-type? t) "4"]
+        [else "8"]))
+
+(define (cs-struct-message model msg)
+  (parameterize ([current-struct-model model])
+    (cs-struct-message/inner model msg)))
+
+(define (cs-struct-message/inner model msg)
+  (define type-name (cs-struct-type-name model msg))
+  (define bridge (cs-struct-bridge-name model))
+  (define out (open-output-string))
+  (fprintf out "public static class ~aStruct {\n" type-name)
+  (fprintf out "    public static int Size(~a m) => Marshal(m).Length;\n\n" type-name)
+  (fprintf out "    public static byte[] Marshal(~a m) => ~a.Encode(\"~a\", m.MarshalDc());\n\n" type-name bridge (hash-ref msg 'full-name))
+  (fprintf out "    public static ~a Unmarshal(byte[] data) {\n        var m = new ~a();\n        m.UnmarshalDc(~a.Decode(\"~a\", data));\n        return m;\n    }\n}\n" type-name type-name bridge (hash-ref msg 'full-name))
+  (get-output-string out))
+
+(define (cs-struct-value-write model f v)
+  (define t (hash-ref f 'type))
+  (define out (open-output-string))
+  (cond [(= t 9)
+         (fprintf out "                { var sb = System.Text.Encoding.UTF8.GetBytes(~a); System.Array.Copy(sb, 0, buf, vp, sb.Length); vp += sb.Length; }\n" v)]
+        [(= t 12)
+         (fprintf out "                System.Array.Copy(~a, 0, buf, vp, ~a.Length); vp += ~a.Length;\n" v v v)]
+        [(= t 11)
+         (fprintf out "                if (~a != null) { var nb = ~a.Marshal(~a); System.Array.Copy(nb, 0, buf, vp, nb.Length); vp += nb.Length; }\n" v (cs-struct-companion model f) v)]
+        [else
+         (fprintf out "                { int off = vp; ~a } vp += ~a;\n"
+                  (cs-struct-scalar-encode f v) (if (cs-struct-fixed32-type? t) 4 8))])
+  (get-output-string out))
+
+(define (cs-struct-marshal-field model f off)
+  (define cn (cs-struct-field-name f))
+  (define t (hash-ref f 'type))
+  (define out (open-output-string))
+  (define mv (format "m.~a" cn))
+  (cond [(cs-struct-map-entry model f)
+         (define kf (cs-struct-map-key-field model f))
+         (define vf (cs-struct-map-val-field model f))
+         (fprintf out "        if (~a.Count > 0) {\n            Put32(buf, ~a, vp); Put32(buf, ~a, ~a.Count);\n" mv off (+ off 4) mv)
+         (fprintf out "            var keys = new System.Collections.Generic.List<~a>(~a.Keys);\n            keys.Sort();\n"
+                  (cs-pb-type model (hash-set kf 'label 1)) mv)
+         (fprintf out "            foreach (var k in keys) {\n                var v = ~a[k];\n                Put32(buf, vp, ~a); Put32(buf, vp + 4, ~a); vp += 8;\n"
+                  mv (cs-struct-value-size model kf "k") (cs-struct-value-size model vf "v"))
+         (display (cs-struct-value-write model kf "k") out)
+         (display (cs-struct-value-write model vf "v") out)
+         (fprintf out "            }\n        }\n")]
+        [(= (hash-ref f 'label) 3)
+         (cond [(member t '(9 12))
+                (fprintf out "        if (~a.Count > 0) {\n            Put32(buf, ~a, vp); Put32(buf, ~a, ~a.Count);\n            int doff = vp + 8 * ~a.Count;\n            foreach (var e in ~a) { Put32(buf, vp, doff); Put32(buf, vp + 4, ~a); doff += ~a; vp += 8; }\n            foreach (var e in ~a) { ~a }\n        }\n"
+                         mv off (+ off 4) mv mv mv
+                         (if (= t 9) "System.Text.Encoding.UTF8.GetBytes(e).Length" "e.Length")
+                         (if (= t 9) "System.Text.Encoding.UTF8.GetBytes(e).Length" "e.Length")
+                         mv
+                         (if (= t 9) "var sb = System.Text.Encoding.UTF8.GetBytes(e); System.Array.Copy(sb, 0, buf, vp, sb.Length); vp += sb.Length;"
+                             "System.Array.Copy(e, 0, buf, vp, e.Length); vp += e.Length;"))]
+               [(= t 11)
+                (fprintf out "        if (~a.Count > 0) {\n            Put32(buf, ~a, vp); Put32(buf, ~a, ~a.Count);\n            int doff = vp + 8 * ~a.Count;\n            foreach (var e in ~a) { int es = ~a.Size(e); Put32(buf, vp, doff); Put32(buf, vp + 4, es); doff += es; vp += 8; }\n            foreach (var e in ~a) { var nb = ~a.Marshal(e); System.Array.Copy(nb, 0, buf, vp, nb.Length); vp += nb.Length; }\n        }\n"
+                         mv off (+ off 4) mv mv mv (cs-struct-companion model f)
+                         mv (cs-struct-companion model f))]
+               [else
+                (fprintf out "        if (~a.Count > 0) {\n            Put32(buf, ~a, vp); Put32(buf, ~a, ~a.Count);\n            foreach (var e in ~a) { int off = vp; ~a vp += ~a; }\n        }\n"
+                         mv off (+ off 4) mv
+                         mv
+                         (cs-struct-scalar-encode f "e")
+                         (if (cs-struct-fixed32-type? t) 4 8))])]
+        [(= t 11)
+         (fprintf out "        if (~a != null) {\n            Put32(buf, ~a, vp); Put32(buf, ~a, ~a.Size(~a));\n            var nb = ~a.Marshal(~a); System.Array.Copy(nb, 0, buf, vp, nb.Length); vp += nb.Length;\n        }\n"
+                  mv off (+ off 4) (cs-struct-companion model f) mv (cs-struct-companion model f) mv)]
+        [(member t '(9 12))
+         (fprintf out "        if (~a.Length > 0) {\n            Put32(buf, ~a, vp); Put32(buf, ~a, ~a);\n            ~a\n        }\n"
+                  mv off (+ off 4)
+                  (if (= t 9) (format "System.Text.Encoding.UTF8.GetBytes(~a).Length" mv) (format "~a.Length" mv))
+                  (if (= t 9)
+                      (format "var sb = System.Text.Encoding.UTF8.GetBytes(~a); System.Array.Copy(sb, 0, buf, vp, sb.Length); vp += sb.Length;" mv)
+                      (format "System.Array.Copy(~a, 0, buf, vp, ~a.Length); vp += ~a.Length;" mv mv mv)))]
+        [else
+         (fprintf out "        { int off = ~a; ~a }\n" off (cs-struct-scalar-encode f mv))])
+  (get-output-string out))
+
+(define (cs-struct-value-read/off model f target lenvar offv)
+  (define t (hash-ref f 'type))
+  (cond [(= t 9) (format "~a = System.Text.Encoding.UTF8.GetString(data, ~a, ~a);" target offv lenvar)]
+        [(= t 12) (format "~a = Slice(data, ~a, ~a);" target offv lenvar)]
+        [(= t 11) (format "if (~a > 0) { ~a = ~a.Unmarshal(Slice(data, ~a, ~a)); } else { ~a = new ~a(); }" lenvar target (cs-struct-companion model f) offv lenvar target (cs-struct-class-name model f))]
+        [else (cs-struct-scalar-decode/off model f target offv)]))
+
+(define (cs-struct-decode-field model f foff)
+  (define cn (cs-struct-field-name f))
+  (define t (hash-ref f 'type))
+  (define out (open-output-string))
+  (define mv (format "m.~a" cn))
+  (cond [(cs-struct-map-entry model f)
+         (define kf (cs-struct-map-key-field model f))
+         (define vf (cs-struct-map-val-field model f))
+         (fprintf out "            int off = Get32(data, ~a); int n = Get32(data, ~a);\n" foff (+ foff 4))
+         (fprintf out "            int p = off;\n            for (int i = 0; i < n; i++) {\n")
+         (fprintf out "                Check(data, p, 8);\n                int kl = Get32(data, p); int vl = Get32(data, p + 4); p += 8;\n                Check(data, p, kl + vl);\n")
+         (fprintf out "                ~a k; { int io = p; ~a }\n" (cs-pb-type model (hash-set kf 'label 1)) (cs-struct-value-read/off model kf "k" "kl" "io"))
+         (fprintf out "                ~a v; { int io = p + kl; ~a }\n" (cs-pb-type model (hash-set vf 'label 1)) (cs-struct-value-read/off model vf "v" "vl" "io"))
+         (fprintf out "                ~a[k] = v;\n                p += kl + vl;\n            }\n            if (p > vend) { vend = p; }\n" mv)]
+        [(= (hash-ref f 'label) 3)
+         (fprintf out "            int off = Get32(data, ~a); int n = Get32(data, ~a);\n" foff (+ foff 4))
+         (cond [(member t '(9 12))
+                (fprintf out "            for (int i = 0; i < n; i++) {\n                int eo = Get32(data, off + 8 * i); int el = Get32(data, off + 8 * i + 4);\n                Check(data, eo, el);\n                ~a.Add(~a);\n                if (eo + el > vend) { vend = eo + el; }\n            }\n"
+                         mv (if (= t 9) "System.Text.Encoding.UTF8.GetString(data, eo, el)" "Slice(data, eo, el)"))]
+               [(= t 11)
+                (fprintf out "            for (int i = 0; i < n; i++) {\n                int eo = Get32(data, off + 8 * i); int el = Get32(data, off + 8 * i + 4);\n                if (el > 0) {\n                    Check(data, eo, el);\n                    ~a.Add(~a.Unmarshal(Slice(data, eo, el)));\n                    if (eo + el > vend) { vend = eo + el; }\n                } else { ~a.Add(null); }\n            }\n"
+                         mv (cs-struct-companion model f) mv)]
+               [else
+                (define esz (if (cs-struct-fixed32-type? t) 4 8))
+                (fprintf out "            Check(data, off, n * ~a);\n            for (int i = 0; i < n; i++) {\n                int eo = off + i * ~a;\n                ~a.Add(~a);\n            }\n            if (off + n * ~a > vend) { vend = off + n * ~a; }\n"
+                         esz esz mv (cs-struct-scalar-value/off model f "eo") esz esz)])]
+        [(= t 11)
+         (fprintf out "            int off = Get32(data, ~a); int el = Get32(data, ~a);\n" foff (+ foff 4))
+         (fprintf out "            Check(data, off, el);\n            ~a = ~a.Unmarshal(Slice(data, off, el));\n            if (off + el > vend) { vend = off + el; }\n" mv (cs-struct-companion model f))]
+        [(member t '(9 12))
+         (fprintf out "            int off = Get32(data, ~a); int el = Get32(data, ~a);\n" foff (+ foff 4))
+         (fprintf out "            Check(data, off, el);\n")
+         (if (= t 9)
+             (fprintf out "            ~a = System.Text.Encoding.UTF8.GetString(data, off, el);\n" mv)
+             (fprintf out "            ~a = Slice(data, off, el);\n" mv))
+         (fprintf out "            if (off + el > vend) { vend = off + el; }\n")]
+        [else
+         (fprintf out "            int off = ~a;\n            ~a\n" foff
+                  (cs-struct-scalar-decode/off model f mv "off"))])
+  (get-output-string out))
+
+(define (cs-struct-bridge-file model)
+  (define pkg (hash-ref model 'package))
+  (string-append
+   "// @generated by protoc-gen-grpc-dc-csharp. DO NOT EDIT.\n"
+   (format "// source: ~a\n\n" (hash-ref model 'name))
+   "using System;\nusing System.Runtime.InteropServices;\n\n"
+   (format "namespace ~a;\n\n" (cs-pb-ns pkg))
+   (format "internal static class ~a {\n" (cs-struct-bridge-name model))
+   (format "    private static readonly byte[] Descriptor = new byte[] {~a};\n\n"
+           (string-join
+            (for/list ([b (in-bytes (hash-ref model 'descriptor-set #""))])
+              (format "0x~x" b))
+            ","))
+   "    [DllImport(\"grpc_dc\", EntryPoint = \"grpcdc_struct_encode\")]\n"
+   "    private static extern int StructEncode(byte[] desc, UIntPtr descLen, byte[] typeName, UIntPtr typeLen, byte[] input, UIntPtr inputLen, out IntPtr output, out UIntPtr outputLen, out IntPtr error);\n\n"
+   "    [DllImport(\"grpc_dc\", EntryPoint = \"grpcdc_struct_decode\")]\n"
+   "    private static extern int StructDecode(byte[] desc, UIntPtr descLen, byte[] typeName, UIntPtr typeLen, byte[] input, UIntPtr inputLen, out IntPtr output, out UIntPtr outputLen, out IntPtr error);\n\n"
+   "    [DllImport(\"grpc_dc\", EntryPoint = \"grpcdc_struct_free\")]\n"
+   "    private static extern void StructFree(IntPtr ptr, UIntPtr len);\n\n"
+   "    [DllImport(\"grpc_dc\", EntryPoint = \"grpcdc_struct_error_free\")]\n"
+   "    private static extern void StructErrorFree(IntPtr ptr);\n\n"
+   "    public static byte[] Encode(string typeName, byte[] pb) => Transcode(true, typeName, pb);\n\n"
+   "    public static byte[] Decode(string typeName, byte[] data) => Transcode(false, typeName, data);\n\n"
+   "    private static byte[] Transcode(bool encode, string typeName, byte[] input) {\n"
+   "        var typeBytes = System.Text.Encoding.UTF8.GetBytes(typeName);\n"
+   "        IntPtr output; UIntPtr outputLen; IntPtr error;\n"
+   "        var rc = encode\n"
+   "            ? StructEncode(Descriptor, (UIntPtr)Descriptor.Length, typeBytes, (UIntPtr)typeBytes.Length, input, (UIntPtr)input.Length, out output, out outputLen, out error)\n"
+   "            : StructDecode(Descriptor, (UIntPtr)Descriptor.Length, typeBytes, (UIntPtr)typeBytes.Length, input, (UIntPtr)input.Length, out output, out outputLen, out error);\n"
+   "        if (rc != 0) {\n"
+   "            var msg = \"struct codec transcode failed\";\n"
+   "            if (error != IntPtr.Zero) { var elen = 0; while (Marshal.ReadByte(error, elen) != 0) { elen++; } var ebytes = new byte[elen]; Marshal.Copy(error, ebytes, 0, elen); msg = System.Text.Encoding.UTF8.GetString(ebytes); StructErrorFree(error); }\n"
+   "            throw new InvalidOperationException(msg);\n"
+   "        }\n"
+   "        var result = new byte[(int)outputLen];\n"
+   "        Marshal.Copy(output, result, 0, result.Length);\n"
+   "        StructFree(output, outputLen);\n"
+   "        return result;\n"
+   "    }\n"
+   "}\n"))
+
+(define (emit-csharp-struct-files file-model params)
+  (if (equal? (hash-ref params 'struct_codec #f) "true")
+      (let ()
+        (define pkg (hash-ref file-model 'package))
+        (define comps '())
+        (define (emit-comp msg)
+          (unless (hash-ref msg 'map-entry)
+            (set! comps
+                  (cons (cons (string-append (cs-struct-type-name file-model msg) "Struct.cs")
+                              (string-append
+                               "// @generated by protoc-gen-grpc-dc-csharp. DO NOT EDIT.\n"
+                               (format "// source: ~a\n\n" (hash-ref file-model 'name))
+                               "using System;\n\n"
+                               (format "namespace ~a;\n\n" (cs-pb-ns pkg))
+                               (cs-struct-message file-model msg)))
+                        comps)))
+          (for ([n (in-list (hash-ref msg 'nested))]) (emit-comp n)))
+        (for ([m (in-list (hash-ref file-model 'messages))]) (emit-comp m))
+        (cons (cons (string-append (cs-struct-bridge-name file-model) ".cs")
+                    (cs-struct-bridge-file file-model))
+              (reverse comps)))
+      '()))

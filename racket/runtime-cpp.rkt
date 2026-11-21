@@ -394,6 +394,11 @@ struct Codec {
   static constexpr std::size_t kHeaderLen = 9;
   static constexpr std::size_t kMaxDataPayload = 16 * 1024 * 1024;
 
+  /// HEADERS metadata key a client sends to request the struct codec for a call.
+  static constexpr const char* kStructCodecHeader = "dc-codec";
+  static constexpr const char* kStructCodecV1 = "struct-v1";
+
+
   struct Frame {
     int type = 0;
     std::uint32_t stream_id = 0;
@@ -618,13 +623,39 @@ class Transport {
 struct Marshaler {
   virtual ~Marshaler() = default;
   virtual Bytes MarshalDc() const = 0;
+
+  /// Struct-layout encoding (see Codec::kStructCodecV1). Messages
+  /// generated without struct_codec=true inherit this error,
+  /// mirroring the Go runtime's "message has no struct codec".
+  virtual Bytes MarshalStruct() const {
+    throw StatusException(wire::kCodeInternal, "message has no struct codec");
+  }
 };
 
 /// Implemented by hand-written protobuf message types.
 struct Unmarshaler {
   virtual ~Unmarshaler() = default;
   virtual void UnmarshalDc(const Bytes& data) = 0;
+
+  /// Decoding side of Marshaler::MarshalStruct.
+  virtual void UnmarshalStruct(const Bytes& data) {
+    throw StatusException(wire::kCodeInternal, "message has no struct codec");
+  }
 };
+
+/// Marshal msg with the codec selected for a call (struct layout when negotiated).
+inline Bytes MarshalForCodec(bool struct_codec, const Marshaler& msg) {
+  return struct_codec ? msg.MarshalStruct() : msg.MarshalDc();
+}
+
+/// Decode data into msg with the codec selected for a call.
+inline void UnmarshalForCodec(bool struct_codec, const Bytes& data, Unmarshaler& msg) {
+  if (struct_codec) {
+    msg.UnmarshalStruct(data);
+  } else {
+    msg.UnmarshalDc(data);
+  }
+}
 
 }  // namespace grpcdc
 GRPC_RUNTIME_EOF
@@ -764,6 +795,13 @@ class Endpoint : public std::enable_shared_from_this<Endpoint> {
     Metadata metadata;
     /// This call's server span context (empty when dormant).
     mutable std::optional<Tracing::TraceContext> trace_context;
+    /// Whether this call negotiated the struct codec (HEADERS dc-codec: struct-v1).
+    mutable bool struct_codec = false;
+
+    /// Marshal a response message with this call's negotiated codec (generated server code calls this).
+    Bytes EncodeMessage(const Marshaler& msg) const {
+      return MarshalForCodec(struct_codec, msg);
+    }
     std::shared_ptr<ResponseMeta> response = std::make_shared<ResponseMeta>();
 
     /// Record response initial metadata (sent lazily, before
@@ -1180,6 +1218,15 @@ namespace grpcdc {
 /// Channel: the client side of one Endpoint.
 class Channel {
  public:
+  /// Make every call on this channel request the struct codec
+  /// (HEADERS marker dc-codec: struct-v1) and encode requests /
+  /// decode responses with it. The server must enable it too
+  /// (see Server::SetStructCodec); otherwise calls fail
+  /// Unimplemented. Mirrors the Go Channel.SetStructCodec.
+  void SetStructCodec(bool enabled) { struct_codec_ = enabled; }
+
+  /// Whether this channel requests the struct codec on every call.
+  bool struct_codec() const { return struct_codec_; }
   /// Wrap a transport, allocating odd stream ids.
   explicit Channel(std::shared_ptr<Transport> transport)
       : endpoint_(std::make_shared<Endpoint>(std::move(transport), true)) {
@@ -1199,6 +1246,7 @@ class Channel {
   Channel WithTraceContext(const std::optional<Tracing::TraceContext>& ctx) const {
     Channel ch(endpoint_);
     ch.trace_context_ = ctx;
+    ch.struct_codec_ = struct_codec_;
     return ch;
   }
 
@@ -1219,7 +1267,8 @@ class Channel {
           trace_ctx_(other.trace_ctx_),
           trace_path_(std::move(other.trace_path_)),
           trace_ended_(other.trace_ended_),
-          terminated_(other.terminated_) {
+          terminated_(other.terminated_),
+          struct_codec_(other.struct_codec_) {
       other.terminated_ = true;
     }
     ClientStream& operator=(ClientStream&& other) noexcept {
@@ -1235,6 +1284,7 @@ class Channel {
         trace_path_ = std::move(other.trace_path_);
         trace_ended_ = other.trace_ended_;
         terminated_ = other.terminated_;
+        struct_codec_ = other.struct_codec_;
         other.terminated_ = true;
       }
       return *this;
@@ -1280,7 +1330,7 @@ class Channel {
             headers_ = evt.headers;
             break;
           case Endpoint::EventKind::kData:
-            resp.UnmarshalDc(evt.payload);
+            UnmarshalForCodec(struct_codec_, evt.payload, resp);
             return;
           case Endpoint::EventKind::kTrailers:
             terminated_ = true;
@@ -1313,8 +1363,8 @@ class Channel {
 
     /// Send one request message on an open stream (no half-close).
     void Send(const Marshaler& msg) {
-      endpoint_->SendFrame(
-          Codec::EncodeFrame(wire::kFrameData, stream_id_, msg.MarshalDc()));
+      endpoint_->SendFrame(Codec::EncodeFrame(wire::kFrameData, stream_id_,
+                                               MarshalForCodec(struct_codec_, msg)));
     }
 
     /// Half-close an open stream (no more requests).
@@ -1348,6 +1398,7 @@ class Channel {
     std::string trace_path_;
     bool trace_ended_ = false;
     bool terminated_ = false;
+    bool struct_codec_ = false;
   };
 
   /// Abort an open ClientStream (sends RST, wakes pending Recv).
@@ -1455,8 +1506,11 @@ class Channel {
     const Metadata* md = metadata;
     std::optional<std::chrono::steady_clock::time_point> deadline;
     std::optional<Tracing::TraceContext> trace_ctx;
-    if (timeout || Tracing::Enabled()) {
+    if (timeout || Tracing::Enabled() || struct_codec_) {
       if (metadata) merged = *metadata;
+      if (struct_codec_) {
+        merged[Codec::kStructCodecHeader] = Codec::kStructCodecV1;
+      }
       if (timeout) {
         deadline = std::chrono::steady_clock::now() + *timeout;
         merged["grpc-timeout"] = Codec::EncodeTimeout(*timeout);
@@ -1482,6 +1536,7 @@ class Channel {
       throw;
     }
     ClientStream stream(opened.first, opened.second);
+    stream.struct_codec_ = struct_codec_;
     stream.endpoint_ = endpoint_;
     stream.deadline_ = deadline;
     stream.trace_ctx_ = trace_ctx;
@@ -1490,8 +1545,9 @@ class Channel {
   }
 
   void SendMessage(ClientStream& stream, const Marshaler& msg) {
-    endpoint_->SendFrame(
-        Codec::EncodeFrame(wire::kFrameData, stream.stream_id(), msg.MarshalDc()));
+    endpoint_->SendFrame(Codec::EncodeFrame(
+        wire::kFrameData, stream.stream_id(),
+        MarshalForCodec(stream.struct_codec_, msg)));
   }
 
   void HalfClose(ClientStream& stream) {
@@ -1506,6 +1562,7 @@ class Channel {
 
   std::shared_ptr<Endpoint> endpoint_;
   std::optional<Tracing::TraceContext> trace_context_;
+  bool struct_codec_ = false;
 };
 
 }  // namespace grpcdc
@@ -1537,8 +1594,9 @@ class Server {
   /// Reads request messages of one inbound call.
   class RequestStream {
    public:
-    explicit RequestStream(std::shared_ptr<Endpoint::StreamInput> input)
-        : input_(std::move(input)) {}
+    explicit RequestStream(std::shared_ptr<Endpoint::StreamInput> input,
+                           bool struct_codec = false)
+        : input_(std::move(input)), struct_codec_(struct_codec) {}
 
     /// Next request payload; EndOfStream at half-close.
     Bytes RecvRaw() {
@@ -1563,10 +1621,13 @@ class Server {
     }
 
     /// Decode the next request message into req.
-    void RecvInto(Unmarshaler& req) { req.UnmarshalDc(RecvRaw()); }
+    void RecvInto(Unmarshaler& req) {
+      UnmarshalForCodec(struct_codec_, RecvRaw(), req);
+    }
 
    private:
     std::shared_ptr<Endpoint::StreamInput> input_;
+    bool struct_codec_ = false;
   };
 
   /// Sends response payloads of one inbound call.
@@ -1618,7 +1679,18 @@ class Server {
   /// handlers stay valid as long as the endpoint lives.
   struct Shared {
     std::map<std::string, Method> methods;
+    bool struct_codec = false;
   };
+
+ public:
+  /// Enable the struct codec on this server: a call carrying
+  /// HEADERS dc-codec: struct-v1 is decoded with the struct codec
+  /// and answered in kind. A struct-v1 request to a server without
+  /// it enabled fails Unimplemented, as does any other dc-codec
+  /// value. Mirrors the Go Server.SetStructCodec.
+  void SetStructCodec(bool enabled) { shared_->struct_codec = enabled; }
+
+ private:
 
   static StatusException Dispatch(
       const std::shared_ptr<Shared>& shared, const Endpoint::CallContext& ctx,
@@ -1630,6 +1702,18 @@ class Server {
       return StatusException(wire::kCodeUnimplemented,
                              "unknown method " + headers.path);
     }
+    // Struct codec negotiation: an explicit dc-codec marker
+    // must be struct-v1 and enabled here, else Unimplemented.
+    bool use_struct = false;
+    auto codec_it = headers.metadata.find(Codec::kStructCodecHeader);
+    if (codec_it != headers.metadata.end()) {
+      if (codec_it->second != Codec::kStructCodecV1 || !shared->struct_codec) {
+        return StatusException(wire::kCodeUnimplemented,
+                               "struct codec not enabled");
+      }
+      use_struct = true;
+    }
+    ctx.struct_codec = use_struct;
     auto trace_it = headers.metadata.find("traceparent");
     auto trace_ctx = Tracing::TraceStart(
         "server", headers.path,
@@ -1639,7 +1723,7 @@ class Server {
     ctx.trace_context = trace_ctx;
     StatusException result(wire::kCodeOk, "");
     try {
-      RequestStream reqs(input);
+      RequestStream reqs(input, use_struct);
       ServerSink sink_fn = [&sink](const Bytes& payload) { sink.Send(payload); };
       it->second.handler(ctx, reqs, sink_fn);
     } catch (...) {

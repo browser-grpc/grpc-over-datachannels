@@ -179,6 +179,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'status.dart';
+import 'transport.dart';
 import 'wire.dart';
 
 /// Parsed HEADERS payload: path == null means response headers.
@@ -191,6 +192,33 @@ typedef Headers = ({String? path, Map<String, String> metadata});
 class Codec {
   static const int headerLen = 9;
   static const int maxDataPayload = 16 * 1024 * 1024;
+
+  /// HEADERS metadata key a client sends to request the struct codec for a call.
+  static const String structCodecHeader = 'dc-codec';
+  static const String structCodecV1 = 'struct-v1';
+
+  /// Marshal msg with the codec selected for a call (struct layout when negotiated).
+  static Uint8List marshalForCodec(bool structCodec, Marshaler msg) {
+    if (structCodec) {
+      if (msg is StructMarshaler) {
+        return (msg as StructMarshaler).marshalStruct();
+      }
+      throw StatusException(Wire.codeInternal, 'message has no struct codec');
+    }
+    return msg.marshalDc();
+  }
+
+  /// Decode data into msg with the codec selected for a call.
+  static void unmarshalForCodec(bool structCodec, List<int> data, Unmarshaler msg) {
+    if (structCodec) {
+      if (msg is StructUnmarshaler) {
+        (msg as StructUnmarshaler).unmarshalStruct(data);
+        return;
+      }
+      throw StatusException(Wire.codeInternal, 'message has no struct codec');
+    }
+    msg.unmarshalDc(data);
+  }
 
   /// One parsed frame.
   static ({
@@ -376,6 +404,17 @@ abstract class Marshaler {
 abstract class Unmarshaler {
   void unmarshalDc(List<int> data);
 }
+
+/// Struct-layout encoding (see Codec.structCodecV1), implemented
+/// by messages generated with struct_codec=true.
+abstract class StructMarshaler {
+  Uint8List marshalStruct();
+}
+
+/// Decoding side of StructMarshaler.
+abstract class StructUnmarshaler {
+  void unmarshalStruct(List<int> data);
+}
 GRPC_RUNTIME_EOF
 )
 
@@ -444,6 +483,13 @@ class CallContext {
 
   /// This call's server span context (null when dormant).
   TraceContext? traceContext;
+
+  /// Whether this call negotiated the struct codec (HEADERS dc-codec: struct-v1).
+  bool structCodec = false;
+
+  /// Marshal a response message with this call's negotiated codec (generated server code calls this).
+  Uint8List encodeMessage(Marshaler msg) =>
+      Codec.marshalForCodec(structCodec, msg);
 
   /// Response initial metadata recorded via setHeaders.
   final Map<String, String> responseHeaders = {};
@@ -749,6 +795,7 @@ class ClientStream {
   String? tracePath;
   bool _traceEnded = false;
   bool _terminated = false;
+  bool structCodec = false;
 
   ClientStream(this.streamId, this._endpoint, this._input);
 
@@ -761,8 +808,8 @@ class ClientStream {
 
   /// Send one request message on an open stream (no half-close).
   void send(Marshaler msg) {
-    _endpoint.sendFrame(
-        Codec.encodeFrame(Wire.frameData, streamId, msg.marshalDc()));
+    _endpoint.sendFrame(Codec.encodeFrame(
+        Wire.frameData, streamId, Codec.marshalForCodec(structCodec, msg)));
   }
 
   /// Half-close an open stream (no more requests).
@@ -813,7 +860,7 @@ class ClientStream {
           headers = event.headers;
           break;
         case EventKind.data:
-          resp.unmarshalDc(event.payload!);
+          Codec.unmarshalForCodec(structCodec, event.payload!, resp);
           return;
         case EventKind.trailers:
           _terminated = true;
@@ -842,12 +889,26 @@ class ClientStream {
 class Channel {
   final Endpoint endpoint;
   TraceContext? _traceContext;
+  bool _structCodec = false;
+
+  /// Make every call on this channel request the struct codec
+  /// (HEADERS marker dc-codec: struct-v1) and encode requests /
+  /// decode responses with it. The server must enable it too
+  /// (see Server.setStructCodec); otherwise calls fail
+  /// UNIMPLEMENTED. Mirrors the Go Channel.SetStructCodec.
+  void setStructCodec(bool enabled) {
+    _structCodec = enabled;
+  }
+
+  /// Whether this channel requests the struct codec on every call.
+  bool get structCodec => _structCodec;
 
   /// A Channel view sharing this endpoint whose outbound spans
   /// are parented to ctx. Explicit call metadata still wins.
   Channel withTraceContext(TraceContext? ctx) {
     final ch = Channel.fromEndpoint(endpoint);
     ch._traceContext = ctx;
+    ch._structCodec = _structCodec;
     return ch;
   }
 
@@ -865,8 +926,11 @@ class Channel {
       {Duration? timeout}) async {
     DateTime? deadline;
     TraceContext? traceCtx;
-    if (timeout != null || tracingEnabled) {
+    if (timeout != null || tracingEnabled || _structCodec) {
       metadata = {if (metadata != null) ...metadata};
+      if (_structCodec) {
+        metadata[Codec.structCodecHeader] = Codec.structCodecV1;
+      }
       if (timeout != null) {
         deadline = DateTime.now().add(timeout);
         metadata['grpc-timeout'] = Codec.encodeTimeout(timeout);
@@ -889,6 +953,7 @@ class Channel {
       rethrow;
     }
     final stream = ClientStream(opened.id, endpoint, opened.input);
+    stream.structCodec = _structCodec;
     stream.deadline = deadline;
     stream.traceCtx = traceCtx;
     stream.tracePath = path;
@@ -896,8 +961,8 @@ class Channel {
   }
 
   void _sendMessage(ClientStream stream, Marshaler msg) {
-    endpoint.sendFrame(
-        Codec.encodeFrame(Wire.frameData, stream.streamId, msg.marshalDc()));
+    endpoint.sendFrame(Codec.encodeFrame(Wire.frameData, stream.streamId,
+        Codec.marshalForCodec(stream.structCodec, msg)));
   }
 
   void _halfClose(ClientStream stream) {
@@ -999,8 +1064,9 @@ import 'wire.dart';
 /// Reads request messages of one inbound call.
 class RequestStream {
   final StreamInput _input;
+  final bool structCodec;
 
-  RequestStream(this._input);
+  RequestStream(this._input, [this.structCodec = false]);
 
   /// Next request payload; EndOfStreamError at half-close.
   Future<Uint8List> recvRaw() async {
@@ -1026,7 +1092,7 @@ class RequestStream {
 
   /// Decode the next request message into req.
   Future<void> recvInto(Unmarshaler req) async {
-    req.unmarshalDc(await recvRaw());
+    Codec.unmarshalForCodec(structCodec, await recvRaw(), req);
   }
 }
 
@@ -1064,6 +1130,16 @@ class Server {
 
   final _methods = <String, Method>{};
   Endpoint? _endpoint;
+  bool _structCodec = false;
+
+  /// Enable the struct codec on this server: a call carrying
+  /// HEADERS dc-codec: struct-v1 is decoded with the struct codec
+  /// and answered in kind. A struct-v1 request to a server without
+  /// it enabled fails Unimplemented, as does any other dc-codec
+  /// value. Mirrors the Go Server.SetStructCodec.
+  void setStructCodec(bool enabled) {
+    _structCodec = enabled;
+  }
 
   /// The endpoint this server is attached to (retained so it
   /// outlives serveEndpoint; read loops keep it alive regardless).
@@ -1097,12 +1173,24 @@ class Server {
       return StatusException(
           Wire.codeUnimplemented, 'unknown method ${headers.path}');
     }
+    // Struct codec negotiation: an explicit dc-codec marker
+    // must be struct-v1 and enabled here, else Unimplemented.
+    var useStruct = false;
+    final marker = headers.metadata[Codec.structCodecHeader];
+    if (marker != null) {
+      if (marker != Codec.structCodecV1 || !_structCodec) {
+        return StatusException(
+            Wire.codeUnimplemented, 'struct codec not enabled');
+      }
+      useStruct = true;
+    }
+    ctx.structCodec = useStruct;
     final traceCtx = traceStart('server', headers.path ?? '',
         parseTraceparent(headers.metadata['traceparent']));
     ctx.traceContext = traceCtx;
     StatusException? result;
     try {
-      await method.handler(ctx, RequestStream(input), sink.send);
+      await method.handler(ctx, RequestStream(input, useStruct), sink.send);
     } catch (e) {
       result = StatusException.toStatus(e);
     }

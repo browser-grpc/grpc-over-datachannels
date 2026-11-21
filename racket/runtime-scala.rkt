@@ -164,6 +164,19 @@ import java.nio.charset.StandardCharsets
  */
 object Codec {
   val HEADER_LEN: Int = 9
+
+  /** HEADERS metadata key a client sends to request the struct codec for a call. */
+  val STRUCT_CODEC_HEADER: String = "dc-codec"
+  val STRUCT_CODEC_V1: String = "struct-v1"
+
+  /** Marshal msg with the codec selected for a call (struct layout when negotiated). */
+  def marshalForCodec(structCodec: Boolean, msg: Marshaler): Array[Byte] =
+    if (structCodec) msg.marshalStruct() else msg.marshalDc()
+
+  /** Decode data into msg with the codec selected for a call. */
+  def unmarshalForCodec(structCodec: Boolean, data: Array[Byte], msg: Unmarshaler): Unit = {
+    if (structCodec) msg.unmarshalStruct(data) else msg.unmarshalDc(data)
+  }
   val MAX_DATA_PAYLOAD: Int = 16 * 1024 * 1024
 
   /** One parsed frame. */
@@ -479,11 +492,24 @@ trait Transport {
 /** Implemented by hand-written protobuf message types. */
 trait Marshaler {
   def marshalDc(): Array[Byte]
+
+  /**
+   * Struct-layout encoding (see Codec.STRUCT_CODEC_V1). Messages
+   * generated without struct_codec=true inherit this error,
+   * mirroring the Go runtime's "message has no struct codec".
+   */
+  def marshalStruct(): Array[Byte] =
+    throw StatusException(Wire.CODE_INTERNAL, "message has no struct codec")
 }
 
 /** Implemented by hand-written protobuf message types. */
 trait Unmarshaler {
   def unmarshalDc(data: Array[Byte]): Unit
+
+  /** Decoding side of Marshaler.marshalStruct. */
+  def unmarshalStruct(data: Array[Byte]): Unit = {
+    throw StatusException(Wire.CODE_INTERNAL, "message has no struct codec")
+  }
 }
 GRPC_RUNTIME_EOF
 )
@@ -546,6 +572,11 @@ class Endpoint(private val transport: Transport, creator: Boolean) {
   class CallContext(val metadata: Map[String, String]) {
     /** This call's server span context (null when dormant). */
     var traceContext: Tracing.TraceContext = null
+    /** Whether this call negotiated the struct codec (HEADERS dc-codec: struct-v1). */
+    var structCodec: Boolean = false
+
+    /** Marshal a response message with this call's negotiated codec (generated server code calls this). */
+    def encodeMessage(msg: Marshaler): Array[Byte] = Codec.marshalForCodec(structCodec, msg)
     /** Response initial metadata recorded via setHeaders. */
     val responseHeaders: scala.collection.mutable.Map[String, String] =
       scala.collection.mutable.HashMap.empty
@@ -876,12 +907,28 @@ class Channel(val endpoint: Endpoint) {
   endpoint.start()
 
   private var traceContext: Tracing.TraceContext = null
+  private var structCodecFlag: Boolean = false
+
+  /**
+   * Make every call on this channel request the struct codec
+   * (HEADERS marker dc-codec: struct-v1) and encode requests /
+   * decode responses with it. The server must enable it too
+   * (see Server.setStructCodec); otherwise calls fail
+   * UNIMPLEMENTED. Mirrors the Go Channel.SetStructCodec.
+   */
+  def setStructCodec(enabled: Boolean): Unit = {
+    structCodecFlag = enabled
+  }
+
+  /** Whether this channel requests the struct codec on every call. */
+  def structCodec(): Boolean = structCodecFlag
 
   /** A Channel view sharing this endpoint whose outbound spans
    *  are parented to ctx. Explicit call metadata still wins. */
   def withTraceContext(ctx: Tracing.TraceContext): Channel = {
     val ch = new Channel(endpoint)
     ch.traceContext = ctx
+    ch.structCodecFlag = structCodecFlag
     ch
   }
 
@@ -896,6 +943,7 @@ class Channel(val endpoint: Endpoint) {
       private val endpoint: Endpoint,
       private val input: Endpoint#StreamInput) {
     var deadlineNanos: Long = -1L
+    var structCodec: Boolean = false
     var headers: Codec.Headers = null
     /** Trailing metadata of the terminal status (null until it arrives). */
     var trailers: Map[String, String] = null
@@ -915,7 +963,7 @@ class Channel(val endpoint: Endpoint) {
 
     /** Send one request message on an open stream (no half-close). */
     def send(msg: Marshaler): Unit = {
-      endpoint.sendFrame(Codec.encodeFrame(Wire.FRAME_DATA, streamId, msg.marshalDc()))
+      endpoint.sendFrame(Codec.encodeFrame(Wire.FRAME_DATA, streamId, Codec.marshalForCodec(structCodec, msg)))
     }
 
     /** Half-close an open stream (no more requests). */
@@ -971,7 +1019,7 @@ class Channel(val endpoint: Endpoint) {
         event.kind match {
           case Endpoint.EventKind.HEADERS => headers = event.headers
           case Endpoint.EventKind.DATA =>
-            resp.unmarshalDc(event.payload)
+            Codec.unmarshalForCodec(structCodec, event.payload, resp)
             return
           case Endpoint.EventKind.TRAILERS =>
             terminated = true
@@ -1000,8 +1048,11 @@ class Channel(val endpoint: Endpoint) {
     var md = metadata
     var deadlineNanos = -1L
     var traceCtx: Tracing.TraceContext = null
-    if (timeout != null || Tracing.enabled) {
+    if (timeout != null || Tracing.enabled || structCodecFlag) {
       md = if (md == null) Map.empty[String, String] else md
+      if (structCodecFlag) {
+        md = md + (Codec.STRUCT_CODEC_HEADER -> Codec.STRUCT_CODEC_V1)
+      }
       if (timeout != null) {
         deadlineNanos = System.nanoTime() + timeout.toNanos
         md = md + ("grpc-timeout" -> Codec.encodeTimeout(timeout))
@@ -1027,6 +1078,7 @@ class Channel(val endpoint: Endpoint) {
         throw e
     }
     val stream = new ClientStream(opened.id, endpoint, opened.input)
+    stream.structCodec = structCodecFlag
     stream.deadlineNanos = deadlineNanos
     stream.traceCtx = traceCtx
     stream.tracePath = path
@@ -1034,7 +1086,7 @@ class Channel(val endpoint: Endpoint) {
   }
 
   private def sendMessage(stream: ClientStream, msg: Marshaler): Unit = {
-    endpoint.sendFrame(Codec.encodeFrame(Wire.FRAME_DATA, stream.streamId, msg.marshalDc()))
+    endpoint.sendFrame(Codec.encodeFrame(Wire.FRAME_DATA, stream.streamId, Codec.marshalForCodec(stream.structCodec, msg)))
   }
 
   private def halfClose(stream: ClientStream): Unit = {
@@ -1125,7 +1177,7 @@ class Server {
   import Server.{Method, ServerSink, ServiceDesc}
 
   /** Reads request messages of one inbound call. */
-  class RequestStream(private val input: Endpoint#StreamInput) {
+  class RequestStream(private val input: Endpoint#StreamInput, private val structCodec: Boolean = false) {
     /** Next request payload; EOFException at half-close. */
     def recvRaw(): Array[Byte] = {
       while (true) {
@@ -1147,11 +1199,23 @@ class Server {
 
     /** Decode the next request message into req. */
     def recvInto(req: Unmarshaler): Unit = {
-      req.unmarshalDc(recvRaw())
+      Codec.unmarshalForCodec(structCodec, recvRaw(), req)
     }
   }
 
   private val methods = scala.collection.mutable.HashMap[String, Method]()
+  private var structCodec: Boolean = false
+
+  /**
+   * Enable the struct codec on this server: a call carrying
+   * HEADERS dc-codec: struct-v1 is decoded with the struct codec
+   * and answered in kind. A struct-v1 request to a server without
+   * it enabled fails UNIMPLEMENTED, as does any other dc-codec
+   * value. Mirrors the Go Server.SetStructCodec.
+   */
+  def setStructCodec(enabled: Boolean): Unit = {
+    structCodec = enabled
+  }
 
   /** Adds a service's methods (generated code calls it). */
   def registerService(desc: ServiceDesc): Unit = {
@@ -1179,11 +1243,22 @@ class Server {
     if (method == null) {
       return StatusException(Wire.CODE_UNIMPLEMENTED, "unknown method " + headers.path)
     }
+    // Struct codec negotiation: an explicit dc-codec marker
+    // must be struct-v1 and enabled here, else UNIMPLEMENTED.
+    var useStruct = false
+    val marker = headers.metadata.getOrElse(Codec.STRUCT_CODEC_HEADER, null)
+    if (marker != null) {
+      if (marker != Codec.STRUCT_CODEC_V1 || !structCodec) {
+        return StatusException(Wire.CODE_UNIMPLEMENTED, "struct codec not enabled")
+      }
+      useStruct = true
+    }
+    ctx.structCodec = useStruct
     val traceCtx = Tracing.traceStart("server", headers.path, Tracing.parseTraceparent(headers.metadata.getOrElse("traceparent", null)))
     ctx.traceContext = traceCtx
     var result: StatusException = null
     try {
-      method.handler(ctx, new RequestStream(input), new ServerSink {
+      method.handler(ctx, new RequestStream(input, useStruct), new ServerSink {
         def send(payload: Array[Byte]): Unit = sink.send(payload)
       })
     } catch {
@@ -1998,6 +2073,67 @@ object Dynamic {
 GRPC_RUNTIME_EOF
 )
 
+
+(define scala-structdc-body
+#<<GRPC_RUNTIME_EOF
+package grpcdc
+
+import java.nio.charset.StandardCharsets
+
+/**
+ * Struct-codec call-in: protobuf <-> struct transcode through
+ * the shared Rust core (libgrpc_dc) via the JNI shim in
+ * java/jni/structdc_jni.c (JDK 17 has no stable FFI).
+ *
+ * Shim location: the GRPC_DC_STRUCTDC_JNI environment variable
+ * (full path), or "grpcdc_structdc_jni" on java.library.path.
+ * The shim in turn dlopens libgrpc_dc (GRPCDC_STRUCTDC_LIB).
+ */
+object StructDc {
+  {
+    val jni = System.getenv("GRPC_DC_STRUCTDC_JNI")
+    try {
+      if (jni != null && !jni.isEmpty) {
+        System.load(jni)
+      } else {
+        System.loadLibrary("grpcdc_structdc_jni")
+      }
+    } catch {
+      case e: UnsatisfiedLinkError =>
+        throw new IllegalStateException(
+          "libgrpcdc_structdc_jni not loadable: " + e.getMessage, e)
+    }
+  }
+
+  /** Protobuf bytes -> struct-layout bytes for `type`. */
+  def encode(descriptor: Array[Byte], typeName: String, pb: Array[Byte]): Array[Byte] = {
+    val out = nativeTranscode(true, descriptor,
+      typeName.getBytes(StandardCharsets.UTF_8), pb)
+    if (out == null) {
+      throw new IllegalStateException("struct codec encode failed")
+    }
+    out
+  }
+
+  /** Struct-layout bytes -> protobuf bytes for `type`. */
+  def decode(descriptor: Array[Byte], typeName: String, data: Array[Byte]): Array[Byte] = {
+    val out = nativeTranscode(false, descriptor,
+      typeName.getBytes(StandardCharsets.UTF_8), data)
+    if (out == null) {
+      throw new IllegalStateException("struct codec decode failed")
+    }
+    out
+  }
+
+  @native private def nativeTranscode(
+      encode: Boolean,
+      descriptor: Array[Byte],
+      typeName: Array[Byte],
+      input: Array[Byte]): Array[Byte]
+}
+GRPC_RUNTIME_EOF
+)
+
 (define (emit-scala-runtime-files)
   (list
    (cons "grpcdc/Status.scala" scala-status-body)
@@ -2009,4 +2145,5 @@ GRPC_RUNTIME_EOF
    (cons "grpcdc/MemoryTransport.scala" scala-memory-body)
    (cons "grpcdc/SidecarTransport.scala" scala-sidecar-body)
    (cons "grpcdc/Futures.scala" scala-futures-body)
-   (cons "grpcdc/Dynamic.scala" scala-dynamic-body)))
+   (cons "grpcdc/Dynamic.scala" scala-dynamic-body)
+   (cons "grpcdc/StructDc.scala" scala-structdc-body)))

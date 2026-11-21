@@ -261,6 +261,43 @@ pub const Headers = struct {
     metadata: std.StringHashMap([]const u8),
 };
 
+/// Marshal msg with the codec selected for a call (struct layout
+/// when negotiated). Messages generated without struct_codec=true
+/// have no marshalStruct and panic here, mirroring the Go
+/// runtime's "message has no struct codec" as a programming error.
+pub fn marshalForCodec(alloc: std.mem.Allocator, struct_codec: bool, msg: anytype) []u8 {
+    const T = @TypeOf(msg);
+    const Child = switch (@typeInfo(T)) {
+        .pointer => |ptr| ptr.child,
+        else => T,
+    };
+    const ptr = if (@typeInfo(T) == .pointer) msg else &msg;
+    if (struct_codec) {
+        if (@hasDecl(Child, "marshalStruct")) {
+            return ptr.marshalStruct(alloc);
+        }
+        @panic("message has no struct codec");
+    }
+    return ptr.marshalDc(alloc);
+}
+
+/// Decode data into msg (a pointer) with the codec selected for a call.
+pub fn unmarshalForCodec(struct_codec: bool, alloc: std.mem.Allocator, data: []const u8, msg: anytype) void {
+    const T = @TypeOf(msg);
+    const Child = switch (@typeInfo(T)) {
+        .pointer => |ptr| ptr.child,
+        else => T,
+    };
+    if (struct_codec) {
+        if (@hasDecl(Child, "unmarshalStruct")) {
+            msg.unmarshalStruct(alloc, data);
+            return;
+        }
+        @panic("message has no struct codec");
+    }
+    msg.unmarshalDc(alloc, data);
+}
+
 /// Frame codec for gRPC over WebRTC DataChannels (wire protocol in
 /// ../SPEC.md). Frame, status, channel and server semantics mirror the
 /// other grpcdc runtimes; the tables in wire.zig are stamped by the
@@ -268,6 +305,10 @@ pub const Headers = struct {
 pub const Codec = struct {
     pub const header_len: usize = 9;
     pub const max_data_payload: usize = 16 * 1024 * 1024;
+
+    /// HEADERS metadata key a client sends to request the struct codec for a call.
+    pub const struct_codec_header: []const u8 = "dc-codec";
+    pub const struct_codec_v1: []const u8 = "struct-v1";
 
     pub const Frame = struct {
         type: u8,
@@ -728,8 +769,15 @@ pub const CallContext = struct {
     deadline_ms: ?i64 = null,
     /// This call's server span context (null when dormant).
     trace_context: ?status_mod.TraceContext = null,
+    /// Whether this call negotiated the struct codec (HEADERS dc-codec: struct-v1).
+    struct_codec: bool = false,
     /// Shared response-metadata state (endpoint-installed).
     response: ?*ResponseState = null,
+
+    /// Marshal a response message with this call's negotiated codec (generated server code calls this).
+    pub fn encodeMessage(self: *const CallContext, alloc: std.mem.Allocator, msg: anytype) []u8 {
+        return codec_mod.marshalForCodec(alloc, self.struct_codec, msg);
+    }
 
     /// Record response initial metadata (sent lazily, before
     /// the first response message).
@@ -1230,6 +1278,7 @@ pub const ClientStream = struct {
     trace_path: []const u8 = "",
     trace_ended: bool = false,
     terminated: bool = false,
+    struct_codec: bool = false,
 
     pub fn endTrace(self: *ClientStream, status: []const u8) void {
         if (!self.trace_ended) {
@@ -1241,7 +1290,7 @@ pub const ClientStream = struct {
     /// Send one request message on an open stream (no half-close).
     pub fn send(self: *ClientStream, msg: anytype) Status {
         const alloc = self.endpoint.alloc;
-        const payload = msg.marshalDc(alloc);
+        const payload = codec_mod.marshalForCodec(alloc, self.struct_codec, msg);
         defer alloc.free(payload);
         const frame = switch (Codec.encodeFrame(alloc, wire.frameData, self.stream_id, payload)) {
             .bytes => |b| b,
@@ -1334,7 +1383,7 @@ pub const ClientStream = struct {
         switch (self.recvRaw()) {
             .message => |payload| {
                 defer self.endpoint.alloc.free(payload);
-                resp.unmarshalDc(self.endpoint.alloc, payload);
+                codec_mod.unmarshalForCodec(self.struct_codec, self.endpoint.alloc, payload, resp);
                 return .message;
             },
             .end => return .end,
@@ -1367,6 +1416,16 @@ pub const Channel = struct {
     endpoint: *Endpoint,
     owns_endpoint: bool,
     trace_context: ?status_mod.TraceContext = null,
+    struct_codec: bool = false,
+
+    /// Make every call on this channel request the struct codec
+    /// (HEADERS marker dc-codec: struct-v1) and encode requests /
+    /// decode responses with it. The server must enable it too
+    /// (see Server.setStructCodec); otherwise calls fail
+    /// Unimplemented. Mirrors the Go Channel.SetStructCodec.
+    pub fn setStructCodec(self: *Channel, enabled: bool) void {
+        self.struct_codec = enabled;
+    }
 
     /// Parent this channel's outbound spans to ctx (usually
     /// CallContext.trace_context of the call being served, or a
@@ -1408,13 +1467,16 @@ pub const Channel = struct {
         var md = metadata;
         var trace_ctx: ?status_mod.TraceContext = null;
         var tp_buf: [55]u8 = undefined;
-        if (timeout_ms != null or status_mod.tracingEnabled()) {
+        if (timeout_ms != null or status_mod.tracingEnabled() or self.struct_codec) {
             merged = Metadata.init(alloc);
             if (metadata) |source| {
                 var it = source.iterator();
                 while (it.next()) |entry| {
                     merged.?.put(entry.key_ptr.*, entry.value_ptr.*) catch @panic("out of memory");
                 }
+            }
+            if (self.struct_codec) {
+                merged.?.put(Codec.struct_codec_header, Codec.struct_codec_v1) catch @panic("out of memory");
             }
             if (timeout_ms) |ms| {
                 if (endpoint_mod.nowMs()) |now| {
@@ -1446,7 +1508,7 @@ pub const Channel = struct {
         };
         defer alloc.free(frame);
         self.endpoint.sendFrame(frame);
-        return .{ .ok = .{ .stream_id = opened.id, .input = opened.input, .endpoint = self.endpoint, .deadline_ms = deadline_ms, .trace_ctx = trace_ctx, .trace_path = path } };
+        return .{ .ok = .{ .stream_id = opened.id, .input = opened.input, .endpoint = self.endpoint, .deadline_ms = deadline_ms, .trace_ctx = trace_ctx, .trace_path = path, .struct_codec = self.struct_codec } };
     }
 
     fn sendMessage(self: *Channel, stream: *ClientStream, payload: []const u8) Status {
@@ -1473,7 +1535,7 @@ pub const Channel = struct {
     fn sendAll(self: *Channel, stream: *ClientStream, reqs: anytype) Status {
         const alloc = self.endpoint.alloc;
         for (reqs) |*req| {
-            const payload = req.marshalDc(alloc);
+            const payload = codec_mod.marshalForCodec(alloc, stream.struct_codec, req);
             defer alloc.free(payload);
             const st = self.sendMessage(stream, payload);
             if (!st.isOk()) return st;
@@ -1510,7 +1572,7 @@ pub const Channel = struct {
         };
         defer stream.deinit();
         const alloc = self.endpoint.alloc;
-        const payload = req.marshalDc(alloc);
+        const payload = codec_mod.marshalForCodec(alloc, stream.struct_codec, req);
         defer alloc.free(payload);
         const st = self.sendMessage(&stream, payload);
         if (!st.isOk()) return st;
@@ -1525,7 +1587,7 @@ pub const Channel = struct {
             .status => |st| return .{ .status = st },
         };
         const alloc = self.endpoint.alloc;
-        const payload = req.marshalDc(alloc);
+        const payload = codec_mod.marshalForCodec(alloc, stream.struct_codec, req);
         defer alloc.free(payload);
         const st = self.sendMessage(&stream, payload);
         if (!st.isOk()) {
@@ -1575,6 +1637,7 @@ GRPC_RUNTIME_EOF
 #<<GRPC_RUNTIME_EOF
 const std = @import("std");
 const wire = @import("wire.zig");
+const codec_mod = @import("codec.zig");
 const endpoint_mod = @import("endpoint.zig");
 const status_mod = @import("status.zig");
 const transport_mod = @import("transport.zig");
@@ -1590,6 +1653,7 @@ pub const Metadata = transport_mod.Metadata;
 pub const RequestStream = struct {
     input: *endpoint_mod.StreamInput,
     alloc: std.mem.Allocator,
+    struct_codec: bool = false,
 
     /// Next request payload; end at half-close.
     pub fn recvRaw(self: *RequestStream) status_mod.RecvResult([]u8) {
@@ -1625,7 +1689,7 @@ pub const RequestStream = struct {
         switch (self.recvRaw()) {
             .message => |payload| {
                 defer self.alloc.free(payload);
-                req.unmarshalDc(self.alloc, payload);
+                codec_mod.unmarshalForCodec(self.struct_codec, self.alloc, payload, req);
                 return .message;
             },
             .end => return .end,
@@ -1674,6 +1738,16 @@ pub const Server = struct {
     methods: std.StringHashMap(Method),
     endpoint: ?*Endpoint = null,
     owns_endpoint: bool = false,
+    struct_codec: bool = false,
+
+    /// Enable the struct codec on this server: a call carrying
+    /// HEADERS dc-codec: struct-v1 is decoded with the struct codec
+    /// and answered in kind. A struct-v1 request to a server without
+    /// it enabled fails Unimplemented, as does any other dc-codec
+    /// value. Mirrors the Go Server.SetStructCodec.
+    pub fn setStructCodec(self: *Server, enabled: bool) void {
+        self.struct_codec = enabled;
+    }
 
     pub fn init(alloc: std.mem.Allocator) Server {
         return .{ .alloc = alloc, .methods = std.StringHashMap(Method).init(alloc) };
@@ -1722,9 +1796,19 @@ pub const Server = struct {
             defer self.alloc.free(msg);
             return Status.init(wire.codeUnimplemented, msg);
         };
+        // Struct codec negotiation: an explicit dc-codec marker
+        // must be struct-v1 and enabled here, else Unimplemented.
+        var use_struct = false;
+        if (headers.metadata.get(codec_mod.Codec.struct_codec_header)) |marker| {
+            if (!std.mem.eql(u8, marker, codec_mod.Codec.struct_codec_v1) or !self.struct_codec) {
+                return Status.init(wire.codeUnimplemented, "struct codec not enabled");
+            }
+            use_struct = true;
+        }
+        mutable_ctx.struct_codec = use_struct;
         const trace_ctx = status_mod.traceStart("server", headers.path.?, status_mod.parseTraceparent(headers.metadata.get("traceparent")));
         mutable_ctx.trace_context = trace_ctx;
-        var reqs = RequestStream{ .input = input, .alloc = self.alloc };
+        var reqs = RequestStream{ .input = input, .alloc = self.alloc, .struct_codec = use_struct };
         const result = method.handler(method.ctx, &mutable_ctx, &reqs, .{ .sink = sink });
         status_mod.traceEnd("server", headers.path.?, trace_ctx, wire.statusName(self.alloc, result.code));
         return result;

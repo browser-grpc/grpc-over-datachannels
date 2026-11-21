@@ -62,10 +62,18 @@
          "#include <utility>\n"
          "#include <vector>\n\n"
          (format "#include ~s\n" bridge-include)
-         (format "#include ~s\n\n" messages-include)
+         ;; The C++ messages header exists only when the schema has
+         ;; messages or enums (same gate as the C++ pb emitter).
+         (if (or (pair? (hash-ref file-model 'messages))
+                 (pair? (hash-ref file-model 'enums)))
+             (format "#include ~s\n" messages-include)
+             "")
+         "\n"
          (format "namespace ~a {\n\n" ns)
          (format "/// Generated WASM facade stubs for ~a.\n" (hash-ref file-model 'name))
          (format "struct ~a {\n" struct-name)
          (apply string-append
                 (map (lambda (svc) (parameterize ([current-struct struct-name]) (wasm-cpp-service svc))) (hash-ref file-model 'services)))
+         ;; With no services nothing else closes the struct.
+         (if (null? (hash-ref file-model 'services)) "};\n\n" "")
          (format "}  // namespace ~a\n" ns))))

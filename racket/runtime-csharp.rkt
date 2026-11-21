@@ -215,6 +215,39 @@ public static class Codec
     public const int HeaderLen = 9;
     public const int MaxDataPayload = 16 * 1024 * 1024;
 
+    /// <summary>HEADERS metadata key a client sends to request the struct codec for a call.</summary>
+    public const string StructCodecHeader = "dc-codec";
+    public const string StructCodecV1 = "struct-v1";
+
+    /// <summary>Marshal msg with the codec selected for a call (struct layout when negotiated).</summary>
+    public static byte[] MarshalForCodec(bool structCodec, IMarshaler msg)
+    {
+        if (structCodec)
+        {
+            if (msg is IStructMarshaler sm)
+            {
+                return sm.MarshalStruct();
+            }
+            throw new StatusException(Wire.CodeInternal, "message has no struct codec");
+        }
+        return msg.MarshalDc();
+    }
+
+    /// <summary>Decode data into msg with the codec selected for a call.</summary>
+    public static void UnmarshalForCodec(bool structCodec, byte[] data, IUnmarshaler msg)
+    {
+        if (structCodec)
+        {
+            if (msg is IStructUnmarshaler su)
+            {
+                su.UnmarshalStruct(data);
+                return;
+            }
+            throw new StatusException(Wire.CodeInternal, "message has no struct codec");
+        }
+        msg.UnmarshalDc(data);
+    }
+
     /// <summary>One parsed frame.</summary>
     public sealed class Frame
     {
@@ -459,6 +492,19 @@ public interface IUnmarshaler
 {
     void UnmarshalDc(byte[] data);
 }
+
+/// <summary>Struct-layout encoding (see Codec.StructCodecV1), implemented
+/// by messages generated with struct_codec=true.</summary>
+public interface IStructMarshaler
+{
+    byte[] MarshalStruct();
+}
+
+/// <summary>Decoding side of IStructMarshaler.</summary>
+public interface IStructUnmarshaler
+{
+    void UnmarshalStruct(byte[] data);
+}
 GRPC_RUNTIME_EOF
 )
 
@@ -527,6 +573,12 @@ public class Endpoint
 
         /// <summary>This call's server span context (null when dormant).</summary>
         public Tracing.TraceContext TraceContext { get; set; }
+
+        /// <summary>Whether this call negotiated the struct codec (HEADERS dc-codec: struct-v1).</summary>
+        public bool StructCodec { get; set; }
+
+        /// <summary>Marshal a response message with this call's negotiated codec (generated server code calls this).</summary>
+        public byte[] EncodeMessage(IMarshaler msg) => Codec.MarshalForCodec(StructCodec, msg);
 
         /// <summary>Response initial metadata recorded via SetHeaders.</summary>
         public Dictionary<string, string> ResponseHeaders { get; } = new();
@@ -889,6 +941,19 @@ public class Channel
 {
     private readonly Endpoint _endpoint;
     private Tracing.TraceContext _traceContext;
+    private bool _structCodec;
+
+    /// <summary>
+    /// Make every call on this channel request the struct codec
+    /// (HEADERS marker dc-codec: struct-v1) and encode requests /
+    /// decode responses with it. The server must enable it too
+    /// (see Server.SetStructCodec); otherwise calls fail
+    /// Unimplemented. Mirrors the Go Channel.SetStructCodec.
+    /// </summary>
+    public void SetStructCodec(bool enabled) => _structCodec = enabled;
+
+    /// <summary>Whether this channel requests the struct codec on every call.</summary>
+    public bool StructCodec => _structCodec;
 
     /// <summary>A Channel view sharing this endpoint whose outbound
     /// spans are parented to ctx. Explicit call metadata still wins.</summary>
@@ -896,6 +961,7 @@ public class Channel
     {
         var ch = new Channel(_endpoint);
         ch._traceContext = ctx;
+        ch._structCodec = _structCodec;
         return ch;
     }
 
@@ -930,6 +996,7 @@ public class Channel
         /// <summary>Trailing metadata of the terminal status (null until it arrives).</summary>
         public Dictionary<string, string> Trailers { get; private set; }
         internal long DeadlineTimestamp = -1;
+        internal bool StructCodec;
         internal Tracing.TraceContext TraceCtx;
         internal string TracePath;
         private bool _traceEnded;
@@ -955,7 +1022,7 @@ public class Channel
         /// <summary>Send one request message on an open stream (no half-close).</summary>
         public void Send(IMarshaler msg)
         {
-            _endpoint.SendFrame(Codec.EncodeFrame(Wire.FrameData, StreamId, msg.MarshalDc()));
+            _endpoint.SendFrame(Codec.EncodeFrame(Wire.FrameData, StreamId, Codec.MarshalForCodec(StructCodec, msg)));
         }
 
         /// <summary>Half-close an open stream (no more requests).</summary>
@@ -1031,7 +1098,7 @@ public class Channel
                         Headers = evt.Headers;
                         break;
                     case Endpoint.EventKind.Data:
-                        resp.UnmarshalDc(evt.Payload);
+                        Codec.UnmarshalForCodec(StructCodec, evt.Payload, resp);
                         return;
                     case Endpoint.EventKind.Trailers:
                         _terminated = true;
@@ -1058,11 +1125,15 @@ public class Channel
     {
         long deadline = -1;
         Tracing.TraceContext traceCtx = null;
-        if (timeout != null || Tracing.Enabled)
+        if (timeout != null || Tracing.Enabled || _structCodec)
         {
             var merged = metadata == null
                 ? new Dictionary<string, string>()
                 : new Dictionary<string, string>(metadata);
+            if (_structCodec)
+            {
+                merged[Codec.StructCodecHeader] = Codec.StructCodecV1;
+            }
             if (timeout != null)
             {
                 deadline = System.Diagnostics.Stopwatch.GetTimestamp()
@@ -1094,6 +1165,7 @@ public class Channel
         }
         return new ClientStream(_endpoint, id, input)
         {
+            StructCodec = _structCodec,
             DeadlineTimestamp = deadline,
             TraceCtx = traceCtx,
             TracePath = path,
@@ -1102,7 +1174,7 @@ public class Channel
 
     private void SendMessage(ClientStream stream, IMarshaler msg)
     {
-        _endpoint.SendFrame(Codec.EncodeFrame(Wire.FrameData, stream.StreamId, msg.MarshalDc()));
+        _endpoint.SendFrame(Codec.EncodeFrame(Wire.FrameData, stream.StreamId, Codec.MarshalForCodec(stream.StructCodec, msg)));
     }
 
     private void HalfClose(ClientStream stream)
@@ -1235,10 +1307,16 @@ public class Server
     public sealed class RequestStream
     {
         private readonly Endpoint.StreamInput _input;
+        private readonly bool _structCodec;
 
-        public RequestStream(Endpoint.StreamInput input)
+        public RequestStream(Endpoint.StreamInput input) : this(input, false)
+        {
+        }
+
+        public RequestStream(Endpoint.StreamInput input, bool structCodec)
         {
             _input = input;
+            _structCodec = structCodec;
         }
 
         /// <summary>Next request payload; EndOfStreamException at half-close.</summary>
@@ -1267,7 +1345,7 @@ public class Server
         }
 
         /// <summary>Decode the next request message into req.</summary>
-        public void RecvInto(IUnmarshaler req) => req.UnmarshalDc(RecvRaw());
+        public void RecvInto(IUnmarshaler req) => Codec.UnmarshalForCodec(_structCodec, RecvRaw(), req);
     }
 
     /// <summary>Sends response payloads of one inbound call.</summary>
@@ -1283,6 +1361,16 @@ public class Server
     public sealed record ServiceDesc(string Name, List<Method> Methods);
 
     private readonly Dictionary<string, Method> _methods = new();
+    private bool _structCodec;
+
+    /// <summary>
+    /// Enable the struct codec on this server: a call carrying
+    /// HEADERS dc-codec: struct-v1 is decoded with the struct codec
+    /// and answered in kind. A struct-v1 request to a server without
+    /// it enabled fails Unimplemented, as does any other dc-codec
+    /// value. Mirrors the Go Server.SetStructCodec.
+    /// </summary>
+    public void SetStructCodec(bool enabled) => _structCodec = enabled;
 
     /// <summary>Adds a service's methods (generated code calls it).</summary>
     public void RegisterService(ServiceDesc desc)
@@ -1315,13 +1403,25 @@ public class Server
         {
             return new StatusException(Wire.CodeUnimplemented, $"unknown method {headers.Path}");
         }
+        // Struct codec negotiation: an explicit dc-codec marker
+        // must be struct-v1 and enabled here, else Unimplemented.
+        bool useStruct = false;
+        if (headers.Metadata.TryGetValue(Codec.StructCodecHeader, out string marker))
+        {
+            if (marker != Codec.StructCodecV1 || !_structCodec)
+            {
+                return new StatusException(Wire.CodeUnimplemented, "struct codec not enabled");
+            }
+            useStruct = true;
+        }
+        ctx.StructCodec = useStruct;
         Tracing.TraceContext traceCtx = Tracing.TraceStart("server", headers.Path,
             Tracing.ParseTraceparent(headers.Metadata.TryGetValue("traceparent", out string tp) ? tp : null));
         ctx.TraceContext = traceCtx;
         StatusException result = null;
         try
         {
-            method.Handler(ctx, new RequestStream(input), payload => sink.Send(payload));
+            method.Handler(ctx, new RequestStream(input, useStruct), payload => sink.Send(payload));
         }
         catch (Exception e)
         {

@@ -255,5 +255,302 @@
          (apply string-append
                 (map swift-service (hash-ref file-model 'services)))
          "}\n"))))
-  (define pb-file (emit-swift-pb-file file-model))
-  (if pb-file (list stub pb-file) stub))
+  (define pb-file (parameterize ([seg-struct-codec (equal? (hash-ref params 'struct_codec #f) "true")])
+                    (emit-swift-pb-file file-model)))
+  (define struct-files (emit-swift-struct-files file-model params (hash-ref file-model 'package)))
+  (if (null? struct-files)
+      (if pb-file (list stub pb-file) stub)
+      (append (list stub pb-file) struct-files)))
+
+;; ------------------------------------------------------------------
+;; Struct codec (struct_codec=true): <Msg>Struct enum per message
+;; with the packed layout from SPEC.md (byte-identical to the
+;; Go/Rust/Java/Kotlin/Scala struct codecs; verified by
+;; conformance/struct).
+(define (sw-struct-fingerprint s)
+  (for/fold ([h 2166136261]) ([c (in-string s)])
+    (modulo (* (bitwise-xor h (char->integer c)) 16777619) 4294967296)))
+
+(define (sw-struct-fixed32-type? t) (member t '(2 7 15)))
+(define (sw-struct-fixed64-type? t) (member t '(1 6 16)))
+
+(define (sw-struct-slot-size f)
+  (if (sw-struct-fixed32-type? (hash-ref f 'type)) 4 8))
+
+(define (sw-struct-sorted-fields msg)
+  (sort (hash-ref msg 'fields) < #:key (lambda (f) (hash-ref f 'number))))
+
+(define (sw-struct-map-entry model f)
+  (and (= (hash-ref f 'type) 11)
+       (let ([e (swift-pb-resolve model (hash-ref f 'type-name))])
+         (and (eq? (hash-ref e 'kind) 'map) e))))
+
+(define (sw-struct-map-key-field model f)
+  (define em (hash-ref (sw-struct-map-entry model f) 'msg))
+  (findf (lambda (x) (= (hash-ref x 'number) 1)) (hash-ref em 'fields)))
+(define (sw-struct-map-val-field model f)
+  (define em (hash-ref (sw-struct-map-entry model f) 'msg))
+  (findf (lambda (x) (= (hash-ref x 'number) 2)) (hash-ref em 'fields)))
+
+(define (sw-struct-simple-name full)
+  (car (reverse (string-split full "."))))
+
+(define (sw-struct-type-name model msg)
+  (sw-struct-simple-name (hash-ref msg 'full-name)))
+
+(define (sw-struct-class-name model f)
+  (define e (swift-pb-resolve model (hash-ref f 'type-name)))
+  (sw-struct-simple-name (hash-ref (hash-ref e 'msg) 'full-name)))
+
+(define (sw-struct-companion model f)
+  (string-append (sw-struct-class-name model f) "Struct"))
+
+(define (sw-struct-field-name f)
+  (define jn (hash-ref f 'json-name ""))
+  (if (string=? jn "") (hash-ref f 'name) jn))
+
+(define (sw-struct-present f wn)
+  (define t (hash-ref f 'type))
+  (cond [(= (hash-ref f 'label) 3) (format "!m.~a.isEmpty" wn)]
+        [(= t 11) (format "m.~a != nil" wn)]
+        [(= t 9) (format "!m.~a.isEmpty" wn)]
+        [(= t 12) (format "!m.~a.isEmpty" wn)]
+        [(= t 8) (format "m.~a" wn)]
+        [(= t 14) (format "m.~a.rawValue != 0" wn)]
+        [else (format "m.~a != 0" wn)]))
+
+(define (sw-struct-scalar-encode f v)
+  (define t (hash-ref f 'type))
+  (cond [(sw-struct-fixed32-type? t)
+         (cond [(= t 2) (format "Put32(&buf, off, ~a.bitPattern)" v)]
+               [(= t 7) (format "Put32(&buf, off, ~a)" v)]
+               [else (format "Put32(&buf, off, UInt32(bitPattern: ~a))" v)])]
+        [(sw-struct-fixed64-type? t)
+         (cond [(= t 1) (format "Put64(&buf, off, ~a.bitPattern)" v)]
+               [(= t 6) (format "Put64(&buf, off, ~a)" v)]
+               [else (format "Put64(&buf, off, UInt64(bitPattern: ~a))" v)])]
+        [(= t 8) (format "buf[off] = ~a ? 1 : 0" v)]
+        [(= t 14) (format "Put64(&buf, off, UInt64(bitPattern: Int64(~a.rawValue)))" v)]
+        [(member t '(5 17)) (format "Put64(&buf, off, UInt64(bitPattern: Int64(~a)))" v)]
+        [(member t '(15)) (format "Put32(&buf, off, UInt32(bitPattern: ~a))" v)]
+        [(= t 13) (format "Put64(&buf, off, UInt64(~a))" v)]
+        [(= t 3) (format "Put64(&buf, off, UInt64(bitPattern: ~a))" v)]
+        [else (format "Put64(&buf, off, ~a)" v)]))
+
+(define (sw-struct-scalar-value/off model f offv)
+  (define t (hash-ref f 'type))
+  (cond [(sw-struct-fixed32-type? t)
+         (cond [(= t 2) (format "Float(bitPattern: Get32(data, ~a))" offv)]
+               [(= t 7) (format "Get32(data, ~a)" offv)]
+               [else (format "Int32(bitPattern: Get32(data, ~a))" offv)])]
+        [(sw-struct-fixed64-type? t)
+         (cond [(= t 1) (format "Double(bitPattern: Get64(data, ~a))" offv)]
+               [(= t 6) (format "Get64(data, ~a)" offv)]
+               [else (format "Int64(bitPattern: Get64(data, ~a))" offv)])]
+        [(= t 8) (format "(data[~a] != 0)" offv)]
+        [(= t 14) (format "(~a(rawValue: Int32(truncatingIfNeeded: Get64(data, ~a))) ?? ~a(rawValue: 0)!)"
+                          (swift-pb-type model (hash-set f 'label 1)) offv
+                          (swift-pb-type model (hash-set f 'label 1)))]
+        [(member t '(5 17)) (format "Int32(truncatingIfNeeded: Get64(data, ~a))" offv)]
+        [(= t 13) (format "UInt32(truncatingIfNeeded: Get64(data, ~a))" offv)]
+        [(= t 3) (format "Int64(bitPattern: Get64(data, ~a))" offv)]
+        [else (format "Get64(data, ~a)" offv)]))
+
+(define (sw-struct-value-size model f v)
+  (define t (hash-ref f 'type))
+  (cond [(= t 9) (format "~a.utf8.count" v)]
+        [(= t 12) (format "~a.count" v)]
+        [(= t 11) (format "~a.Size(~a)" (sw-struct-companion model f) v)]
+        [(sw-struct-fixed32-type? t) "4"]
+        [else "8"]))
+
+(define (sw-struct-message model msg)
+  (define type-name (sw-struct-type-name model msg))
+  (define out (open-output-string))
+  (fprintf out "public enum ~aStruct {\n" type-name)
+  (fprintf out "    public static func Size(_ m: ~a) -> Int { Marshal(m).count }\n\n" type-name)
+  (fprintf out "    public static func Marshal(_ m: ~a) -> [UInt8] {\n        StructDcBridge.encode(\"~a\", m.MarshalDc())\n    }\n\n" type-name (hash-ref msg 'full-name))
+  (fprintf out "    public static func Unmarshal(_ data: [UInt8]) -> ~a {\n        let m = ~a()\n        m.UnmarshalDc(StructDcBridge.decode(\"~a\", data))\n        return m\n    }\n}\n" type-name type-name (hash-ref msg 'full-name))
+  (get-output-string out))
+
+(define (sw-struct-value-write model f v)
+  (define t (hash-ref f 'type))
+  (define out (open-output-string))
+  (cond [(= t 9)
+         (fprintf out "                let sb = [UInt8](~a.utf8); if !sb.isEmpty { buf[vp..<(vp + sb.count)] = sb[...] }; vp += sb.count\n" v)]
+        [(= t 12)
+         (fprintf out "                if !~a.isEmpty { buf[vp..<(vp + ~a.count)] = ~a[...] }; vp += ~a.count\n" v v v v)]
+        [(= t 11)
+         (fprintf out "                do { let nb = ~a.Marshal(~a); if !nb.isEmpty { buf[vp..<(vp + nb.count)] = nb[...] }; vp += nb.count }\n" (sw-struct-companion model f) v)]
+        [else
+         (fprintf out "                do { let off = vp; ~a }; vp += ~a\n"
+                  (sw-struct-scalar-encode f v) (if (sw-struct-fixed32-type? t) 4 8))])
+  (get-output-string out))
+
+(define (sw-struct-marshal-field model f off)
+  (define wn (sw-struct-field-name f))
+  (define t (hash-ref f 'type))
+  (define out (open-output-string))
+  (define mv (format "m.~a" wn))
+  (cond [(sw-struct-map-entry model f)
+         (define kf (sw-struct-map-key-field model f))
+         (define vf (sw-struct-map-val-field model f))
+         (fprintf out "        if !~a.isEmpty {\n            Put32(&buf, ~a, UInt32(vp)); Put32(&buf, ~a, UInt32(~a.count))\n" mv off (+ off 4) mv)
+         (fprintf out "            let keys = ~a.keys.sorted()\n" mv)
+         (fprintf out "            for k in keys {\n                let v = ~a[k]!\n                Put32(&buf, vp, UInt32(bitPattern: Int32(~a))); Put32(&buf, vp + 4, UInt32(bitPattern: Int32(~a))); vp += 8\n"
+                  mv (sw-struct-value-size model kf "k") (sw-struct-value-size model vf "v"))
+         (display (sw-struct-value-write model kf "k") out)
+         (display (sw-struct-value-write model vf "v") out)
+         (fprintf out "            }\n        }\n")]
+        [(= (hash-ref f 'label) 3)
+         (cond [(member t '(9 12))
+                (fprintf out "        if !~a.isEmpty {\n            Put32(&buf, ~a, UInt32(vp)); Put32(&buf, ~a, UInt32(~a.count))\n            var doff = vp + 8 * ~a.count\n            for e in ~a { Put32(&buf, vp, UInt32(doff)); Put32(&buf, vp + 4, UInt32(bitPattern: Int32(~a))); doff += ~a; vp += 8 }\n            for e in ~a { ~a }\n        }\n"
+                         mv off (+ off 4) mv mv mv
+                         (if (= t 9) "e.utf8.count" "e.count")
+                         (if (= t 9) "e.utf8.count" "e.count")
+                         mv
+                         (if (= t 9) "let sb = [UInt8](e.utf8); if !sb.isEmpty { buf[vp..<(vp + sb.count)] = sb[...] }; vp += sb.count"
+                             "if !e.isEmpty { buf[vp..<(vp + e.count)] = e[...] }; vp += e.count"))]
+               [(= t 11)
+                (fprintf out "        if !~a.isEmpty {\n            Put32(&buf, ~a, UInt32(vp)); Put32(&buf, ~a, UInt32(~a.count))\n            var doff = vp + 8 * ~a.count\n            for e in ~a { let es = ~a.Size(e); Put32(&buf, vp, UInt32(doff)); Put32(&buf, vp + 4, UInt32(es)); doff += es; vp += 8 }\n            for e in ~a { let nb = ~a.Marshal(e); if !nb.isEmpty { buf[vp..<(vp + nb.count)] = nb[...] }; vp += nb.count }\n        }\n"
+                         mv off (+ off 4) mv mv mv (sw-struct-companion model f)
+                         mv (sw-struct-companion model f))]
+               [else
+                (fprintf out "        if !~a.isEmpty {\n            Put32(&buf, ~a, UInt32(vp)); Put32(&buf, ~a, UInt32(~a.count))\n            for e in ~a { let off = vp; ~a; vp += ~a }\n        }\n"
+                         mv off (+ off 4) mv
+                         mv
+                         (sw-struct-scalar-encode f "e")
+                         (if (sw-struct-fixed32-type? t) 4 8))])]
+        [(= t 11)
+         (fprintf out "        if let sv = ~a {\n            Put32(&buf, ~a, UInt32(vp)); Put32(&buf, ~a, UInt32(~a.Size(sv)))\n            let nb = ~a.Marshal(sv); if !nb.isEmpty { buf[vp..<(vp + nb.count)] = nb[...] }; vp += nb.count\n        }\n"
+                  mv off (+ off 4) (sw-struct-companion model f) (sw-struct-companion model f))]
+        [(member t '(9 12))
+         (fprintf out "        if !~a.isEmpty {\n            Put32(&buf, ~a, UInt32(vp)); Put32(&buf, ~a, UInt32(bitPattern: Int32(~a)))\n            ~a\n        }\n"
+                  mv off (+ off 4)
+                  (if (= t 9) (format "~a.utf8.count" mv) (format "~a.count" mv))
+                  (if (= t 9)
+                      (format "let sb = [UInt8](~a.utf8); if !sb.isEmpty { buf[vp..<(vp + sb.count)] = sb[...] }; vp += sb.count" mv)
+                      (format "if !~a.isEmpty { buf[vp..<(vp + ~a.count)] = ~a[...] }; vp += ~a.count" mv mv mv mv)))]
+        [else
+         (fprintf out "        do { let off = ~a; ~a }\n" off (sw-struct-scalar-encode f mv))])
+  (get-output-string out))
+
+(define (sw-struct-value-expr/off model f lenvar offv)
+  (define t (hash-ref f 'type))
+  (cond [(= t 9) (format "String(decoding: data[~a..<(~a + ~a)], as: UTF8.self)" offv offv lenvar)]
+        [(= t 12) (format "[UInt8](data[~a..<(~a + ~a)])" offv offv lenvar)]
+        [(= t 11) (format "(~a > 0 ? ~a.Unmarshal([UInt8](data[~a..<(~a + ~a)])) : ~a())"
+                          lenvar (sw-struct-companion model f) offv offv lenvar
+                          (sw-struct-class-name model f))]
+        [else (sw-struct-scalar-value/off model f offv)]))
+
+(define (sw-struct-decode-field model f foff)
+  (define wn (sw-struct-field-name f))
+  (define t (hash-ref f 'type))
+  (define out (open-output-string))
+  (define mv (format "m.~a" wn))
+  (cond [(sw-struct-map-entry model f)
+         (define kf (sw-struct-map-key-field model f))
+         (define vf (sw-struct-map-val-field model f))
+         (fprintf out "            let off = Int(Get32(data, ~a)); let n = Int(Get32(data, ~a))\n" foff (+ foff 4))
+         (fprintf out "            var p = off\n            for _ in 0..<n {\n")
+         (fprintf out "                Check(data, p, 8)\n                let kl = Int(Get32(data, p)); let vl = Int(Get32(data, p + 4)); p += 8\n                Check(data, p, kl + vl)\n")
+         (fprintf out "                let k = { let io = p; return ~a }()\n" (sw-struct-value-expr/off model kf "kl" "io"))
+         (fprintf out "                let v = { let io = p + kl; return ~a }()\n" (sw-struct-value-expr/off model vf "vl" "io"))
+         (fprintf out "                ~a[k] = v\n                p += kl + vl\n            }\n            if p > vend { vend = p }\n" mv)]
+        [(= (hash-ref f 'label) 3)
+         (fprintf out "            let off = Int(Get32(data, ~a)); let n = Int(Get32(data, ~a))\n" foff (+ foff 4))
+         (cond [(member t '(9 12))
+                (fprintf out "            for i in 0..<n {\n                let eo = Int(Get32(data, off + 8 * i)); let el = Int(Get32(data, off + 8 * i + 4))\n                Check(data, eo, el)\n                ~a.append(~a)\n                if eo + el > vend { vend = eo + el }\n            }\n"
+                         mv (if (= t 9) "String(decoding: data[eo..<(eo + el)], as: UTF8.self)" "[UInt8](data[eo..<(eo + el)])"))]
+               [(= t 11)
+                (fprintf out "            for i in 0..<n {\n                let eo = Int(Get32(data, off + 8 * i)); let el = Int(Get32(data, off + 8 * i + 4))\n                if el > 0 {\n                    Check(data, eo, el)\n                    ~a.append(~a.Unmarshal([UInt8](data[eo..<(eo + el)])))\n                    if eo + el > vend { vend = eo + el }\n                }\n            }\n"
+                         mv (sw-struct-companion model f))]
+               [else
+                (define esz (if (sw-struct-fixed32-type? t) 4 8))
+                (fprintf out "            Check(data, off, n * ~a)\n            for i in 0..<n {\n                let eo = off + i * ~a\n                ~a.append(~a)\n            }\n            if off + n * ~a > vend { vend = off + n * ~a }\n"
+                         esz esz mv (sw-struct-scalar-value/off model f "eo") esz esz)])]
+        [(= t 11)
+         (fprintf out "            let off = Int(Get32(data, ~a)); let el = Int(Get32(data, ~a))\n" foff (+ foff 4))
+         (fprintf out "            Check(data, off, el)\n            ~a = ~a.Unmarshal([UInt8](data[off..<(off + el)]))\n            if off + el > vend { vend = off + el }\n" mv (sw-struct-companion model f))]
+        [(member t '(9 12))
+         (fprintf out "            let off = Int(Get32(data, ~a)); let el = Int(Get32(data, ~a))\n" foff (+ foff 4))
+         (fprintf out "            Check(data, off, el)\n")
+         (if (= t 9)
+             (fprintf out "            ~a = String(decoding: data[off..<(off + el)], as: UTF8.self)\n" mv)
+             (fprintf out "            ~a = [UInt8](data[off..<(off + el)])\n" mv))
+         (fprintf out "            if off + el > vend { vend = off + el }\n")]
+        [else
+         (fprintf out "            let off = ~a\n            ~a = ~a\n" foff mv
+                  (sw-struct-scalar-value/off model f "off"))])
+  (get-output-string out))
+
+(define (sw-struct-bridge-file model)
+  (string-append
+   "@_silgen_name(\"grpcdc_struct_encode\")\n"
+   "func _grpcdcStructEncode(_ desc: UnsafePointer<UInt8>, _ descLen: Int, _ type: UnsafePointer<UInt8>, _ typeLen: Int, _ input: UnsafePointer<UInt8>, _ inputLen: Int, _ out: UnsafeMutablePointer<UnsafeMutablePointer<UInt8>?>, _ outLen: UnsafeMutablePointer<Int>, _ err: UnsafeMutablePointer<UnsafeMutablePointer<UInt8>?>) -> Int32\n\n"
+   "@_silgen_name(\"grpcdc_struct_decode\")\n"
+   "func _grpcdcStructDecode(_ desc: UnsafePointer<UInt8>, _ descLen: Int, _ type: UnsafePointer<UInt8>, _ typeLen: Int, _ input: UnsafePointer<UInt8>, _ inputLen: Int, _ out: UnsafeMutablePointer<UnsafeMutablePointer<UInt8>?>, _ outLen: UnsafeMutablePointer<Int>, _ err: UnsafeMutablePointer<UnsafeMutablePointer<UInt8>?>) -> Int32\n\n"
+   "@_silgen_name(\"grpcdc_struct_free\")\n"
+   "func _grpcdcStructFree(_ ptr: UnsafeMutablePointer<UInt8>, _ len: Int)\n\n"
+   "@_silgen_name(\"grpcdc_struct_error_free\")\n"
+   "func _grpcdcStructErrorFree(_ ptr: UnsafeMutablePointer<UInt8>)\n\n"
+   "public enum StructDcBridge {\n"
+   (format "    static let descriptor: [UInt8] = [~a]\n\n"
+           (string-join
+            (for/list ([b (in-bytes (hash-ref model 'descriptor-set #""))])
+              (number->string b))
+            ","))
+   "    public static func encode(_ typeName: String, _ pb: [UInt8]) -> [UInt8] { transcode(true, typeName, pb) }\n\n"
+   "    public static func decode(_ typeName: String, _ data: [UInt8]) -> [UInt8] { transcode(false, typeName, data) }\n\n"
+   "    static func transcode(_ encode: Bool, _ typeName: String, _ input: [UInt8]) -> [UInt8] {\n"
+   "        let typeBytes = [UInt8](typeName.utf8)\n"
+   "        var out: UnsafeMutablePointer<UInt8>? = nil\n"
+   "        var outLen = 0\n"
+   "        var err: UnsafeMutablePointer<UInt8>? = nil\n"
+   "        let rc = descriptor.withUnsafeBufferPointer { desc in\n"
+   "            typeBytes.withUnsafeBufferPointer { type in\n"
+   "                input.withUnsafeBufferPointer { inp in\n"
+   "                    encode\n"
+   "                        ? _grpcdcStructEncode(desc.baseAddress!, desc.count, type.baseAddress!, type.count, inp.baseAddress!, inp.count, &out, &outLen, &err)\n"
+   "                        : _grpcdcStructDecode(desc.baseAddress!, desc.count, type.baseAddress!, type.count, inp.baseAddress!, inp.count, &out, &outLen, &err)\n"
+   "                }\n"
+   "            }\n"
+   "        }\n"
+   "        if rc != 0 {\n"
+   "            var msg = \"struct codec transcode failed\"\n"
+   "            if let e = err { msg = String(cString: e); _grpcdcStructErrorFree(e) }\n"
+   "            fatalError(msg)\n"
+   "        }\n"
+   "        let result = [UInt8](UnsafeBufferPointer(start: out, count: outLen))\n"
+   "        if let o = out { _grpcdcStructFree(o, outLen) }\n"
+   "        return result\n"
+   "    }\n"
+   "}\n"))
+
+(define (emit-swift-struct-files file-model params pkg)
+  (if (equal? (hash-ref params 'struct_codec #f) "true")
+      (let ()
+        (define comps '())
+        (define (emit-comp msg)
+          (unless (hash-ref msg 'map-entry)
+            (set! comps
+                  (cons (cons (string-append (sw-struct-type-name file-model msg) "Struct.swift")
+                              (string-append
+                               "// @generated by protoc-gen-grpc-dc-swift. DO NOT EDIT.\n"
+                               (format "// source: ~a\n\n" (hash-ref file-model 'name))
+                               "#if canImport(Foundation)\nimport Foundation\n#endif\n\n"
+                               (sw-struct-message file-model msg)))
+                        comps)))
+          (for ([n (in-list (hash-ref msg 'nested))]) (emit-comp n)))
+        (for ([m (in-list (hash-ref file-model 'messages))]) (emit-comp m))
+        (set! comps
+              (cons (cons "StructDcBridge.swift"
+                          (string-append
+                           "// @generated by protoc-gen-grpc-dc-swift. DO NOT EDIT.\n"
+                           (format "// source: ~a\n\n" (hash-ref file-model 'name))
+                           "#if canImport(Foundation)\nimport Foundation\n#endif\n\n"
+                           (sw-struct-bridge-file file-model)))
+                    comps))
+        (reverse comps))
+      '()))

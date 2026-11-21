@@ -202,9 +202,22 @@
                          (format "import '~a_messages.dart';\n"
                                  (path->string (path-replace-extension (file-name-from-path d) ""))))
                        (hash-ref file-model 'dependencies))))
+         (define struct-imports
+           (if (seg-struct-codec)
+               (let ([names '()])
+                 (define (collect-structs msg)
+                   (unless (hash-ref msg 'map-entry)
+                     (set! names (cons (dt-struct-type-name file-model msg) names)))
+                   (for ([n (in-list (hash-ref msg 'nested))]) (collect-structs n)))
+                 (for ([m (in-list messages)]) (collect-structs m))
+                 (apply string-append
+                        (map (lambda (tn) (format "import '~aStructStub.dart' if (dart.library.ffi) '~aStruct.dart';\n" tn tn))
+                             (reverse names))))
+               ""))
          (define content
            (string-append
             dep-imports
+            struct-imports
             (dart-pb-support base (apply string-append (reverse helpers)))
             (apply string-append
                    (map (lambda (e) (dart-pb-enum file-model #f e "")) enums))
@@ -293,5 +306,328 @@
              "")
          "\n"
          body)))
-  (define pb-file (emit-dart-pb-file file-model))
-  (if pb-file (list stub pb-file) stub))
+  (define pb-file (parameterize ([seg-struct-codec (equal? (hash-ref params 'struct_codec #f) "true")])
+                    (emit-dart-pb-file file-model)))
+  (define struct-files (emit-dart-struct-files file-model params base))
+  (if (null? struct-files)
+      (if pb-file (list stub pb-file) stub)
+      (append (list stub pb-file) struct-files)))
+
+;; ------------------------------------------------------------------
+;; Struct codec (struct_codec=true): <Msg>Struct class per message
+;; with the packed layout from SPEC.md (byte-identical to the
+;; Go/Rust/Java/Kotlin/Scala/Swift struct codecs; verified by
+;; conformance/struct).
+(define (dt-struct-fingerprint s)
+  (for/fold ([h 2166136261]) ([c (in-string s)])
+    (modulo (* (bitwise-xor h (char->integer c)) 16777619) 4294967296)))
+
+(define (dt-struct-fixed32-type? t) (member t '(2 7 15)))
+(define (dt-struct-fixed64-type? t) (member t '(1 6 16)))
+
+(define (dt-struct-slot-size f)
+  (if (dt-struct-fixed32-type? (hash-ref f 'type)) 4 8))
+
+(define (dt-struct-sorted-fields msg)
+  (sort (hash-ref msg 'fields) < #:key (lambda (f) (hash-ref f 'number))))
+
+(define (dt-struct-map-entry model f)
+  (and (= (hash-ref f 'type) 11)
+       (let ([e (dart-pb-resolve model (hash-ref f 'type-name))])
+         (and (eq? (hash-ref e 'kind) 'map) e))))
+
+(define (dt-struct-map-key-field model f)
+  (define em (hash-ref (dt-struct-map-entry model f) 'msg))
+  (findf (lambda (x) (= (hash-ref x 'number) 1)) (hash-ref em 'fields)))
+(define (dt-struct-map-val-field model f)
+  (define em (hash-ref (dt-struct-map-entry model f) 'msg))
+  (findf (lambda (x) (= (hash-ref x 'number) 2)) (hash-ref em 'fields)))
+
+(define (dt-struct-type-name model msg)
+  (dart-pb-type-ref model (hasheq 'kind 'message 'msg msg 'enum #f
+                                  'file "" 'pkg (hash-ref model 'package))))
+
+(define (dt-struct-companion model f)
+  (string-append (dt-struct-class-name model f) "Struct"))
+
+(define (dt-struct-class-name model f)
+  (define e (dart-pb-resolve model (hash-ref f 'type-name)))
+  (dart-pb-type-ref model e))
+
+(define (dt-struct-present f dn)
+  (define t (hash-ref f 'type))
+  (cond [(= (hash-ref f 'label) 3) (format "m.~a.isNotEmpty" dn)]
+        [(= t 11) (format "m.~a != null" dn)]
+        [(= t 9) (format "m.~a.isNotEmpty" dn)]
+        [(= t 12) (format "m.~a.isNotEmpty" dn)]
+        [(= t 8) (format "m.~a" dn)]
+        [(= t 14) (format "m.~a.index != 0" dn)]
+        [else (format "m.~a != 0" dn)]))
+
+(define (dt-struct-scalar-encode f v)
+  (define t (hash-ref f 'type))
+  (cond [(dt-struct-fixed32-type? t)
+         (cond [(= t 2) (format "put32(buf, off, floatBits(~a));" v)]
+               [else (format "put32(buf, off, ~a);" v)])]
+        [(dt-struct-fixed64-type? t)
+         (cond [(= t 1) (format "put64(buf, off, doubleBits(~a));" v)]
+               [else (format "put64(buf, off, ~a);" v)])]
+        [(= t 8) (format "buf[off] = ~a ? 1 : 0;" v)]
+        [(= t 14) (format "put64(buf, off, ~a.index);" v)]
+        [else (format "put64(buf, off, ~a);" v)]))
+
+(define (dt-struct-scalar-value/off model f offv)
+  (define t (hash-ref f 'type))
+  (cond [(dt-struct-fixed32-type? t)
+         (cond [(= t 2) (format "bitsFloat(get32(data, ~a))" offv)]
+               [else (format "get32signed(data, ~a)" offv)])]
+        [(dt-struct-fixed64-type? t)
+         (cond [(= t 1) (format "bitsDouble(get64(data, ~a))" offv)]
+               [else (format "get64(data, ~a)" offv)])]
+        [(= t 8) (format "(data[~a] != 0)" offv)]
+        [(= t 14) (format "enumAt(~a.values, get64(data, ~a).toInt())"
+                          (dart-pb-type model (hash-set f 'label 1)) offv)]
+        [(member t '(5 17)) (format "get64(data, ~a).toInt()" offv)]
+        [else (format "get64(data, ~a)" offv)]))
+
+(define (dt-struct-value-size model f v)
+  (define t (hash-ref f 'type))
+  (cond [(= t 9) (format "utf8.encode(~a).length" v)]
+        [(= t 12) (format "~a.length" v)]
+        [(= t 11) (format "(~a == null ? 0 : ~a.size(~a))" v (dt-struct-companion model f) v)]
+        [(dt-struct-fixed32-type? t) "4"]
+        [else "8"]))
+
+(define (dt-struct-message model msg)
+  (define type-name (dt-struct-type-name model msg))
+  (define out (open-output-string))
+  (fprintf out "class ~aStruct {\n" type-name)
+  (fprintf out "  static int size(~a m) => marshal(m).length;\n\n" type-name)
+  (fprintf out "  static Uint8List marshal(~a m) => structdcTranscode(true, '~a', m.marshalDc());\n\n" type-name (hash-ref msg 'full-name))
+  (fprintf out "  static ~a unmarshal(Uint8List data) {\n    final m = ~a();\n    m.unmarshalDc(structdcTranscode(false, '~a', data));\n    return m;\n  }\n}\n" type-name type-name (hash-ref msg 'full-name))
+  (get-output-string out))
+
+(define (dt-struct-value-write model f v)
+  (define t (hash-ref f 'type))
+  (define out (open-output-string))
+  (cond [(= t 9)
+         (fprintf out "                final sb = utf8.encode(~a); buf.setRange(vp, vp + sb.length, sb); vp += sb.length;\n" v)]
+        [(= t 12)
+         (fprintf out "                buf.setRange(vp, vp + ~a.length, ~a); vp += ~a.length;\n" v v v)]
+        [(= t 11)
+         (fprintf out "                if (~a != null) { final nb = ~a.marshal(~a); buf.setRange(vp, vp + nb.length, nb); vp += nb.length; }\n" v (dt-struct-companion model f) v)]
+        [else
+         (fprintf out "                { final off = vp; ~a } vp += ~a;\n"
+                  (dt-struct-scalar-encode f v) (if (dt-struct-fixed32-type? t) 4 8))])
+  (get-output-string out))
+
+(define (dt-struct-marshal-field model f off)
+  (define dn (dart-pb-field-name f))
+  (define t (hash-ref f 'type))
+  (define out (open-output-string))
+  (define mv (format "m.~a" dn))
+  (cond [(dt-struct-map-entry model f)
+         (define kf (dt-struct-map-key-field model f))
+         (define vf (dt-struct-map-val-field model f))
+         (fprintf out "    if (~a.isNotEmpty) {\n      put32(buf, ~a, vp); put32(buf, ~a, ~a.length);\n" mv off (+ off 4) mv)
+         (fprintf out "      final keys = ~a.keys.toList()..sort();\n" mv)
+         (fprintf out "      for (final k in keys) {\n        final v = ~a[k]!;\n        put32(buf, vp, ~a); put32(buf, vp + 4, ~a); vp += 8;\n"
+                  mv (dt-struct-value-size model kf "k") (dt-struct-value-size model vf "v"))
+         (display (dt-struct-value-write model kf "k") out)
+         (display (dt-struct-value-write model vf "v") out)
+         (fprintf out "      }\n    }\n")]
+        [(= (hash-ref f 'label) 3)
+         (cond [(member t '(9 12))
+                (fprintf out "    if (~a.isNotEmpty) {\n      put32(buf, ~a, vp); put32(buf, ~a, ~a.length);\n      var doff = vp + 8 * ~a.length;\n      for (final e in ~a) { put32(buf, vp, doff); put32(buf, vp + 4, ~a); doff += ~a; vp += 8; }\n      for (final e in ~a) { ~a }\n    }\n"
+                         mv off (+ off 4) mv mv mv
+                         (if (= t 9) "utf8.encode(e).length" "e.length")
+                         (if (= t 9) "utf8.encode(e).length" "e.length")
+                         mv
+                         (if (= t 9) "final sb = utf8.encode(e); buf.setRange(vp, vp + sb.length, sb); vp += sb.length;"
+                             "buf.setRange(vp, vp + e.length, e); vp += e.length;"))]
+               [(= t 11)
+                (fprintf out "    if (~a.isNotEmpty) {\n      put32(buf, ~a, vp); put32(buf, ~a, ~a.length);\n      var doff = vp + 8 * ~a.length;\n      for (final e in ~a) { final es = ~a.size(e); put32(buf, vp, doff); put32(buf, vp + 4, es); doff += es; vp += 8; }\n      for (final e in ~a) { final nb = ~a.marshal(e); buf.setRange(vp, vp + nb.length, nb); vp += nb.length; }\n    }\n"
+                         mv off (+ off 4) mv mv mv (dt-struct-companion model f)
+                         mv (dt-struct-companion model f))]
+               [else
+                (fprintf out "    if (~a.isNotEmpty) {\n      put32(buf, ~a, vp); put32(buf, ~a, ~a.length);\n      for (final e in ~a) { final off = vp; ~a vp += ~a; }\n    }\n"
+                         mv off (+ off 4) mv
+                         mv
+                         (dt-struct-scalar-encode f "e")
+                         (if (dt-struct-fixed32-type? t) 4 8))])]
+        [(= t 11)
+         (fprintf out "    if (~a != null) {\n      put32(buf, ~a, vp); put32(buf, ~a, ~a.size(~a!));\n      final nb = ~a.marshal(~a!); buf.setRange(vp, vp + nb.length, nb); vp += nb.length;\n    }\n"
+                  mv off (+ off 4) (dt-struct-companion model f) mv (dt-struct-companion model f) mv)]
+        [(member t '(9 12))
+         (fprintf out "    if (~a.isNotEmpty) {\n      put32(buf, ~a, vp); put32(buf, ~a, ~a);\n      ~a\n    }\n"
+                  mv off (+ off 4)
+                  (if (= t 9) (format "utf8.encode(~a).length" mv) (format "~a.length" mv))
+                  (if (= t 9)
+                      (format "final sb = utf8.encode(~a); buf.setRange(vp, vp + sb.length, sb); vp += sb.length;" mv)
+                      (format "buf.setRange(vp, vp + ~a.length, ~a); vp += ~a.length;" mv mv mv)))]
+        [else
+         (fprintf out "    { final off = ~a; ~a }\n" off (dt-struct-scalar-encode f mv))])
+  (get-output-string out))
+
+(define (dt-struct-value-expr/off model f lenvar offv)
+  (define t (hash-ref f 'type))
+  (cond [(= t 9) (format "utf8.decode(data.sublist(~a, ~a + ~a))" offv offv lenvar)]
+        [(= t 12) (format "Uint8List.fromList(data.sublist(~a, ~a + ~a))" offv offv lenvar)]
+        [(= t 11) (format "(~a > 0 ? ~a.unmarshal(Uint8List.fromList(data.sublist(~a, ~a + ~a))) : ~a())"
+                          lenvar (dt-struct-companion model f) offv offv lenvar
+                          (dt-struct-class-name model f))]
+        [else (dt-struct-scalar-value/off model f offv)]))
+
+(define (dt-struct-decode-field model f foff)
+  (define dn (dart-pb-field-name f))
+  (define t (hash-ref f 'type))
+  (define out (open-output-string))
+  (define mv (format "m.~a" dn))
+  (cond [(dt-struct-map-entry model f)
+         (define kf (dt-struct-map-key-field model f))
+         (define vf (dt-struct-map-val-field model f))
+         (fprintf out "      final off = get32(data, ~a); final n = get32(data, ~a);\n" foff (+ foff 4))
+         (fprintf out "      var p = off;\n      for (var i = 0; i < n; i++) {\n")
+         (fprintf out "        check(data, p, 8);\n        final kl = get32(data, p); final vl = get32(data, p + 4); p += 8;\n        check(data, p, kl + vl);\n")
+         (fprintf out "        final k = () { final io = p; return ~a; }();\n" (dt-struct-value-expr/off model kf "kl" "io"))
+         (fprintf out "        final v = () { final io = p + kl; return ~a; }();\n" (dt-struct-value-expr/off model vf "vl" "io"))
+         (fprintf out "        ~a[k] = v;\n        p += kl + vl;\n      }\n      if (p > vend) { vend = p; }\n" mv)]
+        [(= (hash-ref f 'label) 3)
+         (fprintf out "      final off = get32(data, ~a); final n = get32(data, ~a);\n" foff (+ foff 4))
+         (cond [(member t '(9 12))
+                (fprintf out "      for (var i = 0; i < n; i++) {\n        final eo = get32(data, off + 8 * i); final el = get32(data, off + 8 * i + 4);\n        check(data, eo, el);\n        ~a.add(~a);\n        if (eo + el > vend) { vend = eo + el; }\n      }\n"
+                         mv (if (= t 9) "utf8.decode(data.sublist(eo, eo + el))" "Uint8List.fromList(data.sublist(eo, eo + el))"))]
+               [(= t 11)
+                (fprintf out "      for (var i = 0; i < n; i++) {\n        final eo = get32(data, off + 8 * i); final el = get32(data, off + 8 * i + 4);\n        if (el > 0) {\n          check(data, eo, el);\n          ~a.add(~a.unmarshal(Uint8List.fromList(data.sublist(eo, eo + el))));\n          if (eo + el > vend) { vend = eo + el; }\n        }\n      }\n"
+                         mv (dt-struct-companion model f))]
+               [else
+                (define esz (if (dt-struct-fixed32-type? t) 4 8))
+                (fprintf out "      check(data, off, n * ~a);\n      for (var i = 0; i < n; i++) {\n        final eo = off + i * ~a;\n        ~a.add(~a);\n      }\n      if (off + n * ~a > vend) { vend = off + n * ~a; }\n"
+                         esz esz mv (dt-struct-scalar-value/off model f "eo") esz esz)])]
+        [(= t 11)
+         (fprintf out "      final off = get32(data, ~a); final el = get32(data, ~a);\n" foff (+ foff 4))
+         (fprintf out "      check(data, off, el);\n      ~a = ~a.unmarshal(Uint8List.fromList(data.sublist(off, off + el)));\n      if (off + el > vend) { vend = off + el; }\n" mv (dt-struct-companion model f))]
+        [(member t '(9 12))
+         (fprintf out "      final off = get32(data, ~a); final el = get32(data, ~a);\n" foff (+ foff 4))
+         (fprintf out "      check(data, off, el);\n")
+         (if (= t 9)
+             (fprintf out "      ~a = utf8.decode(data.sublist(off, off + el));\n" mv)
+             (fprintf out "      ~a = Uint8List.fromList(data.sublist(off, off + el));\n" mv))
+         (fprintf out "      if (off + el > vend) { vend = off + el; }\n")]
+        [else
+         (fprintf out "      final off = ~a;\n      ~a = ~a;\n" foff mv
+                  (dt-struct-scalar-value/off model f "off"))])
+  (get-output-string out))
+
+(define (dt-struct-imports model msg base)
+  (define seen (mutable-set))
+  (define imports '())
+  (for ([f (in-list (hash-ref msg 'fields))])
+    (when (or (= (hash-ref f 'type) 11) (= (hash-ref f 'type) 14))
+      (when (= (hash-ref f 'type) 11)
+        (define e (dart-pb-resolve model (hash-ref f 'type-name)))
+        (when (eq? (hash-ref e 'kind) 'message)
+          (define tn (dt-struct-type-name model (hash-ref e 'msg)))
+          (unless (set-member? seen tn)
+            (set-add! seen tn)
+            (set! imports (cons tn imports)))))))
+  (apply string-append
+         (map (lambda (tn) (format "import '~aStruct.dart';\n" tn))
+              (reverse imports))))
+
+(define (emit-dart-struct-files file-model params base)
+  (if (equal? (hash-ref params 'struct_codec #f) "true")
+      (let ()
+        (define descriptor
+          (string-join
+           (for/list ([b (in-bytes (hash-ref file-model 'descriptor-set #""))])
+             (number->string b))
+           ","))
+        (define bridge
+          (cons (string-append base "_structdc.dart")
+                (string-append
+                 "// @generated by protoc-gen-grpc-dc-dart. DO NOT EDIT.\n"
+                 (format "// source: ~a\n\n" (hash-ref file-model 'name))
+                 "import 'dart:convert';\n"
+                 "import 'dart:ffi';\n"
+                 "import 'dart:io';\n"
+                 "import 'dart:typed_data';\n\n"
+                 (format "final Uint8List structdcDescriptor = Uint8List.fromList([~a]);\n\n" descriptor)
+                 "typedef _TranscodeNative = Int32 Function(Pointer<Uint8>, Size, Pointer<Uint8>, Size, Pointer<Uint8>, Size, Pointer<Pointer<Uint8>>, Pointer<Size>, Pointer<Pointer<Uint8>>);\n"
+                 "typedef _TranscodeDart = int Function(Pointer<Uint8>, int, Pointer<Uint8>, int, Pointer<Uint8>, int, Pointer<Pointer<Uint8>>, Pointer<Size>, Pointer<Pointer<Uint8>>);\n"
+                 "typedef _FreeNative = Void Function(Pointer<Uint8>, Size);\n"
+                 "typedef _FreeDart = void Function(Pointer<Uint8>, int);\n"
+                 "typedef _ErrFreeNative = Void Function(Pointer<Uint8>);\n"
+                 "typedef _ErrFreeDart = void Function(Pointer<Uint8>);\n"
+                 "typedef _MallocNative = Pointer<Void> Function(Size);\n"
+                 "typedef _MallocDart = Pointer<Void> Function(int);\n"
+                 "typedef _LibcFreeNative = Void Function(Pointer<Void>);\n"
+                 "typedef _LibcFreeDart = void Function(Pointer<Void>);\n\n"
+                 "final _malloc = DynamicLibrary.open('libc.so.6').lookupFunction<_MallocNative, _MallocDart>('malloc');\n"
+                 "final _libcFree = DynamicLibrary.open('libc.so.6').lookupFunction<_LibcFreeNative, _LibcFreeDart>('free');\n"
+                 "Pointer<Uint8> _allocBytes(int n) => _malloc(n).cast<Uint8>();\n\n"
+                 "DynamicLibrary _structdcLib() {\n"
+                 "  final path = Platform.environment['GRPCDC_STRUCTDC_LIB'];\n"
+                 "  return DynamicLibrary.open((path != null && path.isNotEmpty) ? path : 'libgrpc_dc.so');\n"
+                 "}\n\n"
+                 "/// One protobuf <-> struct transcode through the shared\n"
+                 "/// Rust struct codec (libgrpc_dc).\n"
+                 "Uint8List structdcTranscode(bool encode, String typeName, Uint8List input) {\n"
+                 "  final lib = _structdcLib();\n"
+                 "  final fn = lib.lookupFunction<_TranscodeNative, _TranscodeDart>(encode ? 'grpcdc_struct_encode' : 'grpcdc_struct_decode');\n"
+                 "  final freeFn = lib.lookupFunction<_FreeNative, _FreeDart>('grpcdc_struct_free');\n"
+                 "  final errFreeFn = lib.lookupFunction<_ErrFreeNative, _ErrFreeDart>('grpcdc_struct_error_free');\n"
+                 "  final typeBytes = utf8.encode(typeName);\n"
+                 "  final descPtr = _allocBytes(structdcDescriptor.length);\n"
+                 "  final typePtr = _allocBytes(typeBytes.length);\n"
+                 "  final inPtr = _allocBytes(input.length);\n"
+                 "  final outPtr = _malloc(sizeOf<Pointer<Uint8>>()).cast<Pointer<Uint8>>();\n"
+                 "  final outLenPtr = _malloc(sizeOf<Size>()).cast<Size>();\n"
+                 "  final errPtr = _malloc(sizeOf<Pointer<Uint8>>()).cast<Pointer<Uint8>>();\n"
+                 "  try {\n"
+                 "    descPtr.asTypedList(structdcDescriptor.length).setAll(0, structdcDescriptor);\n"
+                 "    typePtr.asTypedList(typeBytes.length).setAll(0, typeBytes);\n"
+                 "    inPtr.asTypedList(input.length).setAll(0, input);\n"
+                 "    final rc = fn(descPtr, structdcDescriptor.length, typePtr, typeBytes.length, inPtr, input.length, outPtr, outLenPtr, errPtr);\n"
+                 "    if (rc != 0) {\n"
+                 "      var msg = 'struct codec transcode failed';\n"
+                 "      if (errPtr.value != nullptr) { final eb = <int>[]; for (var i = 0; errPtr.value[i] != 0; i++) { eb.add(errPtr.value[i]); } msg = utf8.decode(eb); errFreeFn(errPtr.value); }\n"
+                 "      throw StateError(msg);\n"
+                 "    }\n"
+                 "    final result = Uint8List.fromList(outPtr.value.asTypedList(outLenPtr.value));\n"
+                 "    freeFn(outPtr.value, outLenPtr.value);\n"
+                 "    return result;\n"
+                 "  } finally {\n"
+                 "    _libcFree(descPtr.cast<Void>()); _libcFree(typePtr.cast<Void>()); _libcFree(inPtr.cast<Void>());\n"
+                 "    _libcFree(outPtr.cast<Void>()); _libcFree(outLenPtr.cast<Void>()); _libcFree(errPtr.cast<Void>());\n"
+                 "  }\n"
+                 "}\n")))
+        (define comps (list bridge))
+        (define (emit-comp msg)
+          (unless (hash-ref msg 'map-entry)
+            (set! comps
+                  (cons (cons (string-append (dt-struct-type-name file-model msg) "StructStub.dart")
+                              (string-append
+                               "// @generated by protoc-gen-grpc-dc-dart. DO NOT EDIT.\n"
+                               (format "// source: ~a\n\n" (hash-ref file-model 'name))
+                               "import 'dart:typed_data';\n\n"
+                               (format "import '~a_messages.dart';\n\n" base)
+                               (let ([tn (dt-struct-type-name file-model msg)])
+                                 (format "class ~aStruct {\n  static int size(~a m) => throw UnsupportedError('struct codec unavailable on this platform');\n  static Uint8List marshal(~a m) => throw UnsupportedError('struct codec unavailable on this platform');\n  static ~a unmarshal(Uint8List data) => throw UnsupportedError('struct codec unavailable on this platform');\n}\n" tn tn tn tn))))
+                        comps))
+            (set! comps
+                  (cons (cons (string-append (dt-struct-type-name file-model msg) "Struct.dart")
+                              (string-append
+                               "// @generated by protoc-gen-grpc-dc-dart. DO NOT EDIT.\n"
+                               (format "// source: ~a\n\n" (hash-ref file-model 'name))
+                               "import 'dart:convert';\nimport 'dart:typed_data';\n\n"
+                               (format "import '~a_messages.dart';\n" base)
+                               (format "import '~a_structdc.dart';\n" base)
+                               (dt-struct-imports file-model msg base)
+                               "\n"
+                               (dt-struct-message file-model msg)))
+                        comps)))
+          (for ([n (in-list (hash-ref msg 'nested))]) (emit-comp n)))
+        (for ([m (in-list (hash-ref file-model 'messages))]) (emit-comp m))
+        (reverse comps))
+      '()))

@@ -68,6 +68,24 @@ public final class Codec {
     public static final int HEADER_LEN = 9;
     public static final int MAX_DATA_PAYLOAD = 16 * 1024 * 1024;
 
+    /** HEADERS metadata key a client sends to request the struct codec for a call. */
+    public static final String STRUCT_CODEC_HEADER = "dc-codec";
+    public static final String STRUCT_CODEC_V1 = "struct-v1";
+
+    /** Marshal msg with the codec selected for a call (struct layout when negotiated). */
+    public static byte[] marshalForCodec(boolean structCodec, Marshaler msg) {
+        return structCodec ? msg.marshalStruct() : msg.marshalDc();
+    }
+
+    /** Decode data into msg with the codec selected for a call. */
+    public static void unmarshalForCodec(boolean structCodec, byte[] data, Unmarshaler msg) {
+        if (structCodec) {
+            msg.unmarshalStruct(data);
+        } else {
+            msg.unmarshalDc(data);
+        }
+    }
+
     private Codec() {}
 
     /** One parsed frame. */
@@ -432,6 +450,15 @@ package grpcdc;
 /** Implemented by generated protobuf message types. */
 public interface Marshaler {
     byte[] marshalDc();
+
+    /**
+     * Struct-layout encoding (see Codec.STRUCT_CODEC_V1). Messages
+     * generated without struct_codec=true inherit this error,
+     * mirroring the Go runtime's "message has no struct codec".
+     */
+    default byte[] marshalStruct() {
+        throw new StatusException(Wire.CODE_INTERNAL, "message has no struct codec");
+    }
 }
 GRPC_RUNTIME_EOF
 )
@@ -443,6 +470,11 @@ package grpcdc;
 /** Implemented by generated protobuf message pointer types. */
 public interface Unmarshaler {
     void unmarshalDc(byte[] data);
+
+    /** Decoding side of Marshaler.marshalStruct. */
+    default void unmarshalStruct(byte[] data) {
+        throw new StatusException(Wire.CODE_INTERNAL, "message has no struct codec");
+    }
 }
 GRPC_RUNTIME_EOF
 )
@@ -519,6 +551,13 @@ public class Endpoint {
         public final long deadlineNanos;
         /** This call's server span context (null when dormant). */
         public Tracing.TraceContext traceContext;
+        /** Whether this call negotiated the struct codec (HEADERS dc-codec: struct-v1). */
+        public boolean structCodec;
+
+        /** Marshal a response message with this call's negotiated codec (generated server code calls this). */
+        public byte[] encodeMessage(Marshaler msg) {
+            return Codec.marshalForCodec(structCodec, msg);
+        }
 
         /** Record response initial metadata (sent lazily, before the first response message). */
         public void setHeaders(Map<String, String> md) {
@@ -845,13 +884,31 @@ import java.util.Map;
 public class Channel {
     private final Endpoint endpoint;
     private Tracing.TraceContext traceContext;
+    private boolean structCodec;
 
     /** A Channel view sharing this endpoint whose outbound spans
      *  are parented to ctx. Explicit call metadata still wins. */
     public Channel withTraceContext(Tracing.TraceContext ctx) {
         Channel ch = new Channel(endpoint);
         ch.traceContext = ctx;
+        ch.structCodec = structCodec;
         return ch;
+    }
+
+    /**
+     * Make every call on this channel request the struct codec
+     * (HEADERS marker dc-codec: struct-v1) and encode requests /
+     * decode responses with it. The server must enable it too
+     * (see Server.setStructCodec); otherwise calls fail
+     * UNIMPLEMENTED. Mirrors the Go Channel.SetStructCodec.
+     */
+    public void setStructCodec(boolean enabled) {
+        this.structCodec = enabled;
+    }
+
+    /** Whether this channel requests the struct codec on every call. */
+    public boolean structCodec() {
+        return structCodec;
     }
 
     /** Wrap a transport, allocating odd stream ids. */
@@ -887,6 +944,7 @@ public class Channel {
         private boolean traceEnded;
         private boolean terminated;
         private boolean closed;
+        private boolean structCodec;
 
         private void endTrace(String status) {
             if (!traceEnded) {
@@ -926,7 +984,8 @@ public class Channel {
          */
         /** Send one request message on an open stream (no half-close). */
         public void send(Marshaler msg) throws Exception {
-            endpoint.sendFrame(Codec.encodeFrame(Wire.FRAME_DATA, streamId, msg.marshalDc()));
+            endpoint.sendFrame(Codec.encodeFrame(Wire.FRAME_DATA, streamId,
+                    Codec.marshalForCodec(structCodec, msg)));
         }
 
         /** Half-close an open stream (no more requests). */
@@ -977,7 +1036,7 @@ public class Channel {
                 switch (event.kind) {
                     case HEADERS -> headers = event.headers;
                     case DATA -> {
-                        resp.unmarshalDc(event.payload);
+                        Codec.unmarshalForCodec(structCodec, event.payload, resp);
                         return;
                     }
                     case TRAILERS -> {
@@ -1011,10 +1070,13 @@ public class Channel {
             throws Exception {
         long deadlineNanos = -1L;
         Tracing.TraceContext traceCtx = null;
-        if (timeout != null || Tracing.enabled()) {
+        if (timeout != null || Tracing.enabled() || structCodec) {
             Map<String, String> merged = new java.util.HashMap<>();
             if (metadata != null) {
                 merged.putAll(metadata);
+            }
+            if (structCodec) {
+                merged.put(Codec.STRUCT_CODEC_HEADER, Codec.STRUCT_CODEC_V1);
             }
             if (timeout != null) {
                 deadlineNanos = System.nanoTime() + timeout.toNanos();
@@ -1043,6 +1105,7 @@ public class Channel {
         stream.deadlineNanos = deadlineNanos;
         stream.traceCtx = traceCtx;
         stream.tracePath = path;
+        stream.structCodec = structCodec;
         return stream;
     }
 
@@ -1058,7 +1121,8 @@ public class Channel {
     }
 
     private void sendMessage(ClientStream stream, Marshaler msg) throws Exception {
-        endpoint.sendFrame(Codec.encodeFrame(Wire.FRAME_DATA, stream.streamId(), msg.marshalDc()));
+        endpoint.sendFrame(Codec.encodeFrame(Wire.FRAME_DATA, stream.streamId(),
+                Codec.marshalForCodec(stream.structCodec, msg)));
     }
 
     private void halfClose(ClientStream stream) throws Exception {
@@ -1243,9 +1307,15 @@ public class Server {
     /** Reads request messages of one inbound call. */
     public static final class RequestStream {
         private final Endpoint.StreamInput input;
+        private final boolean structCodec;
 
         public RequestStream(Endpoint.StreamInput input) {
+            this(input, false);
+        }
+
+        public RequestStream(Endpoint.StreamInput input, boolean structCodec) {
             this.input = input;
+            this.structCodec = structCodec;
         }
 
         /** Next request payload; EOFException at half-close. */
@@ -1270,7 +1340,7 @@ public class Server {
 
         /** Decode the next request message into req. */
         public void recvInto(Unmarshaler req) throws Exception {
-            req.unmarshalDc(recvRaw());
+            Codec.unmarshalForCodec(structCodec, recvRaw(), req);
         }
     }
 
@@ -1291,6 +1361,18 @@ public class Server {
     public record ServiceDesc(String name, List<Method> methods) {}
 
     private final Map<String, Method> methods = new HashMap<>();
+    private boolean structCodec;
+
+    /**
+     * Enable the struct codec on this server: a call carrying
+     * HEADERS dc-codec: struct-v1 is decoded with the struct codec
+     * and answered in kind. A struct-v1 request to a server without
+     * it enabled fails UNIMPLEMENTED, as does any other dc-codec
+     * value. Mirrors the Go Server.SetStructCodec.
+     */
+    public void setStructCodec(boolean enabled) {
+        this.structCodec = enabled;
+    }
 
     /** Adds a service's methods (generated code calls it). */
     public void registerService(ServiceDesc desc) {
@@ -1318,12 +1400,23 @@ public class Server {
         if (method == null) {
             return new StatusException(Wire.CODE_UNIMPLEMENTED, "unknown method " + headers.path);
         }
+        // Struct codec negotiation: an explicit dc-codec marker
+        // must be struct-v1 and enabled here, else UNIMPLEMENTED.
+        boolean useStruct = false;
+        String marker = headers.metadata.get(Codec.STRUCT_CODEC_HEADER);
+        if (marker != null) {
+            if (!Codec.STRUCT_CODEC_V1.equals(marker) || !structCodec) {
+                return new StatusException(Wire.CODE_UNIMPLEMENTED, "struct codec not enabled");
+            }
+            useStruct = true;
+        }
+        ctx.structCodec = useStruct;
         Tracing.TraceContext traceCtx = Tracing.traceStart("server", headers.path,
                 Tracing.parseTraceparent(headers.metadata.get("traceparent")));
         ctx.traceContext = traceCtx;
         StatusException result = null;
         try {
-            method.handler().handle(ctx, new RequestStream(in), sink::send);
+            method.handler().handle(ctx, new RequestStream(in, useStruct), sink::send);
         } catch (Exception e) {
             result = StatusException.toStatus(e);
         }
@@ -1868,6 +1961,63 @@ public final class KafkaNative implements AutoCloseable {
 GRPC_RUNTIME_EOF
 )
 
+
+(define java-structdc-body
+#<<GRPC_RUNTIME_EOF
+package grpcdc;
+
+/**
+ * Struct-codec call-in: protobuf &lt;-&gt; struct transcode
+ * through the shared Rust core (libgrpc_dc) via the JNI shim
+ * in java/jni/structdc_jni.c (JDK 17 has no stable FFI).
+ *
+ * Shim location: the GRPC_DC_STRUCTDC_JNI environment variable
+ * (full path), or "grpcdc_structdc_jni" on java.library.path.
+ * The shim in turn dlopens libgrpc_dc (GRPCDC_STRUCTDC_LIB).
+ */
+public final class StructDc {
+    static {
+        String jni = System.getenv("GRPC_DC_STRUCTDC_JNI");
+        try {
+            if (jni != null && !jni.isEmpty()) {
+                System.load(jni);
+            } else {
+                System.loadLibrary("grpcdc_structdc_jni");
+            }
+        } catch (UnsatisfiedLinkError e) {
+            throw new IllegalStateException(
+                "libgrpcdc_structdc_jni not loadable: " + e.getMessage(), e);
+        }
+    }
+
+    private StructDc() {}
+
+    /** Protobuf bytes -> struct-layout bytes for `type`. */
+    public static byte[] encode(byte[] descriptor, String type, byte[] pb) {
+        byte[] out = nativeTranscode(true, descriptor,
+            type.getBytes(java.nio.charset.StandardCharsets.UTF_8), pb);
+        if (out == null) {
+            throw new IllegalStateException("struct codec encode failed");
+        }
+        return out;
+    }
+
+    /** Struct-layout bytes -> protobuf bytes for `type`. */
+    public static byte[] decode(byte[] descriptor, String type, byte[] data) {
+        byte[] out = nativeTranscode(false, descriptor,
+            type.getBytes(java.nio.charset.StandardCharsets.UTF_8), data);
+        if (out == null) {
+            throw new IllegalStateException("struct codec decode failed");
+        }
+        return out;
+    }
+
+    private static native byte[] nativeTranscode(
+        boolean encode, byte[] descriptor, byte[] typeName, byte[] input);
+}
+GRPC_RUNTIME_EOF
+)
+
 (define (emit-java-runtime-files)
   (list
    (cons "grpcdc/StatusException.java" java-status-body)
@@ -1883,6 +2033,7 @@ GRPC_RUNTIME_EOF
    (cons "grpcdc/MemoryTransport.java" java-loopback-body)
    (cons "grpcdc/SidecarTransport.java" java-sidecar-body)
    (cons "grpcdc/KafkaNative.java" java-kafka-native-body)
+   (cons "grpcdc/StructDc.java" java-structdc-body)
    (cons "grpcdc/Dynamic.java" java-dynamic-body)))
 
 (define java-dynamic-body

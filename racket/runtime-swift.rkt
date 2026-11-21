@@ -161,6 +161,24 @@ enum Codec {
     static let HeaderLen = 9
     static let MaxDataPayload = 16 * 1024 * 1024
 
+    /// HEADERS metadata key a client sends to request the struct codec for a call.
+    static let StructCodecHeader = "dc-codec"
+    static let StructCodecV1 = "struct-v1"
+
+    /// Marshal msg with the codec selected for a call (struct layout when negotiated).
+    static func MarshalForCodec(_ structCodec: Bool, _ msg: Marshaler) throws -> [UInt8] {
+        structCodec ? try msg.MarshalStruct() : msg.MarshalDc()
+    }
+
+    /// Decode data into msg with the codec selected for a call.
+    static func UnmarshalForCodec(_ structCodec: Bool, _ data: [UInt8], _ msg: Unmarshaler) throws {
+        if structCodec {
+            try msg.UnmarshalStruct(data)
+        } else {
+            msg.UnmarshalDc(data)
+        }
+    }
+
     /// One parsed frame.
     struct Frame {
         let type: Int
@@ -600,11 +618,29 @@ extension Transport {
 /// Implemented by hand-written protobuf message types.
 protocol Marshaler {
     func MarshalDc() -> [UInt8]
+    func MarshalStruct() throws -> [UInt8]
+}
+
+extension Marshaler {
+    /// Struct-layout encoding (see Codec.StructCodecV1). Messages
+    /// generated without struct_codec=true inherit this error,
+    /// mirroring the Go runtime's "message has no struct codec".
+    func MarshalStruct() throws -> [UInt8] {
+        throw StatusException(Wire.CodeInternal, "message has no struct codec")
+    }
 }
 
 /// Implemented by hand-written protobuf message types.
 protocol Unmarshaler {
     func UnmarshalDc(_ data: [UInt8])
+    func UnmarshalStruct(_ data: [UInt8]) throws
+}
+
+extension Unmarshaler {
+    /// Decoding side of Marshaler.MarshalStruct.
+    func UnmarshalStruct(_ data: [UInt8]) throws {
+        throw StatusException(Wire.CodeInternal, "message has no struct codec")
+    }
 }
 
 #if canImport(Foundation)
@@ -780,6 +816,13 @@ final class Endpoint {
         var metadata: [String: String] = [:]
         /// This call's server span context (nil when dormant).
         var traceContext: Tracing.TraceContext? = nil
+        /// Whether this call negotiated the struct codec (HEADERS dc-codec: struct-v1).
+        var structCodec: Bool = false
+
+        /// Marshal a response message with this call's negotiated codec (generated server code calls this).
+        func EncodeMessage(_ msg: Marshaler) throws -> [UInt8] {
+            try Codec.MarshalForCodec(structCodec, msg)
+        }
         /// Response initial metadata recorded via SetHeaders.
         var responseHeaders: [String: String] = [:]
         /// Response trailing metadata recorded via SetTrailers.
@@ -1170,12 +1213,26 @@ func RunBlocking<T>(_ body: @escaping () async throws -> T) throws -> T {
 final class Channel {
     private let endpointInstance: Endpoint
     private var traceContext: Tracing.TraceContext? = nil
+    private var structCodecFlag: Bool = false
+
+    /// Make every call on this channel request the struct codec
+    /// (HEADERS marker dc-codec: struct-v1) and encode requests /
+    /// decode responses with it. The server must enable it too
+    /// (see Server.SetStructCodec); otherwise calls fail
+    /// Unimplemented. Mirrors the Go Channel.SetStructCodec.
+    func SetStructCodec(_ enabled: Bool) {
+        structCodecFlag = enabled
+    }
+
+    /// Whether this channel requests the struct codec on every call.
+    var structCodec: Bool { structCodecFlag }
 
     /// A Channel view sharing this endpoint whose outbound spans
     /// are parented to ctx. Explicit call metadata still wins.
     public func WithTraceContext(_ ctx: Tracing.TraceContext?) -> Channel {
         let ch = Channel(endpoint: endpointInstance)
         ch.traceContext = ctx
+        ch.structCodecFlag = structCodecFlag
         return ch
     }
 
@@ -1206,6 +1263,7 @@ final class Channel {
         var tracePath: String? = nil
         private var traceEnded = false
         private var terminated = false
+        var structCodec: Bool = false
 
         func EndTrace(_ status: String) {
             if !traceEnded {
@@ -1222,7 +1280,7 @@ final class Channel {
 
         /// Send one request message on an open stream (no half-close).
         func Send(_ msg: Marshaler) throws {
-            try endpoint.SendFrame(Codec.EncodeFrame(Wire.FrameData, streamId, msg.MarshalDc()))
+            try endpoint.SendFrame(Codec.EncodeFrame(Wire.FrameData, streamId, Codec.MarshalForCodec(structCodec, msg)))
         }
 
         /// Half-close an open stream (no more requests).
@@ -1269,7 +1327,7 @@ final class Channel {
                 case .headers:
                     headers = event.headers
                 case .data:
-                    resp.UnmarshalDc(event.payload)
+                    try Codec.UnmarshalForCodec(structCodec, event.payload, resp)
                     return
                 case .trailers:
                     terminated = true
@@ -1296,8 +1354,11 @@ final class Channel {
         var metadata = metadata
         var deadlineMs: Double? = nil
         var traceCtx: Tracing.TraceContext? = nil
-        if timeout != nil || Tracing.Enabled {
+        if timeout != nil || Tracing.Enabled || structCodecFlag {
             var merged = metadata ?? [:]
+            if structCodecFlag {
+                merged[Codec.StructCodecHeader] = Codec.StructCodecV1
+            }
             if let timeout {
                 deadlineMs = GrpcTime.NowMs() + timeout * 1000.0
                 merged["grpc-timeout"] = Codec.EncodeTimeout(timeout)
@@ -1320,6 +1381,7 @@ final class Channel {
             throw error
         }
         let stream = ClientStream(endpointInstance, id, input)
+        stream.structCodec = structCodecFlag
         stream.deadlineMs = deadlineMs
         stream.traceCtx = traceCtx
         stream.tracePath = path
@@ -1327,7 +1389,7 @@ final class Channel {
     }
 
     private func SendMessage(_ stream: ClientStream, _ msg: Marshaler) throws {
-        try endpointInstance.SendFrame(Codec.EncodeFrame(Wire.FrameData, stream.streamId, msg.MarshalDc()))
+        try endpointInstance.SendFrame(Codec.EncodeFrame(Wire.FrameData, stream.streamId, Codec.MarshalForCodec(stream.structCodec, msg)))
     }
 
     private func HalfClose(_ stream: ClientStream) throws {
@@ -1412,9 +1474,11 @@ final class Server {
     /// Reads request messages of one inbound call.
     final class RequestStream {
         private let input: Endpoint.StreamInput
+        private let structCodec: Bool
 
-        init(_ input: Endpoint.StreamInput) {
+        init(_ input: Endpoint.StreamInput, _ structCodec: Bool = false) {
             self.input = input
+            self.structCodec = structCodec
         }
 
         /// Next request payload; EndOfStreamError at half-close.
@@ -1438,7 +1502,7 @@ final class Server {
 
         /// Decode the next request message into req.
         func RecvInto(_ req: Unmarshaler) throws {
-            try req.UnmarshalDc(RecvRaw())
+            try Codec.UnmarshalForCodec(structCodec, RecvRaw(), req)
         }
     }
 
@@ -1476,6 +1540,16 @@ final class Server {
     /// handlers stay valid as long as the endpoint lives.
     final class Shared {
         var methods: [String: Method] = [:]
+        var structCodec: Bool = false
+    }
+
+    /// Enable the struct codec on this server: a call carrying
+    /// HEADERS dc-codec: struct-v1 is decoded with the struct codec
+    /// and answered in kind. A struct-v1 request to a server without
+    /// it enabled fails Unimplemented, as does any other dc-codec
+    /// value. Mirrors the Go Server.SetStructCodec.
+    func SetStructCodec(_ enabled: Bool) {
+        shared.structCodec = enabled
     }
 
     private let shared = Shared()
@@ -1512,11 +1586,21 @@ final class Server {
         guard let path = headers.path, let method = shared.methods[path] else {
             return StatusException(Wire.CodeUnimplemented, "unknown method \(headers.path ?? "")")
         }
+        // Struct codec negotiation: an explicit dc-codec marker
+        // must be struct-v1 and enabled here, else Unimplemented.
+        var useStruct = false
+        if let marker = headers.metadata[Codec.StructCodecHeader] {
+            if marker != Codec.StructCodecV1 || !shared.structCodec {
+                return StatusException(Wire.CodeUnimplemented, "struct codec not enabled")
+            }
+            useStruct = true
+        }
+        ctx.structCodec = useStruct
         let traceCtx = Tracing.TraceStart("server", path, Tracing.ParseTraceparent(headers.metadata["traceparent"]))
         ctx.traceContext = traceCtx
         var result = StatusException(Wire.CodeOk, "")
         do {
-            let reqs = RequestStream(input)
+            let reqs = RequestStream(input, useStruct)
             try method.handler(ctx, reqs) { payload in
                 try sink.Send(payload)
             }

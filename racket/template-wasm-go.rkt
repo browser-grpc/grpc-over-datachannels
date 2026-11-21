@@ -50,8 +50,14 @@
          (format "// source: ~a\n\n" (hash-ref file-model 'name))
          "//go:build js && wasm\n\n"
          (format "package ~a\n\n" pkg)
-         "import (\n\t\"syscall/js\"\n\n"
-         (format "\techo ~s\n" messages-import)
-         ")\n\n"
+         ;; Imports are used only by generated service code; a
+         ;; service-less file must not import them (Go rejects
+         ;; unused imports).
+         (if (null? (hash-ref file-model 'services))
+             ""
+             (string-append
+              "import (\n\t\"syscall/js\"\n\n"
+              (format "\techo ~s\n" messages-import)
+              ")\n\n"))
          (apply string-append
                 (map wasm-service (hash-ref file-model 'services))))))

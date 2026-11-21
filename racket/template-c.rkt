@@ -300,6 +300,7 @@
                   (map (lambda (d) (format "#include \"~a_messages.h\"\n" (path->string (path-replace-extension (file-name-from-path d) ""))))
                        (hash-ref file-model 'dependencies)))
            (if (emit-c-pb-file file-model) (format "#include \"~a_messages.h\"\n" base) "")
+           (if (equal? (hash-ref params 'struct_codec #f) "true") (format "#include \"~a_struct.h\"\n" base) "")
            ;; trace=hooks: apply the baked filter from a generated
            ;; initializer the caller invokes once.
            (if (equal? (hash-ref params 'trace #f) "hooks")
@@ -309,8 +310,309 @@
                      "\n/* Tracing (trace=hooks@@TRACING_BETA@@): register an observer via\n   grpcdc_set_tracer (grpcdc/grpcdc.h). */\n"))
                "")
            "\n"
-           (apply string-append
-                  (map (lambda (svc) (c-service file-model svc support)) (hash-ref file-model 'services)))
+           (parameterize ([seg-struct-codec (equal? (hash-ref params 'struct_codec #f) "true")])
+             (apply string-append
+                    (map (lambda (svc) (c-service file-model svc support)) (hash-ref file-model 'services))))
            (format "#endif /* ~a */\n" guard))))
   (define pb-file (emit-c-pb-file file-model))
-  (if pb-file (list stub pb-file) stub))
+  (define struct-file (emit-c-struct-file file-model params))
+  (if struct-file
+      (append (list stub pb-file) (list struct-file))
+      (if pb-file (list stub pb-file) stub)))
+
+;; ------------------------------------------------------------------
+;; Struct codec (struct_codec=true): <Msg>_struct_size/_marshal/
+;; _unmarshal functions per message in <base>_struct.h with the
+;; packed layout from SPEC.md (byte-identical to the other struct
+;; codecs; verified by conformance/struct).
+(define (c-struct-fingerprint s)
+  (for/fold ([h 2166136261]) ([c (in-string s)])
+    (modulo (* (bitwise-xor h (char->integer c)) 16777619) 4294967296)))
+
+(define (c-struct-fixed32-type? t) (member t '(2 7 15)))
+(define (c-struct-fixed64-type? t) (member t '(1 6 16)))
+
+(define (c-struct-slot-size f)
+  (if (c-struct-fixed32-type? (hash-ref f 'type)) 4 8))
+
+(define (c-struct-sorted-fields msg)
+  (sort (hash-ref msg 'fields) < #:key (lambda (f) (hash-ref f 'number))))
+
+(define (c-struct-map-entry model f)
+  (and (= (hash-ref f 'type) 11)
+       (let ([e (c-pb-resolve model (hash-ref f 'type-name))])
+         (and (eq? (hash-ref e 'kind) 'map) e))))
+
+(define (c-struct-map-key-field model f)
+  (define em (hash-ref (c-struct-map-entry model f) 'msg))
+  (findf (lambda (x) (= (hash-ref x 'number) 1)) (hash-ref em 'fields)))
+(define (c-struct-map-val-field model f)
+  (define em (hash-ref (c-struct-map-entry model f) 'msg))
+  (findf (lambda (x) (= (hash-ref x 'number) 2)) (hash-ref em 'fields)))
+
+(define (c-struct-msg-name model msg)
+  (c-pb-rel (hash-ref model 'package) (hash-ref msg 'full-name)))
+
+(define (c-struct-class-name model f)
+  (define e (c-pb-resolve model (hash-ref f 'type-name)))
+  (c-struct-msg-name model (hash-ref e 'msg)))
+
+(define (c-struct-entry-name model f)
+  (c-pb-entry-ref model (c-pb-resolve model (hash-ref f 'type-name))))
+
+(define (c-struct-elem-ctype model f support)
+  (define t (hash-ref f 'type))
+  (cond [(= t 9) "char *"]
+        [(= t 12) (format "~aBytes" support)]
+        [(= t 11) (c-struct-entry-name model f)]
+        [(= t 14) (c-pb-entry-ref model (c-pb-resolve model (hash-ref f 'type-name)))]
+        [else (first (c-pb-scalar f))]))
+
+(define (c-struct-present model f fn)
+  (define t (hash-ref f 'type))
+  (cond [(c-struct-map-entry model f) (format "m->~a_count > 0" fn)]
+        [(= (hash-ref f 'label) 3) (format "m->~a_count > 0" fn)]
+        [(= t 11) (format "m->~a != NULL" fn)]
+        [(= t 9) (format "(m->~a != NULL && m->~a[0] != 0)" fn fn)]
+        [(= t 12) (format "m->~a.len > 0" fn)]
+        [(= t 8) (format "m->~a" fn)]
+        [else (format "m->~a != 0" fn)]))
+
+;; scalar encode statement writing v at buf[off]
+(define (c-struct-scalar-encode model f v)
+  (define t (hash-ref f 'type))
+  (define P (c-struct-prefix))
+  (cond [(c-struct-fixed32-type? t)
+         (if (= t 2)
+             (format "{ float fv = ~a; uint32_t u; memcpy(&u, &fv, 4); ~aPut32(buf, off, u); }" v P)
+             (format "~aPut32(buf, off, (uint32_t)(~a));" P v))]
+        [(c-struct-fixed64-type? t)
+         (if (= t 1)
+             (format "{ double fv = ~a; uint64_t u; memcpy(&u, &fv, 8); ~aPut64(buf, off, u); }" v P)
+             (format "~aPut64(buf, off, (uint64_t)(~a));" P v))]
+        [(= t 8) (format "buf[off] = (~a) ? 1 : 0;" v)]
+        [(= t 14) (format "~aPut64(buf, off, (uint64_t)(int64_t)(~a));" P v)]
+        [(member t '(3 16 18)) (format "~aPut64(buf, off, (uint64_t)(int64_t)(~a));" P v)]
+        [else (format "~aPut64(buf, off, (uint64_t)(~a));" P v)]))
+
+(define c-struct-prefix (make-parameter "MsgsStruct"))
+(define c-struct-support (make-parameter "MsgsPb"))
+
+;; expression reading a scalar of f's type at data[offv]
+(define (c-struct-scalar-value/off model f offv)
+  (define t (hash-ref f 'type))
+  (define P (c-struct-prefix))
+  (cond [(c-struct-fixed32-type? t)
+         (if (= t 2)
+             (format "~a_fixed_to_f32(~aGet32(data, ~a))" (c-struct-support) P offv)
+             (format "(~a)~aGet32(data, ~a)" (first (c-pb-scalar f)) P offv))]
+        [(c-struct-fixed64-type? t)
+         (if (= t 1)
+             (format "~a_fixed_to_f64(~aGet64(data, ~a))" (c-struct-support) P offv)
+             (format "(~a)~aGet64(data, ~a)" (first (c-pb-scalar f)) P offv))]
+        [(= t 8) (format "(data[~a] != 0)" offv)]
+        [(= t 14) (format "(~a)~aGet64(data, ~a)"
+                          (c-pb-entry-ref model (c-pb-resolve model (hash-ref f 'type-name))) P offv)]
+        [(member t '(3 16 18)) (format "(~a)(int64_t)~aGet64(data, ~a)" (first (c-pb-scalar f)) P offv)]
+        [(member t '(5 15 17)) (format "(~a)(int32_t)~aGet64(data, ~a)" (first (c-pb-scalar f)) P offv)]
+        [else (format "(~a)~aGet64(data, ~a)" (first (c-pb-scalar f)) P offv)]))
+
+(define (c-struct-value-size model f v support)
+  (define t (hash-ref f 'type))
+  (cond [(= t 9) (format "(~a ? strlen(~a) : 0)" v v)]
+        [(= t 12) (format "~a.len" v)]
+        [(= t 11) (format "~a_struct_size(&~a)" (c-struct-class-name model f) v)]
+        [(c-struct-fixed32-type? t) "4"]
+        [else "8"]))
+
+(define (c-struct-message model msg support)
+  (define name (c-struct-msg-name model msg))
+  (define full (hash-ref msg 'full-name))
+  (define P (c-struct-prefix))
+  (define out (open-output-string))
+  (fprintf out "static inline size_t ~a_struct_size(const ~a *m) {\n    ~aBytes b = ~a_struct_marshal(m);\n    size_t n = b.len;\n    free(b.data);\n    return n;\n}\n\n" name name support name)
+  (fprintf out "static inline void ~a_struct_write(const ~a *m, uint8_t *buf) {\n    ~aBytes b = ~a_struct_marshal(m);\n    if (b.len) memcpy(buf, b.data, b.len);\n    free(b.data);\n}\n\n" name name support name)
+  (fprintf out "static inline ~aBytes ~a_struct_marshal(const ~a *m) {\n    ~aBytes pb = ~a_marshal(m);\n    uint8_t *out = NULL;\n    size_t out_len = 0;\n    char *err = NULL;\n    if (grpcdc_struct_encode(~aDescriptor, ~aDescriptorLen, (const uint8_t *)\"~a\", ~a, pb.data, pb.len, &out, &out_len, &err) != 0) {\n        fprintf(stderr, \"struct codec encode failed: %s\\n\", err ? err : \"unknown\");\n        grpcdc_struct_error_free(err);\n        free(pb.data);\n        abort();\n    }\n    free(pb.data);\n    ~aBytes b;\n    b.data = out;\n    b.len = out_len;\n    return b;\n}\n\n"
+           support name name support name P P full (string-length full) support)
+  (fprintf out "static inline bool ~a_struct_unmarshal(~a *m, const uint8_t *data, size_t len) {\n    uint8_t *pb = NULL;\n    size_t pb_len = 0;\n    char *err = NULL;\n    if (grpcdc_struct_decode(~aDescriptor, ~aDescriptorLen, (const uint8_t *)\"~a\", ~a, data, len, &pb, &pb_len, &err) != 0) {\n        grpcdc_struct_error_free(err);\n        return false;\n    }\n    ~a_unmarshal(m, pb, pb_len);\n    grpcdc_struct_free(pb, pb_len);\n    return true;\n}\n\n"
+           name name P P full (string-length full) name)
+  (get-output-string out))
+
+(define (c-struct-value-write model f v support)
+  ;; v is an lvalue expression for the value; writes at buf+vp.
+  (define t (hash-ref f 'type))
+  (define out (open-output-string))
+  (cond [(= t 9)
+         (fprintf out "                { const char *sv = ~a; size_t sl = sv ? strlen(sv) : 0; if (sl) memcpy(buf + vp, sv, sl); vp += sl; }\n" v)]
+        [(= t 12)
+         (fprintf out "                if (~a.len) memcpy(buf + vp, ~a.data, ~a.len); vp += ~a.len;\n" v v v)]
+        [(= t 11)
+         (fprintf out "                ~a_struct_write(&~a, buf + vp); vp += ~a_struct_size(&~a);\n"
+                  (c-struct-class-name model f) v (c-struct-class-name model f) v)]
+        [else
+         (fprintf out "                { size_t off = vp; ~a } vp += ~a;\n"
+                  (c-struct-scalar-encode model f v) (if (c-struct-fixed32-type? t) 4 8))])
+  (get-output-string out))
+
+(define (c-struct-marshal-field model f off support)
+  (define fn (hash-ref f 'name))
+  (define t (hash-ref f 'type))
+  (define P (c-struct-prefix))
+  (define out (open-output-string))
+  (define mv (format "m->~a" fn))
+  (cond [(c-struct-map-entry model f)
+         (define kf (c-struct-map-key-field model f))
+         (define vf (c-struct-map-val-field model f))
+         (define entry (c-struct-entry-name model f))
+         (fprintf out "    if (m->~a_count > 0) {\n        ~aPut32(buf, ~a, (uint32_t)vp); ~aPut32(buf, ~a, (uint32_t)m->~a_count);\n" fn P off P (+ off 4) fn)
+         (fprintf out "        const ~a **ord = (const ~a **)malloc(sizeof(*ord) * m->~a_count);\n        for (size_t i = 0; i < m->~a_count; i++) ord[i] = &m->~a[i];\n        qsort(ord, m->~a_count, sizeof(*ord), ~a_~a_struct_cmp);\n"
+                  entry entry fn fn fn fn (c-struct-msg-name model (current-struct-msg)) fn)
+         (fprintf out "        for (size_t i = 0; i < m->~a_count; i++) {\n            const ~a *e = ord[i];\n            ~aPut32(buf, vp, (uint32_t)~a); ~aPut32(buf, vp + 4, (uint32_t)~a); vp += 8;\n"
+                  fn entry P (c-struct-value-size model kf "e->key" support) P (c-struct-value-size model vf "e->value" support))
+         (display (c-struct-value-write model kf "e->key" support) out)
+         (display (c-struct-value-write model vf "e->value" support) out)
+         (fprintf out "        }\n        free(ord);\n    }\n")]
+        [(= (hash-ref f 'label) 3)
+         (cond [(member t '(9 12))
+                (fprintf out "    if (m->~a_count > 0) {\n        ~aPut32(buf, ~a, (uint32_t)vp); ~aPut32(buf, ~a, (uint32_t)m->~a_count);\n        size_t doff = vp + 8 * m->~a_count;\n        for (size_t i = 0; i < m->~a_count; i++) { ~aPut32(buf, vp, (uint32_t)doff); ~aPut32(buf, vp + 4, (uint32_t)~a); doff += ~a; vp += 8; }\n        for (size_t i = 0; i < m->~a_count; i++) { ~a }\n    }\n"
+                         fn P off P (+ off 4) fn fn fn P P
+                         (if (= t 9) (format "strlen(m->~a[i])" fn) (format "m->~a[i].len" fn))
+                         (if (= t 9) (format "strlen(m->~a[i])" fn) (format "m->~a[i].len" fn))
+                         fn
+                         (if (= t 9) (format "{ const char *sv = m->~a[i]; size_t sl = strlen(sv); if (sl) memcpy(buf + vp, sv, sl); vp += sl; }" fn)
+                             (format "if (m->~a[i].len) memcpy(buf + vp, m->~a[i].data, m->~a[i].len); vp += m->~a[i].len;" fn fn fn)))]
+               [(= t 11)
+                (fprintf out "    if (m->~a_count > 0) {\n        ~aPut32(buf, ~a, (uint32_t)vp); ~aPut32(buf, ~a, (uint32_t)m->~a_count);\n        size_t doff = vp + 8 * m->~a_count;\n        for (size_t i = 0; i < m->~a_count; i++) { size_t es = ~a_struct_size(&m->~a[i]); ~aPut32(buf, vp, (uint32_t)doff); ~aPut32(buf, vp + 4, (uint32_t)es); doff += es; vp += 8; }\n        for (size_t i = 0; i < m->~a_count; i++) { ~a_struct_write(&m->~a[i], buf + vp); vp += ~a_struct_size(&m->~a[i]); }\n    }\n"
+                         fn P off P (+ off 4) fn fn fn (c-struct-class-name model f) fn P P
+                         fn (c-struct-class-name model f) fn (c-struct-class-name model f) fn)]
+               [else
+                (fprintf out "    if (m->~a_count > 0) {\n        ~aPut32(buf, ~a, (uint32_t)vp); ~aPut32(buf, ~a, (uint32_t)m->~a_count);\n        for (size_t i = 0; i < m->~a_count; i++) { size_t off = vp; ~a vp += ~a; }\n    }\n"
+                         fn P off P (+ off 4) fn
+                         fn
+                         (c-struct-scalar-encode model f (format "m->~a[i]" fn))
+                         (if (c-struct-fixed32-type? t) 4 8))])]
+        [(= t 11)
+         (fprintf out "    if (m->~a) {\n        ~aPut32(buf, ~a, (uint32_t)vp); ~aPut32(buf, ~a, (uint32_t)~a_struct_size(m->~a));\n        ~a_struct_write(m->~a, buf + vp); vp += ~a_struct_size(m->~a);\n    }\n"
+                  fn P off P (+ off 4) (c-struct-class-name model f) fn
+                  (c-struct-class-name model f) fn (c-struct-class-name model f) fn)]
+        [(member t '(9 12))
+         (fprintf out "    if (~a) {\n        ~aPut32(buf, ~a, (uint32_t)vp); ~aPut32(buf, ~a, (uint32_t)~a);\n        ~a\n    }\n"
+                  (if (= t 9) (format "(m->~a && m->~a[0])" fn fn) (format "m->~a.len > 0" fn))
+                  P off P (+ off 4)
+                  (if (= t 9) (format "strlen(m->~a)" fn) (format "m->~a.len" fn))
+                  (if (= t 9)
+                      (format "{ const char *sv = m->~a; size_t sl = strlen(sv); if (sl) memcpy(buf + vp, sv, sl); vp += sl; }" fn)
+                      (format "memcpy(buf + vp, m->~a.data, m->~a.len); vp += m->~a.len;" fn fn fn)))]
+        [else
+         (fprintf out "    { size_t off = ~a; ~a }\n" off (c-struct-scalar-encode model f mv))])
+  (get-output-string out))
+
+(define current-struct-msg (make-parameter #f))
+
+(define (c-struct-value-expr/off model f lenvar offv support)
+  (define t (hash-ref f 'type))
+  (define P (c-struct-prefix))
+  (cond [(= t 9) (format "~a_strdup_bytes(data + ~a, ~a)" support offv lenvar)]
+        [(= t 12) (format "~a_bytes_copy(data + ~a, ~a)" support offv lenvar)]
+        [(= t 11) (format "({ ~a *np = NULL; if (~a > 0) { np = (~a *)malloc(sizeof(*np)); memset(np, 0, sizeof(*np)); ~a_struct_unmarshal(np, data + ~a, ~a); } np; })"
+                          (c-struct-class-name model f) lenvar (c-struct-class-name model f)
+                          (c-struct-class-name model f) offv lenvar)]
+        [else (c-struct-scalar-value/off model f offv)]))
+
+(define (c-struct-decode-field model f foff support)
+  (define fn (hash-ref f 'name))
+  (define t (hash-ref f 'type))
+  (define P (c-struct-prefix))
+  (define out (open-output-string))
+  (define mv (format "m->~a" fn))
+  (cond [(c-struct-map-entry model f)
+         (define kf (c-struct-map-key-field model f))
+         (define vf (c-struct-map-val-field model f))
+         (define entry (c-struct-entry-name model f))
+         (fprintf out "        size_t off = ~aGet32(data, ~a); size_t n = ~aGet32(data, ~a);\n" P foff P (+ foff 4))
+         (fprintf out "        size_t p = off;\n        m->~a = (~a *)malloc(sizeof(~a) * (n ? n : 1)); m->~a_count = n;\n        for (size_t i = 0; i < n; i++) {\n" fn entry entry fn)
+         (fprintf out "            if (p + 8 > len) return false;\n            size_t kl = ~aGet32(data, p); size_t vl = ~aGet32(data, p + 4); p += 8;\n            if (p + kl + vl > len) return false;\n" P P)
+         ;; value assignment: msg values are structs by value
+         (define vt (hash-ref vf 'type))
+         (cond [(= vt 11)
+                (fprintf out "            { size_t io = p; m->~a[i].key = ~a; }\n" fn (c-struct-value-expr/off model kf "kl" "io" support))
+                (fprintf out "            memset(&m->~a[i].value, 0, sizeof(m->~a[i].value));\n            if (vl > 0) { if (!~a_struct_unmarshal(&m->~a[i].value, data + p + kl, vl)) return false; }\n" fn fn (c-struct-class-name model vf) fn)]
+               [else
+                (fprintf out "            { size_t io = p; m->~a[i].key = ~a; }\n            { size_t io = p + kl; m->~a[i].value = ~a; }\n"
+                         fn (c-struct-value-expr/off model kf "kl" "io" support)
+                         fn (c-struct-value-expr/off model vf "vl" "io" support))])
+         (fprintf out "            p += kl + vl;\n        }\n        if (p > vend) vend = p;\n")]
+        [(= (hash-ref f 'label) 3)
+         (define et (c-struct-elem-ctype model f support))
+         (fprintf out "        size_t off = ~aGet32(data, ~a); size_t n = ~aGet32(data, ~a);\n" P foff P (+ foff 4))
+         (fprintf out "        m->~a = (~a *)malloc(sizeof(~a) * (n ? n : 1)); m->~a_count = n;\n" fn et et fn)
+         (cond [(member t '(9 12))
+                (fprintf out "        for (size_t i = 0; i < n; i++) {\n            size_t eo = ~aGet32(data, off + 8 * i); size_t el = ~aGet32(data, off + 8 * i + 4);\n            if (eo + el > len) return false;\n            m->~a[i] = ~a;\n            if (eo + el > vend) vend = eo + el;\n        }\n"
+                         P P fn (c-struct-value-expr/off model f "el" "eo" support))]
+               [(= t 11)
+                (fprintf out "        for (size_t i = 0; i < n; i++) {\n            size_t eo = ~aGet32(data, off + 8 * i); size_t el = ~aGet32(data, off + 8 * i + 4);\n            memset(&m->~a[i], 0, sizeof(m->~a[i]));\n            if (el > 0) {\n                if (eo + el > len) return false;\n                if (!~a_struct_unmarshal(&m->~a[i], data + eo, el)) return false;\n                if (eo + el > vend) vend = eo + el;\n            }\n        }\n"
+                         P P fn fn (c-struct-class-name model f) fn)]
+               [else
+                (define esz (if (c-struct-fixed32-type? t) 4 8))
+                (fprintf out "        if (off + n * ~a > len) return false;\n        for (size_t i = 0; i < n; i++) {\n            size_t eo = off + i * ~a;\n            m->~a[i] = ~a;\n        }\n        if (off + n * ~a > vend) vend = off + n * ~a;\n"
+                         esz esz fn (c-struct-scalar-value/off model f "eo") esz esz)])]
+        [(= t 11)
+         (fprintf out "        size_t off = ~aGet32(data, ~a); size_t el = ~aGet32(data, ~a);\n" P foff P (+ foff 4))
+         (fprintf out "        if (off + el > len) return false;\n        m->~a = (~a *)malloc(sizeof(*m->~a)); memset(m->~a, 0, sizeof(*m->~a));\n        if (el > 0) { if (!~a_struct_unmarshal(m->~a, data + off, el)) return false; }\n        if (off + el > vend) vend = off + el;\n"
+                  fn (c-struct-class-name model f) fn fn fn (c-struct-class-name model f) fn)]
+        [(member t '(9 12))
+         (fprintf out "        size_t off = ~aGet32(data, ~a); size_t el = ~aGet32(data, ~a);\n" P foff P (+ foff 4))
+         (fprintf out "        if (off + el > len) return false;\n")
+         (if (= t 9)
+             (fprintf out "        m->~a = ~a;\n" fn (c-struct-value-expr/off model f "el" "off" support))
+             (fprintf out "        m->~a = ~a;\n" fn (c-struct-value-expr/off model f "el" "off" support)))
+         (fprintf out "        if (off + el > vend) vend = off + el;\n")]
+        [else
+         (fprintf out "        { size_t off = ~a; m->~a = ~a; }\n" foff fn
+                  (c-struct-scalar-value/off model f "off"))])
+  (get-output-string out))
+
+(define (emit-c-struct-file file-model params)
+  (and (equal? (hash-ref params 'struct_codec #f) "true")
+       (hash-has-key? file-model 'messages)
+       (let ()
+         (define base (path->string (path-replace-extension
+                                     (file-name-from-path (hash-ref file-model 'name)) "")))
+         (define support (string-append (pascal (string->symbol base)) "Pb"))
+         (define prefix (string-append (pascal (string->symbol base)) "Struct"))
+         (define guard (format "GRPCDC_~a_STRUCT_H" (string-upcase base)))
+         (define all-msgs (c-pb-all-messages file-model))
+         (define descriptor (hash-ref file-model 'descriptor-set #""))
+         (parameterize ([c-struct-prefix prefix] [c-struct-support support])
+           (define content
+             (string-append
+              "// @generated by protoc-gen-grpc-dc-c. DO NOT EDIT.\n"
+              (format "// source: ~a\n\n" (hash-ref file-model 'name))
+              (format "#ifndef ~a\n#define ~a\n\n" guard guard)
+              (format "#include \"~a_messages.h\"\n" base)
+              "#include <stdio.h>\n\n"
+              "/* Shared Rust struct codec (libgrpc_dc): protobuf <-> struct transcode. */\n"
+              "int grpcdc_struct_encode(const uint8_t *desc, size_t desc_len, const uint8_t *type_name, size_t type_len, const uint8_t *input, size_t input_len, uint8_t **out, size_t *out_len, char **err_out);\n"
+              "int grpcdc_struct_decode(const uint8_t *desc, size_t desc_len, const uint8_t *type_name, size_t type_len, const uint8_t *input, size_t input_len, uint8_t **out, size_t *out_len, char **err_out);\n"
+              "void grpcdc_struct_free(uint8_t *ptr, size_t len);\n"
+              "void grpcdc_struct_error_free(char *ptr);\n\n"
+              (format "static const uint8_t ~aDescriptor[] = {~a};\n" prefix
+                      (string-join (for/list ([b (in-bytes descriptor)]) (format "0x~x" b)) ","))
+              (format "static const size_t ~aDescriptorLen = ~a;\n\n" prefix (bytes-length descriptor))
+              (apply string-append
+                     (map (lambda (m)
+                            (define name (c-struct-msg-name file-model m))
+                            (format "static inline size_t ~a_struct_size(const ~a *m);\nstatic inline void ~a_struct_write(const ~a *m, uint8_t *buf);\nstatic inline ~aBytes ~a_struct_marshal(const ~a *m);\nstatic inline bool ~a_struct_unmarshal(~a *m, const uint8_t *data, size_t len);\n"
+                                    name name name name support name name name name))
+                          all-msgs))
+              "\n"
+              (apply string-append
+                     (map (lambda (m) (c-struct-message file-model m support)) all-msgs))
+              (apply string-append
+                     (map (lambda (m)
+                            (define name (c-struct-msg-name file-model m))
+                            (format "static inline ~aBytes ~a_marshal_for_codec(bool sc, const ~a *m) { return sc ? ~a_struct_marshal(m) : ~a_marshal(m); }\nstatic inline void ~a_unmarshal_for_codec(bool sc, ~a *m, const uint8_t *data, size_t len) { if (sc) { ~a_struct_unmarshal(m, data, len); } else { ~a_unmarshal(m, data, len); } }\n"
+                                    support name name name name name name name name))
+                          all-msgs))
+              (format "#endif /* ~a */\n" guard)))
+           (cons (string-append base "_struct.h") content)))))
