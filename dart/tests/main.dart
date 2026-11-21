@@ -8,6 +8,7 @@ import 'test_tracing.dart';
 import 'test_codec.dart';
 import 'test_dynamic.dart';
 import 'test_echo.dart';
+import 'test_struct_codec.dart';
 import 'test_http2_oracle.dart';
 import 'test_interop.dart';
 import 'test_interop_server_oracle.dart';
@@ -36,6 +37,9 @@ Future<void> main(List<String> args) async {
         break;
       case 'TestCodec':
         await testCodec();
+        break;
+      case 'TestStructCodec':
+        await testStructCodec();
         break;
       case 'TestEcho':
         await testEcho();

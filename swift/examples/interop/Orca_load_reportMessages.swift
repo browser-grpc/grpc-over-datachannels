@@ -53,23 +53,23 @@ public enum Orca_load_reportPb {
     }
 
     public static func OrcaLoadReportRequestCostEntryEncode(_ key: String, _ value: Double) -> [UInt8] {
-        let w = Writer()
-        w.StringField(1, key)
-        if value != 0 { w.Tag(2, 1); w.FixedDouble(value) }
-        return w.ToBytes()
+        let pbW = Writer()
+        pbW.StringField(1, key)
+        if value != 0 { pbW.Tag(2, 1); pbW.FixedDouble(value) }
+        return pbW.ToBytes()
     }
 
     public static func OrcaLoadReportRequestCostEntryDecode(_ bytes: [UInt8]) -> (String, Double) {
         var key: String = ""
         var value: Double = 0
-        let r = Reader(bytes)
+        let pbR = Reader(bytes)
         while true {
             let next: Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
-            case 1: key = String(decoding: field.bytesValue, as: UTF8.self)
-            case 2: value = Orca_load_reportPb.BitsToDouble(field.fixedValue)
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
+            case 1: key = String(decoding: pbField.bytesValue, as: UTF8.self)
+            case 2: value = Orca_load_reportPb.BitsToDouble(pbField.fixedValue)
             default: break
             }
         }
@@ -77,23 +77,23 @@ public enum Orca_load_reportPb {
     }
 
     public static func OrcaLoadReportUtilizationEntryEncode(_ key: String, _ value: Double) -> [UInt8] {
-        let w = Writer()
-        w.StringField(1, key)
-        if value != 0 { w.Tag(2, 1); w.FixedDouble(value) }
-        return w.ToBytes()
+        let pbW = Writer()
+        pbW.StringField(1, key)
+        if value != 0 { pbW.Tag(2, 1); pbW.FixedDouble(value) }
+        return pbW.ToBytes()
     }
 
     public static func OrcaLoadReportUtilizationEntryDecode(_ bytes: [UInt8]) -> (String, Double) {
         var key: String = ""
         var value: Double = 0
-        let r = Reader(bytes)
+        let pbR = Reader(bytes)
         while true {
             let next: Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
-            case 1: key = String(decoding: field.bytesValue, as: UTF8.self)
-            case 2: value = Orca_load_reportPb.BitsToDouble(field.fixedValue)
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
+            case 1: key = String(decoding: pbField.bytesValue, as: UTF8.self)
+            case 2: value = Orca_load_reportPb.BitsToDouble(pbField.fixedValue)
             default: break
             }
         }
@@ -118,14 +118,14 @@ public final class OrcaLoadReport: Marshaler, Unmarshaler {
         self.utilization = utilization
     }
     public func MarshalDc() -> [UInt8] {
-        let w = Orca_load_reportPb.Writer()
-        if cpuUtilization != 0 { w.Tag(1, 1); w.FixedDouble(cpuUtilization) }
-        if memUtilization != 0 { w.Tag(2, 1); w.FixedDouble(memUtilization) }
-        if rpsFractional != 0 { w.Tag(3, 1); w.FixedDouble(rpsFractional) }
-        for (k, val) in requestCost.sorted(by: { $0.key < $1.key }) { w.BytesField(4, Orca_load_reportPb.OrcaLoadReportRequestCostEntryEncode(k, val)) }
-        for (k, val) in utilization.sorted(by: { $0.key < $1.key }) { w.BytesField(5, Orca_load_reportPb.OrcaLoadReportUtilizationEntryEncode(k, val)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = Orca_load_reportPb.Writer()
+        if cpuUtilization != 0 { pbW.Tag(1, 1); pbW.FixedDouble(cpuUtilization) }
+        if memUtilization != 0 { pbW.Tag(2, 1); pbW.FixedDouble(memUtilization) }
+        if rpsFractional != 0 { pbW.Tag(3, 1); pbW.FixedDouble(rpsFractional) }
+        for (k, val) in requestCost.sorted(by: { $0.key < $1.key }) { pbW.BytesField(4, Orca_load_reportPb.OrcaLoadReportRequestCostEntryEncode(k, val)) }
+        for (k, val) in utilization.sorted(by: { $0.key < $1.key }) { pbW.BytesField(5, Orca_load_reportPb.OrcaLoadReportUtilizationEntryEncode(k, val)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
@@ -134,25 +134,25 @@ public final class OrcaLoadReport: Marshaler, Unmarshaler {
         rpsFractional = 0
         requestCost = [:]
         utilization = [:]
-        let r = Orca_load_reportPb.Reader(data)
+        let pbR = Orca_load_reportPb.Reader(data)
         while true {
             let next: Orca_load_reportPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                cpuUtilization = Orca_load_reportPb.BitsToDouble(field.fixedValue)
+                cpuUtilization = Orca_load_reportPb.BitsToDouble(pbField.fixedValue)
             case 2:
-                memUtilization = Orca_load_reportPb.BitsToDouble(field.fixedValue)
+                memUtilization = Orca_load_reportPb.BitsToDouble(pbField.fixedValue)
             case 3:
-                rpsFractional = Orca_load_reportPb.BitsToDouble(field.fixedValue)
+                rpsFractional = Orca_load_reportPb.BitsToDouble(pbField.fixedValue)
             case 4:
-                let kv = Orca_load_reportPb.OrcaLoadReportRequestCostEntryDecode(field.bytesValue)
-                requestCost[kv.0] = kv.1
+                let pbKv = Orca_load_reportPb.OrcaLoadReportRequestCostEntryDecode(pbField.bytesValue)
+                requestCost[pbKv.0] = pbKv.1
             case 5:
-                let kv = Orca_load_reportPb.OrcaLoadReportUtilizationEntryDecode(field.bytesValue)
-                utilization[kv.0] = kv.1
-            default: unknownFields += field.rawValue
+                let pbKv = Orca_load_reportPb.OrcaLoadReportUtilizationEntryDecode(pbField.bytesValue)
+                utilization[pbKv.0] = pbKv.1
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -166,27 +166,27 @@ public final class OrcaLoadReport: Marshaler, Unmarshaler {
             self.value = value
         }
         public func MarshalDc() -> [UInt8] {
-            let w = Orca_load_reportPb.Writer()
-        w.StringField(1, key)
-        if value != 0 { w.Tag(2, 1); w.FixedDouble(value) }
-            w.Raw(unknownFields)
-            return w.ToBytes()
+            let pbW = Orca_load_reportPb.Writer()
+        pbW.StringField(1, key)
+        if value != 0 { pbW.Tag(2, 1); pbW.FixedDouble(value) }
+            pbW.Raw(unknownFields)
+            return pbW.ToBytes()
         }
         public func UnmarshalDc(_ data: [UInt8]) {
             unknownFields = []
             key = ""
             value = 0
-            let r = Orca_load_reportPb.Reader(data)
+            let pbR = Orca_load_reportPb.Reader(data)
             while true {
                 let next: Orca_load_reportPb.Field?
-                do { next = try r.Next() } catch { break }
-                guard let field = next else { break }
-                switch field.number {
+                do { next = try pbR.Next() } catch { break }
+                guard let pbField = next else { break }
+                switch pbField.number {
             case 1:
-                key = String(decoding: field.bytesValue, as: UTF8.self)
+                key = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                value = Orca_load_reportPb.BitsToDouble(field.fixedValue)
-                default: unknownFields += field.rawValue
+                value = Orca_load_reportPb.BitsToDouble(pbField.fixedValue)
+                default: unknownFields += pbField.rawValue
                 }
             }
         }
@@ -201,27 +201,27 @@ public final class OrcaLoadReport: Marshaler, Unmarshaler {
             self.value = value
         }
         public func MarshalDc() -> [UInt8] {
-            let w = Orca_load_reportPb.Writer()
-        w.StringField(1, key)
-        if value != 0 { w.Tag(2, 1); w.FixedDouble(value) }
-            w.Raw(unknownFields)
-            return w.ToBytes()
+            let pbW = Orca_load_reportPb.Writer()
+        pbW.StringField(1, key)
+        if value != 0 { pbW.Tag(2, 1); pbW.FixedDouble(value) }
+            pbW.Raw(unknownFields)
+            return pbW.ToBytes()
         }
         public func UnmarshalDc(_ data: [UInt8]) {
             unknownFields = []
             key = ""
             value = 0
-            let r = Orca_load_reportPb.Reader(data)
+            let pbR = Orca_load_reportPb.Reader(data)
             while true {
                 let next: Orca_load_reportPb.Field?
-                do { next = try r.Next() } catch { break }
-                guard let field = next else { break }
-                switch field.number {
+                do { next = try pbR.Next() } catch { break }
+                guard let pbField = next else { break }
+                switch pbField.number {
             case 1:
-                key = String(decoding: field.bytesValue, as: UTF8.self)
+                key = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                value = Orca_load_reportPb.BitsToDouble(field.fixedValue)
-                default: unknownFields += field.rawValue
+                value = Orca_load_reportPb.BitsToDouble(pbField.fixedValue)
+                default: unknownFields += pbField.rawValue
                 }
             }
         }

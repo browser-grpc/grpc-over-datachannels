@@ -93,27 +93,27 @@ public final class Header: Marshaler, Unmarshaler {
         self.value = value
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        w.StringField(1, key)
-        if !value.isEmpty { w.BytesField(2, value) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        pbW.StringField(1, key)
+        if !value.isEmpty { pbW.BytesField(2, value) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         key = ""
         value = []
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                key = String(decoding: field.bytesValue, as: UTF8.self)
+                key = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                value = field.bytesValue
-            default: unknownFields += field.rawValue
+                value = pbField.bytesValue
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -134,14 +134,14 @@ public final class Record: Marshaler, Unmarshaler {
         self.nullKey = nullKey
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        if !key.isEmpty { w.BytesField(1, key) }
-        if !value.isEmpty { w.BytesField(2, value) }
-        for x in headers { w.BytesField(3, x.MarshalDc()) }
-        if timestampMs != 0 { w.Tag(4, 0); w.Varint(UInt64(bitPattern: timestampMs)) }
-        if nullKey { w.Tag(5, 0); w.Varint((nullKey ? Int64(1) : Int64(0))) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        if !key.isEmpty { pbW.BytesField(1, key) }
+        if !value.isEmpty { pbW.BytesField(2, value) }
+        for pbX in headers { pbW.BytesField(3, pbX.MarshalDc()) }
+        if timestampMs != 0 { pbW.Tag(4, 0); pbW.Varint(UInt64(bitPattern: timestampMs)) }
+        if nullKey { pbW.Tag(5, 0); pbW.Varint((nullKey ? Int64(1) : Int64(0))) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
@@ -150,25 +150,25 @@ public final class Record: Marshaler, Unmarshaler {
         headers = []
         timestampMs = 0
         nullKey = false
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                key = field.bytesValue
+                key = pbField.bytesValue
             case 2:
-                value = field.bytesValue
+                value = pbField.bytesValue
             case 3:
-                let item = Header()
-                item.UnmarshalDc(field.bytesValue)
-                headers.append(item)
+                let pbItem = Header()
+                pbItem.UnmarshalDc(pbField.bytesValue)
+                headers.append(pbItem)
             case 4:
-                timestampMs = Int64(bitPattern: field.varintValue)
+                timestampMs = Int64(bitPattern: pbField.varintValue)
             case 5:
-                nullKey = field.varintValue != 0
-            default: unknownFields += field.rawValue
+                nullKey = pbField.varintValue != 0
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -191,15 +191,15 @@ public final class FetchedRecord: Marshaler, Unmarshaler {
         self.keyNull = keyNull
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        if offset != 0 { w.Tag(1, 0); w.Varint(UInt64(bitPattern: offset)) }
-        if timestampMs != 0 { w.Tag(2, 0); w.Varint(UInt64(bitPattern: timestampMs)) }
-        if !key.isEmpty { w.BytesField(3, key) }
-        if !value.isEmpty { w.BytesField(4, value) }
-        for x in headers { w.BytesField(5, x.MarshalDc()) }
-        if keyNull { w.Tag(6, 0); w.Varint((keyNull ? Int64(1) : Int64(0))) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        if offset != 0 { pbW.Tag(1, 0); pbW.Varint(UInt64(bitPattern: offset)) }
+        if timestampMs != 0 { pbW.Tag(2, 0); pbW.Varint(UInt64(bitPattern: timestampMs)) }
+        if !key.isEmpty { pbW.BytesField(3, key) }
+        if !value.isEmpty { pbW.BytesField(4, value) }
+        for pbX in headers { pbW.BytesField(5, pbX.MarshalDc()) }
+        if keyNull { pbW.Tag(6, 0); pbW.Varint((keyNull ? Int64(1) : Int64(0))) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
@@ -209,27 +209,27 @@ public final class FetchedRecord: Marshaler, Unmarshaler {
         value = []
         headers = []
         keyNull = false
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                offset = Int64(bitPattern: field.varintValue)
+                offset = Int64(bitPattern: pbField.varintValue)
             case 2:
-                timestampMs = Int64(bitPattern: field.varintValue)
+                timestampMs = Int64(bitPattern: pbField.varintValue)
             case 3:
-                key = field.bytesValue
+                key = pbField.bytesValue
             case 4:
-                value = field.bytesValue
+                value = pbField.bytesValue
             case 5:
-                let item = Header()
-                item.UnmarshalDc(field.bytesValue)
-                headers.append(item)
+                let pbItem = Header()
+                pbItem.UnmarshalDc(pbField.bytesValue)
+                headers.append(pbItem)
             case 6:
-                keyNull = field.varintValue != 0
-            default: unknownFields += field.rawValue
+                keyNull = pbField.varintValue != 0
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -244,27 +244,27 @@ public final class TopicPartition: Marshaler, Unmarshaler {
         self.partition = partition
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        w.StringField(1, topic)
-        if partition != 0 { w.Tag(2, 0); w.Varint(Int64(partition)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        pbW.StringField(1, topic)
+        if partition != 0 { pbW.Tag(2, 0); pbW.Varint(Int64(partition)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         topic = ""
         partition = 0
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                topic = String(decoding: field.bytesValue, as: UTF8.self)
+                topic = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                partition = Int32(truncatingIfNeeded: field.varintValue)
-            default: unknownFields += field.rawValue
+                partition = Int32(truncatingIfNeeded: pbField.varintValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -279,27 +279,27 @@ public final class MetadataRequest: Marshaler, Unmarshaler {
         self.allowAutoTopicCreation = allowAutoTopicCreation
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        for x in topics { w.BytesField(1, [UInt8](x.utf8)) }
-        if allowAutoTopicCreation { w.Tag(2, 0); w.Varint((allowAutoTopicCreation ? Int64(1) : Int64(0))) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        for pbX in topics { pbW.BytesField(1, [UInt8](pbX.utf8)) }
+        if allowAutoTopicCreation { pbW.Tag(2, 0); pbW.Varint((allowAutoTopicCreation ? Int64(1) : Int64(0))) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         topics = []
         allowAutoTopicCreation = false
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                topics.append(String(decoding: field.bytesValue, as: UTF8.self))
+                topics.append(String(decoding: pbField.bytesValue, as: UTF8.self))
             case 2:
-                allowAutoTopicCreation = field.varintValue != 0
-            default: unknownFields += field.rawValue
+                allowAutoTopicCreation = pbField.varintValue != 0
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -318,13 +318,13 @@ public final class BrokerMetadata: Marshaler, Unmarshaler {
         self.rack = rack
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        if nodeId != 0 { w.Tag(1, 0); w.Varint(Int64(nodeId)) }
-        w.StringField(2, host)
-        if port != 0 { w.Tag(3, 0); w.Varint(Int64(port)) }
-        w.StringField(4, rack)
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        if nodeId != 0 { pbW.Tag(1, 0); pbW.Varint(Int64(nodeId)) }
+        pbW.StringField(2, host)
+        if port != 0 { pbW.Tag(3, 0); pbW.Varint(Int64(port)) }
+        pbW.StringField(4, rack)
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
@@ -332,21 +332,21 @@ public final class BrokerMetadata: Marshaler, Unmarshaler {
         host = ""
         port = 0
         rack = ""
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                nodeId = Int32(truncatingIfNeeded: field.varintValue)
+                nodeId = Int32(truncatingIfNeeded: pbField.varintValue)
             case 2:
-                host = String(decoding: field.bytesValue, as: UTF8.self)
+                host = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 3:
-                port = Int32(truncatingIfNeeded: field.varintValue)
+                port = Int32(truncatingIfNeeded: pbField.varintValue)
             case 4:
-                rack = String(decoding: field.bytesValue, as: UTF8.self)
-            default: unknownFields += field.rawValue
+                rack = String(decoding: pbField.bytesValue, as: UTF8.self)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -369,23 +369,23 @@ public final class PartitionMetadata: Marshaler, Unmarshaler {
         self.errorCode = errorCode
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        if id != 0 { w.Tag(1, 0); w.Varint(Int64(id)) }
-        if leaderId != 0 { w.Tag(2, 0); w.Varint(Int64(leaderId)) }
-        if leaderEpoch != 0 { w.Tag(3, 0); w.Varint(Int64(leaderEpoch)) }
+        let pbW = KafkaPb.Writer()
+        if id != 0 { pbW.Tag(1, 0); pbW.Varint(Int64(id)) }
+        if leaderId != 0 { pbW.Tag(2, 0); pbW.Varint(Int64(leaderId)) }
+        if leaderEpoch != 0 { pbW.Tag(3, 0); pbW.Varint(Int64(leaderEpoch)) }
         if !replicas.isEmpty {
-            let payload = KafkaPb.Writer()
-            for x in replicas { payload.Varint(Int64(x)) }
-            w.BytesField(4, payload.ToBytes())
+            let pbPayload = KafkaPb.Writer()
+            for pbX in replicas { pbPayload.Varint(Int64(pbX)) }
+            pbW.BytesField(4, pbPayload.ToBytes())
         }
         if !isr.isEmpty {
-            let payload = KafkaPb.Writer()
-            for x in isr { payload.Varint(Int64(x)) }
-            w.BytesField(5, payload.ToBytes())
+            let pbPayload = KafkaPb.Writer()
+            for pbX in isr { pbPayload.Varint(Int64(pbX)) }
+            pbW.BytesField(5, pbPayload.ToBytes())
         }
-        if errorCode != 0 { w.Tag(6, 0); w.Varint(Int64(errorCode)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        if errorCode != 0 { pbW.Tag(6, 0); pbW.Varint(Int64(errorCode)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
@@ -395,39 +395,39 @@ public final class PartitionMetadata: Marshaler, Unmarshaler {
         replicas = []
         isr = []
         errorCode = 0
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                id = Int32(truncatingIfNeeded: field.varintValue)
+                id = Int32(truncatingIfNeeded: pbField.varintValue)
             case 2:
-                leaderId = Int32(truncatingIfNeeded: field.varintValue)
+                leaderId = Int32(truncatingIfNeeded: pbField.varintValue)
             case 3:
-                leaderEpoch = Int32(truncatingIfNeeded: field.varintValue)
+                leaderEpoch = Int32(truncatingIfNeeded: pbField.varintValue)
             case 4:
-                if field.wire == 2 {
-                    let sub = KafkaPb.Reader(field.bytesValue)
-                    while !sub.Done() {
-                        replicas.append(Int32(truncatingIfNeeded: sub.Varint()))
+                if pbField.wire == 2 {
+                    let pbSub = KafkaPb.Reader(pbField.bytesValue)
+                    while !pbSub.Done() {
+                        replicas.append(Int32(truncatingIfNeeded: pbSub.Varint()))
                     }
                 } else {
-                    replicas.append(Int32(truncatingIfNeeded: field.varintValue))
+                    replicas.append(Int32(truncatingIfNeeded: pbField.varintValue))
                 }
             case 5:
-                if field.wire == 2 {
-                    let sub = KafkaPb.Reader(field.bytesValue)
-                    while !sub.Done() {
-                        isr.append(Int32(truncatingIfNeeded: sub.Varint()))
+                if pbField.wire == 2 {
+                    let pbSub = KafkaPb.Reader(pbField.bytesValue)
+                    while !pbSub.Done() {
+                        isr.append(Int32(truncatingIfNeeded: pbSub.Varint()))
                     }
                 } else {
-                    isr.append(Int32(truncatingIfNeeded: field.varintValue))
+                    isr.append(Int32(truncatingIfNeeded: pbField.varintValue))
                 }
             case 6:
-                errorCode = Int32(truncatingIfNeeded: field.varintValue)
-            default: unknownFields += field.rawValue
+                errorCode = Int32(truncatingIfNeeded: pbField.varintValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -446,13 +446,13 @@ public final class TopicMetadata: Marshaler, Unmarshaler {
         self.partitions = partitions
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        w.StringField(1, name)
-        if isInternal { w.Tag(2, 0); w.Varint((isInternal ? Int64(1) : Int64(0))) }
-        if errorCode != 0 { w.Tag(3, 0); w.Varint(Int64(errorCode)) }
-        for x in partitions { w.BytesField(4, x.MarshalDc()) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        pbW.StringField(1, name)
+        if isInternal { pbW.Tag(2, 0); pbW.Varint((isInternal ? Int64(1) : Int64(0))) }
+        if errorCode != 0 { pbW.Tag(3, 0); pbW.Varint(Int64(errorCode)) }
+        for pbX in partitions { pbW.BytesField(4, pbX.MarshalDc()) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
@@ -460,23 +460,23 @@ public final class TopicMetadata: Marshaler, Unmarshaler {
         isInternal = false
         errorCode = 0
         partitions = []
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                name = String(decoding: field.bytesValue, as: UTF8.self)
+                name = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                isInternal = field.varintValue != 0
+                isInternal = pbField.varintValue != 0
             case 3:
-                errorCode = Int32(truncatingIfNeeded: field.varintValue)
+                errorCode = Int32(truncatingIfNeeded: pbField.varintValue)
             case 4:
-                let item = PartitionMetadata()
-                item.UnmarshalDc(field.bytesValue)
-                partitions.append(item)
-            default: unknownFields += field.rawValue
+                let pbItem = PartitionMetadata()
+                pbItem.UnmarshalDc(pbField.bytesValue)
+                partitions.append(pbItem)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -497,14 +497,14 @@ public final class MetadataResponse: Marshaler, Unmarshaler {
         self.topics = topics
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        if throttleTimeMs != 0 { w.Tag(1, 0); w.Varint(Int64(throttleTimeMs)) }
-        for x in brokers { w.BytesField(2, x.MarshalDc()) }
-        w.StringField(3, clusterId)
-        if controllerId != 0 { w.Tag(4, 0); w.Varint(Int64(controllerId)) }
-        for x in topics { w.BytesField(5, x.MarshalDc()) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        if throttleTimeMs != 0 { pbW.Tag(1, 0); pbW.Varint(Int64(throttleTimeMs)) }
+        for pbX in brokers { pbW.BytesField(2, pbX.MarshalDc()) }
+        pbW.StringField(3, clusterId)
+        if controllerId != 0 { pbW.Tag(4, 0); pbW.Varint(Int64(controllerId)) }
+        for pbX in topics { pbW.BytesField(5, pbX.MarshalDc()) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
@@ -513,27 +513,27 @@ public final class MetadataResponse: Marshaler, Unmarshaler {
         clusterId = ""
         controllerId = 0
         topics = []
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                throttleTimeMs = Int32(truncatingIfNeeded: field.varintValue)
+                throttleTimeMs = Int32(truncatingIfNeeded: pbField.varintValue)
             case 2:
-                let item = BrokerMetadata()
-                item.UnmarshalDc(field.bytesValue)
-                brokers.append(item)
+                let pbItem = BrokerMetadata()
+                pbItem.UnmarshalDc(pbField.bytesValue)
+                brokers.append(pbItem)
             case 3:
-                clusterId = String(decoding: field.bytesValue, as: UTF8.self)
+                clusterId = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 4:
-                controllerId = Int32(truncatingIfNeeded: field.varintValue)
+                controllerId = Int32(truncatingIfNeeded: pbField.varintValue)
             case 5:
-                let item = TopicMetadata()
-                item.UnmarshalDc(field.bytesValue)
-                topics.append(item)
-            default: unknownFields += field.rawValue
+                let pbItem = TopicMetadata()
+                pbItem.UnmarshalDc(pbField.bytesValue)
+                topics.append(pbItem)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -548,27 +548,27 @@ public final class OpenProducerRequest: Marshaler, Unmarshaler {
         self.transactionTimeoutMs = transactionTimeoutMs
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        w.StringField(1, transactionalId)
-        if transactionTimeoutMs != 0 { w.Tag(2, 0); w.Varint(Int64(transactionTimeoutMs)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        pbW.StringField(1, transactionalId)
+        if transactionTimeoutMs != 0 { pbW.Tag(2, 0); pbW.Varint(Int64(transactionTimeoutMs)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         transactionalId = ""
         transactionTimeoutMs = 0
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                transactionalId = String(decoding: field.bytesValue, as: UTF8.self)
+                transactionalId = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                transactionTimeoutMs = Int32(truncatingIfNeeded: field.varintValue)
-            default: unknownFields += field.rawValue
+                transactionTimeoutMs = Int32(truncatingIfNeeded: pbField.varintValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -587,13 +587,13 @@ public final class OpenProducerResponse: Marshaler, Unmarshaler {
         self.errorCode = errorCode
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        w.StringField(1, sessionId)
-        if producerId != 0 { w.Tag(2, 0); w.Varint(UInt64(bitPattern: producerId)) }
-        if producerEpoch != 0 { w.Tag(3, 0); w.Varint(Int64(producerEpoch)) }
-        if errorCode != 0 { w.Tag(4, 0); w.Varint(Int64(errorCode)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        pbW.StringField(1, sessionId)
+        if producerId != 0 { pbW.Tag(2, 0); pbW.Varint(UInt64(bitPattern: producerId)) }
+        if producerEpoch != 0 { pbW.Tag(3, 0); pbW.Varint(Int64(producerEpoch)) }
+        if errorCode != 0 { pbW.Tag(4, 0); pbW.Varint(Int64(errorCode)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
@@ -601,21 +601,21 @@ public final class OpenProducerResponse: Marshaler, Unmarshaler {
         producerId = 0
         producerEpoch = 0
         errorCode = 0
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                sessionId = String(decoding: field.bytesValue, as: UTF8.self)
+                sessionId = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                producerId = Int64(bitPattern: field.varintValue)
+                producerId = Int64(bitPattern: pbField.varintValue)
             case 3:
-                producerEpoch = Int32(truncatingIfNeeded: field.varintValue)
+                producerEpoch = Int32(truncatingIfNeeded: pbField.varintValue)
             case 4:
-                errorCode = Int32(truncatingIfNeeded: field.varintValue)
-            default: unknownFields += field.rawValue
+                errorCode = Int32(truncatingIfNeeded: pbField.varintValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -628,23 +628,23 @@ public final class CloseProducerRequest: Marshaler, Unmarshaler {
         self.sessionId = sessionId
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        w.StringField(1, sessionId)
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        pbW.StringField(1, sessionId)
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         sessionId = ""
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                sessionId = String(decoding: field.bytesValue, as: UTF8.self)
-            default: unknownFields += field.rawValue
+                sessionId = String(decoding: pbField.bytesValue, as: UTF8.self)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -657,23 +657,23 @@ public final class CloseProducerResponse: Marshaler, Unmarshaler {
         self.errorCode = errorCode
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        if errorCode != 0 { w.Tag(1, 0); w.Varint(Int64(errorCode)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        if errorCode != 0 { pbW.Tag(1, 0); pbW.Varint(Int64(errorCode)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         errorCode = 0
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                errorCode = Int32(truncatingIfNeeded: field.varintValue)
-            default: unknownFields += field.rawValue
+                errorCode = Int32(truncatingIfNeeded: pbField.varintValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -688,27 +688,27 @@ public final class EndTransactionRequest: Marshaler, Unmarshaler {
         self.commit = commit
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        w.StringField(1, sessionId)
-        if commit { w.Tag(2, 0); w.Varint((commit ? Int64(1) : Int64(0))) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        pbW.StringField(1, sessionId)
+        if commit { pbW.Tag(2, 0); pbW.Varint((commit ? Int64(1) : Int64(0))) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         sessionId = ""
         commit = false
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                sessionId = String(decoding: field.bytesValue, as: UTF8.self)
+                sessionId = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                commit = field.varintValue != 0
-            default: unknownFields += field.rawValue
+                commit = pbField.varintValue != 0
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -721,23 +721,23 @@ public final class EndTransactionResponse: Marshaler, Unmarshaler {
         self.errorCode = errorCode
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        if errorCode != 0 { w.Tag(1, 0); w.Varint(Int64(errorCode)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        if errorCode != 0 { pbW.Tag(1, 0); pbW.Varint(Int64(errorCode)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         errorCode = 0
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                errorCode = Int32(truncatingIfNeeded: field.varintValue)
-            default: unknownFields += field.rawValue
+                errorCode = Int32(truncatingIfNeeded: pbField.varintValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -764,17 +764,17 @@ public final class ProduceRequest: Marshaler, Unmarshaler {
         self.transactionalId = transactionalId
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        w.StringField(1, topic)
-        if partition != 0 { w.Tag(2, 0); w.Varint(Int64(partition)) }
-        for x in records { w.BytesField(3, x.MarshalDc()) }
-        if acks.rawValue != 0 { w.Tag(4, 0); w.Varint(Int64(acks.rawValue)) }
-        if timeoutMs != 0 { w.Tag(5, 0); w.Varint(Int64(timeoutMs)) }
-        if compression.rawValue != 0 { w.Tag(6, 0); w.Varint(Int64(compression.rawValue)) }
-        w.StringField(7, sessionId)
-        w.StringField(8, transactionalId)
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        pbW.StringField(1, topic)
+        if partition != 0 { pbW.Tag(2, 0); pbW.Varint(Int64(partition)) }
+        for pbX in records { pbW.BytesField(3, pbX.MarshalDc()) }
+        if acks.rawValue != 0 { pbW.Tag(4, 0); pbW.Varint(Int64(acks.rawValue)) }
+        if timeoutMs != 0 { pbW.Tag(5, 0); pbW.Varint(Int64(timeoutMs)) }
+        if compression.rawValue != 0 { pbW.Tag(6, 0); pbW.Varint(Int64(compression.rawValue)) }
+        pbW.StringField(7, sessionId)
+        pbW.StringField(8, transactionalId)
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
@@ -786,31 +786,31 @@ public final class ProduceRequest: Marshaler, Unmarshaler {
         compression = Compression.COMPRESSION_NONE
         sessionId = ""
         transactionalId = ""
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                topic = String(decoding: field.bytesValue, as: UTF8.self)
+                topic = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                partition = Int32(truncatingIfNeeded: field.varintValue)
+                partition = Int32(truncatingIfNeeded: pbField.varintValue)
             case 3:
-                let item = Record()
-                item.UnmarshalDc(field.bytesValue)
-                records.append(item)
+                let pbItem = Record()
+                pbItem.UnmarshalDc(pbField.bytesValue)
+                records.append(pbItem)
             case 4:
-                acks = Acks(rawValue: Int32(truncatingIfNeeded: field.varintValue)) ?? Acks.ACKS_UNSPECIFIED
+                acks = Acks(rawValue: Int32(truncatingIfNeeded: pbField.varintValue)) ?? Acks.ACKS_UNSPECIFIED
             case 5:
-                timeoutMs = Int32(truncatingIfNeeded: field.varintValue)
+                timeoutMs = Int32(truncatingIfNeeded: pbField.varintValue)
             case 6:
-                compression = Compression(rawValue: Int32(truncatingIfNeeded: field.varintValue)) ?? Compression.COMPRESSION_NONE
+                compression = Compression(rawValue: Int32(truncatingIfNeeded: pbField.varintValue)) ?? Compression.COMPRESSION_NONE
             case 7:
-                sessionId = String(decoding: field.bytesValue, as: UTF8.self)
+                sessionId = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 8:
-                transactionalId = String(decoding: field.bytesValue, as: UTF8.self)
-            default: unknownFields += field.rawValue
+                transactionalId = String(decoding: pbField.bytesValue, as: UTF8.self)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -829,13 +829,13 @@ public final class ProduceResponse: Marshaler, Unmarshaler {
         self.errorCode = errorCode
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        if partition != 0 { w.Tag(1, 0); w.Varint(Int64(partition)) }
-        if baseOffset != 0 { w.Tag(2, 0); w.Varint(UInt64(bitPattern: baseOffset)) }
-        if logAppendTimeMs != 0 { w.Tag(3, 0); w.Varint(UInt64(bitPattern: logAppendTimeMs)) }
-        if errorCode != 0 { w.Tag(4, 0); w.Varint(Int64(errorCode)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        if partition != 0 { pbW.Tag(1, 0); pbW.Varint(Int64(partition)) }
+        if baseOffset != 0 { pbW.Tag(2, 0); pbW.Varint(UInt64(bitPattern: baseOffset)) }
+        if logAppendTimeMs != 0 { pbW.Tag(3, 0); pbW.Varint(UInt64(bitPattern: logAppendTimeMs)) }
+        if errorCode != 0 { pbW.Tag(4, 0); pbW.Varint(Int64(errorCode)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
@@ -843,21 +843,21 @@ public final class ProduceResponse: Marshaler, Unmarshaler {
         baseOffset = 0
         logAppendTimeMs = 0
         errorCode = 0
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                partition = Int32(truncatingIfNeeded: field.varintValue)
+                partition = Int32(truncatingIfNeeded: pbField.varintValue)
             case 2:
-                baseOffset = Int64(bitPattern: field.varintValue)
+                baseOffset = Int64(bitPattern: pbField.varintValue)
             case 3:
-                logAppendTimeMs = Int64(bitPattern: field.varintValue)
+                logAppendTimeMs = Int64(bitPattern: pbField.varintValue)
             case 4:
-                errorCode = Int32(truncatingIfNeeded: field.varintValue)
-            default: unknownFields += field.rawValue
+                errorCode = Int32(truncatingIfNeeded: pbField.varintValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -882,16 +882,16 @@ public final class ConsumeRequest: Marshaler, Unmarshaler {
         self.readCommitted = readCommitted
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        w.StringField(1, topic)
-        if partition != 0 { w.Tag(2, 0); w.Varint(Int64(partition)) }
-        if offset != 0 { w.Tag(3, 0); w.Varint(UInt64(bitPattern: offset)) }
-        if maxRecords != 0 { w.Tag(4, 0); w.Varint(Int64(maxRecords)) }
-        if maxWaitMs != 0 { w.Tag(5, 0); w.Varint(Int64(maxWaitMs)) }
-        if minBytes != 0 { w.Tag(6, 0); w.Varint(Int64(minBytes)) }
-        if readCommitted { w.Tag(7, 0); w.Varint((readCommitted ? Int64(1) : Int64(0))) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        pbW.StringField(1, topic)
+        if partition != 0 { pbW.Tag(2, 0); pbW.Varint(Int64(partition)) }
+        if offset != 0 { pbW.Tag(3, 0); pbW.Varint(UInt64(bitPattern: offset)) }
+        if maxRecords != 0 { pbW.Tag(4, 0); pbW.Varint(Int64(maxRecords)) }
+        if maxWaitMs != 0 { pbW.Tag(5, 0); pbW.Varint(Int64(maxWaitMs)) }
+        if minBytes != 0 { pbW.Tag(6, 0); pbW.Varint(Int64(minBytes)) }
+        if readCommitted { pbW.Tag(7, 0); pbW.Varint((readCommitted ? Int64(1) : Int64(0))) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
@@ -902,27 +902,27 @@ public final class ConsumeRequest: Marshaler, Unmarshaler {
         maxWaitMs = 0
         minBytes = 0
         readCommitted = false
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                topic = String(decoding: field.bytesValue, as: UTF8.self)
+                topic = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                partition = Int32(truncatingIfNeeded: field.varintValue)
+                partition = Int32(truncatingIfNeeded: pbField.varintValue)
             case 3:
-                offset = Int64(bitPattern: field.varintValue)
+                offset = Int64(bitPattern: pbField.varintValue)
             case 4:
-                maxRecords = Int32(truncatingIfNeeded: field.varintValue)
+                maxRecords = Int32(truncatingIfNeeded: pbField.varintValue)
             case 5:
-                maxWaitMs = Int32(truncatingIfNeeded: field.varintValue)
+                maxWaitMs = Int32(truncatingIfNeeded: pbField.varintValue)
             case 6:
-                minBytes = Int32(truncatingIfNeeded: field.varintValue)
+                minBytes = Int32(truncatingIfNeeded: pbField.varintValue)
             case 7:
-                readCommitted = field.varintValue != 0
-            default: unknownFields += field.rawValue
+                readCommitted = pbField.varintValue != 0
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -943,14 +943,14 @@ public final class ConsumeResponse: Marshaler, Unmarshaler {
         self.records = records
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        w.StringField(1, topic)
-        if partition != 0 { w.Tag(2, 0); w.Varint(Int64(partition)) }
-        if highWatermark != 0 { w.Tag(3, 0); w.Varint(UInt64(bitPattern: highWatermark)) }
-        if errorCode != 0 { w.Tag(4, 0); w.Varint(Int64(errorCode)) }
-        for x in records { w.BytesField(5, x.MarshalDc()) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        pbW.StringField(1, topic)
+        if partition != 0 { pbW.Tag(2, 0); pbW.Varint(Int64(partition)) }
+        if highWatermark != 0 { pbW.Tag(3, 0); pbW.Varint(UInt64(bitPattern: highWatermark)) }
+        if errorCode != 0 { pbW.Tag(4, 0); pbW.Varint(Int64(errorCode)) }
+        for pbX in records { pbW.BytesField(5, pbX.MarshalDc()) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
@@ -959,25 +959,25 @@ public final class ConsumeResponse: Marshaler, Unmarshaler {
         highWatermark = 0
         errorCode = 0
         records = []
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                topic = String(decoding: field.bytesValue, as: UTF8.self)
+                topic = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                partition = Int32(truncatingIfNeeded: field.varintValue)
+                partition = Int32(truncatingIfNeeded: pbField.varintValue)
             case 3:
-                highWatermark = Int64(bitPattern: field.varintValue)
+                highWatermark = Int64(bitPattern: pbField.varintValue)
             case 4:
-                errorCode = Int32(truncatingIfNeeded: field.varintValue)
+                errorCode = Int32(truncatingIfNeeded: pbField.varintValue)
             case 5:
-                let item = FetchedRecord()
-                item.UnmarshalDc(field.bytesValue)
-                records.append(item)
-            default: unknownFields += field.rawValue
+                let pbItem = FetchedRecord()
+                pbItem.UnmarshalDc(pbField.bytesValue)
+                records.append(pbItem)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -1004,17 +1004,17 @@ public final class GroupSubscribeRequest: Marshaler, Unmarshaler {
         self.groupProtocol = groupProtocol
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        w.StringField(1, groupId)
-        for x in topics { w.BytesField(2, [UInt8](x.utf8)) }
-        w.StringField(3, groupInstanceId)
-        if sessionTimeoutMs != 0 { w.Tag(4, 0); w.Varint(Int64(sessionTimeoutMs)) }
-        if maxPollRecords != 0 { w.Tag(5, 0); w.Varint(Int64(maxPollRecords)) }
-        w.StringField(6, autoOffsetReset)
-        if readCommitted { w.Tag(7, 0); w.Varint((readCommitted ? Int64(1) : Int64(0))) }
-        w.StringField(8, groupProtocol)
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        pbW.StringField(1, groupId)
+        for pbX in topics { pbW.BytesField(2, [UInt8](pbX.utf8)) }
+        pbW.StringField(3, groupInstanceId)
+        if sessionTimeoutMs != 0 { pbW.Tag(4, 0); pbW.Varint(Int64(sessionTimeoutMs)) }
+        if maxPollRecords != 0 { pbW.Tag(5, 0); pbW.Varint(Int64(maxPollRecords)) }
+        pbW.StringField(6, autoOffsetReset)
+        if readCommitted { pbW.Tag(7, 0); pbW.Varint((readCommitted ? Int64(1) : Int64(0))) }
+        pbW.StringField(8, groupProtocol)
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
@@ -1026,29 +1026,29 @@ public final class GroupSubscribeRequest: Marshaler, Unmarshaler {
         autoOffsetReset = ""
         readCommitted = false
         groupProtocol = ""
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                groupId = String(decoding: field.bytesValue, as: UTF8.self)
+                groupId = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                topics.append(String(decoding: field.bytesValue, as: UTF8.self))
+                topics.append(String(decoding: pbField.bytesValue, as: UTF8.self))
             case 3:
-                groupInstanceId = String(decoding: field.bytesValue, as: UTF8.self)
+                groupInstanceId = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 4:
-                sessionTimeoutMs = Int32(truncatingIfNeeded: field.varintValue)
+                sessionTimeoutMs = Int32(truncatingIfNeeded: pbField.varintValue)
             case 5:
-                maxPollRecords = Int32(truncatingIfNeeded: field.varintValue)
+                maxPollRecords = Int32(truncatingIfNeeded: pbField.varintValue)
             case 6:
-                autoOffsetReset = String(decoding: field.bytesValue, as: UTF8.self)
+                autoOffsetReset = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 7:
-                readCommitted = field.varintValue != 0
+                readCommitted = pbField.varintValue != 0
             case 8:
-                groupProtocol = String(decoding: field.bytesValue, as: UTF8.self)
-            default: unknownFields += field.rawValue
+                groupProtocol = String(decoding: pbField.bytesValue, as: UTF8.self)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -1065,44 +1065,44 @@ public final class GroupSubscribeResponse: Marshaler, Unmarshaler {
         self.groupError = groupError
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
+        let pbW = KafkaPb.Writer()
         if !(batch != nil || groupError != nil) {
-        if let v = assignment { w.BytesField(1, v.MarshalDc()) }
+        if let v = assignment { pbW.BytesField(1, v.MarshalDc()) }
         }
         if !(groupError != nil) {
-        if let v = batch { w.BytesField(2, v.MarshalDc()) }
+        if let v = batch { pbW.BytesField(2, v.MarshalDc()) }
         }
-        if let v = groupError { w.BytesField(3, v.MarshalDc()) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        if let v = groupError { pbW.BytesField(3, v.MarshalDc()) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         assignment = nil
         batch = nil
         groupError = nil
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
                 batch = nil
                 groupError = nil
                 assignment = Assignment()
-                assignment!.UnmarshalDc(field.bytesValue)
+                assignment!.UnmarshalDc(pbField.bytesValue)
             case 2:
                 assignment = nil
                 groupError = nil
                 batch = RecordBatch()
-                batch!.UnmarshalDc(field.bytesValue)
+                batch!.UnmarshalDc(pbField.bytesValue)
             case 3:
                 assignment = nil
                 batch = nil
                 groupError = GroupError()
-                groupError!.UnmarshalDc(field.bytesValue)
-            default: unknownFields += field.rawValue
+                groupError!.UnmarshalDc(pbField.bytesValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -1119,33 +1119,33 @@ public final class Assignment: Marshaler, Unmarshaler {
         self.partitions = partitions
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        if generationId != 0 { w.Tag(1, 0); w.Varint(Int64(generationId)) }
-        w.StringField(2, memberId)
-        for x in partitions { w.BytesField(3, x.MarshalDc()) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        if generationId != 0 { pbW.Tag(1, 0); pbW.Varint(Int64(generationId)) }
+        pbW.StringField(2, memberId)
+        for pbX in partitions { pbW.BytesField(3, pbX.MarshalDc()) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         generationId = 0
         memberId = ""
         partitions = []
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                generationId = Int32(truncatingIfNeeded: field.varintValue)
+                generationId = Int32(truncatingIfNeeded: pbField.varintValue)
             case 2:
-                memberId = String(decoding: field.bytesValue, as: UTF8.self)
+                memberId = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 3:
-                let item = TopicPartition()
-                item.UnmarshalDc(field.bytesValue)
-                partitions.append(item)
-            default: unknownFields += field.rawValue
+                let pbItem = TopicPartition()
+                pbItem.UnmarshalDc(pbField.bytesValue)
+                partitions.append(pbItem)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -1164,13 +1164,13 @@ public final class RecordBatch: Marshaler, Unmarshaler {
         self.records = records
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        w.StringField(1, topic)
-        if partition != 0 { w.Tag(2, 0); w.Varint(Int64(partition)) }
-        if highWatermark != 0 { w.Tag(3, 0); w.Varint(UInt64(bitPattern: highWatermark)) }
-        for x in records { w.BytesField(4, x.MarshalDc()) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        pbW.StringField(1, topic)
+        if partition != 0 { pbW.Tag(2, 0); pbW.Varint(Int64(partition)) }
+        if highWatermark != 0 { pbW.Tag(3, 0); pbW.Varint(UInt64(bitPattern: highWatermark)) }
+        for pbX in records { pbW.BytesField(4, pbX.MarshalDc()) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
@@ -1178,23 +1178,23 @@ public final class RecordBatch: Marshaler, Unmarshaler {
         partition = 0
         highWatermark = 0
         records = []
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                topic = String(decoding: field.bytesValue, as: UTF8.self)
+                topic = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                partition = Int32(truncatingIfNeeded: field.varintValue)
+                partition = Int32(truncatingIfNeeded: pbField.varintValue)
             case 3:
-                highWatermark = Int64(bitPattern: field.varintValue)
+                highWatermark = Int64(bitPattern: pbField.varintValue)
             case 4:
-                let item = FetchedRecord()
-                item.UnmarshalDc(field.bytesValue)
-                records.append(item)
-            default: unknownFields += field.rawValue
+                let pbItem = FetchedRecord()
+                pbItem.UnmarshalDc(pbField.bytesValue)
+                records.append(pbItem)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -1209,27 +1209,27 @@ public final class GroupError: Marshaler, Unmarshaler {
         self.message = message
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        if errorCode != 0 { w.Tag(1, 0); w.Varint(Int64(errorCode)) }
-        w.StringField(2, message)
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        if errorCode != 0 { pbW.Tag(1, 0); pbW.Varint(Int64(errorCode)) }
+        pbW.StringField(2, message)
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         errorCode = 0
         message = ""
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                errorCode = Int32(truncatingIfNeeded: field.varintValue)
+                errorCode = Int32(truncatingIfNeeded: pbField.varintValue)
             case 2:
-                message = String(decoding: field.bytesValue, as: UTF8.self)
-            default: unknownFields += field.rawValue
+                message = String(decoding: pbField.bytesValue, as: UTF8.self)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -1248,13 +1248,13 @@ public final class ListOffsetsRequest: Marshaler, Unmarshaler {
         self.readCommitted = readCommitted
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        w.StringField(1, topic)
-        if partition != 0 { w.Tag(2, 0); w.Varint(Int64(partition)) }
-        if timestamp != 0 { w.Tag(3, 0); w.Varint(UInt64(bitPattern: timestamp)) }
-        if readCommitted { w.Tag(4, 0); w.Varint((readCommitted ? Int64(1) : Int64(0))) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        pbW.StringField(1, topic)
+        if partition != 0 { pbW.Tag(2, 0); pbW.Varint(Int64(partition)) }
+        if timestamp != 0 { pbW.Tag(3, 0); pbW.Varint(UInt64(bitPattern: timestamp)) }
+        if readCommitted { pbW.Tag(4, 0); pbW.Varint((readCommitted ? Int64(1) : Int64(0))) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
@@ -1262,21 +1262,21 @@ public final class ListOffsetsRequest: Marshaler, Unmarshaler {
         partition = 0
         timestamp = 0
         readCommitted = false
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                topic = String(decoding: field.bytesValue, as: UTF8.self)
+                topic = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                partition = Int32(truncatingIfNeeded: field.varintValue)
+                partition = Int32(truncatingIfNeeded: pbField.varintValue)
             case 3:
-                timestamp = Int64(bitPattern: field.varintValue)
+                timestamp = Int64(bitPattern: pbField.varintValue)
             case 4:
-                readCommitted = field.varintValue != 0
-            default: unknownFields += field.rawValue
+                readCommitted = pbField.varintValue != 0
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -1293,31 +1293,31 @@ public final class ListOffsetsResponse: Marshaler, Unmarshaler {
         self.errorCode = errorCode
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        if offset != 0 { w.Tag(1, 0); w.Varint(UInt64(bitPattern: offset)) }
-        if timestampMs != 0 { w.Tag(2, 0); w.Varint(UInt64(bitPattern: timestampMs)) }
-        if errorCode != 0 { w.Tag(3, 0); w.Varint(Int64(errorCode)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        if offset != 0 { pbW.Tag(1, 0); pbW.Varint(UInt64(bitPattern: offset)) }
+        if timestampMs != 0 { pbW.Tag(2, 0); pbW.Varint(UInt64(bitPattern: timestampMs)) }
+        if errorCode != 0 { pbW.Tag(3, 0); pbW.Varint(Int64(errorCode)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         offset = 0
         timestampMs = 0
         errorCode = 0
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                offset = Int64(bitPattern: field.varintValue)
+                offset = Int64(bitPattern: pbField.varintValue)
             case 2:
-                timestampMs = Int64(bitPattern: field.varintValue)
+                timestampMs = Int64(bitPattern: pbField.varintValue)
             case 3:
-                errorCode = Int32(truncatingIfNeeded: field.varintValue)
-            default: unknownFields += field.rawValue
+                errorCode = Int32(truncatingIfNeeded: pbField.varintValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -1340,15 +1340,15 @@ public final class CommitOffsetRequest: Marshaler, Unmarshaler {
         self.sessionId = sessionId
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        w.StringField(1, groupId)
-        w.StringField(2, topic)
-        if partition != 0 { w.Tag(3, 0); w.Varint(Int64(partition)) }
-        if committedOffset != 0 { w.Tag(4, 0); w.Varint(UInt64(bitPattern: committedOffset)) }
-        w.StringField(5, metadata)
-        w.StringField(6, sessionId)
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        pbW.StringField(1, groupId)
+        pbW.StringField(2, topic)
+        if partition != 0 { pbW.Tag(3, 0); pbW.Varint(Int64(partition)) }
+        if committedOffset != 0 { pbW.Tag(4, 0); pbW.Varint(UInt64(bitPattern: committedOffset)) }
+        pbW.StringField(5, metadata)
+        pbW.StringField(6, sessionId)
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
@@ -1358,25 +1358,25 @@ public final class CommitOffsetRequest: Marshaler, Unmarshaler {
         committedOffset = 0
         metadata = ""
         sessionId = ""
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                groupId = String(decoding: field.bytesValue, as: UTF8.self)
+                groupId = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                topic = String(decoding: field.bytesValue, as: UTF8.self)
+                topic = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 3:
-                partition = Int32(truncatingIfNeeded: field.varintValue)
+                partition = Int32(truncatingIfNeeded: pbField.varintValue)
             case 4:
-                committedOffset = Int64(bitPattern: field.varintValue)
+                committedOffset = Int64(bitPattern: pbField.varintValue)
             case 5:
-                metadata = String(decoding: field.bytesValue, as: UTF8.self)
+                metadata = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 6:
-                sessionId = String(decoding: field.bytesValue, as: UTF8.self)
-            default: unknownFields += field.rawValue
+                sessionId = String(decoding: pbField.bytesValue, as: UTF8.self)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -1389,23 +1389,23 @@ public final class CommitOffsetResponse: Marshaler, Unmarshaler {
         self.errorCode = errorCode
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        if errorCode != 0 { w.Tag(1, 0); w.Varint(Int64(errorCode)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        if errorCode != 0 { pbW.Tag(1, 0); pbW.Varint(Int64(errorCode)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         errorCode = 0
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                errorCode = Int32(truncatingIfNeeded: field.varintValue)
-            default: unknownFields += field.rawValue
+                errorCode = Int32(truncatingIfNeeded: pbField.varintValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -1422,31 +1422,31 @@ public final class FetchOffsetRequest: Marshaler, Unmarshaler {
         self.partition = partition
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        w.StringField(1, groupId)
-        w.StringField(2, topic)
-        if partition != 0 { w.Tag(3, 0); w.Varint(Int64(partition)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        pbW.StringField(1, groupId)
+        pbW.StringField(2, topic)
+        if partition != 0 { pbW.Tag(3, 0); pbW.Varint(Int64(partition)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         groupId = ""
         topic = ""
         partition = 0
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                groupId = String(decoding: field.bytesValue, as: UTF8.self)
+                groupId = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                topic = String(decoding: field.bytesValue, as: UTF8.self)
+                topic = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 3:
-                partition = Int32(truncatingIfNeeded: field.varintValue)
-            default: unknownFields += field.rawValue
+                partition = Int32(truncatingIfNeeded: pbField.varintValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -1463,31 +1463,31 @@ public final class FetchOffsetResponse: Marshaler, Unmarshaler {
         self.errorCode = errorCode
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        if committedOffset != 0 { w.Tag(1, 0); w.Varint(UInt64(bitPattern: committedOffset)) }
-        w.StringField(2, metadata)
-        if errorCode != 0 { w.Tag(3, 0); w.Varint(Int64(errorCode)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        if committedOffset != 0 { pbW.Tag(1, 0); pbW.Varint(UInt64(bitPattern: committedOffset)) }
+        pbW.StringField(2, metadata)
+        if errorCode != 0 { pbW.Tag(3, 0); pbW.Varint(Int64(errorCode)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         committedOffset = 0
         metadata = ""
         errorCode = 0
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                committedOffset = Int64(bitPattern: field.varintValue)
+                committedOffset = Int64(bitPattern: pbField.varintValue)
             case 2:
-                metadata = String(decoding: field.bytesValue, as: UTF8.self)
+                metadata = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 3:
-                errorCode = Int32(truncatingIfNeeded: field.varintValue)
-            default: unknownFields += field.rawValue
+                errorCode = Int32(truncatingIfNeeded: pbField.varintValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -1504,31 +1504,31 @@ public final class NewTopic: Marshaler, Unmarshaler {
         self.replicationFactor = replicationFactor
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        w.StringField(1, name)
-        if numPartitions != 0 { w.Tag(2, 0); w.Varint(Int64(numPartitions)) }
-        if replicationFactor != 0 { w.Tag(3, 0); w.Varint(Int64(replicationFactor)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        pbW.StringField(1, name)
+        if numPartitions != 0 { pbW.Tag(2, 0); pbW.Varint(Int64(numPartitions)) }
+        if replicationFactor != 0 { pbW.Tag(3, 0); pbW.Varint(Int64(replicationFactor)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         name = ""
         numPartitions = 0
         replicationFactor = 0
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                name = String(decoding: field.bytesValue, as: UTF8.self)
+                name = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                numPartitions = Int32(truncatingIfNeeded: field.varintValue)
+                numPartitions = Int32(truncatingIfNeeded: pbField.varintValue)
             case 3:
-                replicationFactor = Int32(truncatingIfNeeded: field.varintValue)
-            default: unknownFields += field.rawValue
+                replicationFactor = Int32(truncatingIfNeeded: pbField.varintValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -1545,33 +1545,33 @@ public final class CreateTopicsRequest: Marshaler, Unmarshaler {
         self.validateOnly = validateOnly
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        for x in topics { w.BytesField(1, x.MarshalDc()) }
-        if timeoutMs != 0 { w.Tag(2, 0); w.Varint(Int64(timeoutMs)) }
-        if validateOnly { w.Tag(3, 0); w.Varint((validateOnly ? Int64(1) : Int64(0))) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        for pbX in topics { pbW.BytesField(1, pbX.MarshalDc()) }
+        if timeoutMs != 0 { pbW.Tag(2, 0); pbW.Varint(Int64(timeoutMs)) }
+        if validateOnly { pbW.Tag(3, 0); pbW.Varint((validateOnly ? Int64(1) : Int64(0))) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         topics = []
         timeoutMs = 0
         validateOnly = false
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                let item = NewTopic()
-                item.UnmarshalDc(field.bytesValue)
-                topics.append(item)
+                let pbItem = NewTopic()
+                pbItem.UnmarshalDc(pbField.bytesValue)
+                topics.append(pbItem)
             case 2:
-                timeoutMs = Int32(truncatingIfNeeded: field.varintValue)
+                timeoutMs = Int32(truncatingIfNeeded: pbField.varintValue)
             case 3:
-                validateOnly = field.varintValue != 0
-            default: unknownFields += field.rawValue
+                validateOnly = pbField.varintValue != 0
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -1586,27 +1586,27 @@ public final class TopicError: Marshaler, Unmarshaler {
         self.errorCode = errorCode
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        w.StringField(1, name)
-        if errorCode != 0 { w.Tag(2, 0); w.Varint(Int64(errorCode)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        pbW.StringField(1, name)
+        if errorCode != 0 { pbW.Tag(2, 0); pbW.Varint(Int64(errorCode)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         name = ""
         errorCode = 0
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                name = String(decoding: field.bytesValue, as: UTF8.self)
+                name = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                errorCode = Int32(truncatingIfNeeded: field.varintValue)
-            default: unknownFields += field.rawValue
+                errorCode = Int32(truncatingIfNeeded: pbField.varintValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -1619,25 +1619,25 @@ public final class CreateTopicsResponse: Marshaler, Unmarshaler {
         self.results = results
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        for x in results { w.BytesField(1, x.MarshalDc()) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        for pbX in results { pbW.BytesField(1, pbX.MarshalDc()) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         results = []
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                let item = TopicError()
-                item.UnmarshalDc(field.bytesValue)
-                results.append(item)
-            default: unknownFields += field.rawValue
+                let pbItem = TopicError()
+                pbItem.UnmarshalDc(pbField.bytesValue)
+                results.append(pbItem)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -1652,27 +1652,27 @@ public final class DeleteTopicsRequest: Marshaler, Unmarshaler {
         self.timeoutMs = timeoutMs
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        for x in topics { w.BytesField(1, [UInt8](x.utf8)) }
-        if timeoutMs != 0 { w.Tag(2, 0); w.Varint(Int64(timeoutMs)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        for pbX in topics { pbW.BytesField(1, [UInt8](pbX.utf8)) }
+        if timeoutMs != 0 { pbW.Tag(2, 0); pbW.Varint(Int64(timeoutMs)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         topics = []
         timeoutMs = 0
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                topics.append(String(decoding: field.bytesValue, as: UTF8.self))
+                topics.append(String(decoding: pbField.bytesValue, as: UTF8.self))
             case 2:
-                timeoutMs = Int32(truncatingIfNeeded: field.varintValue)
-            default: unknownFields += field.rawValue
+                timeoutMs = Int32(truncatingIfNeeded: pbField.varintValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -1685,25 +1685,25 @@ public final class DeleteTopicsResponse: Marshaler, Unmarshaler {
         self.results = results
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        for x in results { w.BytesField(1, x.MarshalDc()) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        for pbX in results { pbW.BytesField(1, pbX.MarshalDc()) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         results = []
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                let item = TopicError()
-                item.UnmarshalDc(field.bytesValue)
-                results.append(item)
-            default: unknownFields += field.rawValue
+                let pbItem = TopicError()
+                pbItem.UnmarshalDc(pbField.bytesValue)
+                results.append(pbItem)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -1718,27 +1718,27 @@ public final class ConfigEntry: Marshaler, Unmarshaler {
         self.value = value
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        w.StringField(1, name)
-        w.StringField(2, value)
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        pbW.StringField(1, name)
+        pbW.StringField(2, value)
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         name = ""
         value = ""
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                name = String(decoding: field.bytesValue, as: UTF8.self)
+                name = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                value = String(decoding: field.bytesValue, as: UTF8.self)
-            default: unknownFields += field.rawValue
+                value = String(decoding: pbField.bytesValue, as: UTF8.self)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -1755,31 +1755,31 @@ public final class AlterConfigEntry: Marshaler, Unmarshaler {
         self.op = op
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        w.StringField(1, name)
-        w.StringField(2, value)
-        if op.rawValue != 0 { w.Tag(3, 0); w.Varint(Int64(op.rawValue)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        pbW.StringField(1, name)
+        pbW.StringField(2, value)
+        if op.rawValue != 0 { pbW.Tag(3, 0); pbW.Varint(Int64(op.rawValue)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         name = ""
         value = ""
         op = ConfigOp.CONFIG_OP_SET
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                name = String(decoding: field.bytesValue, as: UTF8.self)
+                name = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                value = String(decoding: field.bytesValue, as: UTF8.self)
+                value = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 3:
-                op = ConfigOp(rawValue: Int32(truncatingIfNeeded: field.varintValue)) ?? ConfigOp.CONFIG_OP_SET
-            default: unknownFields += field.rawValue
+                op = ConfigOp(rawValue: Int32(truncatingIfNeeded: pbField.varintValue)) ?? ConfigOp.CONFIG_OP_SET
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -1798,13 +1798,13 @@ public final class DescribeConfigsRequest: Marshaler, Unmarshaler {
         self.includeSynonyms = includeSynonyms
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        if resourceType.rawValue != 0 { w.Tag(1, 0); w.Varint(Int64(resourceType.rawValue)) }
-        w.StringField(2, resourceName)
-        for x in configKeys { w.BytesField(3, [UInt8](x.utf8)) }
-        if includeSynonyms { w.Tag(4, 0); w.Varint((includeSynonyms ? Int64(1) : Int64(0))) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        if resourceType.rawValue != 0 { pbW.Tag(1, 0); pbW.Varint(Int64(resourceType.rawValue)) }
+        pbW.StringField(2, resourceName)
+        for pbX in configKeys { pbW.BytesField(3, [UInt8](pbX.utf8)) }
+        if includeSynonyms { pbW.Tag(4, 0); pbW.Varint((includeSynonyms ? Int64(1) : Int64(0))) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
@@ -1812,21 +1812,21 @@ public final class DescribeConfigsRequest: Marshaler, Unmarshaler {
         resourceName = ""
         configKeys = []
         includeSynonyms = false
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                resourceType = ConfigResourceType(rawValue: Int32(truncatingIfNeeded: field.varintValue)) ?? ConfigResourceType.CONFIG_RESOURCE_UNKNOWN
+                resourceType = ConfigResourceType(rawValue: Int32(truncatingIfNeeded: pbField.varintValue)) ?? ConfigResourceType.CONFIG_RESOURCE_UNKNOWN
             case 2:
-                resourceName = String(decoding: field.bytesValue, as: UTF8.self)
+                resourceName = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 3:
-                configKeys.append(String(decoding: field.bytesValue, as: UTF8.self))
+                configKeys.append(String(decoding: pbField.bytesValue, as: UTF8.self))
             case 4:
-                includeSynonyms = field.varintValue != 0
-            default: unknownFields += field.rawValue
+                includeSynonyms = pbField.varintValue != 0
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -1847,14 +1847,14 @@ public final class ConfigValue: Marshaler, Unmarshaler {
         self.isSensitive = isSensitive
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        w.StringField(1, name)
-        w.StringField(2, value)
-        if readOnly { w.Tag(3, 0); w.Varint((readOnly ? Int64(1) : Int64(0))) }
-        if source != 0 { w.Tag(4, 0); w.Varint(Int64(source)) }
-        if isSensitive { w.Tag(5, 0); w.Varint((isSensitive ? Int64(1) : Int64(0))) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        pbW.StringField(1, name)
+        pbW.StringField(2, value)
+        if readOnly { pbW.Tag(3, 0); pbW.Varint((readOnly ? Int64(1) : Int64(0))) }
+        if source != 0 { pbW.Tag(4, 0); pbW.Varint(Int64(source)) }
+        if isSensitive { pbW.Tag(5, 0); pbW.Varint((isSensitive ? Int64(1) : Int64(0))) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
@@ -1863,23 +1863,23 @@ public final class ConfigValue: Marshaler, Unmarshaler {
         readOnly = false
         source = 0
         isSensitive = false
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                name = String(decoding: field.bytesValue, as: UTF8.self)
+                name = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                value = String(decoding: field.bytesValue, as: UTF8.self)
+                value = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 3:
-                readOnly = field.varintValue != 0
+                readOnly = pbField.varintValue != 0
             case 4:
-                source = Int32(truncatingIfNeeded: field.varintValue)
+                source = Int32(truncatingIfNeeded: pbField.varintValue)
             case 5:
-                isSensitive = field.varintValue != 0
-            default: unknownFields += field.rawValue
+                isSensitive = pbField.varintValue != 0
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -1894,29 +1894,29 @@ public final class DescribeConfigsResponse: Marshaler, Unmarshaler {
         self.values = values
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        if errorCode != 0 { w.Tag(1, 0); w.Varint(Int64(errorCode)) }
-        for x in values { w.BytesField(2, x.MarshalDc()) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        if errorCode != 0 { pbW.Tag(1, 0); pbW.Varint(Int64(errorCode)) }
+        for pbX in values { pbW.BytesField(2, pbX.MarshalDc()) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         errorCode = 0
         values = []
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                errorCode = Int32(truncatingIfNeeded: field.varintValue)
+                errorCode = Int32(truncatingIfNeeded: pbField.varintValue)
             case 2:
-                let item = ConfigValue()
-                item.UnmarshalDc(field.bytesValue)
-                values.append(item)
-            default: unknownFields += field.rawValue
+                let pbItem = ConfigValue()
+                pbItem.UnmarshalDc(pbField.bytesValue)
+                values.append(pbItem)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -1935,13 +1935,13 @@ public final class AlterConfigsRequest: Marshaler, Unmarshaler {
         self.validateOnly = validateOnly
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        if resourceType.rawValue != 0 { w.Tag(1, 0); w.Varint(Int64(resourceType.rawValue)) }
-        w.StringField(2, resourceName)
-        for x in entries { w.BytesField(3, x.MarshalDc()) }
-        if validateOnly { w.Tag(4, 0); w.Varint((validateOnly ? Int64(1) : Int64(0))) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        if resourceType.rawValue != 0 { pbW.Tag(1, 0); pbW.Varint(Int64(resourceType.rawValue)) }
+        pbW.StringField(2, resourceName)
+        for pbX in entries { pbW.BytesField(3, pbX.MarshalDc()) }
+        if validateOnly { pbW.Tag(4, 0); pbW.Varint((validateOnly ? Int64(1) : Int64(0))) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
@@ -1949,23 +1949,23 @@ public final class AlterConfigsRequest: Marshaler, Unmarshaler {
         resourceName = ""
         entries = []
         validateOnly = false
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                resourceType = ConfigResourceType(rawValue: Int32(truncatingIfNeeded: field.varintValue)) ?? ConfigResourceType.CONFIG_RESOURCE_UNKNOWN
+                resourceType = ConfigResourceType(rawValue: Int32(truncatingIfNeeded: pbField.varintValue)) ?? ConfigResourceType.CONFIG_RESOURCE_UNKNOWN
             case 2:
-                resourceName = String(decoding: field.bytesValue, as: UTF8.self)
+                resourceName = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 3:
-                let item = AlterConfigEntry()
-                item.UnmarshalDc(field.bytesValue)
-                entries.append(item)
+                let pbItem = AlterConfigEntry()
+                pbItem.UnmarshalDc(pbField.bytesValue)
+                entries.append(pbItem)
             case 4:
-                validateOnly = field.varintValue != 0
-            default: unknownFields += field.rawValue
+                validateOnly = pbField.varintValue != 0
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -1978,23 +1978,23 @@ public final class AlterConfigsResponse: Marshaler, Unmarshaler {
         self.errorCode = errorCode
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        if errorCode != 0 { w.Tag(1, 0); w.Varint(Int64(errorCode)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        if errorCode != 0 { pbW.Tag(1, 0); pbW.Varint(Int64(errorCode)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         errorCode = 0
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                errorCode = Int32(truncatingIfNeeded: field.varintValue)
-            default: unknownFields += field.rawValue
+                errorCode = Int32(truncatingIfNeeded: pbField.varintValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -2013,13 +2013,13 @@ public final class CreatePartitionsRequest: Marshaler, Unmarshaler {
         self.timeoutMs = timeoutMs
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        w.StringField(1, topic)
-        if totalCount != 0 { w.Tag(2, 0); w.Varint(Int64(totalCount)) }
-        if validateOnly { w.Tag(3, 0); w.Varint((validateOnly ? Int64(1) : Int64(0))) }
-        if timeoutMs != 0 { w.Tag(4, 0); w.Varint(Int64(timeoutMs)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        pbW.StringField(1, topic)
+        if totalCount != 0 { pbW.Tag(2, 0); pbW.Varint(Int64(totalCount)) }
+        if validateOnly { pbW.Tag(3, 0); pbW.Varint((validateOnly ? Int64(1) : Int64(0))) }
+        if timeoutMs != 0 { pbW.Tag(4, 0); pbW.Varint(Int64(timeoutMs)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
@@ -2027,21 +2027,21 @@ public final class CreatePartitionsRequest: Marshaler, Unmarshaler {
         totalCount = 0
         validateOnly = false
         timeoutMs = 0
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                topic = String(decoding: field.bytesValue, as: UTF8.self)
+                topic = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                totalCount = Int32(truncatingIfNeeded: field.varintValue)
+                totalCount = Int32(truncatingIfNeeded: pbField.varintValue)
             case 3:
-                validateOnly = field.varintValue != 0
+                validateOnly = pbField.varintValue != 0
             case 4:
-                timeoutMs = Int32(truncatingIfNeeded: field.varintValue)
-            default: unknownFields += field.rawValue
+                timeoutMs = Int32(truncatingIfNeeded: pbField.varintValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -2054,23 +2054,23 @@ public final class CreatePartitionsResponse: Marshaler, Unmarshaler {
         self.errorCode = errorCode
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        if errorCode != 0 { w.Tag(1, 0); w.Varint(Int64(errorCode)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        if errorCode != 0 { pbW.Tag(1, 0); pbW.Varint(Int64(errorCode)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         errorCode = 0
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                errorCode = Int32(truncatingIfNeeded: field.varintValue)
-            default: unknownFields += field.rawValue
+                errorCode = Int32(truncatingIfNeeded: pbField.varintValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -2087,31 +2087,31 @@ public final class DeleteRecordsRequest: Marshaler, Unmarshaler {
         self.beforeOffset = beforeOffset
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        w.StringField(1, topic)
-        if partition != 0 { w.Tag(2, 0); w.Varint(Int64(partition)) }
-        if beforeOffset != 0 { w.Tag(3, 0); w.Varint(UInt64(bitPattern: beforeOffset)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        pbW.StringField(1, topic)
+        if partition != 0 { pbW.Tag(2, 0); pbW.Varint(Int64(partition)) }
+        if beforeOffset != 0 { pbW.Tag(3, 0); pbW.Varint(UInt64(bitPattern: beforeOffset)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         topic = ""
         partition = 0
         beforeOffset = 0
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                topic = String(decoding: field.bytesValue, as: UTF8.self)
+                topic = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                partition = Int32(truncatingIfNeeded: field.varintValue)
+                partition = Int32(truncatingIfNeeded: pbField.varintValue)
             case 3:
-                beforeOffset = Int64(bitPattern: field.varintValue)
-            default: unknownFields += field.rawValue
+                beforeOffset = Int64(bitPattern: pbField.varintValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -2126,27 +2126,27 @@ public final class DeleteRecordsResponse: Marshaler, Unmarshaler {
         self.errorCode = errorCode
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        if lowWatermark != 0 { w.Tag(1, 0); w.Varint(UInt64(bitPattern: lowWatermark)) }
-        if errorCode != 0 { w.Tag(2, 0); w.Varint(Int64(errorCode)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        if lowWatermark != 0 { pbW.Tag(1, 0); pbW.Varint(UInt64(bitPattern: lowWatermark)) }
+        if errorCode != 0 { pbW.Tag(2, 0); pbW.Varint(Int64(errorCode)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         lowWatermark = 0
         errorCode = 0
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                lowWatermark = Int64(bitPattern: field.varintValue)
+                lowWatermark = Int64(bitPattern: pbField.varintValue)
             case 2:
-                errorCode = Int32(truncatingIfNeeded: field.varintValue)
-            default: unknownFields += field.rawValue
+                errorCode = Int32(truncatingIfNeeded: pbField.varintValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -2155,19 +2155,19 @@ public final class ListGroupsRequest: Marshaler, Unmarshaler {
     public var unknownFields: [UInt8] = []
     public init() {}
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
-            default: unknownFields += field.rawValue
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -2184,31 +2184,31 @@ public final class GroupListing: Marshaler, Unmarshaler {
         self.groupState = groupState
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        w.StringField(1, groupId)
-        w.StringField(2, protocolType)
-        w.StringField(3, groupState)
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        pbW.StringField(1, groupId)
+        pbW.StringField(2, protocolType)
+        pbW.StringField(3, groupState)
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         groupId = ""
         protocolType = ""
         groupState = ""
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                groupId = String(decoding: field.bytesValue, as: UTF8.self)
+                groupId = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                protocolType = String(decoding: field.bytesValue, as: UTF8.self)
+                protocolType = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 3:
-                groupState = String(decoding: field.bytesValue, as: UTF8.self)
-            default: unknownFields += field.rawValue
+                groupState = String(decoding: pbField.bytesValue, as: UTF8.self)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -2223,29 +2223,29 @@ public final class ListGroupsResponse: Marshaler, Unmarshaler {
         self.groups = groups
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        if errorCode != 0 { w.Tag(1, 0); w.Varint(Int64(errorCode)) }
-        for x in groups { w.BytesField(2, x.MarshalDc()) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        if errorCode != 0 { pbW.Tag(1, 0); pbW.Varint(Int64(errorCode)) }
+        for pbX in groups { pbW.BytesField(2, pbX.MarshalDc()) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         errorCode = 0
         groups = []
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                errorCode = Int32(truncatingIfNeeded: field.varintValue)
+                errorCode = Int32(truncatingIfNeeded: pbField.varintValue)
             case 2:
-                let item = GroupListing()
-                item.UnmarshalDc(field.bytesValue)
-                groups.append(item)
-            default: unknownFields += field.rawValue
+                let pbItem = GroupListing()
+                pbItem.UnmarshalDc(pbField.bytesValue)
+                groups.append(pbItem)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -2258,23 +2258,23 @@ public final class DescribeGroupsRequest: Marshaler, Unmarshaler {
         self.groupIds = groupIds
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        for x in groupIds { w.BytesField(1, [UInt8](x.utf8)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        for pbX in groupIds { pbW.BytesField(1, [UInt8](pbX.utf8)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         groupIds = []
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                groupIds.append(String(decoding: field.bytesValue, as: UTF8.self))
-            default: unknownFields += field.rawValue
+                groupIds.append(String(decoding: pbField.bytesValue, as: UTF8.self))
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -2293,13 +2293,13 @@ public final class GroupMember: Marshaler, Unmarshaler {
         self.assignment = assignment
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        w.StringField(1, memberId)
-        w.StringField(2, clientId)
-        w.StringField(3, clientHost)
-        for x in assignment { w.BytesField(4, x.MarshalDc()) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        pbW.StringField(1, memberId)
+        pbW.StringField(2, clientId)
+        pbW.StringField(3, clientHost)
+        for pbX in assignment { pbW.BytesField(4, pbX.MarshalDc()) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
@@ -2307,23 +2307,23 @@ public final class GroupMember: Marshaler, Unmarshaler {
         clientId = ""
         clientHost = ""
         assignment = []
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                memberId = String(decoding: field.bytesValue, as: UTF8.self)
+                memberId = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                clientId = String(decoding: field.bytesValue, as: UTF8.self)
+                clientId = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 3:
-                clientHost = String(decoding: field.bytesValue, as: UTF8.self)
+                clientHost = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 4:
-                let item = TopicPartition()
-                item.UnmarshalDc(field.bytesValue)
-                assignment.append(item)
-            default: unknownFields += field.rawValue
+                let pbItem = TopicPartition()
+                pbItem.UnmarshalDc(pbField.bytesValue)
+                assignment.append(pbItem)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -2346,15 +2346,15 @@ public final class DescribedGroup: Marshaler, Unmarshaler {
         self.members = members
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        w.StringField(1, groupId)
-        if errorCode != 0 { w.Tag(2, 0); w.Varint(Int64(errorCode)) }
-        w.StringField(3, groupState)
-        w.StringField(4, protocolType)
-        w.StringField(5, `protocol`)
-        for x in members { w.BytesField(6, x.MarshalDc()) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        pbW.StringField(1, groupId)
+        if errorCode != 0 { pbW.Tag(2, 0); pbW.Varint(Int64(errorCode)) }
+        pbW.StringField(3, groupState)
+        pbW.StringField(4, protocolType)
+        pbW.StringField(5, `protocol`)
+        for pbX in members { pbW.BytesField(6, pbX.MarshalDc()) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
@@ -2364,27 +2364,27 @@ public final class DescribedGroup: Marshaler, Unmarshaler {
         protocolType = ""
         `protocol` = ""
         members = []
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                groupId = String(decoding: field.bytesValue, as: UTF8.self)
+                groupId = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                errorCode = Int32(truncatingIfNeeded: field.varintValue)
+                errorCode = Int32(truncatingIfNeeded: pbField.varintValue)
             case 3:
-                groupState = String(decoding: field.bytesValue, as: UTF8.self)
+                groupState = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 4:
-                protocolType = String(decoding: field.bytesValue, as: UTF8.self)
+                protocolType = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 5:
-                `protocol` = String(decoding: field.bytesValue, as: UTF8.self)
+                `protocol` = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 6:
-                let item = GroupMember()
-                item.UnmarshalDc(field.bytesValue)
-                members.append(item)
-            default: unknownFields += field.rawValue
+                let pbItem = GroupMember()
+                pbItem.UnmarshalDc(pbField.bytesValue)
+                members.append(pbItem)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -2397,25 +2397,25 @@ public final class DescribeGroupsResponse: Marshaler, Unmarshaler {
         self.groups = groups
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        for x in groups { w.BytesField(1, x.MarshalDc()) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        for pbX in groups { pbW.BytesField(1, pbX.MarshalDc()) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         groups = []
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                let item = DescribedGroup()
-                item.UnmarshalDc(field.bytesValue)
-                groups.append(item)
-            default: unknownFields += field.rawValue
+                let pbItem = DescribedGroup()
+                pbItem.UnmarshalDc(pbField.bytesValue)
+                groups.append(pbItem)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -2428,23 +2428,23 @@ public final class DeleteGroupsRequest: Marshaler, Unmarshaler {
         self.groupIds = groupIds
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        for x in groupIds { w.BytesField(1, [UInt8](x.utf8)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        for pbX in groupIds { pbW.BytesField(1, [UInt8](pbX.utf8)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         groupIds = []
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                groupIds.append(String(decoding: field.bytesValue, as: UTF8.self))
-            default: unknownFields += field.rawValue
+                groupIds.append(String(decoding: pbField.bytesValue, as: UTF8.self))
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -2459,27 +2459,27 @@ public final class GroupErrorResult: Marshaler, Unmarshaler {
         self.errorCode = errorCode
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        w.StringField(1, groupId)
-        if errorCode != 0 { w.Tag(2, 0); w.Varint(Int64(errorCode)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        pbW.StringField(1, groupId)
+        if errorCode != 0 { pbW.Tag(2, 0); pbW.Varint(Int64(errorCode)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         groupId = ""
         errorCode = 0
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                groupId = String(decoding: field.bytesValue, as: UTF8.self)
+                groupId = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                errorCode = Int32(truncatingIfNeeded: field.varintValue)
-            default: unknownFields += field.rawValue
+                errorCode = Int32(truncatingIfNeeded: pbField.varintValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -2492,25 +2492,25 @@ public final class DeleteGroupsResponse: Marshaler, Unmarshaler {
         self.results = results
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        for x in results { w.BytesField(1, x.MarshalDc()) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        for pbX in results { pbW.BytesField(1, pbX.MarshalDc()) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         results = []
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                let item = GroupErrorResult()
-                item.UnmarshalDc(field.bytesValue)
-                results.append(item)
-            default: unknownFields += field.rawValue
+                let pbItem = GroupErrorResult()
+                pbItem.UnmarshalDc(pbField.bytesValue)
+                results.append(pbItem)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -2527,42 +2527,42 @@ public final class DeleteGroupOffsetsRequest: Marshaler, Unmarshaler {
         self.partitions = partitions
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        w.StringField(1, groupId)
-        w.StringField(2, topic)
+        let pbW = KafkaPb.Writer()
+        pbW.StringField(1, groupId)
+        pbW.StringField(2, topic)
         if !partitions.isEmpty {
-            let payload = KafkaPb.Writer()
-            for x in partitions { payload.Varint(Int64(x)) }
-            w.BytesField(3, payload.ToBytes())
+            let pbPayload = KafkaPb.Writer()
+            for pbX in partitions { pbPayload.Varint(Int64(pbX)) }
+            pbW.BytesField(3, pbPayload.ToBytes())
         }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         groupId = ""
         topic = ""
         partitions = []
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                groupId = String(decoding: field.bytesValue, as: UTF8.self)
+                groupId = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                topic = String(decoding: field.bytesValue, as: UTF8.self)
+                topic = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 3:
-                if field.wire == 2 {
-                    let sub = KafkaPb.Reader(field.bytesValue)
-                    while !sub.Done() {
-                        partitions.append(Int32(truncatingIfNeeded: sub.Varint()))
+                if pbField.wire == 2 {
+                    let pbSub = KafkaPb.Reader(pbField.bytesValue)
+                    while !pbSub.Done() {
+                        partitions.append(Int32(truncatingIfNeeded: pbSub.Varint()))
                     }
                 } else {
-                    partitions.append(Int32(truncatingIfNeeded: field.varintValue))
+                    partitions.append(Int32(truncatingIfNeeded: pbField.varintValue))
                 }
-            default: unknownFields += field.rawValue
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -2575,23 +2575,23 @@ public final class DeleteGroupOffsetsResponse: Marshaler, Unmarshaler {
         self.errorCode = errorCode
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        if errorCode != 0 { w.Tag(1, 0); w.Varint(Int64(errorCode)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        if errorCode != 0 { pbW.Tag(1, 0); pbW.Varint(Int64(errorCode)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         errorCode = 0
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                errorCode = Int32(truncatingIfNeeded: field.varintValue)
-            default: unknownFields += field.rawValue
+                errorCode = Int32(truncatingIfNeeded: pbField.varintValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -2616,16 +2616,16 @@ public final class Acl: Marshaler, Unmarshaler {
         self.permissionType = permissionType
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        if resourceType != 0 { w.Tag(1, 0); w.Varint(Int64(resourceType)) }
-        w.StringField(2, resourceName)
-        if patternType != 0 { w.Tag(3, 0); w.Varint(Int64(patternType)) }
-        w.StringField(4, principal)
-        w.StringField(5, host)
-        if operation != 0 { w.Tag(6, 0); w.Varint(Int64(operation)) }
-        if permissionType != 0 { w.Tag(7, 0); w.Varint(Int64(permissionType)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        if resourceType != 0 { pbW.Tag(1, 0); pbW.Varint(Int64(resourceType)) }
+        pbW.StringField(2, resourceName)
+        if patternType != 0 { pbW.Tag(3, 0); pbW.Varint(Int64(patternType)) }
+        pbW.StringField(4, principal)
+        pbW.StringField(5, host)
+        if operation != 0 { pbW.Tag(6, 0); pbW.Varint(Int64(operation)) }
+        if permissionType != 0 { pbW.Tag(7, 0); pbW.Varint(Int64(permissionType)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
@@ -2636,27 +2636,27 @@ public final class Acl: Marshaler, Unmarshaler {
         host = ""
         operation = 0
         permissionType = 0
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                resourceType = Int32(truncatingIfNeeded: field.varintValue)
+                resourceType = Int32(truncatingIfNeeded: pbField.varintValue)
             case 2:
-                resourceName = String(decoding: field.bytesValue, as: UTF8.self)
+                resourceName = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 3:
-                patternType = Int32(truncatingIfNeeded: field.varintValue)
+                patternType = Int32(truncatingIfNeeded: pbField.varintValue)
             case 4:
-                principal = String(decoding: field.bytesValue, as: UTF8.self)
+                principal = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 5:
-                host = String(decoding: field.bytesValue, as: UTF8.self)
+                host = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 6:
-                operation = Int32(truncatingIfNeeded: field.varintValue)
+                operation = Int32(truncatingIfNeeded: pbField.varintValue)
             case 7:
-                permissionType = Int32(truncatingIfNeeded: field.varintValue)
-            default: unknownFields += field.rawValue
+                permissionType = Int32(truncatingIfNeeded: pbField.varintValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -2669,24 +2669,24 @@ public final class DescribeAclsRequest: Marshaler, Unmarshaler {
         self.filter = filter
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        if let v = filter { w.BytesField(1, v.MarshalDc()) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        if let v = filter { pbW.BytesField(1, v.MarshalDc()) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         filter = nil
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
                 filter = Acl()
-                filter!.UnmarshalDc(field.bytesValue)
-            default: unknownFields += field.rawValue
+                filter!.UnmarshalDc(pbField.bytesValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -2701,29 +2701,29 @@ public final class DescribeAclsResponse: Marshaler, Unmarshaler {
         self.acls = acls
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        if errorCode != 0 { w.Tag(1, 0); w.Varint(Int64(errorCode)) }
-        for x in acls { w.BytesField(2, x.MarshalDc()) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        if errorCode != 0 { pbW.Tag(1, 0); pbW.Varint(Int64(errorCode)) }
+        for pbX in acls { pbW.BytesField(2, pbX.MarshalDc()) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         errorCode = 0
         acls = []
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                errorCode = Int32(truncatingIfNeeded: field.varintValue)
+                errorCode = Int32(truncatingIfNeeded: pbField.varintValue)
             case 2:
-                let item = Acl()
-                item.UnmarshalDc(field.bytesValue)
-                acls.append(item)
-            default: unknownFields += field.rawValue
+                let pbItem = Acl()
+                pbItem.UnmarshalDc(pbField.bytesValue)
+                acls.append(pbItem)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -2736,25 +2736,25 @@ public final class CreateAclsRequest: Marshaler, Unmarshaler {
         self.acls = acls
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        for x in acls { w.BytesField(1, x.MarshalDc()) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        for pbX in acls { pbW.BytesField(1, pbX.MarshalDc()) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         acls = []
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                let item = Acl()
-                item.UnmarshalDc(field.bytesValue)
-                acls.append(item)
-            default: unknownFields += field.rawValue
+                let pbItem = Acl()
+                pbItem.UnmarshalDc(pbField.bytesValue)
+                acls.append(pbItem)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -2767,34 +2767,34 @@ public final class CreateAclsResponse: Marshaler, Unmarshaler {
         self.errorCodes = errorCodes
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
+        let pbW = KafkaPb.Writer()
         if !errorCodes.isEmpty {
-            let payload = KafkaPb.Writer()
-            for x in errorCodes { payload.Varint(Int64(x)) }
-            w.BytesField(1, payload.ToBytes())
+            let pbPayload = KafkaPb.Writer()
+            for pbX in errorCodes { pbPayload.Varint(Int64(pbX)) }
+            pbW.BytesField(1, pbPayload.ToBytes())
         }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         errorCodes = []
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                if field.wire == 2 {
-                    let sub = KafkaPb.Reader(field.bytesValue)
-                    while !sub.Done() {
-                        errorCodes.append(Int32(truncatingIfNeeded: sub.Varint()))
+                if pbField.wire == 2 {
+                    let pbSub = KafkaPb.Reader(pbField.bytesValue)
+                    while !pbSub.Done() {
+                        errorCodes.append(Int32(truncatingIfNeeded: pbSub.Varint()))
                     }
                 } else {
-                    errorCodes.append(Int32(truncatingIfNeeded: field.varintValue))
+                    errorCodes.append(Int32(truncatingIfNeeded: pbField.varintValue))
                 }
-            default: unknownFields += field.rawValue
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -2807,25 +2807,25 @@ public final class DeleteAclsRequest: Marshaler, Unmarshaler {
         self.filters = filters
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        for x in filters { w.BytesField(1, x.MarshalDc()) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        for pbX in filters { pbW.BytesField(1, pbX.MarshalDc()) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         filters = []
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                let item = Acl()
-                item.UnmarshalDc(field.bytesValue)
-                filters.append(item)
-            default: unknownFields += field.rawValue
+                let pbItem = Acl()
+                pbItem.UnmarshalDc(pbField.bytesValue)
+                filters.append(pbItem)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -2838,34 +2838,34 @@ public final class DeleteAclsResponse: Marshaler, Unmarshaler {
         self.errorCodes = errorCodes
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
+        let pbW = KafkaPb.Writer()
         if !errorCodes.isEmpty {
-            let payload = KafkaPb.Writer()
-            for x in errorCodes { payload.Varint(Int64(x)) }
-            w.BytesField(1, payload.ToBytes())
+            let pbPayload = KafkaPb.Writer()
+            for pbX in errorCodes { pbPayload.Varint(Int64(pbX)) }
+            pbW.BytesField(1, pbPayload.ToBytes())
         }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         errorCodes = []
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                if field.wire == 2 {
-                    let sub = KafkaPb.Reader(field.bytesValue)
-                    while !sub.Done() {
-                        errorCodes.append(Int32(truncatingIfNeeded: sub.Varint()))
+                if pbField.wire == 2 {
+                    let pbSub = KafkaPb.Reader(pbField.bytesValue)
+                    while !pbSub.Done() {
+                        errorCodes.append(Int32(truncatingIfNeeded: pbSub.Varint()))
                     }
                 } else {
-                    errorCodes.append(Int32(truncatingIfNeeded: field.varintValue))
+                    errorCodes.append(Int32(truncatingIfNeeded: pbField.varintValue))
                 }
-            default: unknownFields += field.rawValue
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -2874,19 +2874,19 @@ public final class ListTransactionsRequest: Marshaler, Unmarshaler {
     public var unknownFields: [UInt8] = []
     public init() {}
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
-            default: unknownFields += field.rawValue
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -2903,31 +2903,31 @@ public final class TransactionListing: Marshaler, Unmarshaler {
         self.transactionState = transactionState
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        w.StringField(1, transactionalId)
-        if producerId != 0 { w.Tag(2, 0); w.Varint(UInt64(bitPattern: producerId)) }
-        w.StringField(3, transactionState)
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        pbW.StringField(1, transactionalId)
+        if producerId != 0 { pbW.Tag(2, 0); pbW.Varint(UInt64(bitPattern: producerId)) }
+        pbW.StringField(3, transactionState)
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         transactionalId = ""
         producerId = 0
         transactionState = ""
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                transactionalId = String(decoding: field.bytesValue, as: UTF8.self)
+                transactionalId = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                producerId = Int64(bitPattern: field.varintValue)
+                producerId = Int64(bitPattern: pbField.varintValue)
             case 3:
-                transactionState = String(decoding: field.bytesValue, as: UTF8.self)
-            default: unknownFields += field.rawValue
+                transactionState = String(decoding: pbField.bytesValue, as: UTF8.self)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -2942,29 +2942,29 @@ public final class ListTransactionsResponse: Marshaler, Unmarshaler {
         self.transactions = transactions
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        if errorCode != 0 { w.Tag(1, 0); w.Varint(Int64(errorCode)) }
-        for x in transactions { w.BytesField(2, x.MarshalDc()) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        if errorCode != 0 { pbW.Tag(1, 0); pbW.Varint(Int64(errorCode)) }
+        for pbX in transactions { pbW.BytesField(2, pbX.MarshalDc()) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         errorCode = 0
         transactions = []
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                errorCode = Int32(truncatingIfNeeded: field.varintValue)
+                errorCode = Int32(truncatingIfNeeded: pbField.varintValue)
             case 2:
-                let item = TransactionListing()
-                item.UnmarshalDc(field.bytesValue)
-                transactions.append(item)
-            default: unknownFields += field.rawValue
+                let pbItem = TransactionListing()
+                pbItem.UnmarshalDc(pbField.bytesValue)
+                transactions.append(pbItem)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -2977,23 +2977,23 @@ public final class DescribeTransactionsRequest: Marshaler, Unmarshaler {
         self.transactionalIds = transactionalIds
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        for x in transactionalIds { w.BytesField(1, [UInt8](x.utf8)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        for pbX in transactionalIds { pbW.BytesField(1, [UInt8](pbX.utf8)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         transactionalIds = []
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                transactionalIds.append(String(decoding: field.bytesValue, as: UTF8.self))
-            default: unknownFields += field.rawValue
+                transactionalIds.append(String(decoding: pbField.bytesValue, as: UTF8.self))
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -3016,15 +3016,15 @@ public final class DescribedTransaction: Marshaler, Unmarshaler {
         self.lastUpdateTimestampMs = lastUpdateTimestampMs
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        w.StringField(1, transactionalId)
-        if errorCode != 0 { w.Tag(2, 0); w.Varint(Int64(errorCode)) }
-        if producerId != 0 { w.Tag(3, 0); w.Varint(UInt64(bitPattern: producerId)) }
-        if producerEpoch != 0 { w.Tag(4, 0); w.Varint(Int64(producerEpoch)) }
-        w.StringField(5, transactionState)
-        if lastUpdateTimestampMs != 0 { w.Tag(6, 0); w.Varint(UInt64(bitPattern: lastUpdateTimestampMs)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        pbW.StringField(1, transactionalId)
+        if errorCode != 0 { pbW.Tag(2, 0); pbW.Varint(Int64(errorCode)) }
+        if producerId != 0 { pbW.Tag(3, 0); pbW.Varint(UInt64(bitPattern: producerId)) }
+        if producerEpoch != 0 { pbW.Tag(4, 0); pbW.Varint(Int64(producerEpoch)) }
+        pbW.StringField(5, transactionState)
+        if lastUpdateTimestampMs != 0 { pbW.Tag(6, 0); pbW.Varint(UInt64(bitPattern: lastUpdateTimestampMs)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
@@ -3034,25 +3034,25 @@ public final class DescribedTransaction: Marshaler, Unmarshaler {
         producerEpoch = 0
         transactionState = ""
         lastUpdateTimestampMs = 0
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                transactionalId = String(decoding: field.bytesValue, as: UTF8.self)
+                transactionalId = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                errorCode = Int32(truncatingIfNeeded: field.varintValue)
+                errorCode = Int32(truncatingIfNeeded: pbField.varintValue)
             case 3:
-                producerId = Int64(bitPattern: field.varintValue)
+                producerId = Int64(bitPattern: pbField.varintValue)
             case 4:
-                producerEpoch = Int32(truncatingIfNeeded: field.varintValue)
+                producerEpoch = Int32(truncatingIfNeeded: pbField.varintValue)
             case 5:
-                transactionState = String(decoding: field.bytesValue, as: UTF8.self)
+                transactionState = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 6:
-                lastUpdateTimestampMs = Int64(bitPattern: field.varintValue)
-            default: unknownFields += field.rawValue
+                lastUpdateTimestampMs = Int64(bitPattern: pbField.varintValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -3065,25 +3065,25 @@ public final class DescribeTransactionsResponse: Marshaler, Unmarshaler {
         self.transactions = transactions
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        for x in transactions { w.BytesField(1, x.MarshalDc()) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        for pbX in transactions { pbW.BytesField(1, pbX.MarshalDc()) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         transactions = []
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                let item = DescribedTransaction()
-                item.UnmarshalDc(field.bytesValue)
-                transactions.append(item)
-            default: unknownFields += field.rawValue
+                let pbItem = DescribedTransaction()
+                pbItem.UnmarshalDc(pbField.bytesValue)
+                transactions.append(pbItem)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -3102,13 +3102,13 @@ public final class OpenShareGroupRequest: Marshaler, Unmarshaler {
         self.sessionTimeoutMs = sessionTimeoutMs
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        w.StringField(1, groupId)
-        for x in topics { w.BytesField(2, [UInt8](x.utf8)) }
-        w.StringField(3, groupInstanceId)
-        if sessionTimeoutMs != 0 { w.Tag(4, 0); w.Varint(Int64(sessionTimeoutMs)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        pbW.StringField(1, groupId)
+        for pbX in topics { pbW.BytesField(2, [UInt8](pbX.utf8)) }
+        pbW.StringField(3, groupInstanceId)
+        if sessionTimeoutMs != 0 { pbW.Tag(4, 0); pbW.Varint(Int64(sessionTimeoutMs)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
@@ -3116,21 +3116,21 @@ public final class OpenShareGroupRequest: Marshaler, Unmarshaler {
         topics = []
         groupInstanceId = ""
         sessionTimeoutMs = 0
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                groupId = String(decoding: field.bytesValue, as: UTF8.self)
+                groupId = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                topics.append(String(decoding: field.bytesValue, as: UTF8.self))
+                topics.append(String(decoding: pbField.bytesValue, as: UTF8.self))
             case 3:
-                groupInstanceId = String(decoding: field.bytesValue, as: UTF8.self)
+                groupInstanceId = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 4:
-                sessionTimeoutMs = Int32(truncatingIfNeeded: field.varintValue)
-            default: unknownFields += field.rawValue
+                sessionTimeoutMs = Int32(truncatingIfNeeded: pbField.varintValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -3147,32 +3147,32 @@ public final class OpenShareGroupResponse: Marshaler, Unmarshaler {
         self.assignment = assignment
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        w.StringField(1, sessionId)
-        if errorCode != 0 { w.Tag(2, 0); w.Varint(Int64(errorCode)) }
-        if let v = assignment { w.BytesField(3, v.MarshalDc()) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        pbW.StringField(1, sessionId)
+        if errorCode != 0 { pbW.Tag(2, 0); pbW.Varint(Int64(errorCode)) }
+        if let v = assignment { pbW.BytesField(3, v.MarshalDc()) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         sessionId = ""
         errorCode = 0
         assignment = nil
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                sessionId = String(decoding: field.bytesValue, as: UTF8.self)
+                sessionId = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                errorCode = Int32(truncatingIfNeeded: field.varintValue)
+                errorCode = Int32(truncatingIfNeeded: pbField.varintValue)
             case 3:
                 assignment = Assignment()
-                assignment!.UnmarshalDc(field.bytesValue)
-            default: unknownFields += field.rawValue
+                assignment!.UnmarshalDc(pbField.bytesValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -3189,31 +3189,31 @@ public final class SharePollRequest: Marshaler, Unmarshaler {
         self.maxWaitMs = maxWaitMs
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        w.StringField(1, sessionId)
-        if maxRecords != 0 { w.Tag(2, 0); w.Varint(Int64(maxRecords)) }
-        if maxWaitMs != 0 { w.Tag(3, 0); w.Varint(Int64(maxWaitMs)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        pbW.StringField(1, sessionId)
+        if maxRecords != 0 { pbW.Tag(2, 0); pbW.Varint(Int64(maxRecords)) }
+        if maxWaitMs != 0 { pbW.Tag(3, 0); pbW.Varint(Int64(maxWaitMs)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         sessionId = ""
         maxRecords = 0
         maxWaitMs = 0
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                sessionId = String(decoding: field.bytesValue, as: UTF8.self)
+                sessionId = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                maxRecords = Int32(truncatingIfNeeded: field.varintValue)
+                maxRecords = Int32(truncatingIfNeeded: pbField.varintValue)
             case 3:
-                maxWaitMs = Int32(truncatingIfNeeded: field.varintValue)
-            default: unknownFields += field.rawValue
+                maxWaitMs = Int32(truncatingIfNeeded: pbField.varintValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -3242,18 +3242,18 @@ public final class SharePollRecord: Marshaler, Unmarshaler {
         self.nullKey = nullKey
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        w.StringField(1, topic)
-        if partition != 0 { w.Tag(2, 0); w.Varint(Int64(partition)) }
-        if offset != 0 { w.Tag(3, 0); w.Varint(UInt64(bitPattern: offset)) }
-        if !key.isEmpty { w.BytesField(4, key) }
-        if !value.isEmpty { w.BytesField(5, value) }
-        for x in headers { w.BytesField(6, x.MarshalDc()) }
-        if timestampMs != 0 { w.Tag(7, 0); w.Varint(UInt64(bitPattern: timestampMs)) }
-        if deliveryCount != 0 { w.Tag(8, 0); w.Varint(Int64(deliveryCount)) }
-        if nullKey { w.Tag(9, 0); w.Varint((nullKey ? Int64(1) : Int64(0))) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        pbW.StringField(1, topic)
+        if partition != 0 { pbW.Tag(2, 0); pbW.Varint(Int64(partition)) }
+        if offset != 0 { pbW.Tag(3, 0); pbW.Varint(UInt64(bitPattern: offset)) }
+        if !key.isEmpty { pbW.BytesField(4, key) }
+        if !value.isEmpty { pbW.BytesField(5, value) }
+        for pbX in headers { pbW.BytesField(6, pbX.MarshalDc()) }
+        if timestampMs != 0 { pbW.Tag(7, 0); pbW.Varint(UInt64(bitPattern: timestampMs)) }
+        if deliveryCount != 0 { pbW.Tag(8, 0); pbW.Varint(Int64(deliveryCount)) }
+        if nullKey { pbW.Tag(9, 0); pbW.Varint((nullKey ? Int64(1) : Int64(0))) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
@@ -3266,33 +3266,33 @@ public final class SharePollRecord: Marshaler, Unmarshaler {
         timestampMs = 0
         deliveryCount = 0
         nullKey = false
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                topic = String(decoding: field.bytesValue, as: UTF8.self)
+                topic = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                partition = Int32(truncatingIfNeeded: field.varintValue)
+                partition = Int32(truncatingIfNeeded: pbField.varintValue)
             case 3:
-                offset = Int64(bitPattern: field.varintValue)
+                offset = Int64(bitPattern: pbField.varintValue)
             case 4:
-                key = field.bytesValue
+                key = pbField.bytesValue
             case 5:
-                value = field.bytesValue
+                value = pbField.bytesValue
             case 6:
-                let item = Header()
-                item.UnmarshalDc(field.bytesValue)
-                headers.append(item)
+                let pbItem = Header()
+                pbItem.UnmarshalDc(pbField.bytesValue)
+                headers.append(pbItem)
             case 7:
-                timestampMs = Int64(bitPattern: field.varintValue)
+                timestampMs = Int64(bitPattern: pbField.varintValue)
             case 8:
-                deliveryCount = Int32(truncatingIfNeeded: field.varintValue)
+                deliveryCount = Int32(truncatingIfNeeded: pbField.varintValue)
             case 9:
-                nullKey = field.varintValue != 0
-            default: unknownFields += field.rawValue
+                nullKey = pbField.varintValue != 0
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -3307,29 +3307,29 @@ public final class SharePollResponse: Marshaler, Unmarshaler {
         self.errorCode = errorCode
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        for x in records { w.BytesField(1, x.MarshalDc()) }
-        if errorCode != 0 { w.Tag(2, 0); w.Varint(Int64(errorCode)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        for pbX in records { pbW.BytesField(1, pbX.MarshalDc()) }
+        if errorCode != 0 { pbW.Tag(2, 0); pbW.Varint(Int64(errorCode)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         records = []
         errorCode = 0
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                let item = SharePollRecord()
-                item.UnmarshalDc(field.bytesValue)
-                records.append(item)
+                let pbItem = SharePollRecord()
+                pbItem.UnmarshalDc(pbField.bytesValue)
+                records.append(pbItem)
             case 2:
-                errorCode = Int32(truncatingIfNeeded: field.varintValue)
-            default: unknownFields += field.rawValue
+                errorCode = Int32(truncatingIfNeeded: pbField.varintValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -3348,13 +3348,13 @@ public final class ShareAckEntry: Marshaler, Unmarshaler {
         self.ackType = ackType
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        w.StringField(1, topic)
-        if partition != 0 { w.Tag(2, 0); w.Varint(Int64(partition)) }
-        if offset != 0 { w.Tag(3, 0); w.Varint(UInt64(bitPattern: offset)) }
-        if ackType != 0 { w.Tag(4, 0); w.Varint(Int64(ackType)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        pbW.StringField(1, topic)
+        if partition != 0 { pbW.Tag(2, 0); pbW.Varint(Int64(partition)) }
+        if offset != 0 { pbW.Tag(3, 0); pbW.Varint(UInt64(bitPattern: offset)) }
+        if ackType != 0 { pbW.Tag(4, 0); pbW.Varint(Int64(ackType)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
@@ -3362,21 +3362,21 @@ public final class ShareAckEntry: Marshaler, Unmarshaler {
         partition = 0
         offset = 0
         ackType = 0
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                topic = String(decoding: field.bytesValue, as: UTF8.self)
+                topic = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                partition = Int32(truncatingIfNeeded: field.varintValue)
+                partition = Int32(truncatingIfNeeded: pbField.varintValue)
             case 3:
-                offset = Int64(bitPattern: field.varintValue)
+                offset = Int64(bitPattern: pbField.varintValue)
             case 4:
-                ackType = Int32(truncatingIfNeeded: field.varintValue)
-            default: unknownFields += field.rawValue
+                ackType = Int32(truncatingIfNeeded: pbField.varintValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -3391,29 +3391,29 @@ public final class ShareAckRequest: Marshaler, Unmarshaler {
         self.entries = entries
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        w.StringField(1, sessionId)
-        for x in entries { w.BytesField(2, x.MarshalDc()) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        pbW.StringField(1, sessionId)
+        for pbX in entries { pbW.BytesField(2, pbX.MarshalDc()) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         sessionId = ""
         entries = []
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                sessionId = String(decoding: field.bytesValue, as: UTF8.self)
+                sessionId = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                let item = ShareAckEntry()
-                item.UnmarshalDc(field.bytesValue)
-                entries.append(item)
-            default: unknownFields += field.rawValue
+                let pbItem = ShareAckEntry()
+                pbItem.UnmarshalDc(pbField.bytesValue)
+                entries.append(pbItem)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -3426,23 +3426,23 @@ public final class ShareAckResponse: Marshaler, Unmarshaler {
         self.errorCode = errorCode
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        if errorCode != 0 { w.Tag(1, 0); w.Varint(Int64(errorCode)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        if errorCode != 0 { pbW.Tag(1, 0); pbW.Varint(Int64(errorCode)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         errorCode = 0
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                errorCode = Int32(truncatingIfNeeded: field.varintValue)
-            default: unknownFields += field.rawValue
+                errorCode = Int32(truncatingIfNeeded: pbField.varintValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -3455,23 +3455,23 @@ public final class CloseShareGroupRequest: Marshaler, Unmarshaler {
         self.sessionId = sessionId
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        w.StringField(1, sessionId)
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        pbW.StringField(1, sessionId)
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         sessionId = ""
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                sessionId = String(decoding: field.bytesValue, as: UTF8.self)
-            default: unknownFields += field.rawValue
+                sessionId = String(decoding: pbField.bytesValue, as: UTF8.self)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -3484,23 +3484,23 @@ public final class CloseShareGroupResponse: Marshaler, Unmarshaler {
         self.errorCode = errorCode
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        if errorCode != 0 { w.Tag(1, 0); w.Varint(Int64(errorCode)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        if errorCode != 0 { pbW.Tag(1, 0); pbW.Varint(Int64(errorCode)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         errorCode = 0
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                errorCode = Int32(truncatingIfNeeded: field.varintValue)
-            default: unknownFields += field.rawValue
+                errorCode = Int32(truncatingIfNeeded: pbField.varintValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -3523,15 +3523,15 @@ public final class ShareGroupMember: Marshaler, Unmarshaler {
         self.assignment = assignment
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        w.StringField(1, memberId)
-        if memberEpoch != 0 { w.Tag(2, 0); w.Varint(Int64(memberEpoch)) }
-        w.StringField(3, clientId)
-        w.StringField(4, clientHost)
-        for x in subscribedTopics { w.BytesField(5, [UInt8](x.utf8)) }
-        for x in assignment { w.BytesField(6, x.MarshalDc()) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        pbW.StringField(1, memberId)
+        if memberEpoch != 0 { pbW.Tag(2, 0); pbW.Varint(Int64(memberEpoch)) }
+        pbW.StringField(3, clientId)
+        pbW.StringField(4, clientHost)
+        for pbX in subscribedTopics { pbW.BytesField(5, [UInt8](pbX.utf8)) }
+        for pbX in assignment { pbW.BytesField(6, pbX.MarshalDc()) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
@@ -3541,27 +3541,27 @@ public final class ShareGroupMember: Marshaler, Unmarshaler {
         clientHost = ""
         subscribedTopics = []
         assignment = []
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                memberId = String(decoding: field.bytesValue, as: UTF8.self)
+                memberId = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                memberEpoch = Int32(truncatingIfNeeded: field.varintValue)
+                memberEpoch = Int32(truncatingIfNeeded: pbField.varintValue)
             case 3:
-                clientId = String(decoding: field.bytesValue, as: UTF8.self)
+                clientId = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 4:
-                clientHost = String(decoding: field.bytesValue, as: UTF8.self)
+                clientHost = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 5:
-                subscribedTopics.append(String(decoding: field.bytesValue, as: UTF8.self))
+                subscribedTopics.append(String(decoding: pbField.bytesValue, as: UTF8.self))
             case 6:
-                let item = TopicPartition()
-                item.UnmarshalDc(field.bytesValue)
-                assignment.append(item)
-            default: unknownFields += field.rawValue
+                let pbItem = TopicPartition()
+                pbItem.UnmarshalDc(pbField.bytesValue)
+                assignment.append(pbItem)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -3584,15 +3584,15 @@ public final class ShareGroupDescription: Marshaler, Unmarshaler {
         self.members = members
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        w.StringField(1, groupId)
-        if errorCode != 0 { w.Tag(2, 0); w.Varint(Int64(errorCode)) }
-        w.StringField(3, state)
-        if groupEpoch != 0 { w.Tag(4, 0); w.Varint(Int64(groupEpoch)) }
-        if assignmentEpoch != 0 { w.Tag(5, 0); w.Varint(Int64(assignmentEpoch)) }
-        for x in members { w.BytesField(6, x.MarshalDc()) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        pbW.StringField(1, groupId)
+        if errorCode != 0 { pbW.Tag(2, 0); pbW.Varint(Int64(errorCode)) }
+        pbW.StringField(3, state)
+        if groupEpoch != 0 { pbW.Tag(4, 0); pbW.Varint(Int64(groupEpoch)) }
+        if assignmentEpoch != 0 { pbW.Tag(5, 0); pbW.Varint(Int64(assignmentEpoch)) }
+        for pbX in members { pbW.BytesField(6, pbX.MarshalDc()) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
@@ -3602,27 +3602,27 @@ public final class ShareGroupDescription: Marshaler, Unmarshaler {
         groupEpoch = 0
         assignmentEpoch = 0
         members = []
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                groupId = String(decoding: field.bytesValue, as: UTF8.self)
+                groupId = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                errorCode = Int32(truncatingIfNeeded: field.varintValue)
+                errorCode = Int32(truncatingIfNeeded: pbField.varintValue)
             case 3:
-                state = String(decoding: field.bytesValue, as: UTF8.self)
+                state = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 4:
-                groupEpoch = Int32(truncatingIfNeeded: field.varintValue)
+                groupEpoch = Int32(truncatingIfNeeded: pbField.varintValue)
             case 5:
-                assignmentEpoch = Int32(truncatingIfNeeded: field.varintValue)
+                assignmentEpoch = Int32(truncatingIfNeeded: pbField.varintValue)
             case 6:
-                let item = ShareGroupMember()
-                item.UnmarshalDc(field.bytesValue)
-                members.append(item)
-            default: unknownFields += field.rawValue
+                let pbItem = ShareGroupMember()
+                pbItem.UnmarshalDc(pbField.bytesValue)
+                members.append(pbItem)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -3635,23 +3635,23 @@ public final class DescribeShareGroupsRequest: Marshaler, Unmarshaler {
         self.groupIds = groupIds
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        for x in groupIds { w.BytesField(1, [UInt8](x.utf8)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        for pbX in groupIds { pbW.BytesField(1, [UInt8](pbX.utf8)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         groupIds = []
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                groupIds.append(String(decoding: field.bytesValue, as: UTF8.self))
-            default: unknownFields += field.rawValue
+                groupIds.append(String(decoding: pbField.bytesValue, as: UTF8.self))
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -3666,29 +3666,29 @@ public final class DescribeShareGroupsResponse: Marshaler, Unmarshaler {
         self.errorCode = errorCode
     }
     public func MarshalDc() -> [UInt8] {
-        let w = KafkaPb.Writer()
-        for x in groups { w.BytesField(1, x.MarshalDc()) }
-        if errorCode != 0 { w.Tag(2, 0); w.Varint(Int64(errorCode)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = KafkaPb.Writer()
+        for pbX in groups { pbW.BytesField(1, pbX.MarshalDc()) }
+        if errorCode != 0 { pbW.Tag(2, 0); pbW.Varint(Int64(errorCode)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         groups = []
         errorCode = 0
-        let r = KafkaPb.Reader(data)
+        let pbR = KafkaPb.Reader(data)
         while true {
             let next: KafkaPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                let item = ShareGroupDescription()
-                item.UnmarshalDc(field.bytesValue)
-                groups.append(item)
+                let pbItem = ShareGroupDescription()
+                pbItem.UnmarshalDc(pbField.bytesValue)
+                groups.append(pbItem)
             case 2:
-                errorCode = Int32(truncatingIfNeeded: field.varintValue)
-            default: unknownFields += field.rawValue
+                errorCode = Int32(truncatingIfNeeded: pbField.varintValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }

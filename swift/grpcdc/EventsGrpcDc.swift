@@ -108,7 +108,7 @@ public enum EventsGrpcDc {
             ctxRef = ctx
             self.sink = sink
         }
-        func Send(_ resp: Event) throws { try sink(resp.MarshalDc()) }
+        func Send(_ resp: Event) throws { try sink(ctxRef.EncodeMessage(resp)) }
         var context: Endpoint.CallContext { ctxRef }
     }
 
@@ -133,7 +133,7 @@ public enum EventsGrpcDc {
                 let req = PublishRequest()
                 try reqs.RecvInto(req)
                 let resp = try impl.Publish(ctx, req)
-                try sink(resp.MarshalDc())
+                try sink(ctx.EncodeMessage(resp))
             },
             Server.Method(name: "Subscribe", path: "/grpcdc.events.v1.EventBus/Subscribe", kind: Server.KindServerStreaming) { ctx, reqs, sink in
                 let req = SubscribeRequest()

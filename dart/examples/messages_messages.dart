@@ -53,25 +53,25 @@ class MessagesPbReader {
 }
 
 Uint8List MessagesPbLoadBalancerStatsResponse_RpcsByPeerEntryEncode(String key, int value) {
-  final w = MessagesPbWriter();
-  w.stringField(1, key);
-  if (value != 0) { w.tag(2, 0); w.varint(value); }
-  return w.toBytes();
+  final pbW = MessagesPbWriter();
+  pbW.stringField(1, key);
+  if (value != 0) { pbW.tag(2, 0); pbW.varint(value); }
+  return pbW.toBytes();
 }
 
 MapEntry<String, int> MessagesPbLoadBalancerStatsResponse_RpcsByPeerEntryDecode(Uint8List bytes) {
   String key = '';
   int value = 0;
-  final r = MessagesPbReader(bytes);
+  final pbR = MessagesPbReader(bytes);
   while (true) {
-    final field = r.next();
-    if (field == null) break;
-    switch (field.number) {
+    final pbField = pbR.next();
+    if (pbField == null) break;
+    switch (pbField.number) {
       case 1:
-        key = utf8.decode(field.bytesValue);
+        key = utf8.decode(pbField.bytesValue);
         break;
       case 2:
-        value = (field.varintValue).toSigned(32);
+        value = (pbField.varintValue).toSigned(32);
         break;
       default:
         break;
@@ -81,25 +81,25 @@ MapEntry<String, int> MessagesPbLoadBalancerStatsResponse_RpcsByPeerEntryDecode(
 }
 
 Uint8List MessagesPbLoadBalancerStatsResponse_RpcsByMethodEntryEncode(String key, LoadBalancerStatsResponse_RpcsByPeer value) {
-  final w = MessagesPbWriter();
-  w.stringField(1, key);
-  w.bytesField(2, value.marshalDc());
-  return w.toBytes();
+  final pbW = MessagesPbWriter();
+  pbW.stringField(1, key);
+  pbW.bytesField(2, value.marshalDc());
+  return pbW.toBytes();
 }
 
 MapEntry<String, LoadBalancerStatsResponse_RpcsByPeer> MessagesPbLoadBalancerStatsResponse_RpcsByMethodEntryDecode(Uint8List bytes) {
   String key = '';
   LoadBalancerStatsResponse_RpcsByPeer value = LoadBalancerStatsResponse_RpcsByPeer();
-  final r = MessagesPbReader(bytes);
+  final pbR = MessagesPbReader(bytes);
   while (true) {
-    final field = r.next();
-    if (field == null) break;
-    switch (field.number) {
+    final pbField = pbR.next();
+    if (pbField == null) break;
+    switch (pbField.number) {
       case 1:
-        key = utf8.decode(field.bytesValue);
+        key = utf8.decode(pbField.bytesValue);
         break;
       case 2:
-        value.unmarshalDc(field.bytesValue);
+        value.unmarshalDc(pbField.bytesValue);
         break;
       default:
         break;
@@ -109,25 +109,25 @@ MapEntry<String, LoadBalancerStatsResponse_RpcsByPeer> MessagesPbLoadBalancerSta
 }
 
 Uint8List MessagesPbLoadBalancerStatsResponse_RpcsByPeer_RpcsByPeerEntryEncode(String key, int value) {
-  final w = MessagesPbWriter();
-  w.stringField(1, key);
-  if (value != 0) { w.tag(2, 0); w.varint(value); }
-  return w.toBytes();
+  final pbW = MessagesPbWriter();
+  pbW.stringField(1, key);
+  if (value != 0) { pbW.tag(2, 0); pbW.varint(value); }
+  return pbW.toBytes();
 }
 
 MapEntry<String, int> MessagesPbLoadBalancerStatsResponse_RpcsByPeer_RpcsByPeerEntryDecode(Uint8List bytes) {
   String key = '';
   int value = 0;
-  final r = MessagesPbReader(bytes);
+  final pbR = MessagesPbReader(bytes);
   while (true) {
-    final field = r.next();
-    if (field == null) break;
-    switch (field.number) {
+    final pbField = pbR.next();
+    if (pbField == null) break;
+    switch (pbField.number) {
       case 1:
-        key = utf8.decode(field.bytesValue);
+        key = utf8.decode(pbField.bytesValue);
         break;
       case 2:
-        value = (field.varintValue).toSigned(32);
+        value = (pbField.varintValue).toSigned(32);
         break;
       default:
         break;
@@ -137,25 +137,25 @@ MapEntry<String, int> MessagesPbLoadBalancerStatsResponse_RpcsByPeer_RpcsByPeerE
 }
 
 Uint8List MessagesPbLoadBalancerAccumulatedStatsResponse_NumRpcsStartedByMethodEntryEncode(String key, int value) {
-  final w = MessagesPbWriter();
-  w.stringField(1, key);
-  if (value != 0) { w.tag(2, 0); w.varint(value); }
-  return w.toBytes();
+  final pbW = MessagesPbWriter();
+  pbW.stringField(1, key);
+  if (value != 0) { pbW.tag(2, 0); pbW.varint(value); }
+  return pbW.toBytes();
 }
 
 MapEntry<String, int> MessagesPbLoadBalancerAccumulatedStatsResponse_NumRpcsStartedByMethodEntryDecode(Uint8List bytes) {
   String key = '';
   int value = 0;
-  final r = MessagesPbReader(bytes);
+  final pbR = MessagesPbReader(bytes);
   while (true) {
-    final field = r.next();
-    if (field == null) break;
-    switch (field.number) {
+    final pbField = pbR.next();
+    if (pbField == null) break;
+    switch (pbField.number) {
       case 1:
-        key = utf8.decode(field.bytesValue);
+        key = utf8.decode(pbField.bytesValue);
         break;
       case 2:
-        value = (field.varintValue).toSigned(32);
+        value = (pbField.varintValue).toSigned(32);
         break;
       default:
         break;
@@ -165,25 +165,25 @@ MapEntry<String, int> MessagesPbLoadBalancerAccumulatedStatsResponse_NumRpcsStar
 }
 
 Uint8List MessagesPbLoadBalancerAccumulatedStatsResponse_NumRpcsSucceededByMethodEntryEncode(String key, int value) {
-  final w = MessagesPbWriter();
-  w.stringField(1, key);
-  if (value != 0) { w.tag(2, 0); w.varint(value); }
-  return w.toBytes();
+  final pbW = MessagesPbWriter();
+  pbW.stringField(1, key);
+  if (value != 0) { pbW.tag(2, 0); pbW.varint(value); }
+  return pbW.toBytes();
 }
 
 MapEntry<String, int> MessagesPbLoadBalancerAccumulatedStatsResponse_NumRpcsSucceededByMethodEntryDecode(Uint8List bytes) {
   String key = '';
   int value = 0;
-  final r = MessagesPbReader(bytes);
+  final pbR = MessagesPbReader(bytes);
   while (true) {
-    final field = r.next();
-    if (field == null) break;
-    switch (field.number) {
+    final pbField = pbR.next();
+    if (pbField == null) break;
+    switch (pbField.number) {
       case 1:
-        key = utf8.decode(field.bytesValue);
+        key = utf8.decode(pbField.bytesValue);
         break;
       case 2:
-        value = (field.varintValue).toSigned(32);
+        value = (pbField.varintValue).toSigned(32);
         break;
       default:
         break;
@@ -193,25 +193,25 @@ MapEntry<String, int> MessagesPbLoadBalancerAccumulatedStatsResponse_NumRpcsSucc
 }
 
 Uint8List MessagesPbLoadBalancerAccumulatedStatsResponse_NumRpcsFailedByMethodEntryEncode(String key, int value) {
-  final w = MessagesPbWriter();
-  w.stringField(1, key);
-  if (value != 0) { w.tag(2, 0); w.varint(value); }
-  return w.toBytes();
+  final pbW = MessagesPbWriter();
+  pbW.stringField(1, key);
+  if (value != 0) { pbW.tag(2, 0); pbW.varint(value); }
+  return pbW.toBytes();
 }
 
 MapEntry<String, int> MessagesPbLoadBalancerAccumulatedStatsResponse_NumRpcsFailedByMethodEntryDecode(Uint8List bytes) {
   String key = '';
   int value = 0;
-  final r = MessagesPbReader(bytes);
+  final pbR = MessagesPbReader(bytes);
   while (true) {
-    final field = r.next();
-    if (field == null) break;
-    switch (field.number) {
+    final pbField = pbR.next();
+    if (pbField == null) break;
+    switch (pbField.number) {
       case 1:
-        key = utf8.decode(field.bytesValue);
+        key = utf8.decode(pbField.bytesValue);
         break;
       case 2:
-        value = (field.varintValue).toSigned(32);
+        value = (pbField.varintValue).toSigned(32);
         break;
       default:
         break;
@@ -221,25 +221,25 @@ MapEntry<String, int> MessagesPbLoadBalancerAccumulatedStatsResponse_NumRpcsFail
 }
 
 Uint8List MessagesPbLoadBalancerAccumulatedStatsResponse_StatsPerMethodEntryEncode(String key, LoadBalancerAccumulatedStatsResponse_MethodStats value) {
-  final w = MessagesPbWriter();
-  w.stringField(1, key);
-  w.bytesField(2, value.marshalDc());
-  return w.toBytes();
+  final pbW = MessagesPbWriter();
+  pbW.stringField(1, key);
+  pbW.bytesField(2, value.marshalDc());
+  return pbW.toBytes();
 }
 
 MapEntry<String, LoadBalancerAccumulatedStatsResponse_MethodStats> MessagesPbLoadBalancerAccumulatedStatsResponse_StatsPerMethodEntryDecode(Uint8List bytes) {
   String key = '';
   LoadBalancerAccumulatedStatsResponse_MethodStats value = LoadBalancerAccumulatedStatsResponse_MethodStats();
-  final r = MessagesPbReader(bytes);
+  final pbR = MessagesPbReader(bytes);
   while (true) {
-    final field = r.next();
-    if (field == null) break;
-    switch (field.number) {
+    final pbField = pbR.next();
+    if (pbField == null) break;
+    switch (pbField.number) {
       case 1:
-        key = utf8.decode(field.bytesValue);
+        key = utf8.decode(pbField.bytesValue);
         break;
       case 2:
-        value.unmarshalDc(field.bytesValue);
+        value.unmarshalDc(pbField.bytesValue);
         break;
       default:
         break;
@@ -249,25 +249,25 @@ MapEntry<String, LoadBalancerAccumulatedStatsResponse_MethodStats> MessagesPbLoa
 }
 
 Uint8List MessagesPbLoadBalancerAccumulatedStatsResponse_MethodStats_ResultEntryEncode(int key, int value) {
-  final w = MessagesPbWriter();
-  if (key != 0) { w.tag(1, 0); w.varint(key); }
-  if (value != 0) { w.tag(2, 0); w.varint(value); }
-  return w.toBytes();
+  final pbW = MessagesPbWriter();
+  if (key != 0) { pbW.tag(1, 0); pbW.varint(key); }
+  if (value != 0) { pbW.tag(2, 0); pbW.varint(value); }
+  return pbW.toBytes();
 }
 
 MapEntry<int, int> MessagesPbLoadBalancerAccumulatedStatsResponse_MethodStats_ResultEntryDecode(Uint8List bytes) {
   int key = 0;
   int value = 0;
-  final r = MessagesPbReader(bytes);
+  final pbR = MessagesPbReader(bytes);
   while (true) {
-    final field = r.next();
-    if (field == null) break;
-    switch (field.number) {
+    final pbField = pbR.next();
+    if (pbField == null) break;
+    switch (pbField.number) {
       case 1:
-        key = (field.varintValue).toSigned(32);
+        key = (pbField.varintValue).toSigned(32);
         break;
       case 2:
-        value = (field.varintValue).toSigned(32);
+        value = (pbField.varintValue).toSigned(32);
         break;
       default:
         break;
@@ -277,25 +277,25 @@ MapEntry<int, int> MessagesPbLoadBalancerAccumulatedStatsResponse_MethodStats_Re
 }
 
 Uint8List MessagesPbTestOrcaReport_RequestCostEntryEncode(String key, double value) {
-  final w = MessagesPbWriter();
-  w.stringField(1, key);
-  if (value != 0) { w.tag(2, 1); w.fixedFloat64(value); }
-  return w.toBytes();
+  final pbW = MessagesPbWriter();
+  pbW.stringField(1, key);
+  if (value != 0) { pbW.tag(2, 1); pbW.fixedFloat64(value); }
+  return pbW.toBytes();
 }
 
 MapEntry<String, double> MessagesPbTestOrcaReport_RequestCostEntryDecode(Uint8List bytes) {
   String key = '';
   double value = 0;
-  final r = MessagesPbReader(bytes);
+  final pbR = MessagesPbReader(bytes);
   while (true) {
-    final field = r.next();
-    if (field == null) break;
-    switch (field.number) {
+    final pbField = pbR.next();
+    if (pbField == null) break;
+    switch (pbField.number) {
       case 1:
-        key = utf8.decode(field.bytesValue);
+        key = utf8.decode(pbField.bytesValue);
         break;
       case 2:
-        value = MessagesPbBitsToFloat64(field.fixedValue);
+        value = MessagesPbBitsToFloat64(pbField.fixedValue);
         break;
       default:
         break;
@@ -305,25 +305,25 @@ MapEntry<String, double> MessagesPbTestOrcaReport_RequestCostEntryDecode(Uint8Li
 }
 
 Uint8List MessagesPbTestOrcaReport_UtilizationEntryEncode(String key, double value) {
-  final w = MessagesPbWriter();
-  w.stringField(1, key);
-  if (value != 0) { w.tag(2, 1); w.fixedFloat64(value); }
-  return w.toBytes();
+  final pbW = MessagesPbWriter();
+  pbW.stringField(1, key);
+  if (value != 0) { pbW.tag(2, 1); pbW.fixedFloat64(value); }
+  return pbW.toBytes();
 }
 
 MapEntry<String, double> MessagesPbTestOrcaReport_UtilizationEntryDecode(Uint8List bytes) {
   String key = '';
   double value = 0;
-  final r = MessagesPbReader(bytes);
+  final pbR = MessagesPbReader(bytes);
   while (true) {
-    final field = r.next();
-    if (field == null) break;
-    switch (field.number) {
+    final pbField = pbR.next();
+    if (pbField == null) break;
+    switch (pbField.number) {
       case 1:
-        key = utf8.decode(field.bytesValue);
+        key = utf8.decode(pbField.bytesValue);
         break;
       case 2:
-        value = MessagesPbBitsToFloat64(field.fixedValue);
+        value = MessagesPbBitsToFloat64(pbField.fixedValue);
         break;
       default:
         break;
@@ -346,25 +346,25 @@ class BoolValue implements Marshaler, Unmarshaler {
   BoolValue([this.value = false]);
   @override
   Uint8List marshalDc() {
-    final w = MessagesPbWriter();
-    if (value) { w.tag(1, 0); w.varint((value ? 1 : 0)); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = MessagesPbWriter();
+    if (value) { pbW.tag(1, 0); pbW.varint((value ? 1 : 0)); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     value = false;
-    final r = MessagesPbReader(Uint8List.fromList(data));
+    final pbR = MessagesPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          value = field.varintValue != 0;
+          value = pbField.varintValue != 0;
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -377,30 +377,30 @@ class Payload implements Marshaler, Unmarshaler {
   Payload([this.type = PayloadType.COMPRESSABLE]) : body = Uint8List(0);
   @override
   Uint8List marshalDc() {
-    final w = MessagesPbWriter();
-    if (type.index != 0) { w.tag(1, 0); w.varint(type.index); }
-    if (body.isNotEmpty) w.bytesField(2, body);
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = MessagesPbWriter();
+    if (type.index != 0) { pbW.tag(1, 0); pbW.varint(type.index); }
+    if (body.isNotEmpty) pbW.bytesField(2, body);
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     type = PayloadType.COMPRESSABLE;
     body = Uint8List(0);
-    final r = MessagesPbReader(Uint8List.fromList(data));
+    final pbR = MessagesPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          type = PayloadType.values[(field.varintValue).toSigned(32)] ;
+          type = PayloadType.values[(pbField.varintValue).toSigned(32)] ;
           break;
         case 2:
-          body = field.bytesValue;
+          body = pbField.bytesValue;
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -413,30 +413,30 @@ class EchoStatus implements Marshaler, Unmarshaler {
   EchoStatus([this.code = 0, this.message = '']);
   @override
   Uint8List marshalDc() {
-    final w = MessagesPbWriter();
-    if (code != 0) { w.tag(1, 0); w.varint(code); }
-    w.stringField(2, message);
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = MessagesPbWriter();
+    if (code != 0) { pbW.tag(1, 0); pbW.varint(code); }
+    pbW.stringField(2, message);
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     code = 0;
     message = '';
-    final r = MessagesPbReader(Uint8List.fromList(data));
+    final pbR = MessagesPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          code = (field.varintValue).toSigned(32);
+          code = (pbField.varintValue).toSigned(32);
           break;
         case 2:
-          message = utf8.decode(field.bytesValue);
+          message = utf8.decode(pbField.bytesValue);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -458,20 +458,20 @@ class SimpleRequest implements Marshaler, Unmarshaler {
   SimpleRequest([this.responseType = PayloadType.COMPRESSABLE, this.responseSize = 0, this.payload = null, this.fillUsername = false, this.fillOauthScope = false, this.responseCompressed = null, this.responseStatus = null, this.expectCompressed = null, this.fillServerId = false, this.fillGrpclbRouteType = false, this.orcaPerQueryReport = null]);
   @override
   Uint8List marshalDc() {
-    final w = MessagesPbWriter();
-    if (responseType.index != 0) { w.tag(1, 0); w.varint(responseType.index); }
-    if (responseSize != 0) { w.tag(2, 0); w.varint(responseSize); }
-    if (payload != null) w.bytesField(3, payload!.marshalDc());
-    if (fillUsername) { w.tag(4, 0); w.varint((fillUsername ? 1 : 0)); }
-    if (fillOauthScope) { w.tag(5, 0); w.varint((fillOauthScope ? 1 : 0)); }
-    if (responseCompressed != null) w.bytesField(6, responseCompressed!.marshalDc());
-    if (responseStatus != null) w.bytesField(7, responseStatus!.marshalDc());
-    if (expectCompressed != null) w.bytesField(8, expectCompressed!.marshalDc());
-    if (fillServerId) { w.tag(9, 0); w.varint((fillServerId ? 1 : 0)); }
-    if (fillGrpclbRouteType) { w.tag(10, 0); w.varint((fillGrpclbRouteType ? 1 : 0)); }
-    if (orcaPerQueryReport != null) w.bytesField(11, orcaPerQueryReport!.marshalDc());
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = MessagesPbWriter();
+    if (responseType.index != 0) { pbW.tag(1, 0); pbW.varint(responseType.index); }
+    if (responseSize != 0) { pbW.tag(2, 0); pbW.varint(responseSize); }
+    if (payload != null) pbW.bytesField(3, payload!.marshalDc());
+    if (fillUsername) { pbW.tag(4, 0); pbW.varint((fillUsername ? 1 : 0)); }
+    if (fillOauthScope) { pbW.tag(5, 0); pbW.varint((fillOauthScope ? 1 : 0)); }
+    if (responseCompressed != null) pbW.bytesField(6, responseCompressed!.marshalDc());
+    if (responseStatus != null) pbW.bytesField(7, responseStatus!.marshalDc());
+    if (expectCompressed != null) pbW.bytesField(8, expectCompressed!.marshalDc());
+    if (fillServerId) { pbW.tag(9, 0); pbW.varint((fillServerId ? 1 : 0)); }
+    if (fillGrpclbRouteType) { pbW.tag(10, 0); pbW.varint((fillGrpclbRouteType ? 1 : 0)); }
+    if (orcaPerQueryReport != null) pbW.bytesField(11, orcaPerQueryReport!.marshalDc());
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -487,51 +487,51 @@ class SimpleRequest implements Marshaler, Unmarshaler {
     fillServerId = false;
     fillGrpclbRouteType = false;
     orcaPerQueryReport = null;
-    final r = MessagesPbReader(Uint8List.fromList(data));
+    final pbR = MessagesPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          responseType = PayloadType.values[(field.varintValue).toSigned(32)] ;
+          responseType = PayloadType.values[(pbField.varintValue).toSigned(32)] ;
           break;
         case 2:
-          responseSize = (field.varintValue).toSigned(32);
+          responseSize = (pbField.varintValue).toSigned(32);
           break;
         case 3:
           payload = Payload();
-          payload!.unmarshalDc(field.bytesValue);
+          payload!.unmarshalDc(pbField.bytesValue);
           break;
         case 4:
-          fillUsername = field.varintValue != 0;
+          fillUsername = pbField.varintValue != 0;
           break;
         case 5:
-          fillOauthScope = field.varintValue != 0;
+          fillOauthScope = pbField.varintValue != 0;
           break;
         case 6:
           responseCompressed = BoolValue();
-          responseCompressed!.unmarshalDc(field.bytesValue);
+          responseCompressed!.unmarshalDc(pbField.bytesValue);
           break;
         case 7:
           responseStatus = EchoStatus();
-          responseStatus!.unmarshalDc(field.bytesValue);
+          responseStatus!.unmarshalDc(pbField.bytesValue);
           break;
         case 8:
           expectCompressed = BoolValue();
-          expectCompressed!.unmarshalDc(field.bytesValue);
+          expectCompressed!.unmarshalDc(pbField.bytesValue);
           break;
         case 9:
-          fillServerId = field.varintValue != 0;
+          fillServerId = pbField.varintValue != 0;
           break;
         case 10:
-          fillGrpclbRouteType = field.varintValue != 0;
+          fillGrpclbRouteType = pbField.varintValue != 0;
           break;
         case 11:
           orcaPerQueryReport = TestOrcaReport();
-          orcaPerQueryReport!.unmarshalDc(field.bytesValue);
+          orcaPerQueryReport!.unmarshalDc(pbField.bytesValue);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -548,15 +548,15 @@ class SimpleResponse implements Marshaler, Unmarshaler {
   SimpleResponse([this.payload = null, this.username = '', this.oauthScope = '', this.serverId = '', this.grpclbRouteType = GrpclbRouteType.GRPCLB_ROUTE_TYPE_UNKNOWN, this.hostname = '']);
   @override
   Uint8List marshalDc() {
-    final w = MessagesPbWriter();
-    if (payload != null) w.bytesField(1, payload!.marshalDc());
-    w.stringField(2, username);
-    w.stringField(3, oauthScope);
-    w.stringField(4, serverId);
-    if (grpclbRouteType.index != 0) { w.tag(5, 0); w.varint(grpclbRouteType.index); }
-    w.stringField(6, hostname);
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = MessagesPbWriter();
+    if (payload != null) pbW.bytesField(1, payload!.marshalDc());
+    pbW.stringField(2, username);
+    pbW.stringField(3, oauthScope);
+    pbW.stringField(4, serverId);
+    if (grpclbRouteType.index != 0) { pbW.tag(5, 0); pbW.varint(grpclbRouteType.index); }
+    pbW.stringField(6, hostname);
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -567,32 +567,32 @@ class SimpleResponse implements Marshaler, Unmarshaler {
     serverId = '';
     grpclbRouteType = GrpclbRouteType.GRPCLB_ROUTE_TYPE_UNKNOWN;
     hostname = '';
-    final r = MessagesPbReader(Uint8List.fromList(data));
+    final pbR = MessagesPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
           payload = Payload();
-          payload!.unmarshalDc(field.bytesValue);
+          payload!.unmarshalDc(pbField.bytesValue);
           break;
         case 2:
-          username = utf8.decode(field.bytesValue);
+          username = utf8.decode(pbField.bytesValue);
           break;
         case 3:
-          oauthScope = utf8.decode(field.bytesValue);
+          oauthScope = utf8.decode(pbField.bytesValue);
           break;
         case 4:
-          serverId = utf8.decode(field.bytesValue);
+          serverId = utf8.decode(pbField.bytesValue);
           break;
         case 5:
-          grpclbRouteType = GrpclbRouteType.values[(field.varintValue).toSigned(32)] ;
+          grpclbRouteType = GrpclbRouteType.values[(pbField.varintValue).toSigned(32)] ;
           break;
         case 6:
-          hostname = utf8.decode(field.bytesValue);
+          hostname = utf8.decode(pbField.bytesValue);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -605,32 +605,32 @@ class StreamingInputCallRequest implements Marshaler, Unmarshaler {
   StreamingInputCallRequest([this.payload = null, this.expectCompressed = null]);
   @override
   Uint8List marshalDc() {
-    final w = MessagesPbWriter();
-    if (payload != null) w.bytesField(1, payload!.marshalDc());
-    if (expectCompressed != null) w.bytesField(2, expectCompressed!.marshalDc());
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = MessagesPbWriter();
+    if (payload != null) pbW.bytesField(1, payload!.marshalDc());
+    if (expectCompressed != null) pbW.bytesField(2, expectCompressed!.marshalDc());
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     payload = null;
     expectCompressed = null;
-    final r = MessagesPbReader(Uint8List.fromList(data));
+    final pbR = MessagesPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
           payload = Payload();
-          payload!.unmarshalDc(field.bytesValue);
+          payload!.unmarshalDc(pbField.bytesValue);
           break;
         case 2:
           expectCompressed = BoolValue();
-          expectCompressed!.unmarshalDc(field.bytesValue);
+          expectCompressed!.unmarshalDc(pbField.bytesValue);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -642,25 +642,25 @@ class StreamingInputCallResponse implements Marshaler, Unmarshaler {
   StreamingInputCallResponse([this.aggregatedPayloadSize = 0]);
   @override
   Uint8List marshalDc() {
-    final w = MessagesPbWriter();
-    if (aggregatedPayloadSize != 0) { w.tag(1, 0); w.varint(aggregatedPayloadSize); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = MessagesPbWriter();
+    if (aggregatedPayloadSize != 0) { pbW.tag(1, 0); pbW.varint(aggregatedPayloadSize); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     aggregatedPayloadSize = 0;
-    final r = MessagesPbReader(Uint8List.fromList(data));
+    final pbR = MessagesPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          aggregatedPayloadSize = (field.varintValue).toSigned(32);
+          aggregatedPayloadSize = (pbField.varintValue).toSigned(32);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -674,12 +674,12 @@ class ResponseParameters implements Marshaler, Unmarshaler {
   ResponseParameters([this.size = 0, this.intervalUs = 0, this.compressed = null]);
   @override
   Uint8List marshalDc() {
-    final w = MessagesPbWriter();
-    if (size != 0) { w.tag(1, 0); w.varint(size); }
-    if (intervalUs != 0) { w.tag(2, 0); w.varint(intervalUs); }
-    if (compressed != null) w.bytesField(3, compressed!.marshalDc());
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = MessagesPbWriter();
+    if (size != 0) { pbW.tag(1, 0); pbW.varint(size); }
+    if (intervalUs != 0) { pbW.tag(2, 0); pbW.varint(intervalUs); }
+    if (compressed != null) pbW.bytesField(3, compressed!.marshalDc());
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -687,23 +687,23 @@ class ResponseParameters implements Marshaler, Unmarshaler {
     size = 0;
     intervalUs = 0;
     compressed = null;
-    final r = MessagesPbReader(Uint8List.fromList(data));
+    final pbR = MessagesPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          size = (field.varintValue).toSigned(32);
+          size = (pbField.varintValue).toSigned(32);
           break;
         case 2:
-          intervalUs = (field.varintValue).toSigned(32);
+          intervalUs = (pbField.varintValue).toSigned(32);
           break;
         case 3:
           compressed = BoolValue();
-          compressed!.unmarshalDc(field.bytesValue);
+          compressed!.unmarshalDc(pbField.bytesValue);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -719,14 +719,14 @@ class StreamingOutputCallRequest implements Marshaler, Unmarshaler {
   StreamingOutputCallRequest([this.responseType = PayloadType.COMPRESSABLE, this.payload = null, this.responseStatus = null, this.orcaOobReport = null]) : responseParameters = [];
   @override
   Uint8List marshalDc() {
-    final w = MessagesPbWriter();
-    if (responseType.index != 0) { w.tag(1, 0); w.varint(responseType.index); }
-    for (final x in responseParameters) { w.bytesField(2, x.marshalDc()); }
-    if (payload != null) w.bytesField(3, payload!.marshalDc());
-    if (responseStatus != null) w.bytesField(7, responseStatus!.marshalDc());
-    if (orcaOobReport != null) w.bytesField(8, orcaOobReport!.marshalDc());
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = MessagesPbWriter();
+    if (responseType.index != 0) { pbW.tag(1, 0); pbW.varint(responseType.index); }
+    for (final pbX in responseParameters) { pbW.bytesField(2, pbX.marshalDc()); }
+    if (payload != null) pbW.bytesField(3, payload!.marshalDc());
+    if (responseStatus != null) pbW.bytesField(7, responseStatus!.marshalDc());
+    if (orcaOobReport != null) pbW.bytesField(8, orcaOobReport!.marshalDc());
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -736,33 +736,33 @@ class StreamingOutputCallRequest implements Marshaler, Unmarshaler {
     payload = null;
     responseStatus = null;
     orcaOobReport = null;
-    final r = MessagesPbReader(Uint8List.fromList(data));
+    final pbR = MessagesPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          responseType = PayloadType.values[(field.varintValue).toSigned(32)] ;
+          responseType = PayloadType.values[(pbField.varintValue).toSigned(32)] ;
           break;
         case 2:
           final item = ResponseParameters();
-          item.unmarshalDc(field.bytesValue);
+          item.unmarshalDc(pbField.bytesValue);
           responseParameters.add(item);
           break;
         case 3:
           payload = Payload();
-          payload!.unmarshalDc(field.bytesValue);
+          payload!.unmarshalDc(pbField.bytesValue);
           break;
         case 7:
           responseStatus = EchoStatus();
-          responseStatus!.unmarshalDc(field.bytesValue);
+          responseStatus!.unmarshalDc(pbField.bytesValue);
           break;
         case 8:
           orcaOobReport = TestOrcaReport();
-          orcaOobReport!.unmarshalDc(field.bytesValue);
+          orcaOobReport!.unmarshalDc(pbField.bytesValue);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -774,26 +774,26 @@ class StreamingOutputCallResponse implements Marshaler, Unmarshaler {
   StreamingOutputCallResponse([this.payload = null]);
   @override
   Uint8List marshalDc() {
-    final w = MessagesPbWriter();
-    if (payload != null) w.bytesField(1, payload!.marshalDc());
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = MessagesPbWriter();
+    if (payload != null) pbW.bytesField(1, payload!.marshalDc());
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     payload = null;
-    final r = MessagesPbReader(Uint8List.fromList(data));
+    final pbR = MessagesPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
           payload = Payload();
-          payload!.unmarshalDc(field.bytesValue);
+          payload!.unmarshalDc(pbField.bytesValue);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -805,25 +805,25 @@ class ReconnectParams implements Marshaler, Unmarshaler {
   ReconnectParams([this.maxReconnectBackoffMs = 0]);
   @override
   Uint8List marshalDc() {
-    final w = MessagesPbWriter();
-    if (maxReconnectBackoffMs != 0) { w.tag(1, 0); w.varint(maxReconnectBackoffMs); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = MessagesPbWriter();
+    if (maxReconnectBackoffMs != 0) { pbW.tag(1, 0); pbW.varint(maxReconnectBackoffMs); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     maxReconnectBackoffMs = 0;
-    final r = MessagesPbReader(Uint8List.fromList(data));
+    final pbR = MessagesPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          maxReconnectBackoffMs = (field.varintValue).toSigned(32);
+          maxReconnectBackoffMs = (pbField.varintValue).toSigned(32);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -836,41 +836,41 @@ class ReconnectInfo implements Marshaler, Unmarshaler {
   ReconnectInfo([this.passed = false]) : backoffMs = [];
   @override
   Uint8List marshalDc() {
-    final w = MessagesPbWriter();
-    if (passed) { w.tag(1, 0); w.varint((passed ? 1 : 0)); }
+    final pbW = MessagesPbWriter();
+    if (passed) { pbW.tag(1, 0); pbW.varint((passed ? 1 : 0)); }
     if (backoffMs.isNotEmpty) {
-        final payload = MessagesPbWriter();
-        for (final x in backoffMs) { payload.varint(x); }
-        w.bytesField(2, payload.toBytes());
+        final pbPayload = MessagesPbWriter();
+        for (final pbX in backoffMs) { pbPayload.varint(pbX); }
+        pbW.bytesField(2, pbPayload.toBytes());
     }
-    w.raw(unknownFields);
-    return w.toBytes();
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     passed = false;
     backoffMs = [];
-    final r = MessagesPbReader(Uint8List.fromList(data));
+    final pbR = MessagesPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          passed = field.varintValue != 0;
+          passed = pbField.varintValue != 0;
           break;
         case 2:
-          if (field.wire == 2) {
-            final sub = MessagesPbReader(field.bytesValue);
-            while (!sub.done()) {
-              backoffMs.add((sub.varint()).toSigned(32));
+          if (pbField.wire == 2) {
+            final pbSub = MessagesPbReader(pbField.bytesValue);
+            while (!pbSub.done()) {
+              backoffMs.add((pbSub.varint()).toSigned(32));
             }
           } else {
-            backoffMs.add((field.varintValue).toSigned(32));
+            backoffMs.add((pbField.varintValue).toSigned(32));
           }
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -883,30 +883,30 @@ class LoadBalancerStatsRequest implements Marshaler, Unmarshaler {
   LoadBalancerStatsRequest([this.numRpcs = 0, this.timeoutSec = 0]);
   @override
   Uint8List marshalDc() {
-    final w = MessagesPbWriter();
-    if (numRpcs != 0) { w.tag(1, 0); w.varint(numRpcs); }
-    if (timeoutSec != 0) { w.tag(2, 0); w.varint(timeoutSec); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = MessagesPbWriter();
+    if (numRpcs != 0) { pbW.tag(1, 0); pbW.varint(numRpcs); }
+    if (timeoutSec != 0) { pbW.tag(2, 0); pbW.varint(timeoutSec); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     numRpcs = 0;
     timeoutSec = 0;
-    final r = MessagesPbReader(Uint8List.fromList(data));
+    final pbR = MessagesPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          numRpcs = (field.varintValue).toSigned(32);
+          numRpcs = (pbField.varintValue).toSigned(32);
           break;
         case 2:
-          timeoutSec = (field.varintValue).toSigned(32);
+          timeoutSec = (pbField.varintValue).toSigned(32);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -920,12 +920,12 @@ class LoadBalancerStatsResponse implements Marshaler, Unmarshaler {
   LoadBalancerStatsResponse([this.numFailures = 0]) : rpcsByPeer = {}, rpcsByMethod = {};
   @override
   Uint8List marshalDc() {
-    final w = MessagesPbWriter();
-    rpcsByPeer.forEach((k, val) { w.bytesField(1, MessagesPbLoadBalancerStatsResponse_RpcsByPeerEntryEncode(k, val)); });
-    if (numFailures != 0) { w.tag(2, 0); w.varint(numFailures); }
-    rpcsByMethod.forEach((k, val) { w.bytesField(3, MessagesPbLoadBalancerStatsResponse_RpcsByMethodEntryEncode(k, val)); });
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = MessagesPbWriter();
+    rpcsByPeer.forEach((k, val) { pbW.bytesField(1, MessagesPbLoadBalancerStatsResponse_RpcsByPeerEntryEncode(k, val)); });
+    if (numFailures != 0) { pbW.tag(2, 0); pbW.varint(numFailures); }
+    rpcsByMethod.forEach((k, val) { pbW.bytesField(3, MessagesPbLoadBalancerStatsResponse_RpcsByMethodEntryEncode(k, val)); });
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -933,24 +933,24 @@ class LoadBalancerStatsResponse implements Marshaler, Unmarshaler {
     rpcsByPeer = {};
     numFailures = 0;
     rpcsByMethod = {};
-    final r = MessagesPbReader(Uint8List.fromList(data));
+    final pbR = MessagesPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          final kv = MessagesPbLoadBalancerStatsResponse_RpcsByPeerEntryDecode(field.bytesValue);
-          rpcsByPeer[kv.key] = kv.value;
+          final pbKv = MessagesPbLoadBalancerStatsResponse_RpcsByPeerEntryDecode(pbField.bytesValue);
+          rpcsByPeer[pbKv.key] = pbKv.value;
           break;
         case 2:
-          numFailures = (field.varintValue).toSigned(32);
+          numFailures = (pbField.varintValue).toSigned(32);
           break;
         case 3:
-          final kv = MessagesPbLoadBalancerStatsResponse_RpcsByMethodEntryDecode(field.bytesValue);
-          rpcsByMethod[kv.key] = kv.value;
+          final pbKv = MessagesPbLoadBalancerStatsResponse_RpcsByMethodEntryDecode(pbField.bytesValue);
+          rpcsByMethod[pbKv.key] = pbKv.value;
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -962,26 +962,26 @@ class LoadBalancerStatsResponse_RpcsByPeer implements Marshaler, Unmarshaler {
   LoadBalancerStatsResponse_RpcsByPeer() : rpcsByPeer = {};
   @override
   Uint8List marshalDc() {
-    final w = MessagesPbWriter();
-    rpcsByPeer.forEach((k, val) { w.bytesField(1, MessagesPbLoadBalancerStatsResponse_RpcsByPeer_RpcsByPeerEntryEncode(k, val)); });
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = MessagesPbWriter();
+    rpcsByPeer.forEach((k, val) { pbW.bytesField(1, MessagesPbLoadBalancerStatsResponse_RpcsByPeer_RpcsByPeerEntryEncode(k, val)); });
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     rpcsByPeer = {};
-    final r = MessagesPbReader(Uint8List.fromList(data));
+    final pbR = MessagesPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          final kv = MessagesPbLoadBalancerStatsResponse_RpcsByPeer_RpcsByPeerEntryDecode(field.bytesValue);
-          rpcsByPeer[kv.key] = kv.value;
+          final pbKv = MessagesPbLoadBalancerStatsResponse_RpcsByPeer_RpcsByPeerEntryDecode(pbField.bytesValue);
+          rpcsByPeer[pbKv.key] = pbKv.value;
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -994,30 +994,30 @@ class LoadBalancerStatsResponse_RpcsByPeer_RpcsByPeerEntry implements Marshaler,
   LoadBalancerStatsResponse_RpcsByPeer_RpcsByPeerEntry([this.key = '', this.value = 0]);
   @override
   Uint8List marshalDc() {
-    final w = MessagesPbWriter();
-    w.stringField(1, key);
-    if (value != 0) { w.tag(2, 0); w.varint(value); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = MessagesPbWriter();
+    pbW.stringField(1, key);
+    if (value != 0) { pbW.tag(2, 0); pbW.varint(value); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     key = '';
     value = 0;
-    final r = MessagesPbReader(Uint8List.fromList(data));
+    final pbR = MessagesPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          key = utf8.decode(field.bytesValue);
+          key = utf8.decode(pbField.bytesValue);
           break;
         case 2:
-          value = (field.varintValue).toSigned(32);
+          value = (pbField.varintValue).toSigned(32);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -1030,30 +1030,30 @@ class LoadBalancerStatsResponse_RpcsByPeerEntry implements Marshaler, Unmarshale
   LoadBalancerStatsResponse_RpcsByPeerEntry([this.key = '', this.value = 0]);
   @override
   Uint8List marshalDc() {
-    final w = MessagesPbWriter();
-    w.stringField(1, key);
-    if (value != 0) { w.tag(2, 0); w.varint(value); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = MessagesPbWriter();
+    pbW.stringField(1, key);
+    if (value != 0) { pbW.tag(2, 0); pbW.varint(value); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     key = '';
     value = 0;
-    final r = MessagesPbReader(Uint8List.fromList(data));
+    final pbR = MessagesPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          key = utf8.decode(field.bytesValue);
+          key = utf8.decode(pbField.bytesValue);
           break;
         case 2:
-          value = (field.varintValue).toSigned(32);
+          value = (pbField.varintValue).toSigned(32);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -1066,31 +1066,31 @@ class LoadBalancerStatsResponse_RpcsByMethodEntry implements Marshaler, Unmarsha
   LoadBalancerStatsResponse_RpcsByMethodEntry([this.key = '', this.value = null]);
   @override
   Uint8List marshalDc() {
-    final w = MessagesPbWriter();
-    w.stringField(1, key);
-    if (value != null) w.bytesField(2, value!.marshalDc());
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = MessagesPbWriter();
+    pbW.stringField(1, key);
+    if (value != null) pbW.bytesField(2, value!.marshalDc());
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     key = '';
     value = null;
-    final r = MessagesPbReader(Uint8List.fromList(data));
+    final pbR = MessagesPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          key = utf8.decode(field.bytesValue);
+          key = utf8.decode(pbField.bytesValue);
           break;
         case 2:
           value = LoadBalancerStatsResponse_RpcsByPeer();
-          value!.unmarshalDc(field.bytesValue);
+          value!.unmarshalDc(pbField.bytesValue);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -1101,20 +1101,20 @@ class LoadBalancerAccumulatedStatsRequest implements Marshaler, Unmarshaler {
   LoadBalancerAccumulatedStatsRequest();
   @override
   Uint8List marshalDc() {
-    final w = MessagesPbWriter();
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = MessagesPbWriter();
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
-    final r = MessagesPbReader(Uint8List.fromList(data));
+    final pbR = MessagesPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -1129,13 +1129,13 @@ class LoadBalancerAccumulatedStatsResponse implements Marshaler, Unmarshaler {
   LoadBalancerAccumulatedStatsResponse() : numRpcsStartedByMethod = {}, numRpcsSucceededByMethod = {}, numRpcsFailedByMethod = {}, statsPerMethod = {};
   @override
   Uint8List marshalDc() {
-    final w = MessagesPbWriter();
-    numRpcsStartedByMethod.forEach((k, val) { w.bytesField(1, MessagesPbLoadBalancerAccumulatedStatsResponse_NumRpcsStartedByMethodEntryEncode(k, val)); });
-    numRpcsSucceededByMethod.forEach((k, val) { w.bytesField(2, MessagesPbLoadBalancerAccumulatedStatsResponse_NumRpcsSucceededByMethodEntryEncode(k, val)); });
-    numRpcsFailedByMethod.forEach((k, val) { w.bytesField(3, MessagesPbLoadBalancerAccumulatedStatsResponse_NumRpcsFailedByMethodEntryEncode(k, val)); });
-    statsPerMethod.forEach((k, val) { w.bytesField(4, MessagesPbLoadBalancerAccumulatedStatsResponse_StatsPerMethodEntryEncode(k, val)); });
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = MessagesPbWriter();
+    numRpcsStartedByMethod.forEach((k, val) { pbW.bytesField(1, MessagesPbLoadBalancerAccumulatedStatsResponse_NumRpcsStartedByMethodEntryEncode(k, val)); });
+    numRpcsSucceededByMethod.forEach((k, val) { pbW.bytesField(2, MessagesPbLoadBalancerAccumulatedStatsResponse_NumRpcsSucceededByMethodEntryEncode(k, val)); });
+    numRpcsFailedByMethod.forEach((k, val) { pbW.bytesField(3, MessagesPbLoadBalancerAccumulatedStatsResponse_NumRpcsFailedByMethodEntryEncode(k, val)); });
+    statsPerMethod.forEach((k, val) { pbW.bytesField(4, MessagesPbLoadBalancerAccumulatedStatsResponse_StatsPerMethodEntryEncode(k, val)); });
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -1144,29 +1144,29 @@ class LoadBalancerAccumulatedStatsResponse implements Marshaler, Unmarshaler {
     numRpcsSucceededByMethod = {};
     numRpcsFailedByMethod = {};
     statsPerMethod = {};
-    final r = MessagesPbReader(Uint8List.fromList(data));
+    final pbR = MessagesPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          final kv = MessagesPbLoadBalancerAccumulatedStatsResponse_NumRpcsStartedByMethodEntryDecode(field.bytesValue);
-          numRpcsStartedByMethod[kv.key] = kv.value;
+          final pbKv = MessagesPbLoadBalancerAccumulatedStatsResponse_NumRpcsStartedByMethodEntryDecode(pbField.bytesValue);
+          numRpcsStartedByMethod[pbKv.key] = pbKv.value;
           break;
         case 2:
-          final kv = MessagesPbLoadBalancerAccumulatedStatsResponse_NumRpcsSucceededByMethodEntryDecode(field.bytesValue);
-          numRpcsSucceededByMethod[kv.key] = kv.value;
+          final pbKv = MessagesPbLoadBalancerAccumulatedStatsResponse_NumRpcsSucceededByMethodEntryDecode(pbField.bytesValue);
+          numRpcsSucceededByMethod[pbKv.key] = pbKv.value;
           break;
         case 3:
-          final kv = MessagesPbLoadBalancerAccumulatedStatsResponse_NumRpcsFailedByMethodEntryDecode(field.bytesValue);
-          numRpcsFailedByMethod[kv.key] = kv.value;
+          final pbKv = MessagesPbLoadBalancerAccumulatedStatsResponse_NumRpcsFailedByMethodEntryDecode(pbField.bytesValue);
+          numRpcsFailedByMethod[pbKv.key] = pbKv.value;
           break;
         case 4:
-          final kv = MessagesPbLoadBalancerAccumulatedStatsResponse_StatsPerMethodEntryDecode(field.bytesValue);
-          statsPerMethod[kv.key] = kv.value;
+          final pbKv = MessagesPbLoadBalancerAccumulatedStatsResponse_StatsPerMethodEntryDecode(pbField.bytesValue);
+          statsPerMethod[pbKv.key] = pbKv.value;
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -1179,30 +1179,30 @@ class LoadBalancerAccumulatedStatsResponse_NumRpcsStartedByMethodEntry implement
   LoadBalancerAccumulatedStatsResponse_NumRpcsStartedByMethodEntry([this.key = '', this.value = 0]);
   @override
   Uint8List marshalDc() {
-    final w = MessagesPbWriter();
-    w.stringField(1, key);
-    if (value != 0) { w.tag(2, 0); w.varint(value); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = MessagesPbWriter();
+    pbW.stringField(1, key);
+    if (value != 0) { pbW.tag(2, 0); pbW.varint(value); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     key = '';
     value = 0;
-    final r = MessagesPbReader(Uint8List.fromList(data));
+    final pbR = MessagesPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          key = utf8.decode(field.bytesValue);
+          key = utf8.decode(pbField.bytesValue);
           break;
         case 2:
-          value = (field.varintValue).toSigned(32);
+          value = (pbField.varintValue).toSigned(32);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -1215,30 +1215,30 @@ class LoadBalancerAccumulatedStatsResponse_NumRpcsSucceededByMethodEntry impleme
   LoadBalancerAccumulatedStatsResponse_NumRpcsSucceededByMethodEntry([this.key = '', this.value = 0]);
   @override
   Uint8List marshalDc() {
-    final w = MessagesPbWriter();
-    w.stringField(1, key);
-    if (value != 0) { w.tag(2, 0); w.varint(value); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = MessagesPbWriter();
+    pbW.stringField(1, key);
+    if (value != 0) { pbW.tag(2, 0); pbW.varint(value); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     key = '';
     value = 0;
-    final r = MessagesPbReader(Uint8List.fromList(data));
+    final pbR = MessagesPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          key = utf8.decode(field.bytesValue);
+          key = utf8.decode(pbField.bytesValue);
           break;
         case 2:
-          value = (field.varintValue).toSigned(32);
+          value = (pbField.varintValue).toSigned(32);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -1251,30 +1251,30 @@ class LoadBalancerAccumulatedStatsResponse_NumRpcsFailedByMethodEntry implements
   LoadBalancerAccumulatedStatsResponse_NumRpcsFailedByMethodEntry([this.key = '', this.value = 0]);
   @override
   Uint8List marshalDc() {
-    final w = MessagesPbWriter();
-    w.stringField(1, key);
-    if (value != 0) { w.tag(2, 0); w.varint(value); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = MessagesPbWriter();
+    pbW.stringField(1, key);
+    if (value != 0) { pbW.tag(2, 0); pbW.varint(value); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     key = '';
     value = 0;
-    final r = MessagesPbReader(Uint8List.fromList(data));
+    final pbR = MessagesPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          key = utf8.decode(field.bytesValue);
+          key = utf8.decode(pbField.bytesValue);
           break;
         case 2:
-          value = (field.varintValue).toSigned(32);
+          value = (pbField.varintValue).toSigned(32);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -1287,31 +1287,31 @@ class LoadBalancerAccumulatedStatsResponse_MethodStats implements Marshaler, Unm
   LoadBalancerAccumulatedStatsResponse_MethodStats([this.rpcsStarted = 0]) : result = {};
   @override
   Uint8List marshalDc() {
-    final w = MessagesPbWriter();
-    if (rpcsStarted != 0) { w.tag(1, 0); w.varint(rpcsStarted); }
-    result.forEach((k, val) { w.bytesField(2, MessagesPbLoadBalancerAccumulatedStatsResponse_MethodStats_ResultEntryEncode(k, val)); });
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = MessagesPbWriter();
+    if (rpcsStarted != 0) { pbW.tag(1, 0); pbW.varint(rpcsStarted); }
+    result.forEach((k, val) { pbW.bytesField(2, MessagesPbLoadBalancerAccumulatedStatsResponse_MethodStats_ResultEntryEncode(k, val)); });
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     rpcsStarted = 0;
     result = {};
-    final r = MessagesPbReader(Uint8List.fromList(data));
+    final pbR = MessagesPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          rpcsStarted = (field.varintValue).toSigned(32);
+          rpcsStarted = (pbField.varintValue).toSigned(32);
           break;
         case 2:
-          final kv = MessagesPbLoadBalancerAccumulatedStatsResponse_MethodStats_ResultEntryDecode(field.bytesValue);
-          result[kv.key] = kv.value;
+          final pbKv = MessagesPbLoadBalancerAccumulatedStatsResponse_MethodStats_ResultEntryDecode(pbField.bytesValue);
+          result[pbKv.key] = pbKv.value;
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -1324,30 +1324,30 @@ class LoadBalancerAccumulatedStatsResponse_MethodStats_ResultEntry implements Ma
   LoadBalancerAccumulatedStatsResponse_MethodStats_ResultEntry([this.key = 0, this.value = 0]);
   @override
   Uint8List marshalDc() {
-    final w = MessagesPbWriter();
-    if (key != 0) { w.tag(1, 0); w.varint(key); }
-    if (value != 0) { w.tag(2, 0); w.varint(value); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = MessagesPbWriter();
+    if (key != 0) { pbW.tag(1, 0); pbW.varint(key); }
+    if (value != 0) { pbW.tag(2, 0); pbW.varint(value); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     key = 0;
     value = 0;
-    final r = MessagesPbReader(Uint8List.fromList(data));
+    final pbR = MessagesPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          key = (field.varintValue).toSigned(32);
+          key = (pbField.varintValue).toSigned(32);
           break;
         case 2:
-          value = (field.varintValue).toSigned(32);
+          value = (pbField.varintValue).toSigned(32);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -1360,31 +1360,31 @@ class LoadBalancerAccumulatedStatsResponse_StatsPerMethodEntry implements Marsha
   LoadBalancerAccumulatedStatsResponse_StatsPerMethodEntry([this.key = '', this.value = null]);
   @override
   Uint8List marshalDc() {
-    final w = MessagesPbWriter();
-    w.stringField(1, key);
-    if (value != null) w.bytesField(2, value!.marshalDc());
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = MessagesPbWriter();
+    pbW.stringField(1, key);
+    if (value != null) pbW.bytesField(2, value!.marshalDc());
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     key = '';
     value = null;
-    final r = MessagesPbReader(Uint8List.fromList(data));
+    final pbR = MessagesPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          key = utf8.decode(field.bytesValue);
+          key = utf8.decode(pbField.bytesValue);
           break;
         case 2:
           value = LoadBalancerAccumulatedStatsResponse_MethodStats();
-          value!.unmarshalDc(field.bytesValue);
+          value!.unmarshalDc(pbField.bytesValue);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -1398,16 +1398,16 @@ class ClientConfigureRequest implements Marshaler, Unmarshaler {
   ClientConfigureRequest([this.timeoutSec = 0]) : types = [], metadata = [];
   @override
   Uint8List marshalDc() {
-    final w = MessagesPbWriter();
+    final pbW = MessagesPbWriter();
     if (types.isNotEmpty) {
-        final payload = MessagesPbWriter();
-        for (final x in types) { payload.varint(x.index); }
-        w.bytesField(1, payload.toBytes());
+        final pbPayload = MessagesPbWriter();
+        for (final pbX in types) { pbPayload.varint(pbX.index); }
+        pbW.bytesField(1, pbPayload.toBytes());
     }
-    for (final x in metadata) { w.bytesField(2, x.marshalDc()); }
-    if (timeoutSec != 0) { w.tag(3, 0); w.varint(timeoutSec); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    for (final pbX in metadata) { pbW.bytesField(2, pbX.marshalDc()); }
+    if (timeoutSec != 0) { pbW.tag(3, 0); pbW.varint(timeoutSec); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -1415,31 +1415,31 @@ class ClientConfigureRequest implements Marshaler, Unmarshaler {
     types = [];
     metadata = [];
     timeoutSec = 0;
-    final r = MessagesPbReader(Uint8List.fromList(data));
+    final pbR = MessagesPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          if (field.wire == 2) {
-            final sub = MessagesPbReader(field.bytesValue);
-            while (!sub.done()) {
-              types.add(ClientConfigureRequest_RpcType.values[(sub.varint()).toSigned(32)]);
+          if (pbField.wire == 2) {
+            final pbSub = MessagesPbReader(pbField.bytesValue);
+            while (!pbSub.done()) {
+              types.add(ClientConfigureRequest_RpcType.values[(pbSub.varint()).toSigned(32)]);
             }
           } else {
-            types.add(ClientConfigureRequest_RpcType.values[(field.varintValue).toSigned(32)]);
+            types.add(ClientConfigureRequest_RpcType.values[(pbField.varintValue).toSigned(32)]);
           }
           break;
         case 2:
           final item = ClientConfigureRequest_Metadata();
-          item.unmarshalDc(field.bytesValue);
+          item.unmarshalDc(pbField.bytesValue);
           metadata.add(item);
           break;
         case 3:
-          timeoutSec = (field.varintValue).toSigned(32);
+          timeoutSec = (pbField.varintValue).toSigned(32);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -1453,12 +1453,12 @@ class ClientConfigureRequest_Metadata implements Marshaler, Unmarshaler {
   ClientConfigureRequest_Metadata([this.type = ClientConfigureRequest_RpcType.EMPTY_CALL, this.key = '', this.value = '']);
   @override
   Uint8List marshalDc() {
-    final w = MessagesPbWriter();
-    if (type.index != 0) { w.tag(1, 0); w.varint(type.index); }
-    w.stringField(2, key);
-    w.stringField(3, value);
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = MessagesPbWriter();
+    if (type.index != 0) { pbW.tag(1, 0); pbW.varint(type.index); }
+    pbW.stringField(2, key);
+    pbW.stringField(3, value);
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -1466,22 +1466,22 @@ class ClientConfigureRequest_Metadata implements Marshaler, Unmarshaler {
     type = ClientConfigureRequest_RpcType.EMPTY_CALL;
     key = '';
     value = '';
-    final r = MessagesPbReader(Uint8List.fromList(data));
+    final pbR = MessagesPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          type = ClientConfigureRequest_RpcType.values[(field.varintValue).toSigned(32)] ;
+          type = ClientConfigureRequest_RpcType.values[(pbField.varintValue).toSigned(32)] ;
           break;
         case 2:
-          key = utf8.decode(field.bytesValue);
+          key = utf8.decode(pbField.bytesValue);
           break;
         case 3:
-          value = utf8.decode(field.bytesValue);
+          value = utf8.decode(pbField.bytesValue);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -1496,20 +1496,20 @@ class ClientConfigureResponse implements Marshaler, Unmarshaler {
   ClientConfigureResponse();
   @override
   Uint8List marshalDc() {
-    final w = MessagesPbWriter();
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = MessagesPbWriter();
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
-    final r = MessagesPbReader(Uint8List.fromList(data));
+    final pbR = MessagesPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -1524,13 +1524,13 @@ class TestOrcaReport implements Marshaler, Unmarshaler {
   TestOrcaReport([this.cpuUtilization = 0, this.memoryUtilization = 0]) : requestCost = {}, utilization = {};
   @override
   Uint8List marshalDc() {
-    final w = MessagesPbWriter();
-    if (cpuUtilization != 0) { w.tag(1, 1); w.fixedFloat64(cpuUtilization); }
-    if (memoryUtilization != 0) { w.tag(2, 1); w.fixedFloat64(memoryUtilization); }
-    requestCost.forEach((k, val) { w.bytesField(3, MessagesPbTestOrcaReport_RequestCostEntryEncode(k, val)); });
-    utilization.forEach((k, val) { w.bytesField(4, MessagesPbTestOrcaReport_UtilizationEntryEncode(k, val)); });
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = MessagesPbWriter();
+    if (cpuUtilization != 0) { pbW.tag(1, 1); pbW.fixedFloat64(cpuUtilization); }
+    if (memoryUtilization != 0) { pbW.tag(2, 1); pbW.fixedFloat64(memoryUtilization); }
+    requestCost.forEach((k, val) { pbW.bytesField(3, MessagesPbTestOrcaReport_RequestCostEntryEncode(k, val)); });
+    utilization.forEach((k, val) { pbW.bytesField(4, MessagesPbTestOrcaReport_UtilizationEntryEncode(k, val)); });
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -1539,27 +1539,27 @@ class TestOrcaReport implements Marshaler, Unmarshaler {
     memoryUtilization = 0;
     requestCost = {};
     utilization = {};
-    final r = MessagesPbReader(Uint8List.fromList(data));
+    final pbR = MessagesPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          cpuUtilization = MessagesPbBitsToFloat64(field.fixedValue);
+          cpuUtilization = MessagesPbBitsToFloat64(pbField.fixedValue);
           break;
         case 2:
-          memoryUtilization = MessagesPbBitsToFloat64(field.fixedValue);
+          memoryUtilization = MessagesPbBitsToFloat64(pbField.fixedValue);
           break;
         case 3:
-          final kv = MessagesPbTestOrcaReport_RequestCostEntryDecode(field.bytesValue);
-          requestCost[kv.key] = kv.value;
+          final pbKv = MessagesPbTestOrcaReport_RequestCostEntryDecode(pbField.bytesValue);
+          requestCost[pbKv.key] = pbKv.value;
           break;
         case 4:
-          final kv = MessagesPbTestOrcaReport_UtilizationEntryDecode(field.bytesValue);
-          utilization[kv.key] = kv.value;
+          final pbKv = MessagesPbTestOrcaReport_UtilizationEntryDecode(pbField.bytesValue);
+          utilization[pbKv.key] = pbKv.value;
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -1572,30 +1572,30 @@ class TestOrcaReport_RequestCostEntry implements Marshaler, Unmarshaler {
   TestOrcaReport_RequestCostEntry([this.key = '', this.value = 0]);
   @override
   Uint8List marshalDc() {
-    final w = MessagesPbWriter();
-    w.stringField(1, key);
-    if (value != 0) { w.tag(2, 1); w.fixedFloat64(value); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = MessagesPbWriter();
+    pbW.stringField(1, key);
+    if (value != 0) { pbW.tag(2, 1); pbW.fixedFloat64(value); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     key = '';
     value = 0;
-    final r = MessagesPbReader(Uint8List.fromList(data));
+    final pbR = MessagesPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          key = utf8.decode(field.bytesValue);
+          key = utf8.decode(pbField.bytesValue);
           break;
         case 2:
-          value = MessagesPbBitsToFloat64(field.fixedValue);
+          value = MessagesPbBitsToFloat64(pbField.fixedValue);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -1608,30 +1608,30 @@ class TestOrcaReport_UtilizationEntry implements Marshaler, Unmarshaler {
   TestOrcaReport_UtilizationEntry([this.key = '', this.value = 0]);
   @override
   Uint8List marshalDc() {
-    final w = MessagesPbWriter();
-    w.stringField(1, key);
-    if (value != 0) { w.tag(2, 1); w.fixedFloat64(value); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = MessagesPbWriter();
+    pbW.stringField(1, key);
+    if (value != 0) { pbW.tag(2, 1); pbW.fixedFloat64(value); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     key = '';
     value = 0;
-    final r = MessagesPbReader(Uint8List.fromList(data));
+    final pbR = MessagesPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          key = utf8.decode(field.bytesValue);
+          key = utf8.decode(pbField.bytesValue);
           break;
         case 2:
-          value = MessagesPbBitsToFloat64(field.fixedValue);
+          value = MessagesPbBitsToFloat64(pbField.fixedValue);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }

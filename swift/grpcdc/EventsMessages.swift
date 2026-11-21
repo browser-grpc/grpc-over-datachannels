@@ -79,23 +79,23 @@ public final class TagValue: Marshaler, Unmarshaler {
         self.enumValue = enumValue
     }
     public func MarshalDc() -> [UInt8] {
-        let w = EventsPb.Writer()
-        if tag.rawValue != 0 { w.Tag(1, 0); w.Varint(Int64(tag.rawValue)) }
+        let pbW = EventsPb.Writer()
+        if tag.rawValue != 0 { pbW.Tag(1, 0); pbW.Varint(Int64(tag.rawValue)) }
         if !(intValue != 0 || doubleValue != 0 || boolValue || enumValue != 0) {
-        w.StringField(2, stringValue)
+        pbW.StringField(2, stringValue)
         }
         if !(doubleValue != 0 || boolValue || enumValue != 0) {
-        if intValue != 0 { w.Tag(3, 0); w.Varint(UInt64(bitPattern: intValue)) }
+        if intValue != 0 { pbW.Tag(3, 0); pbW.Varint(UInt64(bitPattern: intValue)) }
         }
         if !(boolValue || enumValue != 0) {
-        if doubleValue != 0 { w.Tag(4, 1); w.FixedDouble(doubleValue) }
+        if doubleValue != 0 { pbW.Tag(4, 1); pbW.FixedDouble(doubleValue) }
         }
         if !(enumValue != 0) {
-        if boolValue { w.Tag(5, 0); w.Varint((boolValue ? Int64(1) : Int64(0))) }
+        if boolValue { pbW.Tag(5, 0); pbW.Varint((boolValue ? Int64(1) : Int64(0))) }
         }
-        if enumValue != 0 { w.Tag(6, 0); w.Varint(Int64(enumValue)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        if enumValue != 0 { pbW.Tag(6, 0); pbW.Varint(Int64(enumValue)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
@@ -105,45 +105,45 @@ public final class TagValue: Marshaler, Unmarshaler {
         doubleValue = 0
         boolValue = false
         enumValue = 0
-        let r = EventsPb.Reader(data)
+        let pbR = EventsPb.Reader(data)
         while true {
             let next: EventsPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                tag = Tag(rawValue: Int32(truncatingIfNeeded: field.varintValue)) ?? Tag.TAG_UNSPECIFIED
+                tag = Tag(rawValue: Int32(truncatingIfNeeded: pbField.varintValue)) ?? Tag.TAG_UNSPECIFIED
             case 2:
                 intValue = 0
                 doubleValue = 0
                 boolValue = false
                 enumValue = 0
-                stringValue = String(decoding: field.bytesValue, as: UTF8.self)
+                stringValue = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 3:
                 stringValue = ""
                 doubleValue = 0
                 boolValue = false
                 enumValue = 0
-                intValue = Int64(bitPattern: field.varintValue)
+                intValue = Int64(bitPattern: pbField.varintValue)
             case 4:
                 stringValue = ""
                 intValue = 0
                 boolValue = false
                 enumValue = 0
-                doubleValue = EventsPb.BitsToDouble(field.fixedValue)
+                doubleValue = EventsPb.BitsToDouble(pbField.fixedValue)
             case 5:
                 stringValue = ""
                 intValue = 0
                 doubleValue = 0
                 enumValue = 0
-                boolValue = field.varintValue != 0
+                boolValue = pbField.varintValue != 0
             case 6:
                 stringValue = ""
                 intValue = 0
                 doubleValue = 0
                 boolValue = false
-                enumValue = Int32(truncatingIfNeeded: field.varintValue)
-            default: unknownFields += field.rawValue
+                enumValue = Int32(truncatingIfNeeded: pbField.varintValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -160,33 +160,33 @@ public final class PublishRequest: Marshaler, Unmarshaler {
         self.publisherId = publisherId
     }
     public func MarshalDc() -> [UInt8] {
-        let w = EventsPb.Writer()
-        for x in tags { w.BytesField(1, x.MarshalDc()) }
-        if !payload.isEmpty { w.BytesField(2, payload) }
-        w.StringField(3, publisherId)
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = EventsPb.Writer()
+        for pbX in tags { pbW.BytesField(1, pbX.MarshalDc()) }
+        if !payload.isEmpty { pbW.BytesField(2, payload) }
+        pbW.StringField(3, publisherId)
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         tags = []
         payload = []
         publisherId = ""
-        let r = EventsPb.Reader(data)
+        let pbR = EventsPb.Reader(data)
         while true {
             let next: EventsPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                let item = TagValue()
-                item.UnmarshalDc(field.bytesValue)
-                tags.append(item)
+                let pbItem = TagValue()
+                pbItem.UnmarshalDc(pbField.bytesValue)
+                tags.append(pbItem)
             case 2:
-                payload = field.bytesValue
+                payload = pbField.bytesValue
             case 3:
-                publisherId = String(decoding: field.bytesValue, as: UTF8.self)
-            default: unknownFields += field.rawValue
+                publisherId = String(decoding: pbField.bytesValue, as: UTF8.self)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -199,23 +199,23 @@ public final class PublishReply: Marshaler, Unmarshaler {
         self.seq = seq
     }
     public func MarshalDc() -> [UInt8] {
-        let w = EventsPb.Writer()
-        if seq != 0 { w.Tag(1, 0); w.Varint(seq) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = EventsPb.Writer()
+        if seq != 0 { pbW.Tag(1, 0); pbW.Varint(seq) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         seq = 0
-        let r = EventsPb.Reader(data)
+        let pbR = EventsPb.Reader(data)
         while true {
             let next: EventsPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                seq = field.varintValue
-            default: unknownFields += field.rawValue
+                seq = pbField.varintValue
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -228,25 +228,25 @@ public final class SubscribeRequest: Marshaler, Unmarshaler {
         self.filter = filter
     }
     public func MarshalDc() -> [UInt8] {
-        let w = EventsPb.Writer()
-        for x in filter { w.BytesField(1, x.MarshalDc()) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = EventsPb.Writer()
+        for pbX in filter { pbW.BytesField(1, pbX.MarshalDc()) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         filter = []
-        let r = EventsPb.Reader(data)
+        let pbR = EventsPb.Reader(data)
         while true {
             let next: EventsPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                let item = TagValue()
-                item.UnmarshalDc(field.bytesValue)
-                filter.append(item)
-            default: unknownFields += field.rawValue
+                let pbItem = TagValue()
+                pbItem.UnmarshalDc(pbField.bytesValue)
+                filter.append(pbItem)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -267,14 +267,14 @@ public final class Event: Marshaler, Unmarshaler {
         self.timestampUnixMs = timestampUnixMs
     }
     public func MarshalDc() -> [UInt8] {
-        let w = EventsPb.Writer()
-        for x in tags { w.BytesField(1, x.MarshalDc()) }
-        if !payload.isEmpty { w.BytesField(2, payload) }
-        if seq != 0 { w.Tag(3, 0); w.Varint(seq) }
-        w.StringField(4, publisherId)
-        if timestampUnixMs != 0 { w.Tag(5, 0); w.Varint(UInt64(bitPattern: timestampUnixMs)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = EventsPb.Writer()
+        for pbX in tags { pbW.BytesField(1, pbX.MarshalDc()) }
+        if !payload.isEmpty { pbW.BytesField(2, payload) }
+        if seq != 0 { pbW.Tag(3, 0); pbW.Varint(seq) }
+        pbW.StringField(4, publisherId)
+        if timestampUnixMs != 0 { pbW.Tag(5, 0); pbW.Varint(UInt64(bitPattern: timestampUnixMs)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
@@ -283,25 +283,25 @@ public final class Event: Marshaler, Unmarshaler {
         seq = 0
         publisherId = ""
         timestampUnixMs = 0
-        let r = EventsPb.Reader(data)
+        let pbR = EventsPb.Reader(data)
         while true {
             let next: EventsPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                let item = TagValue()
-                item.UnmarshalDc(field.bytesValue)
-                tags.append(item)
+                let pbItem = TagValue()
+                pbItem.UnmarshalDc(pbField.bytesValue)
+                tags.append(pbItem)
             case 2:
-                payload = field.bytesValue
+                payload = pbField.bytesValue
             case 3:
-                seq = field.varintValue
+                seq = pbField.varintValue
             case 4:
-                publisherId = String(decoding: field.bytesValue, as: UTF8.self)
+                publisherId = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 5:
-                timestampUnixMs = Int64(bitPattern: field.varintValue)
-            default: unknownFields += field.rawValue
+                timestampUnixMs = Int64(bitPattern: pbField.varintValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }

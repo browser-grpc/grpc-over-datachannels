@@ -70,6 +70,13 @@ public final class Endpoint {
         public var metadata: [String: String] = [:]
         /// This call's server span context (nil when dormant).
         public var traceContext: Tracing.TraceContext? = nil
+        /// Whether this call negotiated the struct codec (HEADERS dc-codec: struct-v1).
+        public var structCodec: Bool = false
+
+        /// Marshal a response message with this call's negotiated codec (generated server code calls this).
+        public func EncodeMessage(_ msg: Marshaler) throws -> [UInt8] {
+            try Codec.MarshalForCodec(structCodec, msg)
+        }
         /// Response initial metadata recorded via SetHeaders.
         public var responseHeaders: [String: String] = [:]
         /// Response trailing metadata recorded via SetTrailers.

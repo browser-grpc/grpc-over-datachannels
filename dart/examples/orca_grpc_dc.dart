@@ -102,7 +102,7 @@ class _OpenRcaServiceStreamCoreMetricsServerImpl implements OpenRcaServiceStream
 
   @override
   void send(OrcaLoadReport resp) {
-    _sink(resp.marshalDc());
+    _sink(context.encodeMessage(resp));
   }
 }
 

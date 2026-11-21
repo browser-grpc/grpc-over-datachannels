@@ -37,6 +37,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`test_oracle.dart`](tests/test_oracle.dart) — Official-implementation oracle, via the proxy
 - [`test_pb_messages.dart`](tests/test_pb_messages.dart) — Generated suite/example
 - [`test_sidecar.dart`](tests/test_sidecar.dart) — Sidecar transport
+- [`test_struct_codec.dart`](tests/test_struct_codec.dart) — Wire codec vectors
 - [`test_tracing.dart`](tests/test_tracing.dart) — Tracing: traceparent propagation, span observers, nested calls
 - [`test_util.dart`](tests/test_util.dart) — Generated suite/example
 
@@ -45,12 +46,17 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`main.dart`](examples/DirectEcho/main.dart) — Generated suite/example
 - [`main.dart`](examples/DynamicEchoServerStdio/main.dart) — Generated suite/example
 - [`main.dart`](examples/EchoClientStdio/main.dart) — Generated suite/example
+- [`EchoRequestStruct.dart`](examples/EchoRequestStruct.dart) — Echo: all four call shapes
+- [`EchoRequestStructStub.dart`](examples/EchoRequestStructStub.dart) — Echo: all four call shapes
+- [`EchoResponseStruct.dart`](examples/EchoResponseStruct.dart) — Echo: all four call shapes
+- [`EchoResponseStructStub.dart`](examples/EchoResponseStructStub.dart) — Echo: all four call shapes
 - [`main.dart`](examples/EchoServerStdio/main.dart) — Generated suite/example
 - [`main.dart`](examples/InteropServerStdio/main.dart) — Generated suite/example
 - [`dynamic_echo_service.dart`](examples/dynamic_echo_service.dart) — Echo: all four call shapes
 - [`echo_grpc_dc.dart`](examples/echo_grpc_dc.dart) — Echo: all four call shapes
 - [`echo_messages.dart`](examples/echo_messages.dart) — Echo: all four call shapes
 - [`echo_service_impl.dart`](examples/echo_service_impl.dart) — Echo: all four call shapes
+- [`echo_structdc.dart`](examples/echo_structdc.dart) — Echo: all four call shapes
 - [`empty_grpc_dc.dart`](examples/empty_grpc_dc.dart) — Generated suite/example
 - [`empty_messages.dart`](examples/empty_messages.dart) — Generated suite/example
 - [`eventbus_demo.dart`](examples/eventbus_demo.dart) — Event bus end-to-end

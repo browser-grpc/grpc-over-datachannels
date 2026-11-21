@@ -96,7 +96,7 @@ public enum OrcaGrpcDc {
             ctxRef = ctx
             self.sink = sink
         }
-        func Send(_ resp: OrcaLoadReport) throws { try sink(resp.MarshalDc()) }
+        func Send(_ resp: OrcaLoadReport) throws { try sink(ctxRef.EncodeMessage(resp)) }
         var context: Endpoint.CallContext { ctxRef }
     }
 

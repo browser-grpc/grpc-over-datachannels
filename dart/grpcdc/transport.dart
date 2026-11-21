@@ -22,3 +22,14 @@ abstract class Marshaler {
 abstract class Unmarshaler {
   void unmarshalDc(List<int> data);
 }
+
+/// Struct-layout encoding (see Codec.structCodecV1), implemented
+/// by messages generated with struct_codec=true.
+abstract class StructMarshaler {
+  Uint8List marshalStruct();
+}
+
+/// Decoding side of StructMarshaler.
+abstract class StructUnmarshaler {
+  void unmarshalStruct(List<int> data);
+}
