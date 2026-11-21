@@ -25,6 +25,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`test_dynamic.py`](tests/test_dynamic.py) — Generated suite/example
 - [`test_echo.py`](tests/test_echo.py) — Echo: all four call shapes
 - [`test_eventbus.py`](tests/test_eventbus.py) — Event bus end-to-end
+- [`test_grpcio_oracle.py`](tests/test_grpcio_oracle.py) — Official-implementation oracle, via the proxy
 - [`test_http2_oracle.py`](tests/test_http2_oracle.py) — Official-implementation oracle, via the proxy
 - [`test_interop.py`](tests/test_interop.py) — Cross-language interop
 - [`test_interop_oracle.py`](tests/test_interop_oracle.py) — Official-implementation oracle, via the proxy

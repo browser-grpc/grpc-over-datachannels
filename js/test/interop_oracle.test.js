@@ -40,13 +40,24 @@ import { createTestServiceService } from "../examples/interop/test_grpc_dc.js";
 import { Channel, Server, memoryDataChannelPair } from "../index.js";
 import { openRcaHandlers, testServiceHandlers } from "./interop_service.js";
 
+// GRPC_DC_REQUIRE_ORACLE (set in the CI image, whose Dockerfile
+// builds both oracles) turns an availability skip into a hard
+// failure: in CI, a missing oracle is build breakage, not a skip.
+function oracleSkip(t, reason) {
+  if (process.env.GRPC_DC_REQUIRE_ORACLE) {
+    throw new Error(`oracle required but unavailable: ${reason}`);
+  }
+  t.skip(reason);
+}
+
+
 const ROOT = new URL("../..", import.meta.url).pathname;
 const JAVA_DIR = `${ROOT}oracle/java`;
 
 function javaClasspath(t) {
   const cpFile = `${JAVA_DIR}/target/cp.txt`;
   if (!existsSync(`${JAVA_DIR}/target/classes`) || !existsSync(cpFile)) {
-    t.skip("java oracle not built (cd oracle/java && mvn package)");
+    oracleSkip(t, "java oracle not built (cd oracle/java && mvn package)");
     return null;
   }
   return `${JAVA_DIR}/target/classes:${readFileSync(cpFile, "utf8").trim()}`;
@@ -87,7 +98,7 @@ async function startJavaTestServiceServer(t, port) {
 async function startGoTestServiceServer(t, port) {
   const binary = `${ROOT}oracle/go-interop/interop-server`;
   if (!existsSync(binary)) {
-    t.skip("go interop server not built (cd oracle/go-interop && go build -o interop-server google.golang.org/grpc/interop/server)");
+    oracleSkip(t, "go interop server not built (cd oracle/go-interop && go build -o interop-server google.golang.org/grpc/interop/server)");
     return false;
   }
   const proc = spawn(binary, ["-port", String(port)], { stdio: ["ignore", "pipe", "pipe"] });

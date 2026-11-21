@@ -86,6 +86,14 @@ function ClientStream:recv(resp)
       self.terminated = true
       local status = event.status
       if status ~= nil then self.trailers = status.trailers end
+      if status ~= nil and status.code ~= wire.CODE_OK
+          and self.deadline ~= nil then
+        local now = Endpoint.nowSeconds()
+        if now ~= nil and now >= self.deadline then
+          status = Status.new(wire.CODE_DEADLINE_EXCEEDED, "deadline exceeded")
+          status.trailers = self.trailers
+        end
+      end
       self:endTrace(wire.statusName(status ~= nil and status.code or wire.CODE_OK))
       if status ~= nil and status.code ~= wire.CODE_OK then
         raise(status)
@@ -95,6 +103,13 @@ function ClientStream:recv(resp)
       self.terminated = true
       local status = event.status or Status.new(wire.CODE_UNAVAILABLE, "stream reset")
       self.trailers = status.trailers
+      if self.deadline ~= nil then
+        local now = Endpoint.nowSeconds()
+        if now ~= nil and now >= self.deadline then
+          status = Status.new(wire.CODE_DEADLINE_EXCEEDED, "deadline exceeded")
+          status.trailers = self.trailers
+        end
+      end
       self:endTrace(wire.statusName(status.code))
       raise(status)
     end

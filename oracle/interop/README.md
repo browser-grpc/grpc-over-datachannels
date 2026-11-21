@@ -44,7 +44,8 @@ out-of-band rows (`orca_per_rpc`, `orca_oob`).
 
 Direction B — official clients (grpc-java `TestServiceClient`,
 grpc-go `interop-client`) vs our generated servers, reached
-over HTTP/2 through the ingress proxy -> WebRTC-Direct:
+over HTTP/2 through the ingress proxy -> WebRTC-Direct (or the
+stdio bridge for the native suites):
 
 - `js/test/interop_server_oracle.test.js` (agent serves the
   JS implementation in `js/test/interop_service.js`)
@@ -53,10 +54,46 @@ over HTTP/2 through the ingress proxy -> WebRTC-Direct:
 - `python/tests/test_interop_server_oracle.py` (Python server
   behind the Rust `direct_sidecar`, implementation in
   `python/tests/interop_service.py`)
+- `python/tests/test_grpcio_oracle.py` (third Google reference:
+  the official Python grpcio client against the same generated
+  Python server through the ingress proxy)
+- `rust/tests/interop_oracle.rs` (official clients -> bridge
+  -> Rust interop server)
+- `java/tests/TestInteropServerOracle.java`
+- `csharp/tests/TestInteropServerOracle.cs`
+- `kotlin/tests/TestInteropServerOracle.kt`
+- `scala/tests/TestInteropServerOracle.scala`
+- `swift/tests/TestInteropServerOracle.swift`
+- `cpp/tests/test_interop_server_oracle.cpp`
+- `c/tests/main.c` (TestInteropServerOracle)
+- `dart/tests/test_interop_server_oracle.dart`
+- `zig/tests/test_interop_server_oracle.zig`
+- `lua/tests/test_interop_server_oracle.lua`
+- `ruby/tests/test_interop_server_oracle.rb`
+- `php/tests/test_interop_server_oracle.php`
 
-Excluded cases: auth (`*_creds`, `oauth2_auth_token`,
-`per_rpc_creds`) needs GCP credentials; the soak cases have
-their own long-running script.
+Permanent exclusions (with reasons):
+
+- Auth (`*_creds`, `oauth2_auth_token`, `per_rpc_creds`): needs
+  GCP credentials, which CI does not have. Out of scope until a
+  credential fixture exists.
+- `cacheable_unary`: Direction B only, Java client only — the
+  official servers do not implement CacheableUnaryCall at all
+  (upstream the case needs a caching proxy) and the official Go
+  client lacks the case.
+- ORCA under the Java client: grpc-java's `TestServiceClient`
+  fails `orca_per_rpc` even against the upstream Go interop
+  server (its per-RPC report capture comes back null), so ORCA
+  is graded with the Go client only.
+- Mid-stream compression metadata edge: compression that starts
+  mid-stream is always decompressed correctly by the proxy, but
+  the surfaced `grpc-encoding` metadata can miss a per-message
+  `expect_compressed` check (the request HEADERS frame already
+  went out). Payloads are never affected; covered by the
+  `mid-stream` proxy test.
+- The soak cases have their own long-running lane
+  (`make soak`, `make stress-interop`), not the per-change
+  suites.
 
 Compression runs in both directions. Client direction: the
 generated HTTP/2 client transports (JS/Go/Python/Java/C#) gzip

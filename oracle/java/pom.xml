@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- Official grpc-java oracle for grpc-over-datachannels tests.
-     Versions pinned to the last line that runs on JDK 8 (the CI image
-     uses a newer JDK; the code stays Java 8 compatible). -->
+     grpc.version tracks current grpc-java stable; protobuf stays
+     on the 3.25.x line grpc-java 1.85 itself depends on
+     (protobuf-java 3.25.9). The CI image's JDK is 17. -->
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
@@ -11,9 +12,9 @@
   <version>1.0</version>
 
   <properties>
-    <grpc.version>1.62.2</grpc.version>
-    <protobuf.version>3.25.3</protobuf.version>
-    <protoc.version>3.25.3</protoc.version>
+    <grpc.version>1.85.1</grpc.version>
+    <protobuf.version>3.25.9</protobuf.version>
+    <protoc.version>3.25.9</protoc.version>
     <maven.compiler.source>1.8</maven.compiler.source>
     <maven.compiler.target>1.8</maven.compiler.target>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
