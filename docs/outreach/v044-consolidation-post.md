@@ -1,11 +1,17 @@
-# v0.44.0 consolidation post — prepared 2026-11-19, DRAFT (not yet published)
+# v0.44.0 consolidation post — prepared 2026-11-19, PUBLISHED
 
 Status: v0.44.0 is live on GitHub / crates.io / npm /
 pub.dev / NuGet / RubyGems / LuaRocks / JSR / PyPI /
 GitHub Maven / GHCR, with all generated-repo CI green
 (`make ci-status`). Maven Central sync is deferred to
-its weekly slot. Publish this post to dev.to + Blogger
-on the user's go.
+its weekly slot.
+
+Published 2026-11-19:
+- dev.to: https://dev.to/unicomp21/one-webrtc-stack-sixteen-languages-deleting-the-mirrors-5g6f
+- Blogger: https://c100k.blogspot.com/2026/11/grpc-over-datachannels-0440-one-webrtc.html
+- Long video: https://youtu.be/YSIp5PQqn5Y
+- Short (DTLS `undefined`): https://youtube.com/shorts/5h3poOgXM24
+- Short (64-packet queue): https://youtube.com/shorts/17bs0wAyL-g
 
 Links:
 - Release: https://github.com/browser-grpc/grpc-over-datachannels/releases/tag/v0.44.0

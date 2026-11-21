@@ -48,6 +48,30 @@ command -v curl >/dev/null || { echo "curl is required" >&2; exit 1; }
 grep -q "\"version\": \"$VERSION\"" "$EXPORT/RELEASE.json" || {
   echo "export is not $VERSION; regenerate: make release-public VERSION=$VERSION" >&2; exit 1; }
 
+# Pre-publish local e2e gate: the exported trees' own CI must
+# have passed locally for exactly these trees (scripts/
+# release-e2e.sh stamps release/.e2e-ok-<VERSION> with the tree
+# hash). Publishing without it is how v0.44.0 needed three
+# post-push fixup rounds.
+STAMP="release/.e2e-ok-$VERSION"
+tree_hash() {
+  # World-readable contents plus name+size for the 0600 test
+  # key fixtures, so the hash is identical for any user.
+  { find release/browser-grpc release/kafka-proxy release/kafka-native \
+       release/eventbus release/grpc-php release/kafka-php \
+       release/eventbus-php release/examples -type f -readable -print0 \
+      | LC_ALL=C sort -z | xargs -0 sha256sum;
+    find release/browser-grpc release/kafka-proxy release/kafka-native \
+       release/eventbus release/grpc-php release/kafka-php \
+       release/eventbus-php release/examples -type f ! -readable \
+       -exec stat -c '%n %s' {} + | LC_ALL=C sort; } | sha256sum | cut -d' ' -f1
+}
+TREE_HASH="$(tree_hash)"
+[ -f "$STAMP" ] && grep -q "^tree-hash: $TREE_HASH$" "$STAMP" || {
+  echo "release exports have no passing local e2e for these trees;" >&2
+  echo "run: scripts/release-e2e.sh $VERSION" >&2
+  exit 1; }
+
 # ------------------------------------------------------------------
 # 1. Repo (create on first use) + export content + tag.
 # ------------------------------------------------------------------
