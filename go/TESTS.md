@@ -44,6 +44,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`rendezvous_auth_test.go`](rendezvous_auth_test.go) — Generated suite/example
 - [`rendezvous_test.go`](rendezvous_test.go) — Generated suite/example
 - [`sidecar_test.go`](sidecar_test.go) — Sidecar transport
+- [`struct_codec_test.go`](struct_codec_test.go) — Wire codec vectors
 - [`tracing_test.go`](tracing_test.go) — Tracing: traceparent propagation, span observers, nested calls
 - [`webrtc_direct_test.go`](webrtc_direct_test.go) — WebRTC-Direct example/test
 - [`webrtc_test.go`](webrtc_test.go) — WebRTC transport
@@ -60,6 +61,8 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`echo_pb_test.go`](examples/echo_pb_test.go) — Echo: all four call shapes
 - [`main.go`](examples/echo_server_stdio/main.go) — Generated suite/example
 - [`echo_service.go`](examples/echo_service.go) — Echo: all four call shapes
+- [`echo_structdc.go`](examples/echo_structdc.go) — Echo: all four call shapes
+- [`echo_structdc_nocgo.go`](examples/echo_structdc_nocgo.go) — Echo: all four call shapes
 - [`main.go`](examples/eventbus_demo/main.go) — Generated suite/example
 - [`otlp_tracer.go`](examples/otlp_tracer.go) — Tracing: traceparent propagation, span observers, nested calls
 - [`otlp_tracer_test.go`](examples/otlp_tracer_test.go) — Tracing: traceparent propagation, span observers, nested calls

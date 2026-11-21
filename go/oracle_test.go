@@ -19,16 +19,37 @@ import (
 // when the Java oracle or Node bridge are unavailable (Dockerfile.ci
 // provides both).
 
+
+// skipOracle turns an oracle-availability skip into a hard
+// failure when GRPC_DC_REQUIRE_ORACLE is set (the CI image sets
+// it; its Dockerfile builds every oracle, so a missing one there
+// is build breakage). Host runs leave it unset and skip.
+func skipOracle(t *testing.T, msg string) {
+	t.Helper()
+	if os.Getenv("GRPC_DC_REQUIRE_ORACLE") != "" {
+		t.Fatalf("oracle required but unavailable: %s", msg)
+	}
+	t.Skip(msg)
+}
+
+func skipOraclef(t *testing.T, format string, args ...any) {
+	t.Helper()
+	if os.Getenv("GRPC_DC_REQUIRE_ORACLE") != "" {
+		t.Fatalf("oracle required but unavailable: "+format, args...)
+	}
+	t.Skipf(format, args...)
+}
+
 func javaClasspath(t *testing.T) string {
 	t.Helper()
 	dir := filepath.Join("..", "oracle", "java", "target")
 	cpFile := filepath.Join(dir, "cp.txt")
 	raw, err := os.ReadFile(cpFile)
 	if err != nil {
-		t.Skip("java oracle not built (cd oracle/java && mvn package)")
+		skipOracle(t, "java oracle not built (cd oracle/java && mvn package)")
 	}
 	if _, err := os.Stat(filepath.Join(dir, "classes")); err != nil {
-		t.Skip("java oracle classes missing")
+		skipOracle(t, "java oracle classes missing")
 	}
 	return filepath.Join(dir, "classes") + ":" + strings.TrimSpace(string(raw))
 }
@@ -52,7 +73,7 @@ func startJavaServer(t *testing.T, port int) {
 		t.Fatal(err)
 	}
 	if err := cmd.Start(); err != nil {
-		t.Skipf("cannot start java oracle server: %v", err)
+		skipOraclef(t, "cannot start java oracle server: %v", err)
 	}
 	t.Cleanup(func() { _ = cmd.Process.Kill() })
 	buf := make([]byte, 4096)
@@ -109,7 +130,7 @@ func TestOracleGoClientCallsOfficialServer(t *testing.T) {
 	}
 	bridge.Stderr = os.Stderr
 	if err := bridge.Start(); err != nil {
-		t.Skipf("cannot start bridge: %v", err)
+		skipOraclef(t, "cannot start bridge: %v", err)
 	}
 	t.Cleanup(func() { _ = bridge.Process.Kill() })
 
@@ -128,7 +149,7 @@ func TestOracleOfficialClientCallsGoServer(t *testing.T) {
 		"http2-to-dc", "--port", fmt.Sprint(port), "--target-cmd", serverBin)
 	bridge.Stderr = os.Stderr
 	if err := bridge.Start(); err != nil {
-		t.Skipf("cannot start bridge: %v", err)
+		skipOraclef(t, "cannot start bridge: %v", err)
 	}
 	t.Cleanup(func() { _ = bridge.Process.Kill() })
 

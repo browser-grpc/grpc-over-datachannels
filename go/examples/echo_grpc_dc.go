@@ -105,7 +105,11 @@ type EchoServerStreamServerImpl struct {
 }
 
 func (s *EchoServerStreamServerImpl) Send(resp *EchoResponse) error {
-	return s.sink.Send(resp.MarshalDC())
+	encoded, err := grpcdc.EncodeMessageForCall(s.ctx, resp)
+	if err != nil {
+		return err
+	}
+	return s.sink.Send(encoded)
 }
 func (s *EchoServerStreamServerImpl) Context() context.Context { return s.ctx }
 
@@ -135,7 +139,11 @@ type EchoBidiServerImpl struct {
 }
 
 func (s *EchoBidiServerImpl) Send(resp *EchoResponse) error {
-	return s.sink.Send(resp.MarshalDC())
+	encoded, err := grpcdc.EncodeMessageForCall(s.ctx, resp)
+	if err != nil {
+		return err
+	}
+	return s.sink.Send(encoded)
 }
 func (s *EchoBidiServerImpl) Recv() (*EchoRequest, error) {
 	req := new(EchoRequest)
@@ -159,7 +167,11 @@ func RegisterEchoServer(s *grpcdc.Server, srv EchoServer) {
 				if err != nil {
 					return err
 				}
-				return sink.Send(resp.MarshalDC())
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
 			}},
 			{Name: "ServerStream", Path: "/echo.Echo/ServerStream", Kind: grpcdc.KindServerStreaming, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
 				req := new(EchoRequest)
@@ -176,7 +188,11 @@ func RegisterEchoServer(s *grpcdc.Server, srv EchoServer) {
 				if stream.resp == nil {
 					return grpcdc.NewStatus(grpcdc.CodeInternal, "client-streaming handler never called SendAndClose")
 				}
-				return sink.Send(stream.resp.MarshalDC())
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, stream.resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
 			}},
 			{Name: "Bidi", Path: "/echo.Echo/Bidi", Kind: grpcdc.KindBidi, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
 				return srv.Bidi(&EchoBidiServerImpl{ctx: ctx, reqs: reqs, sink: sink})

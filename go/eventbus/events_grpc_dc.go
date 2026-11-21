@@ -59,7 +59,11 @@ type EventBusSubscribeServerImpl struct {
 }
 
 func (s *EventBusSubscribeServerImpl) Send(resp *Event) error {
-	return s.sink.Send(resp.MarshalDC())
+	encoded, err := grpcdc.EncodeMessageForCall(s.ctx, resp)
+	if err != nil {
+		return err
+	}
+	return s.sink.Send(encoded)
 }
 func (s *EventBusSubscribeServerImpl) Context() context.Context { return s.ctx }
 
@@ -76,7 +80,11 @@ func RegisterEventBusServer(s *grpcdc.Server, srv EventBusServer) {
 				if err != nil {
 					return err
 				}
-				return sink.Send(resp.MarshalDC())
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
 			}},
 			{Name: "Subscribe", Path: "/grpcdc.events.v1.EventBus/Subscribe", Kind: grpcdc.KindServerStreaming, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
 				req := new(SubscribeRequest)

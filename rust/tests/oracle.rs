@@ -25,6 +25,17 @@ use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use stub::EchoClient;
 
+/// Availability skip that hard-fails when GRPC_DC_REQUIRE_ORACLE
+/// is set (the CI image sets it; its Dockerfile builds every
+/// oracle, so a missing one there is build breakage).
+#[track_caller]
+fn oracle_skip(reason: &str) {
+    if std::env::var_os("GRPC_DC_REQUIRE_ORACLE").is_some() {
+        panic!("oracle required but unavailable: {reason}");
+    }
+    eprintln!("skip: {reason}");
+}
+
 struct StdioDc {
     tx: Mutex<std::process::ChildStdin>,
     rx: Mutex<std::process::ChildStdout>,
@@ -89,7 +100,7 @@ fn spawn_java_server(cp: &str, port: u16) -> Child {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn oracle_rust_client_calls_official_server() {
     let Some(cp) = java_classpath() else {
-        eprintln!("skip: java oracle not built");
+        oracle_skip("java oracle not built");
         return;
     };
     let java_port = free_port();
@@ -122,13 +133,13 @@ async fn oracle_rust_client_calls_official_server() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn oracle_official_client_calls_rust_server() {
     let Some(cp) = java_classpath() else {
-        eprintln!("skip: java oracle not built");
+        oracle_skip("java oracle not built");
         return;
     };
     let root = format!("{}/..", env!("CARGO_MANIFEST_DIR"));
     let server_bin = format!("{root}/rust/target/debug/examples/echo_server_stdio");
     if !std::path::Path::new(&server_bin).exists() {
-        eprintln!("skip: echo_server_stdio not built");
+        oracle_skip("echo_server_stdio not built");
         return;
     }
     let port = free_port();

@@ -36,11 +36,11 @@ func startGoTestServiceServer(t *testing.T, port int) {
 	t.Helper()
 	binary := filepath.Join("..", "oracle", "go-interop", "interop-server")
 	if _, err := os.Stat(binary); err != nil {
-		t.Skip("go interop server not built (cd oracle/go-interop && go build -o interop-server google.golang.org/grpc/interop/server)")
+		skipOracle(t, "go interop server not built (cd oracle/go-interop && go build -o interop-server google.golang.org/grpc/interop/server)")
 	}
 	cmd := exec.Command(binary, "-port", fmt.Sprint(port))
 	if err := cmd.Start(); err != nil {
-		t.Skipf("cannot start go TestServiceServer: %v", err)
+		skipOraclef(t, "cannot start go TestServiceServer: %v", err)
 	}
 	t.Cleanup(func() { _ = cmd.Process.Kill() })
 	// The Go server prints no readiness line; poll the TCP port.
@@ -73,7 +73,7 @@ func startTestServiceServer(t *testing.T, port int) {
 		t.Fatal(err)
 	}
 	if err := cmd.Start(); err != nil {
-		t.Skipf("cannot start TestServiceServer: %v", err)
+		skipOraclef(t, "cannot start TestServiceServer: %v", err)
 	}
 	t.Cleanup(func() { _ = cmd.Process.Kill() })
 	ready := make(chan struct{})

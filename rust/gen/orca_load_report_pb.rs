@@ -280,6 +280,240 @@ impl OrcaLoadReport_UtilizationEntry {
     }
 }
 
+fn struct_check(bytes: &[u8], off: usize, n: usize) -> Result<(), String> {
+    if off.checked_add(n).map_or(true, |end| end > bytes.len()) { return Err("struct codec: out of bounds".to_string()); }
+    Ok(())
+}
+
+impl OrcaLoadReport {
+    pub const STRUCT_FINGERPRINT: u32 = 0xf7803c0d;
+
+    fn struct_size(&self) -> usize {
+        let mut size = 56;
+        for (k, v) in &self.request_cost { size += 8 + k.len() + 8; }
+        for (k, v) in &self.utilization { size += 8 + k.len() + 8; }
+        size += self.unknown_fields.len();
+        size
+    }
+
+    pub fn marshal_struct(&self) -> Vec<u8> {
+        let size = self.struct_size();
+        let mut buf = vec![0u8; size];
+        buf[0..4].copy_from_slice(b"DCS1");
+        buf[4..8].copy_from_slice(&(size as u32).to_le_bytes());
+        buf[8..12].copy_from_slice(&Self::STRUCT_FINGERPRINT.to_le_bytes());
+        let mut presence0: u32 = 0;
+        if self.cpu_utilization != 0.0 { presence0 |= 1 << 0; }
+        if self.mem_utilization != 0.0 { presence0 |= 1 << 1; }
+        if self.rps_fractional != 0.0 { presence0 |= 1 << 2; }
+        if !self.request_cost.is_empty() { presence0 |= 1 << 3; }
+        if !self.utilization.is_empty() { presence0 |= 1 << 4; }
+        buf[12..16].copy_from_slice(&presence0.to_le_bytes());
+        let mut vp = 56;
+        { let off = 16; buf[off..off + 8].copy_from_slice(&self.cpu_utilization.to_bits().to_le_bytes()); }
+        { let off = 24; buf[off..off + 8].copy_from_slice(&self.mem_utilization.to_bits().to_le_bytes()); }
+        { let off = 32; buf[off..off + 8].copy_from_slice(&self.rps_fractional.to_bits().to_le_bytes()); }
+        if !self.request_cost.is_empty() {
+            buf[40..44].copy_from_slice(&(vp as u32).to_le_bytes());
+            buf[44..48].copy_from_slice(&(self.request_cost.len() as u32).to_le_bytes());
+            let mut keys: Vec<&String> = self.request_cost.keys().collect();
+            keys.sort();
+            for k in keys {
+                let v = &self.request_cost[k];
+                buf[vp..vp + 4].copy_from_slice(&(k.len() as u32).to_le_bytes());
+                buf[vp + 4..vp + 8].copy_from_slice(&(8 as u32).to_le_bytes());
+                vp += 8;
+                buf[vp..vp + k.len()].copy_from_slice(&k.as_bytes()); vp += k.len();
+                buf[vp..vp + 8].copy_from_slice(&(*v).to_bits().to_le_bytes()); vp += 8;
+            }
+        }
+        if !self.utilization.is_empty() {
+            buf[48..52].copy_from_slice(&(vp as u32).to_le_bytes());
+            buf[52..56].copy_from_slice(&(self.utilization.len() as u32).to_le_bytes());
+            let mut keys: Vec<&String> = self.utilization.keys().collect();
+            keys.sort();
+            for k in keys {
+                let v = &self.utilization[k];
+                buf[vp..vp + 4].copy_from_slice(&(k.len() as u32).to_le_bytes());
+                buf[vp + 4..vp + 8].copy_from_slice(&(8 as u32).to_le_bytes());
+                vp += 8;
+                buf[vp..vp + k.len()].copy_from_slice(&k.as_bytes()); vp += k.len();
+                buf[vp..vp + 8].copy_from_slice(&(*v).to_bits().to_le_bytes()); vp += 8;
+            }
+        }
+        buf[vp..vp + self.unknown_fields.len()].copy_from_slice(&self.unknown_fields);
+        buf
+    }
+
+    pub fn unmarshal_struct(bytes: &[u8]) -> Result<Self, String> {
+        if bytes.len() < 16 || &bytes[0..4] != b"DCS1" { return Err("struct codec: bad header".to_string()); }
+        if u32::from_le_bytes(bytes[8..12].try_into().unwrap()) != Self::STRUCT_FINGERPRINT { return Err("struct codec: schema fingerprint mismatch".to_string()); }
+        if u32::from_le_bytes(bytes[4..8].try_into().unwrap()) as usize != bytes.len() { return Err("struct codec: length mismatch".to_string()); }
+        let mut msg = Self::default();
+        let mut vend = 56;
+        if u32::from_le_bytes(bytes[12..16].try_into().unwrap()) & (1 << 0) != 0 {
+            let off = 16;
+            msg.cpu_utilization = f64::from_bits(u64::from_le_bytes(bytes[off..off + 8].try_into().unwrap()));
+        }
+        if u32::from_le_bytes(bytes[12..16].try_into().unwrap()) & (1 << 1) != 0 {
+            let off = 24;
+            msg.mem_utilization = f64::from_bits(u64::from_le_bytes(bytes[off..off + 8].try_into().unwrap()));
+        }
+        if u32::from_le_bytes(bytes[12..16].try_into().unwrap()) & (1 << 2) != 0 {
+            let off = 32;
+            msg.rps_fractional = f64::from_bits(u64::from_le_bytes(bytes[off..off + 8].try_into().unwrap()));
+        }
+        if u32::from_le_bytes(bytes[12..16].try_into().unwrap()) & (1 << 3) != 0 {
+            let off = u32::from_le_bytes(bytes[40..44].try_into().unwrap()) as usize;
+            let n = u32::from_le_bytes(bytes[44..48].try_into().unwrap()) as usize;
+            let mut p = off;
+            for _ in 0..n {
+                struct_check(bytes, p, 8)?;
+                let kl = u32::from_le_bytes(bytes[p..p + 4].try_into().unwrap()) as usize;
+                let vl = u32::from_le_bytes(bytes[p + 4..p + 8].try_into().unwrap()) as usize;
+                p += 8;
+                struct_check(bytes, p, kl + vl)?;
+                let mut k: String = Default::default();
+                { let off = p; k = String::from_utf8_lossy(&bytes[off..off + kl]).into_owned(); }
+                let mut v: f64 = Default::default();
+                { let off = p + kl; v = f64::from_bits(u64::from_le_bytes(bytes[off..off + 8].try_into().unwrap())); }
+                msg.request_cost.insert(k, v);
+                p += kl + vl;
+            }
+            if p > vend { vend = p; }
+        }
+        if u32::from_le_bytes(bytes[12..16].try_into().unwrap()) & (1 << 4) != 0 {
+            let off = u32::from_le_bytes(bytes[48..52].try_into().unwrap()) as usize;
+            let n = u32::from_le_bytes(bytes[52..56].try_into().unwrap()) as usize;
+            let mut p = off;
+            for _ in 0..n {
+                struct_check(bytes, p, 8)?;
+                let kl = u32::from_le_bytes(bytes[p..p + 4].try_into().unwrap()) as usize;
+                let vl = u32::from_le_bytes(bytes[p + 4..p + 8].try_into().unwrap()) as usize;
+                p += 8;
+                struct_check(bytes, p, kl + vl)?;
+                let mut k: String = Default::default();
+                { let off = p; k = String::from_utf8_lossy(&bytes[off..off + kl]).into_owned(); }
+                let mut v: f64 = Default::default();
+                { let off = p + kl; v = f64::from_bits(u64::from_le_bytes(bytes[off..off + 8].try_into().unwrap())); }
+                msg.utilization.insert(k, v);
+                p += kl + vl;
+            }
+            if p > vend { vend = p; }
+        }
+        if vend < bytes.len() { msg.unknown_fields = bytes[vend..].to_vec(); }
+        Ok(msg)
+    }
+}
+
+impl OrcaLoadReport_RequestCostEntry {
+    pub const STRUCT_FINGERPRINT: u32 = 0x861cb029;
+
+    fn struct_size(&self) -> usize {
+        let mut size = 32;
+        size += self.key.len();
+        size += self.unknown_fields.len();
+        size
+    }
+
+    pub fn marshal_struct(&self) -> Vec<u8> {
+        let size = self.struct_size();
+        let mut buf = vec![0u8; size];
+        buf[0..4].copy_from_slice(b"DCS1");
+        buf[4..8].copy_from_slice(&(size as u32).to_le_bytes());
+        buf[8..12].copy_from_slice(&Self::STRUCT_FINGERPRINT.to_le_bytes());
+        let mut presence0: u32 = 0;
+        if !self.key.is_empty() { presence0 |= 1 << 0; }
+        if self.value != 0.0 { presence0 |= 1 << 1; }
+        buf[12..16].copy_from_slice(&presence0.to_le_bytes());
+        let mut vp = 32;
+        if !self.key.is_empty() {
+            buf[16..20].copy_from_slice(&(vp as u32).to_le_bytes());
+            buf[20..24].copy_from_slice(&(self.key.len() as u32).to_le_bytes());
+            buf[vp..vp + self.key.len()].copy_from_slice(&self.key.as_bytes());
+            vp += self.key.len();
+        }
+        { let off = 24; buf[off..off + 8].copy_from_slice(&self.value.to_bits().to_le_bytes()); }
+        buf[vp..vp + self.unknown_fields.len()].copy_from_slice(&self.unknown_fields);
+        buf
+    }
+
+    pub fn unmarshal_struct(bytes: &[u8]) -> Result<Self, String> {
+        if bytes.len() < 16 || &bytes[0..4] != b"DCS1" { return Err("struct codec: bad header".to_string()); }
+        if u32::from_le_bytes(bytes[8..12].try_into().unwrap()) != Self::STRUCT_FINGERPRINT { return Err("struct codec: schema fingerprint mismatch".to_string()); }
+        if u32::from_le_bytes(bytes[4..8].try_into().unwrap()) as usize != bytes.len() { return Err("struct codec: length mismatch".to_string()); }
+        let mut msg = Self::default();
+        let mut vend = 32;
+        if u32::from_le_bytes(bytes[12..16].try_into().unwrap()) & (1 << 0) != 0 {
+            let off = u32::from_le_bytes(bytes[16..20].try_into().unwrap()) as usize;
+            let el = u32::from_le_bytes(bytes[20..24].try_into().unwrap()) as usize;
+            struct_check(bytes, off, el)?;
+            msg.key = String::from_utf8_lossy(&bytes[off..off + el]).into_owned();
+            if off + el > vend { vend = off + el; }
+        }
+        if u32::from_le_bytes(bytes[12..16].try_into().unwrap()) & (1 << 1) != 0 {
+            let off = 24;
+            msg.value = f64::from_bits(u64::from_le_bytes(bytes[off..off + 8].try_into().unwrap()));
+        }
+        if vend < bytes.len() { msg.unknown_fields = bytes[vend..].to_vec(); }
+        Ok(msg)
+    }
+}
+
+impl OrcaLoadReport_UtilizationEntry {
+    pub const STRUCT_FINGERPRINT: u32 = 0x57687c5;
+
+    fn struct_size(&self) -> usize {
+        let mut size = 32;
+        size += self.key.len();
+        size += self.unknown_fields.len();
+        size
+    }
+
+    pub fn marshal_struct(&self) -> Vec<u8> {
+        let size = self.struct_size();
+        let mut buf = vec![0u8; size];
+        buf[0..4].copy_from_slice(b"DCS1");
+        buf[4..8].copy_from_slice(&(size as u32).to_le_bytes());
+        buf[8..12].copy_from_slice(&Self::STRUCT_FINGERPRINT.to_le_bytes());
+        let mut presence0: u32 = 0;
+        if !self.key.is_empty() { presence0 |= 1 << 0; }
+        if self.value != 0.0 { presence0 |= 1 << 1; }
+        buf[12..16].copy_from_slice(&presence0.to_le_bytes());
+        let mut vp = 32;
+        if !self.key.is_empty() {
+            buf[16..20].copy_from_slice(&(vp as u32).to_le_bytes());
+            buf[20..24].copy_from_slice(&(self.key.len() as u32).to_le_bytes());
+            buf[vp..vp + self.key.len()].copy_from_slice(&self.key.as_bytes());
+            vp += self.key.len();
+        }
+        { let off = 24; buf[off..off + 8].copy_from_slice(&self.value.to_bits().to_le_bytes()); }
+        buf[vp..vp + self.unknown_fields.len()].copy_from_slice(&self.unknown_fields);
+        buf
+    }
+
+    pub fn unmarshal_struct(bytes: &[u8]) -> Result<Self, String> {
+        if bytes.len() < 16 || &bytes[0..4] != b"DCS1" { return Err("struct codec: bad header".to_string()); }
+        if u32::from_le_bytes(bytes[8..12].try_into().unwrap()) != Self::STRUCT_FINGERPRINT { return Err("struct codec: schema fingerprint mismatch".to_string()); }
+        if u32::from_le_bytes(bytes[4..8].try_into().unwrap()) as usize != bytes.len() { return Err("struct codec: length mismatch".to_string()); }
+        let mut msg = Self::default();
+        let mut vend = 32;
+        if u32::from_le_bytes(bytes[12..16].try_into().unwrap()) & (1 << 0) != 0 {
+            let off = u32::from_le_bytes(bytes[16..20].try_into().unwrap()) as usize;
+            let el = u32::from_le_bytes(bytes[20..24].try_into().unwrap()) as usize;
+            struct_check(bytes, off, el)?;
+            msg.key = String::from_utf8_lossy(&bytes[off..off + el]).into_owned();
+            if off + el > vend { vend = off + el; }
+        }
+        if u32::from_le_bytes(bytes[12..16].try_into().unwrap()) & (1 << 1) != 0 {
+            let off = 24;
+            msg.value = f64::from_bits(u64::from_le_bytes(bytes[off..off + 8].try_into().unwrap()));
+        }
+        if vend < bytes.len() { msg.unknown_fields = bytes[vend..].to_vec(); }
+        Ok(msg)
+    }
+}
+
 fn pb_encode_OrcaLoadReport_RequestCostEntry(key: &String, value: &f64) -> Vec<u8> {
     let mut out = Vec::new();
     pb_append_string_field(&mut out, 1, &(*key));

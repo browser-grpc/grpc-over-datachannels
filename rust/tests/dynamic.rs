@@ -18,6 +18,17 @@ use std::net::TcpListener;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 
+/// Availability skip that hard-fails when GRPC_DC_REQUIRE_ORACLE
+/// is set (the CI image sets it; its Dockerfile builds every
+/// oracle, so a missing one there is build breakage).
+#[track_caller]
+fn oracle_skip(reason: &str) {
+    if std::env::var_os("GRPC_DC_REQUIRE_ORACLE").is_some() {
+        panic!("oracle required but unavailable: {reason}");
+    }
+    eprintln!("skip: {reason}");
+}
+
 const SERVICE: &str = "echo.Echo";
 
 fn load_model() -> Arc<FileModel> {
@@ -257,7 +268,7 @@ fn spawn_java_server(cp: &str, port: u16) -> Child {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn dynamic_oracle_rust_client_calls_official_server() {
     let Some(cp) = java_classpath() else {
-        eprintln!("skip: java oracle not built");
+        oracle_skip("java oracle not built");
         return;
     };
     let model = load_model();
@@ -291,13 +302,13 @@ async fn dynamic_oracle_rust_client_calls_official_server() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn dynamic_oracle_official_client_calls_rust_server() {
     let Some(cp) = java_classpath() else {
-        eprintln!("skip: java oracle not built");
+        oracle_skip("java oracle not built");
         return;
     };
     let root = format!("{}/..", env!("CARGO_MANIFEST_DIR"));
     let server_bin = format!("{root}/rust/target/debug/examples/dynamic_echo_server_stdio");
     if !std::path::Path::new(&server_bin).exists() {
-        eprintln!("skip: dynamic_echo_server_stdio not built");
+        oracle_skip("dynamic_echo_server_stdio not built");
         return;
     }
     let port = free_port();
@@ -330,4 +341,43 @@ async fn dynamic_oracle_official_client_calls_rust_server() {
         "oracle client failed:\n{stdout}\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+#[test]
+fn packed_repeated_scalars_decode_as_elements() {
+    use grpc_dc::dynamic::{FieldModel, MessageModel};
+    use std::collections::{BTreeMap, HashMap};
+    let mut fields = BTreeMap::new();
+    fields.insert(
+        1,
+        FieldModel { number: 1, name: "nums".into(), ty: 5, repeated: true, type_name: String::new() },
+    );
+    fields.insert(
+        2,
+        FieldModel { number: 2, name: "vals".into(), ty: 6, repeated: true, type_name: String::new() },
+    );
+    let model = MessageModel {
+        full_name: "t.M".into(),
+        fields,
+        by_name: HashMap::new(),
+        map_entry: false,
+    };
+    // field 1 (packed varint): tag 0x0a len 4 [1, 0x80 0x01? no: 300 = ac 02] -> [1, 300, 5]
+    // bytes: 01 ac 02 05 ; field 2 (packed fixed64): tag 0x12 len 8 [7u64]
+    let payload: &[u8] = &[
+        0x0a, 0x04, 0x01, 0xac, 0x02, 0x05,
+        0x12, 0x08, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ];
+    let file = FileModel { messages: HashMap::new(), services: HashMap::new() };
+    let decoded = decode_generic(&model, payload, &file).unwrap();
+    let nums: Vec<i64> = decoded
+        .get_all(1)
+        .iter()
+        .map(|v| match v {
+            grpc_dc::dynamic::GenericValue::I64(n) => *n,
+            other => panic!("want I64, got {other:?}"),
+        })
+        .collect();
+    assert_eq!(nums, vec![1, 300, 5]);
+    assert_eq!(decoded.get_all(2).len(), 1);
 }

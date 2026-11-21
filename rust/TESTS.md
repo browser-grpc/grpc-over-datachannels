@@ -43,6 +43,9 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`rendezvous.rs`](tests/rendezvous.rs) — Generated suite/example
 - [`rendezvous_auth.rs`](tests/rendezvous_auth.rs) — Generated suite/example
 - [`routing.rs`](tests/routing.rs) — Generated suite/example
+- [`struct_codec.rs`](tests/struct_codec.rs) — Wire codec vectors
+- [`structdc_corpus.rs`](tests/structdc_corpus.rs) — Generated suite/example
+- [`structdc_negotiation.rs`](tests/structdc_negotiation.rs) — Generated suite/example
 - [`tracing.rs`](tests/tracing.rs) — Tracing: traceparent propagation, span observers, nested calls
 - [`webrtc_direct_grpc.rs`](tests/webrtc_direct_grpc.rs) — WebRTC-Direct example/test
 - [`webrtc_grpc.rs`](tests/webrtc_grpc.rs) — WebRTC transport

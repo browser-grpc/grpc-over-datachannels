@@ -33,6 +33,17 @@ use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use test_stub::TestServiceClient;
 
+/// Availability skip that hard-fails when GRPC_DC_REQUIRE_ORACLE
+/// is set (the CI image sets it; its Dockerfile builds every
+/// oracle, so a missing one there is build breakage).
+#[track_caller]
+fn oracle_skip(reason: &str) {
+    if std::env::var_os("GRPC_DC_REQUIRE_ORACLE").is_some() {
+        panic!("oracle required but unavailable: {reason}");
+    }
+    eprintln!("skip: {reason}");
+}
+
 struct StdioDc {
     tx: Mutex<std::process::ChildStdin>,
     rx: Mutex<std::process::ChildStdout>,
@@ -94,7 +105,7 @@ fn go_server_clients() -> Option<(KillOnDrop, KillOnDrop, TestServiceClient, orc
     let root = root();
     let binary = format!("{root}/oracle/go-interop/interop-server");
     if !std::path::Path::new(&binary).exists() {
-        eprintln!("skip: go interop server not built (oracle/go-interop)");
+        oracle_skip("go interop server not built (oracle/go-interop)");
         return None;
     }
     let port = free_port();
@@ -245,7 +256,7 @@ fn java_classpath() -> Option<String> {
     if !std::path::Path::new(&cp_file).exists()
         || !std::path::Path::new(&format!("{target}/classes")).is_dir()
     {
-        eprintln!("skip: java oracle not built (cd oracle/java && mvn package)");
+        oracle_skip("java oracle not built (cd oracle/java && mvn package)");
         return None;
     }
     let cp = std::fs::read_to_string(cp_file).unwrap();
@@ -283,7 +294,7 @@ async fn official_clients_call_rust_server() {
     let root = root();
     let server_bin = format!("{root}/rust/target/debug/examples/interop_server_stdio");
     if !std::path::Path::new(&server_bin).exists() {
-        eprintln!("skip: interop_server_stdio not built");
+        oracle_skip("interop_server_stdio not built");
         return;
     }
     let port = free_port();

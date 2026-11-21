@@ -430,6 +430,9 @@ pub struct CallCtx {
     /// Deadline propagated via grpc-timeout, when the client set one.
     pub deadline: Option<crate::platform_time::Instant>,
     pub(crate) response_meta: SharedMeta,
+    /// Whether this call negotiated the struct codec
+    /// (HEADERS dc-codec: struct-v1, endpoint-enabled).
+    pub struct_codec: bool,
 }
 
 impl CallCtx {
@@ -445,6 +448,7 @@ impl CallCtx {
             stream_id: 0,
             deadline: None,
             response_meta: Arc::new(std::sync::Mutex::new(ResponseMeta::default())),
+            struct_codec: false,
         }
     }
 
@@ -484,6 +488,7 @@ pub type ResponseStream<T> = Pin<Box<dyn Stream<Item = Result<T, Status>> + Send
 /// A stream of requests decoded from DATA frames.
 pub struct RequestStream<T> {
     inner: Pin<Box<dyn Stream<Item = Result<Bytes, Status>> + Send>>,
+    struct_codec: bool,
     _marker: PhantomData<fn() -> T>,
 }
 
@@ -504,11 +509,18 @@ impl<T> RequestStream<T> {
                 }
             }
         });
-        RequestStream { inner: Box::pin(stream), _marker: PhantomData }
+        RequestStream { inner: Box::pin(stream), struct_codec: false, _marker: PhantomData }
     }
 
     pub(crate) fn from_bytes(inner: RequestStream<Bytes>) -> Self {
-        Self { inner: inner.inner, _marker: PhantomData }
+        Self { inner: inner.inner, struct_codec: false, _marker: PhantomData }
+    }
+
+    /// Decode requests with the struct layout instead of
+    /// protobuf (set from the negotiated call codec).
+    pub(crate) fn with_struct_codec(mut self, enabled: bool) -> Self {
+        self.struct_codec = enabled;
+        self
     }
 }
 
@@ -517,7 +529,11 @@ impl<T: Message> Stream for RequestStream<T> {
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match self.inner.as_mut().poll_next(cx) {
-            Poll::Ready(Some(Ok(bytes))) => Poll::Ready(Some(T::decode(&bytes))),
+            Poll::Ready(Some(Ok(bytes))) => Poll::Ready(Some(if self.struct_codec {
+                T::decode_struct(&bytes)
+            } else {
+                T::decode(&bytes)
+            })),
             Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(e))),
             Poll::Ready(None) => Poll::Ready(None),
             Poll::Pending => Poll::Pending,
@@ -801,7 +817,9 @@ where
             let f = f.clone();
             Box::pin(async move {
                 let ServerCall { ctx, requests, sink } = call;
-                let mut stream = RequestStream::<Req>::from_bytes(requests);
+                let struct_codec = ctx.struct_codec;
+                let mut stream =
+                    RequestStream::<Req>::from_bytes(requests).with_struct_codec(struct_codec);
                 let req = match stream.next().await {
                     Some(Ok(req)) => req,
                     Some(Err(e)) => return Err(e),
@@ -810,7 +828,11 @@ where
                     }
                 };
                 let resp = f(req, ctx).await?;
-                sink.send(resp.encode()).await
+                if struct_codec {
+                    sink.send(resp.encode_struct()?).await
+                } else {
+                    sink.send(resp.encode()).await
+                }
             })
         }),
     }
@@ -831,7 +853,9 @@ where
             let f = f.clone();
             Box::pin(async move {
                 let ServerCall { ctx, requests, sink } = call;
-                let mut stream = RequestStream::<Req>::from_bytes(requests);
+                let struct_codec = ctx.struct_codec;
+                let mut stream =
+                    RequestStream::<Req>::from_bytes(requests).with_struct_codec(struct_codec);
                 let req = match stream.next().await {
                     Some(Ok(req)) => req,
                     Some(Err(e)) => return Err(e),
@@ -848,7 +872,12 @@ where
                 loop {
                     match futures_util::future::select(responses.next(), sink.cancelled()).await {
                         futures_util::future::Either::Left((Some(item), _)) => {
-                            sink.send(item?.encode()).await?;
+                            let item = item?;
+                            if struct_codec {
+                                sink.send(item.encode_struct()?).await?;
+                            } else {
+                                sink.send(item.encode()).await?;
+                            }
                         }
                         futures_util::future::Either::Left((None, _)) => break,
                         futures_util::future::Either::Right(((), _)) => return Ok(()),
@@ -875,9 +904,15 @@ where
             let f = f.clone();
             Box::pin(async move {
                 let ServerCall { ctx, requests, sink } = call;
-                let stream = RequestStream::<Req>::from_bytes(requests);
+                let struct_codec = ctx.struct_codec;
+                let stream =
+                    RequestStream::<Req>::from_bytes(requests).with_struct_codec(struct_codec);
                 let resp = f(stream, ctx).await?;
-                sink.send(resp.encode()).await
+                if struct_codec {
+                    sink.send(resp.encode_struct()?).await
+                } else {
+                    sink.send(resp.encode()).await
+                }
             })
         }),
     }
@@ -898,7 +933,9 @@ where
             let f = f.clone();
             Box::pin(async move {
                 let ServerCall { ctx, requests, sink } = call;
-                let stream = RequestStream::<Req>::from_bytes(requests);
+                let struct_codec = ctx.struct_codec;
+                let stream =
+                    RequestStream::<Req>::from_bytes(requests).with_struct_codec(struct_codec);
                 let mut responses = f(stream, ctx).await?;
                 // Same cancellation race as server-streaming:
                 // stop when the peer RSTs, even if the
@@ -906,7 +943,12 @@ where
                 loop {
                     match futures_util::future::select(responses.next(), sink.cancelled()).await {
                         futures_util::future::Either::Left((Some(item), _)) => {
-                            sink.send(item?.encode()).await?;
+                            let item = item?;
+                            if struct_codec {
+                                sink.send(item.encode_struct()?).await?;
+                            } else {
+                                sink.send(item.encode()).await?;
+                            }
                         }
                         futures_util::future::Either::Left((None, _)) => break,
                         futures_util::future::Either::Right(((), _)) => return Ok(()),
@@ -934,6 +976,14 @@ impl Server {
     pub fn add_service(self, service: ServiceDef) -> Self {
         self.ep.register_service(service);
         self
+    }
+
+    /// Enable the struct codec on this server (see
+    /// Endpoint::set_struct_codec). Calls carrying HEADERS
+    /// dc-codec: struct-v1 are decoded with the struct layout;
+    /// any other dc-codec value is rejected UNIMPLEMENTED.
+    pub fn set_struct_codec(&self, enabled: bool) {
+        self.ep.set_struct_codec(enabled);
     }
 
     /// Serve the given services over one transport until it closes.

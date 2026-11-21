@@ -81,12 +81,12 @@ func TestHttp2GoClientTLS(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := cmd.Start(); err != nil {
-		t.Skipf("node unavailable: %v", err)
+		skipOraclef(t, "node unavailable: %v", err)
 	}
 	defer func() { _ = cmd.Process.Kill() }()
 	line, err := bufio.NewReader(stdout).ReadString('\n')
 	if err != nil || !strings.HasPrefix(line, "READY") {
-		t.Skipf("TLS fixture did not start: %q %v", line, err)
+		skipOraclef(t, "TLS fixture did not start: %q %v", line, err)
 	}
 	fields := strings.Fields(line)
 	port, _ := strconv.Atoi(fields[1])
