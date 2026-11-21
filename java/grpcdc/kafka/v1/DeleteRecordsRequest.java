@@ -16,12 +16,12 @@ public final class DeleteRecordsRequest implements grpcdc.Marshaler, grpcdc.Unma
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
-        w.stringField(1, topic);
-        if (partition != 0) { w.tag(2, 0); w.varint(partition); }
-        if (beforeOffset != 0) { w.tag(3, 0); w.varint(beforeOffset); }
-        w.raw(unknownFields);
-        return w.toBytes();
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
+        pbW.stringField(1, topic);
+        if (partition != 0) { pbW.tag(2, 0); pbW.varint(partition); }
+        if (beforeOffset != 0) { pbW.tag(3, 0); pbW.varint(beforeOffset); }
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -30,20 +30,20 @@ public final class DeleteRecordsRequest implements grpcdc.Marshaler, grpcdc.Unma
         topic = "";
         partition = 0;
         beforeOffset = 0L;
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    topic = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    topic = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 2 -> {
-                    partition = (int) field.varintValue;
+                    partition = (int) pbField.varintValue;
                 }
                 case 3 -> {
-                    beforeOffset = field.varintValue;
+                    beforeOffset = pbField.varintValue;
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

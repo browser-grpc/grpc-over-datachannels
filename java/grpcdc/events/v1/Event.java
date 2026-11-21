@@ -20,14 +20,14 @@ public final class Event implements grpcdc.Marshaler, grpcdc.Unmarshaler {
 
     @Override
     public byte[] marshalDc() {
-        EventsPb.Writer w = new EventsPb.Writer();
-        if (tags != null) for (TagValue x : tags) w.bytesField(1, x.marshalDc());
-        if (payload != null && payload.length > 0) w.bytesField(2, payload);
-        if (seq != 0) { w.tag(3, 0); w.varint(seq); }
-        w.stringField(4, publisherId);
-        if (timestampUnixMs != 0) { w.tag(5, 0); w.varint(timestampUnixMs); }
-        w.raw(unknownFields);
-        return w.toBytes();
+        EventsPb.Writer pbW = new EventsPb.Writer();
+        if (tags != null) for (TagValue pbX : tags) pbW.bytesField(1, pbX.marshalDc());
+        if (payload != null && payload.length > 0) pbW.bytesField(2, payload);
+        if (seq != 0) { pbW.tag(3, 0); pbW.varint(seq); }
+        pbW.stringField(4, publisherId);
+        if (timestampUnixMs != 0) { pbW.tag(5, 0); pbW.varint(timestampUnixMs); }
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -38,28 +38,28 @@ public final class Event implements grpcdc.Marshaler, grpcdc.Unmarshaler {
         seq = 0L;
         publisherId = "";
         timestampUnixMs = 0L;
-        EventsPb.Reader r = new EventsPb.Reader(data);
-        EventsPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        EventsPb.Reader pbR = new EventsPb.Reader(data);
+        EventsPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    TagValue item = new TagValue();
-                    item.unmarshalDc(field.bytesValue);
-                    tags.add(item);
+                    TagValue pbItem = new TagValue();
+                    pbItem.unmarshalDc(pbField.bytesValue);
+                    tags.add(pbItem);
                 }
                 case 2 -> {
-                    payload = field.bytesValue;
+                    payload = pbField.bytesValue;
                 }
                 case 3 -> {
-                    seq = field.varintValue;
+                    seq = pbField.varintValue;
                 }
                 case 4 -> {
-                    publisherId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    publisherId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 5 -> {
-                    timestampUnixMs = field.varintValue;
+                    timestampUnixMs = pbField.varintValue;
                 }
-                default -> { unknownFields = EventsPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = EventsPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

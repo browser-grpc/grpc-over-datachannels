@@ -12,24 +12,24 @@ public final class CloseShareGroupRequest implements grpcdc.Marshaler, grpcdc.Un
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
-        w.stringField(1, sessionId);
-        w.raw(unknownFields);
-        return w.toBytes();
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
+        pbW.stringField(1, sessionId);
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
     public void unmarshalDc(byte[] data) {
         unknownFields = new byte[0];
         sessionId = "";
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    sessionId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    sessionId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

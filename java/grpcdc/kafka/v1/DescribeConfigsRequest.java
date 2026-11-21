@@ -18,13 +18,13 @@ public final class DescribeConfigsRequest implements grpcdc.Marshaler, grpcdc.Un
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
-        if (resourceType != null && resourceType.number != 0) { w.tag(1, 0); w.varint(resourceType.number); }
-        w.stringField(2, resourceName);
-        if (configKeys != null) for (String x : configKeys) w.bytesField(3, x.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        if (includeSynonyms) { w.tag(4, 0); w.varint((includeSynonyms ? 1 : 0)); }
-        w.raw(unknownFields);
-        return w.toBytes();
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
+        if (resourceType != null && resourceType.number != 0) { pbW.tag(1, 0); pbW.varint(resourceType.number); }
+        pbW.stringField(2, resourceName);
+        if (configKeys != null) for (String pbX : configKeys) pbW.bytesField(3, pbX.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        if (includeSynonyms) { pbW.tag(4, 0); pbW.varint((includeSynonyms ? 1 : 0)); }
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -34,23 +34,23 @@ public final class DescribeConfigsRequest implements grpcdc.Marshaler, grpcdc.Un
         resourceName = "";
         configKeys = new java.util.ArrayList<>();
         includeSynonyms = false;
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    resourceType = ConfigResourceType.fromNumber((int) field.varintValue);
+                    resourceType = ConfigResourceType.fromNumber((int) pbField.varintValue);
                 }
                 case 2 -> {
-                    resourceName = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    resourceName = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 3 -> {
-                    configKeys.add(new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8));
+                    configKeys.add(new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8));
                 }
                 case 4 -> {
-                    includeSynonyms = field.varintValue != 0;
+                    includeSynonyms = pbField.varintValue != 0;
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

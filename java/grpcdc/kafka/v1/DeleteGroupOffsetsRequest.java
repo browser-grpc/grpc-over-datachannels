@@ -16,16 +16,16 @@ public final class DeleteGroupOffsetsRequest implements grpcdc.Marshaler, grpcdc
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
-        w.stringField(1, groupId);
-        w.stringField(2, topic);
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
+        pbW.stringField(1, groupId);
+        pbW.stringField(2, topic);
         if (partitions != null && !partitions.isEmpty()) {
-            KafkaPb.Writer payload = new KafkaPb.Writer();
-            for (Integer x : partitions) payload.varint(x);
-            w.bytesField(3, payload.toBytes());
+            KafkaPb.Writer pbPayload = new KafkaPb.Writer();
+            for (Integer pbX : partitions) pbPayload.varint(pbX);
+            pbW.bytesField(3, pbPayload.toBytes());
         }
-        w.raw(unknownFields);
-        return w.toBytes();
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -34,27 +34,27 @@ public final class DeleteGroupOffsetsRequest implements grpcdc.Marshaler, grpcdc
         groupId = "";
         topic = "";
         partitions = new java.util.ArrayList<>();
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    groupId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    groupId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 2 -> {
-                    topic = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    topic = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 3 -> {
-                    if (field.wire == 2) {
-                        KafkaPb.Reader sub = new KafkaPb.Reader(field.bytesValue);
-                        while (!sub.done()) {
-                            partitions.add((int) sub.varint());
+                    if (pbField.wire == 2) {
+                        KafkaPb.Reader pbSub = new KafkaPb.Reader(pbField.bytesValue);
+                        while (!pbSub.done()) {
+                            partitions.add((int) pbSub.varint());
                         }
                     } else {
-                        partitions.add((int) field.varintValue);
+                        partitions.add((int) pbField.varintValue);
                     }
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

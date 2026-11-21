@@ -16,12 +16,12 @@ public final class EchoRequest implements grpcdc.Marshaler, grpcdc.Unmarshaler {
 
     @Override
     public byte[] marshalDc() {
-        EchoPb.Writer w = new EchoPb.Writer();
-        w.stringField(1, message);
-        if (count != 0) { w.tag(2, 0); w.varint(count); }
-        if (delayMs != 0) { w.tag(3, 0); w.varint(delayMs); }
-        w.raw(unknownFields);
-        return w.toBytes();
+        EchoPb.Writer pbW = new EchoPb.Writer();
+        pbW.stringField(1, message);
+        if (count != 0) { pbW.tag(2, 0); pbW.varint(count); }
+        if (delayMs != 0) { pbW.tag(3, 0); pbW.varint(delayMs); }
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -30,21 +30,35 @@ public final class EchoRequest implements grpcdc.Marshaler, grpcdc.Unmarshaler {
         message = "";
         count = 0;
         delayMs = 0;
-        EchoPb.Reader r = new EchoPb.Reader(data);
-        EchoPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        EchoPb.Reader pbR = new EchoPb.Reader(data);
+        EchoPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    message = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    message = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 2 -> {
-                    count = (int) field.varintValue;
+                    count = (int) pbField.varintValue;
                 }
                 case 3 -> {
-                    delayMs = (int) field.varintValue;
+                    delayMs = (int) pbField.varintValue;
                 }
-                default -> { unknownFields = EchoPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = EchoPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
+    }
+
+    @Override
+    public byte[] marshalStruct() {
+        return EchoRequestStruct.marshal(this);
+    }
+
+    @Override
+    public void unmarshalStruct(byte[] data) {
+        EchoRequest _s = EchoRequestStruct.unmarshal(data);
+        this.message = _s.message;
+        this.count = _s.count;
+        this.delayMs = _s.delayMs;
+        this.unknownFields = _s.unknownFields;
     }
 }

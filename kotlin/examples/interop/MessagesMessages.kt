@@ -50,21 +50,21 @@ object MessagesPb {
     }
 
     fun LoadBalancerStatsResponseRpcsByPeerEntryEncode(key: String, value: Int): ByteArray {
-        val w = Writer()
-        w.stringField(1, key)
-        if (value != 0) { w.tag(2, 0); w.varint(value.toLong()) }
-        return w.toBytes()
+        val pbW = Writer()
+        pbW.stringField(1, key)
+        if (value != 0) { pbW.tag(2, 0); pbW.varint(value.toLong()) }
+        return pbW.toBytes()
     }
 
     fun LoadBalancerStatsResponseRpcsByPeerEntryDecode(bytes: ByteArray): Pair<String, Int> {
         var key: String = ""
         var value: Int = 0
-        val r = Reader(bytes)
+        val pbR = Reader(bytes)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
-                1 -> key = String(field.bytesValue, Charsets.UTF_8)
-                2 -> value = field.varintValue.toInt()
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
+                1 -> key = String(pbField.bytesValue, Charsets.UTF_8)
+                2 -> value = pbField.varintValue.toInt()
                 else -> {}
             }
         }
@@ -72,21 +72,21 @@ object MessagesPb {
     }
 
     fun LoadBalancerStatsResponseRpcsByMethodEntryEncode(key: String, value: LoadBalancerStatsResponse.RpcsByPeer): ByteArray {
-        val w = Writer()
-        w.stringField(1, key)
-        w.bytesField(2, value.marshalDc())
-        return w.toBytes()
+        val pbW = Writer()
+        pbW.stringField(1, key)
+        pbW.bytesField(2, value.marshalDc())
+        return pbW.toBytes()
     }
 
     fun LoadBalancerStatsResponseRpcsByMethodEntryDecode(bytes: ByteArray): Pair<String, LoadBalancerStatsResponse.RpcsByPeer> {
         var key: String = ""
         var value: LoadBalancerStatsResponse.RpcsByPeer = LoadBalancerStatsResponse.RpcsByPeer()
-        val r = Reader(bytes)
+        val pbR = Reader(bytes)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
-                1 -> key = String(field.bytesValue, Charsets.UTF_8)
-                2 -> value.unmarshalDc(field.bytesValue)
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
+                1 -> key = String(pbField.bytesValue, Charsets.UTF_8)
+                2 -> value.unmarshalDc(pbField.bytesValue)
                 else -> {}
             }
         }
@@ -94,21 +94,21 @@ object MessagesPb {
     }
 
     fun LoadBalancerStatsResponseRpcsByPeerRpcsByPeerEntryEncode(key: String, value: Int): ByteArray {
-        val w = Writer()
-        w.stringField(1, key)
-        if (value != 0) { w.tag(2, 0); w.varint(value.toLong()) }
-        return w.toBytes()
+        val pbW = Writer()
+        pbW.stringField(1, key)
+        if (value != 0) { pbW.tag(2, 0); pbW.varint(value.toLong()) }
+        return pbW.toBytes()
     }
 
     fun LoadBalancerStatsResponseRpcsByPeerRpcsByPeerEntryDecode(bytes: ByteArray): Pair<String, Int> {
         var key: String = ""
         var value: Int = 0
-        val r = Reader(bytes)
+        val pbR = Reader(bytes)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
-                1 -> key = String(field.bytesValue, Charsets.UTF_8)
-                2 -> value = field.varintValue.toInt()
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
+                1 -> key = String(pbField.bytesValue, Charsets.UTF_8)
+                2 -> value = pbField.varintValue.toInt()
                 else -> {}
             }
         }
@@ -116,21 +116,21 @@ object MessagesPb {
     }
 
     fun LoadBalancerAccumulatedStatsResponseNumRpcsStartedByMethodEntryEncode(key: String, value: Int): ByteArray {
-        val w = Writer()
-        w.stringField(1, key)
-        if (value != 0) { w.tag(2, 0); w.varint(value.toLong()) }
-        return w.toBytes()
+        val pbW = Writer()
+        pbW.stringField(1, key)
+        if (value != 0) { pbW.tag(2, 0); pbW.varint(value.toLong()) }
+        return pbW.toBytes()
     }
 
     fun LoadBalancerAccumulatedStatsResponseNumRpcsStartedByMethodEntryDecode(bytes: ByteArray): Pair<String, Int> {
         var key: String = ""
         var value: Int = 0
-        val r = Reader(bytes)
+        val pbR = Reader(bytes)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
-                1 -> key = String(field.bytesValue, Charsets.UTF_8)
-                2 -> value = field.varintValue.toInt()
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
+                1 -> key = String(pbField.bytesValue, Charsets.UTF_8)
+                2 -> value = pbField.varintValue.toInt()
                 else -> {}
             }
         }
@@ -138,21 +138,21 @@ object MessagesPb {
     }
 
     fun LoadBalancerAccumulatedStatsResponseNumRpcsSucceededByMethodEntryEncode(key: String, value: Int): ByteArray {
-        val w = Writer()
-        w.stringField(1, key)
-        if (value != 0) { w.tag(2, 0); w.varint(value.toLong()) }
-        return w.toBytes()
+        val pbW = Writer()
+        pbW.stringField(1, key)
+        if (value != 0) { pbW.tag(2, 0); pbW.varint(value.toLong()) }
+        return pbW.toBytes()
     }
 
     fun LoadBalancerAccumulatedStatsResponseNumRpcsSucceededByMethodEntryDecode(bytes: ByteArray): Pair<String, Int> {
         var key: String = ""
         var value: Int = 0
-        val r = Reader(bytes)
+        val pbR = Reader(bytes)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
-                1 -> key = String(field.bytesValue, Charsets.UTF_8)
-                2 -> value = field.varintValue.toInt()
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
+                1 -> key = String(pbField.bytesValue, Charsets.UTF_8)
+                2 -> value = pbField.varintValue.toInt()
                 else -> {}
             }
         }
@@ -160,21 +160,21 @@ object MessagesPb {
     }
 
     fun LoadBalancerAccumulatedStatsResponseNumRpcsFailedByMethodEntryEncode(key: String, value: Int): ByteArray {
-        val w = Writer()
-        w.stringField(1, key)
-        if (value != 0) { w.tag(2, 0); w.varint(value.toLong()) }
-        return w.toBytes()
+        val pbW = Writer()
+        pbW.stringField(1, key)
+        if (value != 0) { pbW.tag(2, 0); pbW.varint(value.toLong()) }
+        return pbW.toBytes()
     }
 
     fun LoadBalancerAccumulatedStatsResponseNumRpcsFailedByMethodEntryDecode(bytes: ByteArray): Pair<String, Int> {
         var key: String = ""
         var value: Int = 0
-        val r = Reader(bytes)
+        val pbR = Reader(bytes)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
-                1 -> key = String(field.bytesValue, Charsets.UTF_8)
-                2 -> value = field.varintValue.toInt()
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
+                1 -> key = String(pbField.bytesValue, Charsets.UTF_8)
+                2 -> value = pbField.varintValue.toInt()
                 else -> {}
             }
         }
@@ -182,21 +182,21 @@ object MessagesPb {
     }
 
     fun LoadBalancerAccumulatedStatsResponseStatsPerMethodEntryEncode(key: String, value: LoadBalancerAccumulatedStatsResponse.MethodStats): ByteArray {
-        val w = Writer()
-        w.stringField(1, key)
-        w.bytesField(2, value.marshalDc())
-        return w.toBytes()
+        val pbW = Writer()
+        pbW.stringField(1, key)
+        pbW.bytesField(2, value.marshalDc())
+        return pbW.toBytes()
     }
 
     fun LoadBalancerAccumulatedStatsResponseStatsPerMethodEntryDecode(bytes: ByteArray): Pair<String, LoadBalancerAccumulatedStatsResponse.MethodStats> {
         var key: String = ""
         var value: LoadBalancerAccumulatedStatsResponse.MethodStats = LoadBalancerAccumulatedStatsResponse.MethodStats()
-        val r = Reader(bytes)
+        val pbR = Reader(bytes)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
-                1 -> key = String(field.bytesValue, Charsets.UTF_8)
-                2 -> value.unmarshalDc(field.bytesValue)
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
+                1 -> key = String(pbField.bytesValue, Charsets.UTF_8)
+                2 -> value.unmarshalDc(pbField.bytesValue)
                 else -> {}
             }
         }
@@ -204,21 +204,21 @@ object MessagesPb {
     }
 
     fun LoadBalancerAccumulatedStatsResponseMethodStatsResultEntryEncode(key: Int, value: Int): ByteArray {
-        val w = Writer()
-        if (key != 0) { w.tag(1, 0); w.varint(key.toLong()) }
-        if (value != 0) { w.tag(2, 0); w.varint(value.toLong()) }
-        return w.toBytes()
+        val pbW = Writer()
+        if (key != 0) { pbW.tag(1, 0); pbW.varint(key.toLong()) }
+        if (value != 0) { pbW.tag(2, 0); pbW.varint(value.toLong()) }
+        return pbW.toBytes()
     }
 
     fun LoadBalancerAccumulatedStatsResponseMethodStatsResultEntryDecode(bytes: ByteArray): Pair<Int, Int> {
         var key: Int = 0
         var value: Int = 0
-        val r = Reader(bytes)
+        val pbR = Reader(bytes)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
-                1 -> key = field.varintValue.toInt()
-                2 -> value = field.varintValue.toInt()
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
+                1 -> key = pbField.varintValue.toInt()
+                2 -> value = pbField.varintValue.toInt()
                 else -> {}
             }
         }
@@ -226,21 +226,21 @@ object MessagesPb {
     }
 
     fun TestOrcaReportRequestCostEntryEncode(key: String, value: Double): ByteArray {
-        val w = Writer()
-        w.stringField(1, key)
-        if (value != 0.0) { w.tag(2, 1); w.fixedDouble(value) }
-        return w.toBytes()
+        val pbW = Writer()
+        pbW.stringField(1, key)
+        if (value != 0.0) { pbW.tag(2, 1); pbW.fixedDouble(value) }
+        return pbW.toBytes()
     }
 
     fun TestOrcaReportRequestCostEntryDecode(bytes: ByteArray): Pair<String, Double> {
         var key: String = ""
         var value: Double = 0.0
-        val r = Reader(bytes)
+        val pbR = Reader(bytes)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
-                1 -> key = String(field.bytesValue, Charsets.UTF_8)
-                2 -> value = MessagesPb.bitsToDouble(field.fixedValue.toULong())
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
+                1 -> key = String(pbField.bytesValue, Charsets.UTF_8)
+                2 -> value = MessagesPb.bitsToDouble(pbField.fixedValue.toULong())
                 else -> {}
             }
         }
@@ -248,21 +248,21 @@ object MessagesPb {
     }
 
     fun TestOrcaReportUtilizationEntryEncode(key: String, value: Double): ByteArray {
-        val w = Writer()
-        w.stringField(1, key)
-        if (value != 0.0) { w.tag(2, 1); w.fixedDouble(value) }
-        return w.toBytes()
+        val pbW = Writer()
+        pbW.stringField(1, key)
+        if (value != 0.0) { pbW.tag(2, 1); pbW.fixedDouble(value) }
+        return pbW.toBytes()
     }
 
     fun TestOrcaReportUtilizationEntryDecode(bytes: ByteArray): Pair<String, Double> {
         var key: String = ""
         var value: Double = 0.0
-        val r = Reader(bytes)
+        val pbR = Reader(bytes)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
-                1 -> key = String(field.bytesValue, Charsets.UTF_8)
-                2 -> value = MessagesPb.bitsToDouble(field.fixedValue.toULong())
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
+                1 -> key = String(pbField.bytesValue, Charsets.UTF_8)
+                2 -> value = MessagesPb.bitsToDouble(pbField.fixedValue.toULong())
                 else -> {}
             }
         }
@@ -302,22 +302,22 @@ enum class GrpclbRouteType(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = MessagesPb.Writer()
-        if (value) { w.tag(1, 0); w.varint(if (value) 1L else 0L) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = MessagesPb.Writer()
+        if (value) { pbW.tag(1, 0); pbW.varint(if (value) 1L else 0L) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         value = false
-        val r = MessagesPb.Reader(data)
+        val pbR = MessagesPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    value = field.varintValue != 0L
+                    value = pbField.varintValue != 0L
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -328,27 +328,27 @@ enum class GrpclbRouteType(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = MessagesPb.Writer()
-        if (type.number != 0) { w.tag(1, 0); w.varint(type.number.toLong()) }
-        if (body.isNotEmpty()) w.bytesField(2, body)
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = MessagesPb.Writer()
+        if (type.number != 0) { pbW.tag(1, 0); pbW.varint(type.number.toLong()) }
+        if (body.isNotEmpty()) pbW.bytesField(2, body)
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         type = PayloadType.COMPRESSABLE
         body = ByteArray(0)
-        val r = MessagesPb.Reader(data)
+        val pbR = MessagesPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    type = PayloadType.fromNumber(field.varintValue.toInt())
+                    type = PayloadType.fromNumber(pbField.varintValue.toInt())
                 }
                 2 -> {
-                    body = field.bytesValue
+                    body = pbField.bytesValue
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -359,27 +359,27 @@ enum class GrpclbRouteType(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = MessagesPb.Writer()
-        if (code != 0) { w.tag(1, 0); w.varint(code.toLong()) }
-        w.stringField(2, message)
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = MessagesPb.Writer()
+        if (code != 0) { pbW.tag(1, 0); pbW.varint(code.toLong()) }
+        pbW.stringField(2, message)
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         code = 0
         message = ""
-        val r = MessagesPb.Reader(data)
+        val pbR = MessagesPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    code = field.varintValue.toInt()
+                    code = pbField.varintValue.toInt()
                 }
                 2 -> {
-                    message = String(field.bytesValue, Charsets.UTF_8)
+                    message = String(pbField.bytesValue, Charsets.UTF_8)
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -399,20 +399,20 @@ enum class GrpclbRouteType(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = MessagesPb.Writer()
-        if (responseType.number != 0) { w.tag(1, 0); w.varint(responseType.number.toLong()) }
-        if (responseSize != 0) { w.tag(2, 0); w.varint(responseSize.toLong()) }
-        payload?.let { w.bytesField(3, it.marshalDc()) }
-        if (fillUsername) { w.tag(4, 0); w.varint(if (fillUsername) 1L else 0L) }
-        if (fillOauthScope) { w.tag(5, 0); w.varint(if (fillOauthScope) 1L else 0L) }
-        responseCompressed?.let { w.bytesField(6, it.marshalDc()) }
-        responseStatus?.let { w.bytesField(7, it.marshalDc()) }
-        expectCompressed?.let { w.bytesField(8, it.marshalDc()) }
-        if (fillServerId) { w.tag(9, 0); w.varint(if (fillServerId) 1L else 0L) }
-        if (fillGrpclbRouteType) { w.tag(10, 0); w.varint(if (fillGrpclbRouteType) 1L else 0L) }
-        orcaPerQueryReport?.let { w.bytesField(11, it.marshalDc()) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = MessagesPb.Writer()
+        if (responseType.number != 0) { pbW.tag(1, 0); pbW.varint(responseType.number.toLong()) }
+        if (responseSize != 0) { pbW.tag(2, 0); pbW.varint(responseSize.toLong()) }
+        payload?.let { pbW.bytesField(3, it.marshalDc()) }
+        if (fillUsername) { pbW.tag(4, 0); pbW.varint(if (fillUsername) 1L else 0L) }
+        if (fillOauthScope) { pbW.tag(5, 0); pbW.varint(if (fillOauthScope) 1L else 0L) }
+        responseCompressed?.let { pbW.bytesField(6, it.marshalDc()) }
+        responseStatus?.let { pbW.bytesField(7, it.marshalDc()) }
+        expectCompressed?.let { pbW.bytesField(8, it.marshalDc()) }
+        if (fillServerId) { pbW.tag(9, 0); pbW.varint(if (fillServerId) 1L else 0L) }
+        if (fillGrpclbRouteType) { pbW.tag(10, 0); pbW.varint(if (fillGrpclbRouteType) 1L else 0L) }
+        orcaPerQueryReport?.let { pbW.bytesField(11, it.marshalDc()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
@@ -427,49 +427,49 @@ enum class GrpclbRouteType(val number: Int) {
         fillServerId = false
         fillGrpclbRouteType = false
         orcaPerQueryReport = null
-        val r = MessagesPb.Reader(data)
+        val pbR = MessagesPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    responseType = PayloadType.fromNumber(field.varintValue.toInt())
+                    responseType = PayloadType.fromNumber(pbField.varintValue.toInt())
                 }
                 2 -> {
-                    responseSize = field.varintValue.toInt()
+                    responseSize = pbField.varintValue.toInt()
                 }
                 3 -> {
                     payload = Payload()
-                    payload!!.unmarshalDc(field.bytesValue)
+                    payload!!.unmarshalDc(pbField.bytesValue)
                 }
                 4 -> {
-                    fillUsername = field.varintValue != 0L
+                    fillUsername = pbField.varintValue != 0L
                 }
                 5 -> {
-                    fillOauthScope = field.varintValue != 0L
+                    fillOauthScope = pbField.varintValue != 0L
                 }
                 6 -> {
                     responseCompressed = BoolValue()
-                    responseCompressed!!.unmarshalDc(field.bytesValue)
+                    responseCompressed!!.unmarshalDc(pbField.bytesValue)
                 }
                 7 -> {
                     responseStatus = EchoStatus()
-                    responseStatus!!.unmarshalDc(field.bytesValue)
+                    responseStatus!!.unmarshalDc(pbField.bytesValue)
                 }
                 8 -> {
                     expectCompressed = BoolValue()
-                    expectCompressed!!.unmarshalDc(field.bytesValue)
+                    expectCompressed!!.unmarshalDc(pbField.bytesValue)
                 }
                 9 -> {
-                    fillServerId = field.varintValue != 0L
+                    fillServerId = pbField.varintValue != 0L
                 }
                 10 -> {
-                    fillGrpclbRouteType = field.varintValue != 0L
+                    fillGrpclbRouteType = pbField.varintValue != 0L
                 }
                 11 -> {
                     orcaPerQueryReport = TestOrcaReport()
-                    orcaPerQueryReport!!.unmarshalDc(field.bytesValue)
+                    orcaPerQueryReport!!.unmarshalDc(pbField.bytesValue)
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -484,15 +484,15 @@ enum class GrpclbRouteType(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = MessagesPb.Writer()
-        payload?.let { w.bytesField(1, it.marshalDc()) }
-        w.stringField(2, username)
-        w.stringField(3, oauthScope)
-        w.stringField(4, serverId)
-        if (grpclbRouteType.number != 0) { w.tag(5, 0); w.varint(grpclbRouteType.number.toLong()) }
-        w.stringField(6, hostname)
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = MessagesPb.Writer()
+        payload?.let { pbW.bytesField(1, it.marshalDc()) }
+        pbW.stringField(2, username)
+        pbW.stringField(3, oauthScope)
+        pbW.stringField(4, serverId)
+        if (grpclbRouteType.number != 0) { pbW.tag(5, 0); pbW.varint(grpclbRouteType.number.toLong()) }
+        pbW.stringField(6, hostname)
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
@@ -502,30 +502,30 @@ enum class GrpclbRouteType(val number: Int) {
         serverId = ""
         grpclbRouteType = GrpclbRouteType.GRPCLB_ROUTE_TYPE_UNKNOWN
         hostname = ""
-        val r = MessagesPb.Reader(data)
+        val pbR = MessagesPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
                     payload = Payload()
-                    payload!!.unmarshalDc(field.bytesValue)
+                    payload!!.unmarshalDc(pbField.bytesValue)
                 }
                 2 -> {
-                    username = String(field.bytesValue, Charsets.UTF_8)
+                    username = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 3 -> {
-                    oauthScope = String(field.bytesValue, Charsets.UTF_8)
+                    oauthScope = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 4 -> {
-                    serverId = String(field.bytesValue, Charsets.UTF_8)
+                    serverId = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 5 -> {
-                    grpclbRouteType = GrpclbRouteType.fromNumber(field.varintValue.toInt())
+                    grpclbRouteType = GrpclbRouteType.fromNumber(pbField.varintValue.toInt())
                 }
                 6 -> {
-                    hostname = String(field.bytesValue, Charsets.UTF_8)
+                    hostname = String(pbField.bytesValue, Charsets.UTF_8)
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -536,29 +536,29 @@ enum class GrpclbRouteType(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = MessagesPb.Writer()
-        payload?.let { w.bytesField(1, it.marshalDc()) }
-        expectCompressed?.let { w.bytesField(2, it.marshalDc()) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = MessagesPb.Writer()
+        payload?.let { pbW.bytesField(1, it.marshalDc()) }
+        expectCompressed?.let { pbW.bytesField(2, it.marshalDc()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         payload = null
         expectCompressed = null
-        val r = MessagesPb.Reader(data)
+        val pbR = MessagesPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
                     payload = Payload()
-                    payload!!.unmarshalDc(field.bytesValue)
+                    payload!!.unmarshalDc(pbField.bytesValue)
                 }
                 2 -> {
                     expectCompressed = BoolValue()
-                    expectCompressed!!.unmarshalDc(field.bytesValue)
+                    expectCompressed!!.unmarshalDc(pbField.bytesValue)
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -568,22 +568,22 @@ enum class GrpclbRouteType(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = MessagesPb.Writer()
-        if (aggregatedPayloadSize != 0) { w.tag(1, 0); w.varint(aggregatedPayloadSize.toLong()) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = MessagesPb.Writer()
+        if (aggregatedPayloadSize != 0) { pbW.tag(1, 0); pbW.varint(aggregatedPayloadSize.toLong()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         aggregatedPayloadSize = 0
-        val r = MessagesPb.Reader(data)
+        val pbR = MessagesPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    aggregatedPayloadSize = field.varintValue.toInt()
+                    aggregatedPayloadSize = pbField.varintValue.toInt()
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -595,33 +595,33 @@ enum class GrpclbRouteType(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = MessagesPb.Writer()
-        if (size != 0) { w.tag(1, 0); w.varint(size.toLong()) }
-        if (intervalUs != 0) { w.tag(2, 0); w.varint(intervalUs.toLong()) }
-        compressed?.let { w.bytesField(3, it.marshalDc()) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = MessagesPb.Writer()
+        if (size != 0) { pbW.tag(1, 0); pbW.varint(size.toLong()) }
+        if (intervalUs != 0) { pbW.tag(2, 0); pbW.varint(intervalUs.toLong()) }
+        compressed?.let { pbW.bytesField(3, it.marshalDc()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         size = 0
         intervalUs = 0
         compressed = null
-        val r = MessagesPb.Reader(data)
+        val pbR = MessagesPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    size = field.varintValue.toInt()
+                    size = pbField.varintValue.toInt()
                 }
                 2 -> {
-                    intervalUs = field.varintValue.toInt()
+                    intervalUs = pbField.varintValue.toInt()
                 }
                 3 -> {
                     compressed = BoolValue()
-                    compressed!!.unmarshalDc(field.bytesValue)
+                    compressed!!.unmarshalDc(pbField.bytesValue)
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -635,14 +635,14 @@ enum class GrpclbRouteType(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = MessagesPb.Writer()
-        if (responseType.number != 0) { w.tag(1, 0); w.varint(responseType.number.toLong()) }
-        for (x in responseParameters) w.bytesField(2, x.marshalDc())
-        payload?.let { w.bytesField(3, it.marshalDc()) }
-        responseStatus?.let { w.bytesField(7, it.marshalDc()) }
-        orcaOobReport?.let { w.bytesField(8, it.marshalDc()) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = MessagesPb.Writer()
+        if (responseType.number != 0) { pbW.tag(1, 0); pbW.varint(responseType.number.toLong()) }
+        for (pbX in responseParameters) pbW.bytesField(2, pbX.marshalDc())
+        payload?.let { pbW.bytesField(3, it.marshalDc()) }
+        responseStatus?.let { pbW.bytesField(7, it.marshalDc()) }
+        orcaOobReport?.let { pbW.bytesField(8, it.marshalDc()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
@@ -651,31 +651,31 @@ enum class GrpclbRouteType(val number: Int) {
         payload = null
         responseStatus = null
         orcaOobReport = null
-        val r = MessagesPb.Reader(data)
+        val pbR = MessagesPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    responseType = PayloadType.fromNumber(field.varintValue.toInt())
+                    responseType = PayloadType.fromNumber(pbField.varintValue.toInt())
                 }
                 2 -> {
-                    val item = ResponseParameters()
-                    item.unmarshalDc(field.bytesValue)
-                    responseParameters.add(item)
+                    val pbItem = ResponseParameters()
+                    pbItem.unmarshalDc(pbField.bytesValue)
+                    responseParameters.add(pbItem)
                 }
                 3 -> {
                     payload = Payload()
-                    payload!!.unmarshalDc(field.bytesValue)
+                    payload!!.unmarshalDc(pbField.bytesValue)
                 }
                 7 -> {
                     responseStatus = EchoStatus()
-                    responseStatus!!.unmarshalDc(field.bytesValue)
+                    responseStatus!!.unmarshalDc(pbField.bytesValue)
                 }
                 8 -> {
                     orcaOobReport = TestOrcaReport()
-                    orcaOobReport!!.unmarshalDc(field.bytesValue)
+                    orcaOobReport!!.unmarshalDc(pbField.bytesValue)
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -685,23 +685,23 @@ enum class GrpclbRouteType(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = MessagesPb.Writer()
-        payload?.let { w.bytesField(1, it.marshalDc()) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = MessagesPb.Writer()
+        payload?.let { pbW.bytesField(1, it.marshalDc()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         payload = null
-        val r = MessagesPb.Reader(data)
+        val pbR = MessagesPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
                     payload = Payload()
-                    payload!!.unmarshalDc(field.bytesValue)
+                    payload!!.unmarshalDc(pbField.bytesValue)
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -711,22 +711,22 @@ enum class GrpclbRouteType(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = MessagesPb.Writer()
-        if (maxReconnectBackoffMs != 0) { w.tag(1, 0); w.varint(maxReconnectBackoffMs.toLong()) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = MessagesPb.Writer()
+        if (maxReconnectBackoffMs != 0) { pbW.tag(1, 0); pbW.varint(maxReconnectBackoffMs.toLong()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         maxReconnectBackoffMs = 0
-        val r = MessagesPb.Reader(data)
+        val pbR = MessagesPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    maxReconnectBackoffMs = field.varintValue.toInt()
+                    maxReconnectBackoffMs = pbField.varintValue.toInt()
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -737,38 +737,38 @@ enum class GrpclbRouteType(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = MessagesPb.Writer()
-        if (passed) { w.tag(1, 0); w.varint(if (passed) 1L else 0L) }
+        val pbW = MessagesPb.Writer()
+        if (passed) { pbW.tag(1, 0); pbW.varint(if (passed) 1L else 0L) }
         if (backoffMs.isNotEmpty()) {
-            val payload = MessagesPb.Writer()
-            for (x in backoffMs) payload.varint(x.toLong())
-            w.bytesField(2, payload.toBytes())
+            val pbPayload = MessagesPb.Writer()
+            for (pbX in backoffMs) pbPayload.varint(pbX.toLong())
+            pbW.bytesField(2, pbPayload.toBytes())
         }
-        w.raw(unknownFields)
-        return w.toBytes()
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         passed = false
         backoffMs = mutableListOf()
-        val r = MessagesPb.Reader(data)
+        val pbR = MessagesPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    passed = field.varintValue != 0L
+                    passed = pbField.varintValue != 0L
                 }
                 2 -> {
-                    if (field.wire == 2) {
-                        val sub = MessagesPb.Reader(field.bytesValue)
-                        while (!sub.done()) {
-                            backoffMs.add(sub.varint().toInt())
+                    if (pbField.wire == 2) {
+                        val pbSub = MessagesPb.Reader(pbField.bytesValue)
+                        while (!pbSub.done()) {
+                            backoffMs.add(pbSub.varint().toInt())
                         }
                     } else {
-                        backoffMs.add(field.varintValue.toInt())
+                        backoffMs.add(pbField.varintValue.toInt())
                     }
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -779,27 +779,27 @@ enum class GrpclbRouteType(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = MessagesPb.Writer()
-        if (numRpcs != 0) { w.tag(1, 0); w.varint(numRpcs.toLong()) }
-        if (timeoutSec != 0) { w.tag(2, 0); w.varint(timeoutSec.toLong()) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = MessagesPb.Writer()
+        if (numRpcs != 0) { pbW.tag(1, 0); pbW.varint(numRpcs.toLong()) }
+        if (timeoutSec != 0) { pbW.tag(2, 0); pbW.varint(timeoutSec.toLong()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         numRpcs = 0
         timeoutSec = 0
-        val r = MessagesPb.Reader(data)
+        val pbR = MessagesPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    numRpcs = field.varintValue.toInt()
+                    numRpcs = pbField.varintValue.toInt()
                 }
                 2 -> {
-                    timeoutSec = field.varintValue.toInt()
+                    timeoutSec = pbField.varintValue.toInt()
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -811,34 +811,34 @@ enum class GrpclbRouteType(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = MessagesPb.Writer()
-        for (e in rpcsByPeer) w.bytesField(1, MessagesPb.LoadBalancerStatsResponseRpcsByPeerEntryEncode(e.key, e.value))
-        if (numFailures != 0) { w.tag(2, 0); w.varint(numFailures.toLong()) }
-        for (e in rpcsByMethod) w.bytesField(3, MessagesPb.LoadBalancerStatsResponseRpcsByMethodEntryEncode(e.key, e.value))
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = MessagesPb.Writer()
+        for (pbE in rpcsByPeer) pbW.bytesField(1, MessagesPb.LoadBalancerStatsResponseRpcsByPeerEntryEncode(pbE.key, pbE.value))
+        if (numFailures != 0) { pbW.tag(2, 0); pbW.varint(numFailures.toLong()) }
+        for (pbE in rpcsByMethod) pbW.bytesField(3, MessagesPb.LoadBalancerStatsResponseRpcsByMethodEntryEncode(pbE.key, pbE.value))
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         rpcsByPeer = mutableMapOf()
         numFailures = 0
         rpcsByMethod = mutableMapOf()
-        val r = MessagesPb.Reader(data)
+        val pbR = MessagesPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    val kv = MessagesPb.LoadBalancerStatsResponseRpcsByPeerEntryDecode(field.bytesValue)
-                    rpcsByPeer[kv.first] = kv.second
+                    val pbKv = MessagesPb.LoadBalancerStatsResponseRpcsByPeerEntryDecode(pbField.bytesValue)
+                    rpcsByPeer[pbKv.first] = pbKv.second
                 }
                 2 -> {
-                    numFailures = field.varintValue.toInt()
+                    numFailures = pbField.varintValue.toInt()
                 }
                 3 -> {
-                    val kv = MessagesPb.LoadBalancerStatsResponseRpcsByMethodEntryDecode(field.bytesValue)
-                    rpcsByMethod[kv.first] = kv.second
+                    val pbKv = MessagesPb.LoadBalancerStatsResponseRpcsByMethodEntryDecode(pbField.bytesValue)
+                    rpcsByMethod[pbKv.first] = pbKv.second
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -847,23 +847,23 @@ enum class GrpclbRouteType(val number: Int) {
     ) : Marshaler, Unmarshaler {
         var unknownFields: ByteArray = ByteArray(0)
         override fun marshalDc(): ByteArray {
-            val w = MessagesPb.Writer()
-        for (e in rpcsByPeer) w.bytesField(1, MessagesPb.LoadBalancerStatsResponseRpcsByPeerRpcsByPeerEntryEncode(e.key, e.value))
-            w.raw(unknownFields)
-            return w.toBytes()
+            val pbW = MessagesPb.Writer()
+        for (pbE in rpcsByPeer) pbW.bytesField(1, MessagesPb.LoadBalancerStatsResponseRpcsByPeerRpcsByPeerEntryEncode(pbE.key, pbE.value))
+            pbW.raw(unknownFields)
+            return pbW.toBytes()
         }
         override fun unmarshalDc(data: ByteArray) {
             unknownFields = ByteArray(0)
             rpcsByPeer = mutableMapOf()
-            val r = MessagesPb.Reader(data)
+            val pbR = MessagesPb.Reader(data)
             while (true) {
-                val field = r.next() ?: break
-                when (field.number) {
+                val pbField = pbR.next() ?: break
+                when (pbField.number) {
                 1 -> {
-                    val kv = MessagesPb.LoadBalancerStatsResponseRpcsByPeerRpcsByPeerEntryDecode(field.bytesValue)
-                    rpcsByPeer[kv.first] = kv.second
+                    val pbKv = MessagesPb.LoadBalancerStatsResponseRpcsByPeerRpcsByPeerEntryDecode(pbField.bytesValue)
+                    rpcsByPeer[pbKv.first] = pbKv.second
                 }
-                    else -> { unknownFields = unknownFields + field.rawValue }
+                    else -> { unknownFields = unknownFields + pbField.rawValue }
                 }
             }
         }
@@ -873,27 +873,27 @@ enum class GrpclbRouteType(val number: Int) {
         ) : Marshaler, Unmarshaler {
             var unknownFields: ByteArray = ByteArray(0)
             override fun marshalDc(): ByteArray {
-                val w = MessagesPb.Writer()
-        w.stringField(1, key)
-        if (value != 0) { w.tag(2, 0); w.varint(value.toLong()) }
-                w.raw(unknownFields)
-                return w.toBytes()
+                val pbW = MessagesPb.Writer()
+        pbW.stringField(1, key)
+        if (value != 0) { pbW.tag(2, 0); pbW.varint(value.toLong()) }
+                pbW.raw(unknownFields)
+                return pbW.toBytes()
             }
             override fun unmarshalDc(data: ByteArray) {
                 unknownFields = ByteArray(0)
                 key = ""
                 value = 0
-                val r = MessagesPb.Reader(data)
+                val pbR = MessagesPb.Reader(data)
                 while (true) {
-                    val field = r.next() ?: break
-                    when (field.number) {
+                    val pbField = pbR.next() ?: break
+                    when (pbField.number) {
                 1 -> {
-                    key = String(field.bytesValue, Charsets.UTF_8)
+                    key = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    value = field.varintValue.toInt()
+                    value = pbField.varintValue.toInt()
                 }
-                        else -> { unknownFields = unknownFields + field.rawValue }
+                        else -> { unknownFields = unknownFields + pbField.rawValue }
                     }
                 }
             }
@@ -905,27 +905,27 @@ enum class GrpclbRouteType(val number: Int) {
     ) : Marshaler, Unmarshaler {
         var unknownFields: ByteArray = ByteArray(0)
         override fun marshalDc(): ByteArray {
-            val w = MessagesPb.Writer()
-        w.stringField(1, key)
-        if (value != 0) { w.tag(2, 0); w.varint(value.toLong()) }
-            w.raw(unknownFields)
-            return w.toBytes()
+            val pbW = MessagesPb.Writer()
+        pbW.stringField(1, key)
+        if (value != 0) { pbW.tag(2, 0); pbW.varint(value.toLong()) }
+            pbW.raw(unknownFields)
+            return pbW.toBytes()
         }
         override fun unmarshalDc(data: ByteArray) {
             unknownFields = ByteArray(0)
             key = ""
             value = 0
-            val r = MessagesPb.Reader(data)
+            val pbR = MessagesPb.Reader(data)
             while (true) {
-                val field = r.next() ?: break
-                when (field.number) {
+                val pbField = pbR.next() ?: break
+                when (pbField.number) {
                 1 -> {
-                    key = String(field.bytesValue, Charsets.UTF_8)
+                    key = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    value = field.varintValue.toInt()
+                    value = pbField.varintValue.toInt()
                 }
-                    else -> { unknownFields = unknownFields + field.rawValue }
+                    else -> { unknownFields = unknownFields + pbField.rawValue }
                 }
             }
         }
@@ -936,28 +936,28 @@ enum class GrpclbRouteType(val number: Int) {
     ) : Marshaler, Unmarshaler {
         var unknownFields: ByteArray = ByteArray(0)
         override fun marshalDc(): ByteArray {
-            val w = MessagesPb.Writer()
-        w.stringField(1, key)
-        value?.let { w.bytesField(2, it.marshalDc()) }
-            w.raw(unknownFields)
-            return w.toBytes()
+            val pbW = MessagesPb.Writer()
+        pbW.stringField(1, key)
+        value?.let { pbW.bytesField(2, it.marshalDc()) }
+            pbW.raw(unknownFields)
+            return pbW.toBytes()
         }
         override fun unmarshalDc(data: ByteArray) {
             unknownFields = ByteArray(0)
             key = ""
             value = null
-            val r = MessagesPb.Reader(data)
+            val pbR = MessagesPb.Reader(data)
             while (true) {
-                val field = r.next() ?: break
-                when (field.number) {
+                val pbField = pbR.next() ?: break
+                when (pbField.number) {
                 1 -> {
-                    key = String(field.bytesValue, Charsets.UTF_8)
+                    key = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
                     value = LoadBalancerStatsResponse.RpcsByPeer()
-                    value!!.unmarshalDc(field.bytesValue)
+                    value!!.unmarshalDc(pbField.bytesValue)
                 }
-                    else -> { unknownFields = unknownFields + field.rawValue }
+                    else -> { unknownFields = unknownFields + pbField.rawValue }
                 }
             }
         }
@@ -968,17 +968,17 @@ enum class GrpclbRouteType(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = MessagesPb.Writer()
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = MessagesPb.Writer()
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
-        val r = MessagesPb.Reader(data)
+        val pbR = MessagesPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
-                else -> { unknownFields = unknownFields + field.rawValue }
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -991,13 +991,13 @@ enum class GrpclbRouteType(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = MessagesPb.Writer()
-        for (e in numRpcsStartedByMethod) w.bytesField(1, MessagesPb.LoadBalancerAccumulatedStatsResponseNumRpcsStartedByMethodEntryEncode(e.key, e.value))
-        for (e in numRpcsSucceededByMethod) w.bytesField(2, MessagesPb.LoadBalancerAccumulatedStatsResponseNumRpcsSucceededByMethodEntryEncode(e.key, e.value))
-        for (e in numRpcsFailedByMethod) w.bytesField(3, MessagesPb.LoadBalancerAccumulatedStatsResponseNumRpcsFailedByMethodEntryEncode(e.key, e.value))
-        for (e in statsPerMethod) w.bytesField(4, MessagesPb.LoadBalancerAccumulatedStatsResponseStatsPerMethodEntryEncode(e.key, e.value))
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = MessagesPb.Writer()
+        for (pbE in numRpcsStartedByMethod) pbW.bytesField(1, MessagesPb.LoadBalancerAccumulatedStatsResponseNumRpcsStartedByMethodEntryEncode(pbE.key, pbE.value))
+        for (pbE in numRpcsSucceededByMethod) pbW.bytesField(2, MessagesPb.LoadBalancerAccumulatedStatsResponseNumRpcsSucceededByMethodEntryEncode(pbE.key, pbE.value))
+        for (pbE in numRpcsFailedByMethod) pbW.bytesField(3, MessagesPb.LoadBalancerAccumulatedStatsResponseNumRpcsFailedByMethodEntryEncode(pbE.key, pbE.value))
+        for (pbE in statsPerMethod) pbW.bytesField(4, MessagesPb.LoadBalancerAccumulatedStatsResponseStatsPerMethodEntryEncode(pbE.key, pbE.value))
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
@@ -1005,27 +1005,27 @@ enum class GrpclbRouteType(val number: Int) {
         numRpcsSucceededByMethod = mutableMapOf()
         numRpcsFailedByMethod = mutableMapOf()
         statsPerMethod = mutableMapOf()
-        val r = MessagesPb.Reader(data)
+        val pbR = MessagesPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    val kv = MessagesPb.LoadBalancerAccumulatedStatsResponseNumRpcsStartedByMethodEntryDecode(field.bytesValue)
-                    numRpcsStartedByMethod[kv.first] = kv.second
+                    val pbKv = MessagesPb.LoadBalancerAccumulatedStatsResponseNumRpcsStartedByMethodEntryDecode(pbField.bytesValue)
+                    numRpcsStartedByMethod[pbKv.first] = pbKv.second
                 }
                 2 -> {
-                    val kv = MessagesPb.LoadBalancerAccumulatedStatsResponseNumRpcsSucceededByMethodEntryDecode(field.bytesValue)
-                    numRpcsSucceededByMethod[kv.first] = kv.second
+                    val pbKv = MessagesPb.LoadBalancerAccumulatedStatsResponseNumRpcsSucceededByMethodEntryDecode(pbField.bytesValue)
+                    numRpcsSucceededByMethod[pbKv.first] = pbKv.second
                 }
                 3 -> {
-                    val kv = MessagesPb.LoadBalancerAccumulatedStatsResponseNumRpcsFailedByMethodEntryDecode(field.bytesValue)
-                    numRpcsFailedByMethod[kv.first] = kv.second
+                    val pbKv = MessagesPb.LoadBalancerAccumulatedStatsResponseNumRpcsFailedByMethodEntryDecode(pbField.bytesValue)
+                    numRpcsFailedByMethod[pbKv.first] = pbKv.second
                 }
                 4 -> {
-                    val kv = MessagesPb.LoadBalancerAccumulatedStatsResponseStatsPerMethodEntryDecode(field.bytesValue)
-                    statsPerMethod[kv.first] = kv.second
+                    val pbKv = MessagesPb.LoadBalancerAccumulatedStatsResponseStatsPerMethodEntryDecode(pbField.bytesValue)
+                    statsPerMethod[pbKv.first] = pbKv.second
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -1035,27 +1035,27 @@ enum class GrpclbRouteType(val number: Int) {
     ) : Marshaler, Unmarshaler {
         var unknownFields: ByteArray = ByteArray(0)
         override fun marshalDc(): ByteArray {
-            val w = MessagesPb.Writer()
-        w.stringField(1, key)
-        if (value != 0) { w.tag(2, 0); w.varint(value.toLong()) }
-            w.raw(unknownFields)
-            return w.toBytes()
+            val pbW = MessagesPb.Writer()
+        pbW.stringField(1, key)
+        if (value != 0) { pbW.tag(2, 0); pbW.varint(value.toLong()) }
+            pbW.raw(unknownFields)
+            return pbW.toBytes()
         }
         override fun unmarshalDc(data: ByteArray) {
             unknownFields = ByteArray(0)
             key = ""
             value = 0
-            val r = MessagesPb.Reader(data)
+            val pbR = MessagesPb.Reader(data)
             while (true) {
-                val field = r.next() ?: break
-                when (field.number) {
+                val pbField = pbR.next() ?: break
+                when (pbField.number) {
                 1 -> {
-                    key = String(field.bytesValue, Charsets.UTF_8)
+                    key = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    value = field.varintValue.toInt()
+                    value = pbField.varintValue.toInt()
                 }
-                    else -> { unknownFields = unknownFields + field.rawValue }
+                    else -> { unknownFields = unknownFields + pbField.rawValue }
                 }
             }
         }
@@ -1066,27 +1066,27 @@ enum class GrpclbRouteType(val number: Int) {
     ) : Marshaler, Unmarshaler {
         var unknownFields: ByteArray = ByteArray(0)
         override fun marshalDc(): ByteArray {
-            val w = MessagesPb.Writer()
-        w.stringField(1, key)
-        if (value != 0) { w.tag(2, 0); w.varint(value.toLong()) }
-            w.raw(unknownFields)
-            return w.toBytes()
+            val pbW = MessagesPb.Writer()
+        pbW.stringField(1, key)
+        if (value != 0) { pbW.tag(2, 0); pbW.varint(value.toLong()) }
+            pbW.raw(unknownFields)
+            return pbW.toBytes()
         }
         override fun unmarshalDc(data: ByteArray) {
             unknownFields = ByteArray(0)
             key = ""
             value = 0
-            val r = MessagesPb.Reader(data)
+            val pbR = MessagesPb.Reader(data)
             while (true) {
-                val field = r.next() ?: break
-                when (field.number) {
+                val pbField = pbR.next() ?: break
+                when (pbField.number) {
                 1 -> {
-                    key = String(field.bytesValue, Charsets.UTF_8)
+                    key = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    value = field.varintValue.toInt()
+                    value = pbField.varintValue.toInt()
                 }
-                    else -> { unknownFields = unknownFields + field.rawValue }
+                    else -> { unknownFields = unknownFields + pbField.rawValue }
                 }
             }
         }
@@ -1097,27 +1097,27 @@ enum class GrpclbRouteType(val number: Int) {
     ) : Marshaler, Unmarshaler {
         var unknownFields: ByteArray = ByteArray(0)
         override fun marshalDc(): ByteArray {
-            val w = MessagesPb.Writer()
-        w.stringField(1, key)
-        if (value != 0) { w.tag(2, 0); w.varint(value.toLong()) }
-            w.raw(unknownFields)
-            return w.toBytes()
+            val pbW = MessagesPb.Writer()
+        pbW.stringField(1, key)
+        if (value != 0) { pbW.tag(2, 0); pbW.varint(value.toLong()) }
+            pbW.raw(unknownFields)
+            return pbW.toBytes()
         }
         override fun unmarshalDc(data: ByteArray) {
             unknownFields = ByteArray(0)
             key = ""
             value = 0
-            val r = MessagesPb.Reader(data)
+            val pbR = MessagesPb.Reader(data)
             while (true) {
-                val field = r.next() ?: break
-                when (field.number) {
+                val pbField = pbR.next() ?: break
+                when (pbField.number) {
                 1 -> {
-                    key = String(field.bytesValue, Charsets.UTF_8)
+                    key = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    value = field.varintValue.toInt()
+                    value = pbField.varintValue.toInt()
                 }
-                    else -> { unknownFields = unknownFields + field.rawValue }
+                    else -> { unknownFields = unknownFields + pbField.rawValue }
                 }
             }
         }
@@ -1128,28 +1128,28 @@ enum class GrpclbRouteType(val number: Int) {
     ) : Marshaler, Unmarshaler {
         var unknownFields: ByteArray = ByteArray(0)
         override fun marshalDc(): ByteArray {
-            val w = MessagesPb.Writer()
-        if (rpcsStarted != 0) { w.tag(1, 0); w.varint(rpcsStarted.toLong()) }
-        for (e in result) w.bytesField(2, MessagesPb.LoadBalancerAccumulatedStatsResponseMethodStatsResultEntryEncode(e.key, e.value))
-            w.raw(unknownFields)
-            return w.toBytes()
+            val pbW = MessagesPb.Writer()
+        if (rpcsStarted != 0) { pbW.tag(1, 0); pbW.varint(rpcsStarted.toLong()) }
+        for (pbE in result) pbW.bytesField(2, MessagesPb.LoadBalancerAccumulatedStatsResponseMethodStatsResultEntryEncode(pbE.key, pbE.value))
+            pbW.raw(unknownFields)
+            return pbW.toBytes()
         }
         override fun unmarshalDc(data: ByteArray) {
             unknownFields = ByteArray(0)
             rpcsStarted = 0
             result = mutableMapOf()
-            val r = MessagesPb.Reader(data)
+            val pbR = MessagesPb.Reader(data)
             while (true) {
-                val field = r.next() ?: break
-                when (field.number) {
+                val pbField = pbR.next() ?: break
+                when (pbField.number) {
                 1 -> {
-                    rpcsStarted = field.varintValue.toInt()
+                    rpcsStarted = pbField.varintValue.toInt()
                 }
                 2 -> {
-                    val kv = MessagesPb.LoadBalancerAccumulatedStatsResponseMethodStatsResultEntryDecode(field.bytesValue)
-                    result[kv.first] = kv.second
+                    val pbKv = MessagesPb.LoadBalancerAccumulatedStatsResponseMethodStatsResultEntryDecode(pbField.bytesValue)
+                    result[pbKv.first] = pbKv.second
                 }
-                    else -> { unknownFields = unknownFields + field.rawValue }
+                    else -> { unknownFields = unknownFields + pbField.rawValue }
                 }
             }
         }
@@ -1159,27 +1159,27 @@ enum class GrpclbRouteType(val number: Int) {
         ) : Marshaler, Unmarshaler {
             var unknownFields: ByteArray = ByteArray(0)
             override fun marshalDc(): ByteArray {
-                val w = MessagesPb.Writer()
-        if (key != 0) { w.tag(1, 0); w.varint(key.toLong()) }
-        if (value != 0) { w.tag(2, 0); w.varint(value.toLong()) }
-                w.raw(unknownFields)
-                return w.toBytes()
+                val pbW = MessagesPb.Writer()
+        if (key != 0) { pbW.tag(1, 0); pbW.varint(key.toLong()) }
+        if (value != 0) { pbW.tag(2, 0); pbW.varint(value.toLong()) }
+                pbW.raw(unknownFields)
+                return pbW.toBytes()
             }
             override fun unmarshalDc(data: ByteArray) {
                 unknownFields = ByteArray(0)
                 key = 0
                 value = 0
-                val r = MessagesPb.Reader(data)
+                val pbR = MessagesPb.Reader(data)
                 while (true) {
-                    val field = r.next() ?: break
-                    when (field.number) {
+                    val pbField = pbR.next() ?: break
+                    when (pbField.number) {
                 1 -> {
-                    key = field.varintValue.toInt()
+                    key = pbField.varintValue.toInt()
                 }
                 2 -> {
-                    value = field.varintValue.toInt()
+                    value = pbField.varintValue.toInt()
                 }
-                        else -> { unknownFields = unknownFields + field.rawValue }
+                        else -> { unknownFields = unknownFields + pbField.rawValue }
                     }
                 }
             }
@@ -1191,28 +1191,28 @@ enum class GrpclbRouteType(val number: Int) {
     ) : Marshaler, Unmarshaler {
         var unknownFields: ByteArray = ByteArray(0)
         override fun marshalDc(): ByteArray {
-            val w = MessagesPb.Writer()
-        w.stringField(1, key)
-        value?.let { w.bytesField(2, it.marshalDc()) }
-            w.raw(unknownFields)
-            return w.toBytes()
+            val pbW = MessagesPb.Writer()
+        pbW.stringField(1, key)
+        value?.let { pbW.bytesField(2, it.marshalDc()) }
+            pbW.raw(unknownFields)
+            return pbW.toBytes()
         }
         override fun unmarshalDc(data: ByteArray) {
             unknownFields = ByteArray(0)
             key = ""
             value = null
-            val r = MessagesPb.Reader(data)
+            val pbR = MessagesPb.Reader(data)
             while (true) {
-                val field = r.next() ?: break
-                when (field.number) {
+                val pbField = pbR.next() ?: break
+                when (pbField.number) {
                 1 -> {
-                    key = String(field.bytesValue, Charsets.UTF_8)
+                    key = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
                     value = LoadBalancerAccumulatedStatsResponse.MethodStats()
-                    value!!.unmarshalDc(field.bytesValue)
+                    value!!.unmarshalDc(pbField.bytesValue)
                 }
-                    else -> { unknownFields = unknownFields + field.rawValue }
+                    else -> { unknownFields = unknownFields + pbField.rawValue }
                 }
             }
         }
@@ -1225,45 +1225,45 @@ enum class GrpclbRouteType(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = MessagesPb.Writer()
+        val pbW = MessagesPb.Writer()
         if (types.isNotEmpty()) {
-            val payload = MessagesPb.Writer()
-            for (x in types) payload.varint(x.number.toLong())
-            w.bytesField(1, payload.toBytes())
+            val pbPayload = MessagesPb.Writer()
+            for (pbX in types) pbPayload.varint(pbX.number.toLong())
+            pbW.bytesField(1, pbPayload.toBytes())
         }
-        for (x in metadata) w.bytesField(2, x.marshalDc())
-        if (timeoutSec != 0) { w.tag(3, 0); w.varint(timeoutSec.toLong()) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        for (pbX in metadata) pbW.bytesField(2, pbX.marshalDc())
+        if (timeoutSec != 0) { pbW.tag(3, 0); pbW.varint(timeoutSec.toLong()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         types = mutableListOf()
         metadata = mutableListOf()
         timeoutSec = 0
-        val r = MessagesPb.Reader(data)
+        val pbR = MessagesPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    if (field.wire == 2) {
-                        val sub = MessagesPb.Reader(field.bytesValue)
-                        while (!sub.done()) {
-                            types.add(RpcType.fromNumber(sub.varint().toInt()))
+                    if (pbField.wire == 2) {
+                        val pbSub = MessagesPb.Reader(pbField.bytesValue)
+                        while (!pbSub.done()) {
+                            types.add(RpcType.fromNumber(pbSub.varint().toInt()))
                         }
                     } else {
-                        types.add(RpcType.fromNumber(field.varintValue.toInt()))
+                        types.add(RpcType.fromNumber(pbField.varintValue.toInt()))
                     }
                 }
                 2 -> {
-                    val item = ClientConfigureRequest.Metadata()
-                    item.unmarshalDc(field.bytesValue)
-                    metadata.add(item)
+                    val pbItem = ClientConfigureRequest.Metadata()
+                    pbItem.unmarshalDc(pbField.bytesValue)
+                    metadata.add(pbItem)
                 }
                 3 -> {
-                    timeoutSec = field.varintValue.toInt()
+                    timeoutSec = pbField.varintValue.toInt()
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -1274,32 +1274,32 @@ enum class GrpclbRouteType(val number: Int) {
     ) : Marshaler, Unmarshaler {
         var unknownFields: ByteArray = ByteArray(0)
         override fun marshalDc(): ByteArray {
-            val w = MessagesPb.Writer()
-        if (type.number != 0) { w.tag(1, 0); w.varint(type.number.toLong()) }
-        w.stringField(2, key)
-        w.stringField(3, value)
-            w.raw(unknownFields)
-            return w.toBytes()
+            val pbW = MessagesPb.Writer()
+        if (type.number != 0) { pbW.tag(1, 0); pbW.varint(type.number.toLong()) }
+        pbW.stringField(2, key)
+        pbW.stringField(3, value)
+            pbW.raw(unknownFields)
+            return pbW.toBytes()
         }
         override fun unmarshalDc(data: ByteArray) {
             unknownFields = ByteArray(0)
             type = RpcType.EMPTY_CALL
             key = ""
             value = ""
-            val r = MessagesPb.Reader(data)
+            val pbR = MessagesPb.Reader(data)
             while (true) {
-                val field = r.next() ?: break
-                when (field.number) {
+                val pbField = pbR.next() ?: break
+                when (pbField.number) {
                 1 -> {
-                    type = RpcType.fromNumber(field.varintValue.toInt())
+                    type = RpcType.fromNumber(pbField.varintValue.toInt())
                 }
                 2 -> {
-                    key = String(field.bytesValue, Charsets.UTF_8)
+                    key = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 3 -> {
-                    value = String(field.bytesValue, Charsets.UTF_8)
+                    value = String(pbField.bytesValue, Charsets.UTF_8)
                 }
-                    else -> { unknownFields = unknownFields + field.rawValue }
+                    else -> { unknownFields = unknownFields + pbField.rawValue }
                 }
             }
         }
@@ -1322,17 +1322,17 @@ enum class GrpclbRouteType(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = MessagesPb.Writer()
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = MessagesPb.Writer()
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
-        val r = MessagesPb.Reader(data)
+        val pbR = MessagesPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
-                else -> { unknownFields = unknownFields + field.rawValue }
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -1345,13 +1345,13 @@ enum class GrpclbRouteType(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = MessagesPb.Writer()
-        if (cpuUtilization != 0.0) { w.tag(1, 1); w.fixedDouble(cpuUtilization) }
-        if (memoryUtilization != 0.0) { w.tag(2, 1); w.fixedDouble(memoryUtilization) }
-        for (e in requestCost) w.bytesField(3, MessagesPb.TestOrcaReportRequestCostEntryEncode(e.key, e.value))
-        for (e in utilization) w.bytesField(4, MessagesPb.TestOrcaReportUtilizationEntryEncode(e.key, e.value))
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = MessagesPb.Writer()
+        if (cpuUtilization != 0.0) { pbW.tag(1, 1); pbW.fixedDouble(cpuUtilization) }
+        if (memoryUtilization != 0.0) { pbW.tag(2, 1); pbW.fixedDouble(memoryUtilization) }
+        for (pbE in requestCost) pbW.bytesField(3, MessagesPb.TestOrcaReportRequestCostEntryEncode(pbE.key, pbE.value))
+        for (pbE in utilization) pbW.bytesField(4, MessagesPb.TestOrcaReportUtilizationEntryEncode(pbE.key, pbE.value))
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
@@ -1359,25 +1359,25 @@ enum class GrpclbRouteType(val number: Int) {
         memoryUtilization = 0.0
         requestCost = mutableMapOf()
         utilization = mutableMapOf()
-        val r = MessagesPb.Reader(data)
+        val pbR = MessagesPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    cpuUtilization = MessagesPb.bitsToDouble(field.fixedValue.toULong())
+                    cpuUtilization = MessagesPb.bitsToDouble(pbField.fixedValue.toULong())
                 }
                 2 -> {
-                    memoryUtilization = MessagesPb.bitsToDouble(field.fixedValue.toULong())
+                    memoryUtilization = MessagesPb.bitsToDouble(pbField.fixedValue.toULong())
                 }
                 3 -> {
-                    val kv = MessagesPb.TestOrcaReportRequestCostEntryDecode(field.bytesValue)
-                    requestCost[kv.first] = kv.second
+                    val pbKv = MessagesPb.TestOrcaReportRequestCostEntryDecode(pbField.bytesValue)
+                    requestCost[pbKv.first] = pbKv.second
                 }
                 4 -> {
-                    val kv = MessagesPb.TestOrcaReportUtilizationEntryDecode(field.bytesValue)
-                    utilization[kv.first] = kv.second
+                    val pbKv = MessagesPb.TestOrcaReportUtilizationEntryDecode(pbField.bytesValue)
+                    utilization[pbKv.first] = pbKv.second
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -1387,27 +1387,27 @@ enum class GrpclbRouteType(val number: Int) {
     ) : Marshaler, Unmarshaler {
         var unknownFields: ByteArray = ByteArray(0)
         override fun marshalDc(): ByteArray {
-            val w = MessagesPb.Writer()
-        w.stringField(1, key)
-        if (value != 0.0) { w.tag(2, 1); w.fixedDouble(value) }
-            w.raw(unknownFields)
-            return w.toBytes()
+            val pbW = MessagesPb.Writer()
+        pbW.stringField(1, key)
+        if (value != 0.0) { pbW.tag(2, 1); pbW.fixedDouble(value) }
+            pbW.raw(unknownFields)
+            return pbW.toBytes()
         }
         override fun unmarshalDc(data: ByteArray) {
             unknownFields = ByteArray(0)
             key = ""
             value = 0.0
-            val r = MessagesPb.Reader(data)
+            val pbR = MessagesPb.Reader(data)
             while (true) {
-                val field = r.next() ?: break
-                when (field.number) {
+                val pbField = pbR.next() ?: break
+                when (pbField.number) {
                 1 -> {
-                    key = String(field.bytesValue, Charsets.UTF_8)
+                    key = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    value = MessagesPb.bitsToDouble(field.fixedValue.toULong())
+                    value = MessagesPb.bitsToDouble(pbField.fixedValue.toULong())
                 }
-                    else -> { unknownFields = unknownFields + field.rawValue }
+                    else -> { unknownFields = unknownFields + pbField.rawValue }
                 }
             }
         }
@@ -1418,27 +1418,27 @@ enum class GrpclbRouteType(val number: Int) {
     ) : Marshaler, Unmarshaler {
         var unknownFields: ByteArray = ByteArray(0)
         override fun marshalDc(): ByteArray {
-            val w = MessagesPb.Writer()
-        w.stringField(1, key)
-        if (value != 0.0) { w.tag(2, 1); w.fixedDouble(value) }
-            w.raw(unknownFields)
-            return w.toBytes()
+            val pbW = MessagesPb.Writer()
+        pbW.stringField(1, key)
+        if (value != 0.0) { pbW.tag(2, 1); pbW.fixedDouble(value) }
+            pbW.raw(unknownFields)
+            return pbW.toBytes()
         }
         override fun unmarshalDc(data: ByteArray) {
             unknownFields = ByteArray(0)
             key = ""
             value = 0.0
-            val r = MessagesPb.Reader(data)
+            val pbR = MessagesPb.Reader(data)
             while (true) {
-                val field = r.next() ?: break
-                when (field.number) {
+                val pbField = pbR.next() ?: break
+                when (pbField.number) {
                 1 -> {
-                    key = String(field.bytesValue, Charsets.UTF_8)
+                    key = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    value = MessagesPb.bitsToDouble(field.fixedValue.toULong())
+                    value = MessagesPb.bitsToDouble(pbField.fixedValue.toULong())
                 }
-                    else -> { unknownFields = unknownFields + field.rawValue }
+                    else -> { unknownFields = unknownFields + pbField.rawValue }
                 }
             }
         }

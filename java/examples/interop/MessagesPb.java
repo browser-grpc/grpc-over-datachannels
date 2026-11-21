@@ -6,21 +6,21 @@ final class MessagesPb {
     private MessagesPb() {}
 
     static byte[] LoadBalancerStatsResponseRpcsByPeerEntryEncode(String key, Integer value) {
-        Writer w = new Writer();
-        w.stringField(1, key);
-        if (value != 0) { w.tag(2, 0); w.varint(value); }
-        return w.toBytes();
+        Writer pbW = new Writer();
+        pbW.stringField(1, key);
+        if (value != 0) { pbW.tag(2, 0); pbW.varint(value); }
+        return pbW.toBytes();
     }
 
     static Object[] LoadBalancerStatsResponseRpcsByPeerEntryDecode(byte[] bytes) {
         String key = "";
         Integer value = 0;
-        Reader r = new Reader(bytes);
-        Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
-                case 1: key = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8); break;
-                case 2: value = (int) field.varintValue; break;
+        Reader pbR = new Reader(bytes);
+        Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
+                case 1: key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8); break;
+                case 2: value = (int) pbField.varintValue; break;
                 default: break;
             }
         }
@@ -28,22 +28,22 @@ final class MessagesPb {
     }
 
     static byte[] LoadBalancerStatsResponseRpcsByMethodEntryEncode(String key, LoadBalancerStatsResponse.RpcsByPeer value) {
-        Writer w = new Writer();
-        w.stringField(1, key);
-        if (value != null) w.bytesField(2, value.marshalDc());
-        return w.toBytes();
+        Writer pbW = new Writer();
+        pbW.stringField(1, key);
+        if (value != null) pbW.bytesField(2, value.marshalDc());
+        return pbW.toBytes();
     }
 
     static Object[] LoadBalancerStatsResponseRpcsByMethodEntryDecode(byte[] bytes) {
         String key = "";
         LoadBalancerStatsResponse.RpcsByPeer value = null;
-        Reader r = new Reader(bytes);
-        Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
-                case 1: key = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8); break;
+        Reader pbR = new Reader(bytes);
+        Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
+                case 1: key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8); break;
                 case 2: value = new LoadBalancerStatsResponse.RpcsByPeer();
-value.unmarshalDc(field.bytesValue); break;
+value.unmarshalDc(pbField.bytesValue); break;
                 default: break;
             }
         }
@@ -51,21 +51,21 @@ value.unmarshalDc(field.bytesValue); break;
     }
 
     static byte[] LoadBalancerStatsResponseRpcsByPeerRpcsByPeerEntryEncode(String key, Integer value) {
-        Writer w = new Writer();
-        w.stringField(1, key);
-        if (value != 0) { w.tag(2, 0); w.varint(value); }
-        return w.toBytes();
+        Writer pbW = new Writer();
+        pbW.stringField(1, key);
+        if (value != 0) { pbW.tag(2, 0); pbW.varint(value); }
+        return pbW.toBytes();
     }
 
     static Object[] LoadBalancerStatsResponseRpcsByPeerRpcsByPeerEntryDecode(byte[] bytes) {
         String key = "";
         Integer value = 0;
-        Reader r = new Reader(bytes);
-        Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
-                case 1: key = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8); break;
-                case 2: value = (int) field.varintValue; break;
+        Reader pbR = new Reader(bytes);
+        Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
+                case 1: key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8); break;
+                case 2: value = (int) pbField.varintValue; break;
                 default: break;
             }
         }
@@ -73,21 +73,21 @@ value.unmarshalDc(field.bytesValue); break;
     }
 
     static byte[] LoadBalancerAccumulatedStatsResponseNumRpcsStartedByMethodEntryEncode(String key, Integer value) {
-        Writer w = new Writer();
-        w.stringField(1, key);
-        if (value != 0) { w.tag(2, 0); w.varint(value); }
-        return w.toBytes();
+        Writer pbW = new Writer();
+        pbW.stringField(1, key);
+        if (value != 0) { pbW.tag(2, 0); pbW.varint(value); }
+        return pbW.toBytes();
     }
 
     static Object[] LoadBalancerAccumulatedStatsResponseNumRpcsStartedByMethodEntryDecode(byte[] bytes) {
         String key = "";
         Integer value = 0;
-        Reader r = new Reader(bytes);
-        Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
-                case 1: key = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8); break;
-                case 2: value = (int) field.varintValue; break;
+        Reader pbR = new Reader(bytes);
+        Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
+                case 1: key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8); break;
+                case 2: value = (int) pbField.varintValue; break;
                 default: break;
             }
         }
@@ -95,21 +95,21 @@ value.unmarshalDc(field.bytesValue); break;
     }
 
     static byte[] LoadBalancerAccumulatedStatsResponseNumRpcsSucceededByMethodEntryEncode(String key, Integer value) {
-        Writer w = new Writer();
-        w.stringField(1, key);
-        if (value != 0) { w.tag(2, 0); w.varint(value); }
-        return w.toBytes();
+        Writer pbW = new Writer();
+        pbW.stringField(1, key);
+        if (value != 0) { pbW.tag(2, 0); pbW.varint(value); }
+        return pbW.toBytes();
     }
 
     static Object[] LoadBalancerAccumulatedStatsResponseNumRpcsSucceededByMethodEntryDecode(byte[] bytes) {
         String key = "";
         Integer value = 0;
-        Reader r = new Reader(bytes);
-        Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
-                case 1: key = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8); break;
-                case 2: value = (int) field.varintValue; break;
+        Reader pbR = new Reader(bytes);
+        Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
+                case 1: key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8); break;
+                case 2: value = (int) pbField.varintValue; break;
                 default: break;
             }
         }
@@ -117,21 +117,21 @@ value.unmarshalDc(field.bytesValue); break;
     }
 
     static byte[] LoadBalancerAccumulatedStatsResponseNumRpcsFailedByMethodEntryEncode(String key, Integer value) {
-        Writer w = new Writer();
-        w.stringField(1, key);
-        if (value != 0) { w.tag(2, 0); w.varint(value); }
-        return w.toBytes();
+        Writer pbW = new Writer();
+        pbW.stringField(1, key);
+        if (value != 0) { pbW.tag(2, 0); pbW.varint(value); }
+        return pbW.toBytes();
     }
 
     static Object[] LoadBalancerAccumulatedStatsResponseNumRpcsFailedByMethodEntryDecode(byte[] bytes) {
         String key = "";
         Integer value = 0;
-        Reader r = new Reader(bytes);
-        Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
-                case 1: key = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8); break;
-                case 2: value = (int) field.varintValue; break;
+        Reader pbR = new Reader(bytes);
+        Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
+                case 1: key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8); break;
+                case 2: value = (int) pbField.varintValue; break;
                 default: break;
             }
         }
@@ -139,22 +139,22 @@ value.unmarshalDc(field.bytesValue); break;
     }
 
     static byte[] LoadBalancerAccumulatedStatsResponseStatsPerMethodEntryEncode(String key, LoadBalancerAccumulatedStatsResponse.MethodStats value) {
-        Writer w = new Writer();
-        w.stringField(1, key);
-        if (value != null) w.bytesField(2, value.marshalDc());
-        return w.toBytes();
+        Writer pbW = new Writer();
+        pbW.stringField(1, key);
+        if (value != null) pbW.bytesField(2, value.marshalDc());
+        return pbW.toBytes();
     }
 
     static Object[] LoadBalancerAccumulatedStatsResponseStatsPerMethodEntryDecode(byte[] bytes) {
         String key = "";
         LoadBalancerAccumulatedStatsResponse.MethodStats value = null;
-        Reader r = new Reader(bytes);
-        Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
-                case 1: key = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8); break;
+        Reader pbR = new Reader(bytes);
+        Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
+                case 1: key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8); break;
                 case 2: value = new LoadBalancerAccumulatedStatsResponse.MethodStats();
-value.unmarshalDc(field.bytesValue); break;
+value.unmarshalDc(pbField.bytesValue); break;
                 default: break;
             }
         }
@@ -162,21 +162,21 @@ value.unmarshalDc(field.bytesValue); break;
     }
 
     static byte[] LoadBalancerAccumulatedStatsResponseMethodStatsResultEntryEncode(Integer key, Integer value) {
-        Writer w = new Writer();
-        if (key != 0) { w.tag(1, 0); w.varint(key); }
-        if (value != 0) { w.tag(2, 0); w.varint(value); }
-        return w.toBytes();
+        Writer pbW = new Writer();
+        if (key != 0) { pbW.tag(1, 0); pbW.varint(key); }
+        if (value != 0) { pbW.tag(2, 0); pbW.varint(value); }
+        return pbW.toBytes();
     }
 
     static Object[] LoadBalancerAccumulatedStatsResponseMethodStatsResultEntryDecode(byte[] bytes) {
         Integer key = 0;
         Integer value = 0;
-        Reader r = new Reader(bytes);
-        Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
-                case 1: key = (int) field.varintValue; break;
-                case 2: value = (int) field.varintValue; break;
+        Reader pbR = new Reader(bytes);
+        Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
+                case 1: key = (int) pbField.varintValue; break;
+                case 2: value = (int) pbField.varintValue; break;
                 default: break;
             }
         }
@@ -184,21 +184,21 @@ value.unmarshalDc(field.bytesValue); break;
     }
 
     static byte[] TestOrcaReportRequestCostEntryEncode(String key, Double value) {
-        Writer w = new Writer();
-        w.stringField(1, key);
-        if (value != 0) { w.tag(2, 1); w.fixedDouble(value); }
-        return w.toBytes();
+        Writer pbW = new Writer();
+        pbW.stringField(1, key);
+        if (value != 0) { pbW.tag(2, 1); pbW.fixedDouble(value); }
+        return pbW.toBytes();
     }
 
     static Object[] TestOrcaReportRequestCostEntryDecode(byte[] bytes) {
         String key = "";
         Double value = 0.0;
-        Reader r = new Reader(bytes);
-        Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
-                case 1: key = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8); break;
-                case 2: value = Double.longBitsToDouble(field.fixedValue); break;
+        Reader pbR = new Reader(bytes);
+        Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
+                case 1: key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8); break;
+                case 2: value = Double.longBitsToDouble(pbField.fixedValue); break;
                 default: break;
             }
         }
@@ -206,21 +206,21 @@ value.unmarshalDc(field.bytesValue); break;
     }
 
     static byte[] TestOrcaReportUtilizationEntryEncode(String key, Double value) {
-        Writer w = new Writer();
-        w.stringField(1, key);
-        if (value != 0) { w.tag(2, 1); w.fixedDouble(value); }
-        return w.toBytes();
+        Writer pbW = new Writer();
+        pbW.stringField(1, key);
+        if (value != 0) { pbW.tag(2, 1); pbW.fixedDouble(value); }
+        return pbW.toBytes();
     }
 
     static Object[] TestOrcaReportUtilizationEntryDecode(byte[] bytes) {
         String key = "";
         Double value = 0.0;
-        Reader r = new Reader(bytes);
-        Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
-                case 1: key = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8); break;
-                case 2: value = Double.longBitsToDouble(field.fixedValue); break;
+        Reader pbR = new Reader(bytes);
+        Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
+                case 1: key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8); break;
+                case 2: value = Double.longBitsToDouble(pbField.fixedValue); break;
                 default: break;
             }
         }

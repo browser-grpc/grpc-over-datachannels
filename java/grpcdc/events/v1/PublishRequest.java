@@ -16,12 +16,12 @@ public final class PublishRequest implements grpcdc.Marshaler, grpcdc.Unmarshale
 
     @Override
     public byte[] marshalDc() {
-        EventsPb.Writer w = new EventsPb.Writer();
-        if (tags != null) for (TagValue x : tags) w.bytesField(1, x.marshalDc());
-        if (payload != null && payload.length > 0) w.bytesField(2, payload);
-        w.stringField(3, publisherId);
-        w.raw(unknownFields);
-        return w.toBytes();
+        EventsPb.Writer pbW = new EventsPb.Writer();
+        if (tags != null) for (TagValue pbX : tags) pbW.bytesField(1, pbX.marshalDc());
+        if (payload != null && payload.length > 0) pbW.bytesField(2, payload);
+        pbW.stringField(3, publisherId);
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -30,22 +30,22 @@ public final class PublishRequest implements grpcdc.Marshaler, grpcdc.Unmarshale
         tags = new java.util.ArrayList<>();
         payload = new byte[0];
         publisherId = "";
-        EventsPb.Reader r = new EventsPb.Reader(data);
-        EventsPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        EventsPb.Reader pbR = new EventsPb.Reader(data);
+        EventsPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    TagValue item = new TagValue();
-                    item.unmarshalDc(field.bytesValue);
-                    tags.add(item);
+                    TagValue pbItem = new TagValue();
+                    pbItem.unmarshalDc(pbField.bytesValue);
+                    tags.add(pbItem);
                 }
                 case 2 -> {
-                    payload = field.bytesValue;
+                    payload = pbField.bytesValue;
                 }
                 case 3 -> {
-                    publisherId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    publisherId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
-                default -> { unknownFields = EventsPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = EventsPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

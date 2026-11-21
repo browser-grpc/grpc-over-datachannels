@@ -8,19 +8,19 @@ public final class Empty implements grpcdc.Marshaler, grpcdc.Unmarshaler {
 
     @Override
     public byte[] marshalDc() {
-        EmptyPb.Writer w = new EmptyPb.Writer();
-        w.raw(unknownFields);
-        return w.toBytes();
+        EmptyPb.Writer pbW = new EmptyPb.Writer();
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
     public void unmarshalDc(byte[] data) {
         unknownFields = new byte[0];
-        EmptyPb.Reader r = new EmptyPb.Reader(data);
-        EmptyPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
-                default -> { unknownFields = EmptyPb.concatBytes(unknownFields, field.rawValue); }
+        EmptyPb.Reader pbR = new EmptyPb.Reader(data);
+        EmptyPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
+                default -> { unknownFields = EmptyPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

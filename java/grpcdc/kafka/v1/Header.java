@@ -14,11 +14,11 @@ public final class Header implements grpcdc.Marshaler, grpcdc.Unmarshaler {
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
-        w.stringField(1, key);
-        if (value != null && value.length > 0) w.bytesField(2, value);
-        w.raw(unknownFields);
-        return w.toBytes();
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
+        pbW.stringField(1, key);
+        if (value != null && value.length > 0) pbW.bytesField(2, value);
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -26,17 +26,17 @@ public final class Header implements grpcdc.Marshaler, grpcdc.Unmarshaler {
         unknownFields = new byte[0];
         key = "";
         value = new byte[0];
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    key = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 2 -> {
-                    value = field.bytesValue;
+                    value = pbField.bytesValue;
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

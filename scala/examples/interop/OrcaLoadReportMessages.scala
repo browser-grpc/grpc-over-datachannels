@@ -136,55 +136,55 @@ object OrcaLoadReportPb {
     }
   }
   def encodeOrcaLoadReport_UtilizationEntry(key: String, value: Double): Array[Byte] = {
-    val w = new Writer()
-    w.stringField(1, key)
+    val pbW = new Writer()
+    pbW.stringField(1, key)
     if (value != 0) {
-      w.fixed(2, 1, OrcaLoadReportPb.int64BytesLE(java.lang.Double.doubleToRawLongBits(value)))
+      pbW.fixed(2, 1, OrcaLoadReportPb.int64BytesLE(java.lang.Double.doubleToRawLongBits(value)))
     }
-    w.toBytes
+    pbW.toBytes
   }
 
   def decodeOrcaLoadReport_UtilizationEntry(data: Array[Byte]): (String, Double) = {
     var key: String = ""
     var value: Double = 0.0
-    val r = new Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          key = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          value = java.lang.Double.longBitsToDouble(OrcaLoadReportPb.toInt64LE(field.fixedValue, 0))
+          value = java.lang.Double.longBitsToDouble(OrcaLoadReportPb.toInt64LE(pbField.fixedValue, 0))
         case _ => ()
       }
-      field = r.next()
+      pbField = pbR.next()
     }
     (key, value)
   }
 
   def encodeOrcaLoadReport_RequestCostEntry(key: String, value: Double): Array[Byte] = {
-    val w = new Writer()
-    w.stringField(1, key)
+    val pbW = new Writer()
+    pbW.stringField(1, key)
     if (value != 0) {
-      w.fixed(2, 1, OrcaLoadReportPb.int64BytesLE(java.lang.Double.doubleToRawLongBits(value)))
+      pbW.fixed(2, 1, OrcaLoadReportPb.int64BytesLE(java.lang.Double.doubleToRawLongBits(value)))
     }
-    w.toBytes
+    pbW.toBytes
   }
 
   def decodeOrcaLoadReport_RequestCostEntry(data: Array[Byte]): (String, Double) = {
     var key: String = ""
     var value: Double = 0.0
-    val r = new Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          key = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          value = java.lang.Double.longBitsToDouble(OrcaLoadReportPb.toInt64LE(field.fixedValue, 0))
+          value = java.lang.Double.longBitsToDouble(OrcaLoadReportPb.toInt64LE(pbField.fixedValue, 0))
         case _ => ()
       }
-      field = r.next()
+      pbField = pbR.next()
     }
     (key, value)
   }
@@ -200,24 +200,24 @@ class OrcaLoadReport(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new OrcaLoadReportPb.Writer()
+    val pbW = new OrcaLoadReportPb.Writer()
     if (cpuUtilization != 0) {
-      w.fixed(1, 1, OrcaLoadReportPb.int64BytesLE(java.lang.Double.doubleToRawLongBits(cpuUtilization)))
+      pbW.fixed(1, 1, OrcaLoadReportPb.int64BytesLE(java.lang.Double.doubleToRawLongBits(cpuUtilization)))
     }
     if (memUtilization != 0) {
-      w.fixed(2, 1, OrcaLoadReportPb.int64BytesLE(java.lang.Double.doubleToRawLongBits(memUtilization)))
+      pbW.fixed(2, 1, OrcaLoadReportPb.int64BytesLE(java.lang.Double.doubleToRawLongBits(memUtilization)))
     }
     if (rpsFractional != 0) {
-      w.fixed(3, 1, OrcaLoadReportPb.int64BytesLE(java.lang.Double.doubleToRawLongBits(rpsFractional)))
+      pbW.fixed(3, 1, OrcaLoadReportPb.int64BytesLE(java.lang.Double.doubleToRawLongBits(rpsFractional)))
     }
     for (k <- requestCost.keys.toArray.sorted) {
-      w.bytesField(4, OrcaLoadReportPb.encodeOrcaLoadReport_RequestCostEntry(k, requestCost(k)))
+      pbW.bytesField(4, OrcaLoadReportPb.encodeOrcaLoadReport_RequestCostEntry(k, requestCost(k)))
     }
     for (k <- utilization.keys.toArray.sorted) {
-      w.bytesField(5, OrcaLoadReportPb.encodeOrcaLoadReport_UtilizationEntry(k, utilization(k)))
+      pbW.bytesField(5, OrcaLoadReportPb.encodeOrcaLoadReport_UtilizationEntry(k, utilization(k)))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -227,25 +227,25 @@ class OrcaLoadReport(
     rpsFractional = 0.0
     requestCost = Map.empty
     utilization = Map.empty
-    val r = new OrcaLoadReportPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new OrcaLoadReportPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          cpuUtilization = java.lang.Double.longBitsToDouble(OrcaLoadReportPb.toInt64LE(field.fixedValue, 0))
+          cpuUtilization = java.lang.Double.longBitsToDouble(OrcaLoadReportPb.toInt64LE(pbField.fixedValue, 0))
         case 2 =>
-          memUtilization = java.lang.Double.longBitsToDouble(OrcaLoadReportPb.toInt64LE(field.fixedValue, 0))
+          memUtilization = java.lang.Double.longBitsToDouble(OrcaLoadReportPb.toInt64LE(pbField.fixedValue, 0))
         case 3 =>
-          rpsFractional = java.lang.Double.longBitsToDouble(OrcaLoadReportPb.toInt64LE(field.fixedValue, 0))
+          rpsFractional = java.lang.Double.longBitsToDouble(OrcaLoadReportPb.toInt64LE(pbField.fixedValue, 0))
         case 4 =>
-          val (kk, vv) = OrcaLoadReportPb.decodeOrcaLoadReport_RequestCostEntry(field.bytesValue)
+          val (kk, vv) = OrcaLoadReportPb.decodeOrcaLoadReport_RequestCostEntry(pbField.bytesValue)
           requestCost = requestCost + (kk -> vv)
         case 5 =>
-          val (kk, vv) = OrcaLoadReportPb.decodeOrcaLoadReport_UtilizationEntry(field.bytesValue)
+          val (kk, vv) = OrcaLoadReportPb.decodeOrcaLoadReport_UtilizationEntry(pbField.bytesValue)
           utilization = utilization + (kk -> vv)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -256,30 +256,30 @@ class OrcaLoadReport_RequestCostEntry(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new OrcaLoadReportPb.Writer()
-    w.stringField(1, key)
+    val pbW = new OrcaLoadReportPb.Writer()
+    pbW.stringField(1, key)
     if (value != 0) {
-      w.fixed(2, 1, OrcaLoadReportPb.int64BytesLE(java.lang.Double.doubleToRawLongBits(value)))
+      pbW.fixed(2, 1, OrcaLoadReportPb.int64BytesLE(java.lang.Double.doubleToRawLongBits(value)))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     key = ""
     value = 0.0
-    val r = new OrcaLoadReportPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new OrcaLoadReportPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          key = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          value = java.lang.Double.longBitsToDouble(OrcaLoadReportPb.toInt64LE(field.fixedValue, 0))
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          value = java.lang.Double.longBitsToDouble(OrcaLoadReportPb.toInt64LE(pbField.fixedValue, 0))
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -290,30 +290,30 @@ class OrcaLoadReport_UtilizationEntry(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new OrcaLoadReportPb.Writer()
-    w.stringField(1, key)
+    val pbW = new OrcaLoadReportPb.Writer()
+    pbW.stringField(1, key)
     if (value != 0) {
-      w.fixed(2, 1, OrcaLoadReportPb.int64BytesLE(java.lang.Double.doubleToRawLongBits(value)))
+      pbW.fixed(2, 1, OrcaLoadReportPb.int64BytesLE(java.lang.Double.doubleToRawLongBits(value)))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     key = ""
     value = 0.0
-    val r = new OrcaLoadReportPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new OrcaLoadReportPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          key = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          value = java.lang.Double.longBitsToDouble(OrcaLoadReportPb.toInt64LE(field.fixedValue, 0))
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          value = java.lang.Double.longBitsToDouble(OrcaLoadReportPb.toInt64LE(pbField.fixedValue, 0))
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }

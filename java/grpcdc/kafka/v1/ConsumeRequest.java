@@ -24,16 +24,16 @@ public final class ConsumeRequest implements grpcdc.Marshaler, grpcdc.Unmarshale
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
-        w.stringField(1, topic);
-        if (partition != 0) { w.tag(2, 0); w.varint(partition); }
-        if (offset != 0) { w.tag(3, 0); w.varint(offset); }
-        if (maxRecords != 0) { w.tag(4, 0); w.varint(maxRecords); }
-        if (maxWaitMs != 0) { w.tag(5, 0); w.varint(maxWaitMs); }
-        if (minBytes != 0) { w.tag(6, 0); w.varint(minBytes); }
-        if (readCommitted) { w.tag(7, 0); w.varint((readCommitted ? 1 : 0)); }
-        w.raw(unknownFields);
-        return w.toBytes();
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
+        pbW.stringField(1, topic);
+        if (partition != 0) { pbW.tag(2, 0); pbW.varint(partition); }
+        if (offset != 0) { pbW.tag(3, 0); pbW.varint(offset); }
+        if (maxRecords != 0) { pbW.tag(4, 0); pbW.varint(maxRecords); }
+        if (maxWaitMs != 0) { pbW.tag(5, 0); pbW.varint(maxWaitMs); }
+        if (minBytes != 0) { pbW.tag(6, 0); pbW.varint(minBytes); }
+        if (readCommitted) { pbW.tag(7, 0); pbW.varint((readCommitted ? 1 : 0)); }
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -46,32 +46,32 @@ public final class ConsumeRequest implements grpcdc.Marshaler, grpcdc.Unmarshale
         maxWaitMs = 0;
         minBytes = 0;
         readCommitted = false;
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    topic = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    topic = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 2 -> {
-                    partition = (int) field.varintValue;
+                    partition = (int) pbField.varintValue;
                 }
                 case 3 -> {
-                    offset = field.varintValue;
+                    offset = pbField.varintValue;
                 }
                 case 4 -> {
-                    maxRecords = (int) field.varintValue;
+                    maxRecords = (int) pbField.varintValue;
                 }
                 case 5 -> {
-                    maxWaitMs = (int) field.varintValue;
+                    maxWaitMs = (int) pbField.varintValue;
                 }
                 case 6 -> {
-                    minBytes = (int) field.varintValue;
+                    minBytes = (int) pbField.varintValue;
                 }
                 case 7 -> {
-                    readCommitted = field.varintValue != 0;
+                    readCommitted = pbField.varintValue != 0;
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

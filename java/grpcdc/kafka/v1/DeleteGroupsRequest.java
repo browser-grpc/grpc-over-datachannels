@@ -12,24 +12,24 @@ public final class DeleteGroupsRequest implements grpcdc.Marshaler, grpcdc.Unmar
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
-        if (groupIds != null) for (String x : groupIds) w.bytesField(1, x.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        w.raw(unknownFields);
-        return w.toBytes();
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
+        if (groupIds != null) for (String pbX : groupIds) pbW.bytesField(1, pbX.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
     public void unmarshalDc(byte[] data) {
         unknownFields = new byte[0];
         groupIds = new java.util.ArrayList<>();
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    groupIds.add(new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8));
+                    groupIds.add(new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8));
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

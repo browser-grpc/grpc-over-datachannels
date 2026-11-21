@@ -20,14 +20,14 @@ public final class OrcaLoadReport implements grpcdc.Marshaler, grpcdc.Unmarshale
 
     @Override
     public byte[] marshalDc() {
-        Orca_load_reportPb.Writer w = new Orca_load_reportPb.Writer();
-        if (cpuUtilization != 0) { w.tag(1, 1); w.fixedDouble(cpuUtilization); }
-        if (memUtilization != 0) { w.tag(2, 1); w.fixedDouble(memUtilization); }
-        if (rpsFractional != 0) { w.tag(3, 1); w.fixedDouble(rpsFractional); }
-        if (requestCost != null) for (java.util.Map.Entry<String, Double> e : requestCost.entrySet()) w.bytesField(4, Orca_load_reportPb.OrcaLoadReportRequestCostEntryEncode(e.getKey(), e.getValue()));
-        if (utilization != null) for (java.util.Map.Entry<String, Double> e : utilization.entrySet()) w.bytesField(5, Orca_load_reportPb.OrcaLoadReportUtilizationEntryEncode(e.getKey(), e.getValue()));
-        w.raw(unknownFields);
-        return w.toBytes();
+        Orca_load_reportPb.Writer pbW = new Orca_load_reportPb.Writer();
+        if (cpuUtilization != 0) { pbW.tag(1, 1); pbW.fixedDouble(cpuUtilization); }
+        if (memUtilization != 0) { pbW.tag(2, 1); pbW.fixedDouble(memUtilization); }
+        if (rpsFractional != 0) { pbW.tag(3, 1); pbW.fixedDouble(rpsFractional); }
+        if (requestCost != null) for (java.util.Map.Entry<String, Double> pbE : requestCost.entrySet()) pbW.bytesField(4, Orca_load_reportPb.OrcaLoadReportRequestCostEntryEncode(pbE.getKey(), pbE.getValue()));
+        if (utilization != null) for (java.util.Map.Entry<String, Double> pbE : utilization.entrySet()) pbW.bytesField(5, Orca_load_reportPb.OrcaLoadReportUtilizationEntryEncode(pbE.getKey(), pbE.getValue()));
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -38,28 +38,28 @@ public final class OrcaLoadReport implements grpcdc.Marshaler, grpcdc.Unmarshale
         rpsFractional = 0;
         requestCost = new java.util.LinkedHashMap<>();
         utilization = new java.util.LinkedHashMap<>();
-        Orca_load_reportPb.Reader r = new Orca_load_reportPb.Reader(data);
-        Orca_load_reportPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        Orca_load_reportPb.Reader pbR = new Orca_load_reportPb.Reader(data);
+        Orca_load_reportPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    cpuUtilization = Double.longBitsToDouble(field.fixedValue);
+                    cpuUtilization = Double.longBitsToDouble(pbField.fixedValue);
                 }
                 case 2 -> {
-                    memUtilization = Double.longBitsToDouble(field.fixedValue);
+                    memUtilization = Double.longBitsToDouble(pbField.fixedValue);
                 }
                 case 3 -> {
-                    rpsFractional = Double.longBitsToDouble(field.fixedValue);
+                    rpsFractional = Double.longBitsToDouble(pbField.fixedValue);
                 }
                 case 4 -> {
-                    Object[] kv = Orca_load_reportPb.OrcaLoadReportRequestCostEntryDecode(field.bytesValue);
-                    requestCost.put((String) kv[0], (Double) kv[1]);
+                    Object[] pbKv = Orca_load_reportPb.OrcaLoadReportRequestCostEntryDecode(pbField.bytesValue);
+                    requestCost.put((String) pbKv[0], (Double) pbKv[1]);
                 }
                 case 5 -> {
-                    Object[] kv = Orca_load_reportPb.OrcaLoadReportUtilizationEntryDecode(field.bytesValue);
-                    utilization.put((String) kv[0], (Double) kv[1]);
+                    Object[] pbKv = Orca_load_reportPb.OrcaLoadReportUtilizationEntryDecode(pbField.bytesValue);
+                    utilization.put((String) pbKv[0], (Double) pbKv[1]);
                 }
-                default -> { unknownFields = Orca_load_reportPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = Orca_load_reportPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }
@@ -75,11 +75,11 @@ public final class OrcaLoadReport implements grpcdc.Marshaler, grpcdc.Unmarshale
 
         @Override
         public byte[] marshalDc() {
-            Orca_load_reportPb.Writer w = new Orca_load_reportPb.Writer();
-        w.stringField(1, key);
-        if (value != 0) { w.tag(2, 1); w.fixedDouble(value); }
-            w.raw(unknownFields);
-            return w.toBytes();
+            Orca_load_reportPb.Writer pbW = new Orca_load_reportPb.Writer();
+        pbW.stringField(1, key);
+        if (value != 0) { pbW.tag(2, 1); pbW.fixedDouble(value); }
+            pbW.raw(unknownFields);
+            return pbW.toBytes();
         }
 
         @Override
@@ -87,17 +87,17 @@ public final class OrcaLoadReport implements grpcdc.Marshaler, grpcdc.Unmarshale
             unknownFields = new byte[0];
             key = "";
             value = 0;
-            Orca_load_reportPb.Reader r = new Orca_load_reportPb.Reader(data);
-            Orca_load_reportPb.Field field;
-            while ((field = r.next()) != null) {
-                switch (field.number) {
+            Orca_load_reportPb.Reader pbR = new Orca_load_reportPb.Reader(data);
+            Orca_load_reportPb.Field pbField;
+            while ((pbField = pbR.next()) != null) {
+                switch (pbField.number) {
                 case 1 -> {
-                    key = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 2 -> {
-                    value = Double.longBitsToDouble(field.fixedValue);
+                    value = Double.longBitsToDouble(pbField.fixedValue);
                 }
-                    default -> { unknownFields = Orca_load_reportPb.concatBytes(unknownFields, field.rawValue); }
+                    default -> { unknownFields = Orca_load_reportPb.concatBytes(unknownFields, pbField.rawValue); }
                 }
             }
         }
@@ -114,11 +114,11 @@ public final class OrcaLoadReport implements grpcdc.Marshaler, grpcdc.Unmarshale
 
         @Override
         public byte[] marshalDc() {
-            Orca_load_reportPb.Writer w = new Orca_load_reportPb.Writer();
-        w.stringField(1, key);
-        if (value != 0) { w.tag(2, 1); w.fixedDouble(value); }
-            w.raw(unknownFields);
-            return w.toBytes();
+            Orca_load_reportPb.Writer pbW = new Orca_load_reportPb.Writer();
+        pbW.stringField(1, key);
+        if (value != 0) { pbW.tag(2, 1); pbW.fixedDouble(value); }
+            pbW.raw(unknownFields);
+            return pbW.toBytes();
         }
 
         @Override
@@ -126,17 +126,17 @@ public final class OrcaLoadReport implements grpcdc.Marshaler, grpcdc.Unmarshale
             unknownFields = new byte[0];
             key = "";
             value = 0;
-            Orca_load_reportPb.Reader r = new Orca_load_reportPb.Reader(data);
-            Orca_load_reportPb.Field field;
-            while ((field = r.next()) != null) {
-                switch (field.number) {
+            Orca_load_reportPb.Reader pbR = new Orca_load_reportPb.Reader(data);
+            Orca_load_reportPb.Field pbField;
+            while ((pbField = pbR.next()) != null) {
+                switch (pbField.number) {
                 case 1 -> {
-                    key = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 2 -> {
-                    value = Double.longBitsToDouble(field.fixedValue);
+                    value = Double.longBitsToDouble(pbField.fixedValue);
                 }
-                    default -> { unknownFields = Orca_load_reportPb.concatBytes(unknownFields, field.rawValue); }
+                    default -> { unknownFields = Orca_load_reportPb.concatBytes(unknownFields, pbField.rawValue); }
                 }
             }
         }

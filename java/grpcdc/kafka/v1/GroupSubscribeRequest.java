@@ -26,17 +26,17 @@ public final class GroupSubscribeRequest implements grpcdc.Marshaler, grpcdc.Unm
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
-        w.stringField(1, groupId);
-        if (topics != null) for (String x : topics) w.bytesField(2, x.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        w.stringField(3, groupInstanceId);
-        if (sessionTimeoutMs != 0) { w.tag(4, 0); w.varint(sessionTimeoutMs); }
-        if (maxPollRecords != 0) { w.tag(5, 0); w.varint(maxPollRecords); }
-        w.stringField(6, autoOffsetReset);
-        if (readCommitted) { w.tag(7, 0); w.varint((readCommitted ? 1 : 0)); }
-        w.stringField(8, groupProtocol);
-        w.raw(unknownFields);
-        return w.toBytes();
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
+        pbW.stringField(1, groupId);
+        if (topics != null) for (String pbX : topics) pbW.bytesField(2, pbX.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        pbW.stringField(3, groupInstanceId);
+        if (sessionTimeoutMs != 0) { pbW.tag(4, 0); pbW.varint(sessionTimeoutMs); }
+        if (maxPollRecords != 0) { pbW.tag(5, 0); pbW.varint(maxPollRecords); }
+        pbW.stringField(6, autoOffsetReset);
+        if (readCommitted) { pbW.tag(7, 0); pbW.varint((readCommitted ? 1 : 0)); }
+        pbW.stringField(8, groupProtocol);
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -50,35 +50,35 @@ public final class GroupSubscribeRequest implements grpcdc.Marshaler, grpcdc.Unm
         autoOffsetReset = "";
         readCommitted = false;
         groupProtocol = "";
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    groupId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    groupId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 2 -> {
-                    topics.add(new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8));
+                    topics.add(new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8));
                 }
                 case 3 -> {
-                    groupInstanceId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    groupInstanceId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 4 -> {
-                    sessionTimeoutMs = (int) field.varintValue;
+                    sessionTimeoutMs = (int) pbField.varintValue;
                 }
                 case 5 -> {
-                    maxPollRecords = (int) field.varintValue;
+                    maxPollRecords = (int) pbField.varintValue;
                 }
                 case 6 -> {
-                    autoOffsetReset = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    autoOffsetReset = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 7 -> {
-                    readCommitted = field.varintValue != 0;
+                    readCommitted = pbField.varintValue != 0;
                 }
                 case 8 -> {
-                    groupProtocol = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    groupProtocol = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

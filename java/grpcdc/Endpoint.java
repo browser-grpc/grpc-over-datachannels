@@ -70,6 +70,13 @@ public class Endpoint {
         public final long deadlineNanos;
         /** This call's server span context (null when dormant). */
         public Tracing.TraceContext traceContext;
+        /** Whether this call negotiated the struct codec (HEADERS dc-codec: struct-v1). */
+        public boolean structCodec;
+
+        /** Marshal a response message with this call's negotiated codec (generated server code calls this). */
+        public byte[] encodeMessage(Marshaler msg) {
+            return Codec.marshalForCodec(structCodec, msg);
+        }
 
         /** Record response initial metadata (sent lazily, before the first response message). */
         public void setHeaders(Map<String, String> md) {

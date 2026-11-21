@@ -18,13 +18,13 @@ public final class AlterConfigsRequest implements grpcdc.Marshaler, grpcdc.Unmar
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
-        if (resourceType != null && resourceType.number != 0) { w.tag(1, 0); w.varint(resourceType.number); }
-        w.stringField(2, resourceName);
-        if (entries != null) for (AlterConfigEntry x : entries) w.bytesField(3, x.marshalDc());
-        if (validateOnly) { w.tag(4, 0); w.varint((validateOnly ? 1 : 0)); }
-        w.raw(unknownFields);
-        return w.toBytes();
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
+        if (resourceType != null && resourceType.number != 0) { pbW.tag(1, 0); pbW.varint(resourceType.number); }
+        pbW.stringField(2, resourceName);
+        if (entries != null) for (AlterConfigEntry pbX : entries) pbW.bytesField(3, pbX.marshalDc());
+        if (validateOnly) { pbW.tag(4, 0); pbW.varint((validateOnly ? 1 : 0)); }
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -34,25 +34,25 @@ public final class AlterConfigsRequest implements grpcdc.Marshaler, grpcdc.Unmar
         resourceName = "";
         entries = new java.util.ArrayList<>();
         validateOnly = false;
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    resourceType = ConfigResourceType.fromNumber((int) field.varintValue);
+                    resourceType = ConfigResourceType.fromNumber((int) pbField.varintValue);
                 }
                 case 2 -> {
-                    resourceName = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    resourceName = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 3 -> {
-                    AlterConfigEntry item = new AlterConfigEntry();
-                    item.unmarshalDc(field.bytesValue);
-                    entries.add(item);
+                    AlterConfigEntry pbItem = new AlterConfigEntry();
+                    pbItem.unmarshalDc(pbField.bytesValue);
+                    entries.add(pbItem);
                 }
                 case 4 -> {
-                    validateOnly = field.varintValue != 0;
+                    validateOnly = pbField.varintValue != 0;
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

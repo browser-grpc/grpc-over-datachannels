@@ -14,15 +14,15 @@ public final class ReconnectInfo implements grpcdc.Marshaler, grpcdc.Unmarshaler
 
     @Override
     public byte[] marshalDc() {
-        MessagesPb.Writer w = new MessagesPb.Writer();
-        if (passed) { w.tag(1, 0); w.varint((passed ? 1 : 0)); }
+        MessagesPb.Writer pbW = new MessagesPb.Writer();
+        if (passed) { pbW.tag(1, 0); pbW.varint((passed ? 1 : 0)); }
         if (backoffMs != null && !backoffMs.isEmpty()) {
-            MessagesPb.Writer payload = new MessagesPb.Writer();
-            for (Integer x : backoffMs) payload.varint(x);
-            w.bytesField(2, payload.toBytes());
+            MessagesPb.Writer pbPayload = new MessagesPb.Writer();
+            for (Integer pbX : backoffMs) pbPayload.varint(pbX);
+            pbW.bytesField(2, pbPayload.toBytes());
         }
-        w.raw(unknownFields);
-        return w.toBytes();
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -30,24 +30,24 @@ public final class ReconnectInfo implements grpcdc.Marshaler, grpcdc.Unmarshaler
         unknownFields = new byte[0];
         passed = false;
         backoffMs = new java.util.ArrayList<>();
-        MessagesPb.Reader r = new MessagesPb.Reader(data);
-        MessagesPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        MessagesPb.Reader pbR = new MessagesPb.Reader(data);
+        MessagesPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    passed = field.varintValue != 0;
+                    passed = pbField.varintValue != 0;
                 }
                 case 2 -> {
-                    if (field.wire == 2) {
-                        MessagesPb.Reader sub = new MessagesPb.Reader(field.bytesValue);
-                        while (!sub.done()) {
-                            backoffMs.add((int) sub.varint());
+                    if (pbField.wire == 2) {
+                        MessagesPb.Reader pbSub = new MessagesPb.Reader(pbField.bytesValue);
+                        while (!pbSub.done()) {
+                            backoffMs.add((int) pbSub.varint());
                         }
                     } else {
-                        backoffMs.add((int) field.varintValue);
+                        backoffMs.add((int) pbField.varintValue);
                     }
                 }
-                default -> { unknownFields = MessagesPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = MessagesPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

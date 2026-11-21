@@ -14,11 +14,11 @@ public final class DescribeShareGroupsResponse implements grpcdc.Marshaler, grpc
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
-        if (groups != null) for (ShareGroupDescription x : groups) w.bytesField(1, x.marshalDc());
-        if (errorCode != 0) { w.tag(2, 0); w.varint(errorCode); }
-        w.raw(unknownFields);
-        return w.toBytes();
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
+        if (groups != null) for (ShareGroupDescription pbX : groups) pbW.bytesField(1, pbX.marshalDc());
+        if (errorCode != 0) { pbW.tag(2, 0); pbW.varint(errorCode); }
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -26,19 +26,19 @@ public final class DescribeShareGroupsResponse implements grpcdc.Marshaler, grpc
         unknownFields = new byte[0];
         groups = new java.util.ArrayList<>();
         errorCode = 0;
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    ShareGroupDescription item = new ShareGroupDescription();
-                    item.unmarshalDc(field.bytesValue);
-                    groups.add(item);
+                    ShareGroupDescription pbItem = new ShareGroupDescription();
+                    pbItem.unmarshalDc(pbField.bytesValue);
+                    groups.add(pbItem);
                 }
                 case 2 -> {
-                    errorCode = (int) field.varintValue;
+                    errorCode = (int) pbField.varintValue;
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

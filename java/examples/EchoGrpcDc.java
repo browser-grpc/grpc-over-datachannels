@@ -265,7 +265,7 @@ public final class EchoGrpcDc {
         }
 
         public void send(EchoResponse resp) throws Exception {
-            sink.send(resp.marshalDc());
+            sink.send(ctx.encodeMessage(resp));
         }
 
         public Endpoint.CallContext context() {
@@ -310,7 +310,7 @@ public final class EchoGrpcDc {
         }
 
         public void send(EchoResponse resp) throws Exception {
-            sink.send(resp.marshalDc());
+            sink.send(ctx.encodeMessage(resp));
         }
 
         public EchoRequest recv() throws Exception {
@@ -389,7 +389,7 @@ public final class EchoGrpcDc {
                     new Server.Method("Unary", "/echo.Echo/Unary", Server.KIND_UNARY, (ctx, reqs, sink) -> {
                         EchoRequest req = new EchoRequest();
                         reqs.recvInto(req);
-                        sink.send(impl.Unary(ctx, req).marshalDc());
+                        sink.send(ctx.encodeMessage(impl.Unary(ctx, req)));
                     }),
                     new Server.Method("ServerStream", "/echo.Echo/ServerStream", Server.KIND_SERVER_STREAMING, (ctx, reqs, sink) -> {
                         EchoRequest req = new EchoRequest();
@@ -403,7 +403,7 @@ public final class EchoGrpcDc {
                             throw new StatusException(Wire.CODE_INTERNAL,
                                     "client-streaming handler never called SendAndClose");
                         }
-                        sink.send(stream.resp.marshalDc());
+                        sink.send(ctx.encodeMessage(stream.resp));
                     }),
                     new Server.Method("Bidi", "/echo.Echo/Bidi", Server.KIND_BIDI, (ctx, reqs, sink) -> {
                         impl.Bidi(new EchoBidiServerImpl(ctx, reqs, sink));

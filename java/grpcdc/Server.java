@@ -17,9 +17,15 @@ public class Server {
     /** Reads request messages of one inbound call. */
     public static final class RequestStream {
         private final Endpoint.StreamInput input;
+        private final boolean structCodec;
 
         public RequestStream(Endpoint.StreamInput input) {
+            this(input, false);
+        }
+
+        public RequestStream(Endpoint.StreamInput input, boolean structCodec) {
             this.input = input;
+            this.structCodec = structCodec;
         }
 
         /** Next request payload; EOFException at half-close. */
@@ -44,7 +50,7 @@ public class Server {
 
         /** Decode the next request message into req. */
         public void recvInto(Unmarshaler req) throws Exception {
-            req.unmarshalDc(recvRaw());
+            Codec.unmarshalForCodec(structCodec, recvRaw(), req);
         }
     }
 
@@ -65,6 +71,18 @@ public class Server {
     public record ServiceDesc(String name, List<Method> methods) {}
 
     private final Map<String, Method> methods = new HashMap<>();
+    private boolean structCodec;
+
+    /**
+     * Enable the struct codec on this server: a call carrying
+     * HEADERS dc-codec: struct-v1 is decoded with the struct codec
+     * and answered in kind. A struct-v1 request to a server without
+     * it enabled fails UNIMPLEMENTED, as does any other dc-codec
+     * value. Mirrors the Go Server.SetStructCodec.
+     */
+    public void setStructCodec(boolean enabled) {
+        this.structCodec = enabled;
+    }
 
     /** Adds a service's methods (generated code calls it). */
     public void registerService(ServiceDesc desc) {
@@ -92,12 +110,23 @@ public class Server {
         if (method == null) {
             return new StatusException(Wire.CODE_UNIMPLEMENTED, "unknown method " + headers.path);
         }
+        // Struct codec negotiation: an explicit dc-codec marker
+        // must be struct-v1 and enabled here, else UNIMPLEMENTED.
+        boolean useStruct = false;
+        String marker = headers.metadata.get(Codec.STRUCT_CODEC_HEADER);
+        if (marker != null) {
+            if (!Codec.STRUCT_CODEC_V1.equals(marker) || !structCodec) {
+                return new StatusException(Wire.CODE_UNIMPLEMENTED, "struct codec not enabled");
+            }
+            useStruct = true;
+        }
+        ctx.structCodec = useStruct;
         Tracing.TraceContext traceCtx = Tracing.traceStart("server", headers.path,
                 Tracing.parseTraceparent(headers.metadata.get("traceparent")));
         ctx.traceContext = traceCtx;
         StatusException result = null;
         try {
-            method.handler().handle(ctx, new RequestStream(in), sink::send);
+            method.handler().handle(ctx, new RequestStream(in, useStruct), sink::send);
         } catch (Exception e) {
             result = StatusException.toStatus(e);
         }

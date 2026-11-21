@@ -178,13 +178,13 @@ object EchoGrpcDc {
                 val req = new EchoRequest()
                 reqs.recvInto(req)
                 val resp = impl.Unary(ctx, req)
-                sink.send(resp.marshalDc())
+                sink.send(ctx.encodeMessage(resp))
             }),
             grpcdc.Server.Method("ServerStream", "/echo.Echo/ServerStream", grpcdc.Server.KIND_SERVER_STREAMING, (ctx, reqs, sink) => {
                 val req = new EchoRequest()
                 reqs.recvInto(req)
                 impl.ServerStream(req, new EchoServerStreamServer {
-                    def send(resp: EchoResponse): Unit = sink.send(resp.marshalDc())
+                    def send(resp: EchoResponse): Unit = sink.send(ctx.encodeMessage(resp))
                     val context: grpcdc.Endpoint#CallContext = ctx
                 })
             }),
@@ -202,11 +202,11 @@ object EchoGrpcDc {
                 if (response == null) {
                     throw grpcdc.StatusException(grpcdc.Wire.CODE_INTERNAL, "client-streaming handler never called sendAndClose")
                 }
-                sink.send(response.marshalDc())
+                sink.send(ctx.encodeMessage(response))
             }),
             grpcdc.Server.Method("Bidi", "/echo.Echo/Bidi", grpcdc.Server.KIND_BIDI, (ctx, reqs, sink) => {
                 impl.Bidi(new EchoBidiServer {
-                    def send(resp: EchoResponse): Unit = sink.send(resp.marshalDc())
+                    def send(resp: EchoResponse): Unit = sink.send(ctx.encodeMessage(resp))
                     def recv(): EchoRequest = {
                         val req = new EchoRequest()
                         reqs.recvInto(req)

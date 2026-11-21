@@ -14,11 +14,11 @@ public final class OpenProducerRequest implements grpcdc.Marshaler, grpcdc.Unmar
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
-        w.stringField(1, transactionalId);
-        if (transactionTimeoutMs != 0) { w.tag(2, 0); w.varint(transactionTimeoutMs); }
-        w.raw(unknownFields);
-        return w.toBytes();
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
+        pbW.stringField(1, transactionalId);
+        if (transactionTimeoutMs != 0) { pbW.tag(2, 0); pbW.varint(transactionTimeoutMs); }
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -26,17 +26,17 @@ public final class OpenProducerRequest implements grpcdc.Marshaler, grpcdc.Unmar
         unknownFields = new byte[0];
         transactionalId = "";
         transactionTimeoutMs = 0;
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    transactionalId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    transactionalId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 2 -> {
-                    transactionTimeoutMs = (int) field.varintValue;
+                    transactionTimeoutMs = (int) pbField.varintValue;
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

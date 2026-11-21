@@ -14,11 +14,11 @@ public final class ConfigEntry implements grpcdc.Marshaler, grpcdc.Unmarshaler {
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
-        w.stringField(1, name);
-        w.stringField(2, value);
-        w.raw(unknownFields);
-        return w.toBytes();
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
+        pbW.stringField(1, name);
+        pbW.stringField(2, value);
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -26,17 +26,17 @@ public final class ConfigEntry implements grpcdc.Marshaler, grpcdc.Unmarshaler {
         unknownFields = new byte[0];
         name = "";
         value = "";
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    name = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    name = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 2 -> {
-                    value = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    value = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

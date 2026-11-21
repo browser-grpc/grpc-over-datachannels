@@ -22,15 +22,15 @@ public final class ShareGroupMember implements grpcdc.Marshaler, grpcdc.Unmarsha
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
-        w.stringField(1, memberId);
-        if (memberEpoch != 0) { w.tag(2, 0); w.varint(memberEpoch); }
-        w.stringField(3, clientId);
-        w.stringField(4, clientHost);
-        if (subscribedTopics != null) for (String x : subscribedTopics) w.bytesField(5, x.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        if (assignment != null) for (TopicPartition x : assignment) w.bytesField(6, x.marshalDc());
-        w.raw(unknownFields);
-        return w.toBytes();
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
+        pbW.stringField(1, memberId);
+        if (memberEpoch != 0) { pbW.tag(2, 0); pbW.varint(memberEpoch); }
+        pbW.stringField(3, clientId);
+        pbW.stringField(4, clientHost);
+        if (subscribedTopics != null) for (String pbX : subscribedTopics) pbW.bytesField(5, pbX.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        if (assignment != null) for (TopicPartition pbX : assignment) pbW.bytesField(6, pbX.marshalDc());
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -42,31 +42,31 @@ public final class ShareGroupMember implements grpcdc.Marshaler, grpcdc.Unmarsha
         clientHost = "";
         subscribedTopics = new java.util.ArrayList<>();
         assignment = new java.util.ArrayList<>();
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    memberId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    memberId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 2 -> {
-                    memberEpoch = (int) field.varintValue;
+                    memberEpoch = (int) pbField.varintValue;
                 }
                 case 3 -> {
-                    clientId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    clientId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 4 -> {
-                    clientHost = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    clientHost = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 5 -> {
-                    subscribedTopics.add(new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8));
+                    subscribedTopics.add(new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8));
                 }
                 case 6 -> {
-                    TopicPartition item = new TopicPartition();
-                    item.unmarshalDc(field.bytesValue);
-                    assignment.add(item);
+                    TopicPartition pbItem = new TopicPartition();
+                    pbItem.unmarshalDc(pbField.bytesValue);
+                    assignment.add(pbItem);
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

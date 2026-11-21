@@ -583,7 +583,7 @@ object KafkaGrpcDc {
         private val sink: Server.ServerSink
     ) : KafkaConsumeServer {
         override fun send(resp: ConsumeResponse) {
-            sink.send(resp.marshalDc())
+            sink.send(context.encodeMessage(resp))
         }
     }
 
@@ -592,7 +592,7 @@ object KafkaGrpcDc {
         private val sink: Server.ServerSink
     ) : KafkaSubscribeServer {
         override fun send(resp: GroupSubscribeResponse) {
-            sink.send(resp.marshalDc())
+            sink.send(context.encodeMessage(resp))
         }
     }
 
@@ -728,27 +728,27 @@ object KafkaGrpcDc {
                     Server.Method("Metadata", "/grpcdc.kafka.v1.Kafka/Metadata", Server.KIND_UNARY) { ctx, reqs, sink ->
                         val req = MetadataRequest()
                         reqs.recvInto(req)
-                        sink.send(impl.Metadata(ctx, req).marshalDc())
+                        sink.send(ctx.encodeMessage(impl.Metadata(ctx, req)))
                     },
                     Server.Method("OpenProducer", "/grpcdc.kafka.v1.Kafka/OpenProducer", Server.KIND_UNARY) { ctx, reqs, sink ->
                         val req = OpenProducerRequest()
                         reqs.recvInto(req)
-                        sink.send(impl.OpenProducer(ctx, req).marshalDc())
+                        sink.send(ctx.encodeMessage(impl.OpenProducer(ctx, req)))
                     },
                     Server.Method("CloseProducer", "/grpcdc.kafka.v1.Kafka/CloseProducer", Server.KIND_UNARY) { ctx, reqs, sink ->
                         val req = CloseProducerRequest()
                         reqs.recvInto(req)
-                        sink.send(impl.CloseProducer(ctx, req).marshalDc())
+                        sink.send(ctx.encodeMessage(impl.CloseProducer(ctx, req)))
                     },
                     Server.Method("EndTransaction", "/grpcdc.kafka.v1.Kafka/EndTransaction", Server.KIND_UNARY) { ctx, reqs, sink ->
                         val req = EndTransactionRequest()
                         reqs.recvInto(req)
-                        sink.send(impl.EndTransaction(ctx, req).marshalDc())
+                        sink.send(ctx.encodeMessage(impl.EndTransaction(ctx, req)))
                     },
                     Server.Method("Produce", "/grpcdc.kafka.v1.Kafka/Produce", Server.KIND_UNARY) { ctx, reqs, sink ->
                         val req = ProduceRequest()
                         reqs.recvInto(req)
-                        sink.send(impl.Produce(ctx, req).marshalDc())
+                        sink.send(ctx.encodeMessage(impl.Produce(ctx, req)))
                     },
                     Server.Method("Consume", "/grpcdc.kafka.v1.Kafka/Consume", Server.KIND_SERVER_STREAMING) { ctx, reqs, sink ->
                         val req = ConsumeRequest()
@@ -763,117 +763,117 @@ object KafkaGrpcDc {
                     Server.Method("ListOffsets", "/grpcdc.kafka.v1.Kafka/ListOffsets", Server.KIND_UNARY) { ctx, reqs, sink ->
                         val req = ListOffsetsRequest()
                         reqs.recvInto(req)
-                        sink.send(impl.ListOffsets(ctx, req).marshalDc())
+                        sink.send(ctx.encodeMessage(impl.ListOffsets(ctx, req)))
                     },
                     Server.Method("CommitOffset", "/grpcdc.kafka.v1.Kafka/CommitOffset", Server.KIND_UNARY) { ctx, reqs, sink ->
                         val req = CommitOffsetRequest()
                         reqs.recvInto(req)
-                        sink.send(impl.CommitOffset(ctx, req).marshalDc())
+                        sink.send(ctx.encodeMessage(impl.CommitOffset(ctx, req)))
                     },
                     Server.Method("FetchOffset", "/grpcdc.kafka.v1.Kafka/FetchOffset", Server.KIND_UNARY) { ctx, reqs, sink ->
                         val req = FetchOffsetRequest()
                         reqs.recvInto(req)
-                        sink.send(impl.FetchOffset(ctx, req).marshalDc())
+                        sink.send(ctx.encodeMessage(impl.FetchOffset(ctx, req)))
                     },
                     Server.Method("CreateTopics", "/grpcdc.kafka.v1.Kafka/CreateTopics", Server.KIND_UNARY) { ctx, reqs, sink ->
                         val req = CreateTopicsRequest()
                         reqs.recvInto(req)
-                        sink.send(impl.CreateTopics(ctx, req).marshalDc())
+                        sink.send(ctx.encodeMessage(impl.CreateTopics(ctx, req)))
                     },
                     Server.Method("DeleteTopics", "/grpcdc.kafka.v1.Kafka/DeleteTopics", Server.KIND_UNARY) { ctx, reqs, sink ->
                         val req = DeleteTopicsRequest()
                         reqs.recvInto(req)
-                        sink.send(impl.DeleteTopics(ctx, req).marshalDc())
+                        sink.send(ctx.encodeMessage(impl.DeleteTopics(ctx, req)))
                     },
                     Server.Method("DescribeConfigs", "/grpcdc.kafka.v1.Kafka/DescribeConfigs", Server.KIND_UNARY) { ctx, reqs, sink ->
                         val req = DescribeConfigsRequest()
                         reqs.recvInto(req)
-                        sink.send(impl.DescribeConfigs(ctx, req).marshalDc())
+                        sink.send(ctx.encodeMessage(impl.DescribeConfigs(ctx, req)))
                     },
                     Server.Method("AlterConfigs", "/grpcdc.kafka.v1.Kafka/AlterConfigs", Server.KIND_UNARY) { ctx, reqs, sink ->
                         val req = AlterConfigsRequest()
                         reqs.recvInto(req)
-                        sink.send(impl.AlterConfigs(ctx, req).marshalDc())
+                        sink.send(ctx.encodeMessage(impl.AlterConfigs(ctx, req)))
                     },
                     Server.Method("CreatePartitions", "/grpcdc.kafka.v1.Kafka/CreatePartitions", Server.KIND_UNARY) { ctx, reqs, sink ->
                         val req = CreatePartitionsRequest()
                         reqs.recvInto(req)
-                        sink.send(impl.CreatePartitions(ctx, req).marshalDc())
+                        sink.send(ctx.encodeMessage(impl.CreatePartitions(ctx, req)))
                     },
                     Server.Method("DeleteRecords", "/grpcdc.kafka.v1.Kafka/DeleteRecords", Server.KIND_UNARY) { ctx, reqs, sink ->
                         val req = DeleteRecordsRequest()
                         reqs.recvInto(req)
-                        sink.send(impl.DeleteRecords(ctx, req).marshalDc())
+                        sink.send(ctx.encodeMessage(impl.DeleteRecords(ctx, req)))
                     },
                     Server.Method("ListGroups", "/grpcdc.kafka.v1.Kafka/ListGroups", Server.KIND_UNARY) { ctx, reqs, sink ->
                         val req = ListGroupsRequest()
                         reqs.recvInto(req)
-                        sink.send(impl.ListGroups(ctx, req).marshalDc())
+                        sink.send(ctx.encodeMessage(impl.ListGroups(ctx, req)))
                     },
                     Server.Method("DescribeGroups", "/grpcdc.kafka.v1.Kafka/DescribeGroups", Server.KIND_UNARY) { ctx, reqs, sink ->
                         val req = DescribeGroupsRequest()
                         reqs.recvInto(req)
-                        sink.send(impl.DescribeGroups(ctx, req).marshalDc())
+                        sink.send(ctx.encodeMessage(impl.DescribeGroups(ctx, req)))
                     },
                     Server.Method("DeleteGroups", "/grpcdc.kafka.v1.Kafka/DeleteGroups", Server.KIND_UNARY) { ctx, reqs, sink ->
                         val req = DeleteGroupsRequest()
                         reqs.recvInto(req)
-                        sink.send(impl.DeleteGroups(ctx, req).marshalDc())
+                        sink.send(ctx.encodeMessage(impl.DeleteGroups(ctx, req)))
                     },
                     Server.Method("DeleteGroupOffsets", "/grpcdc.kafka.v1.Kafka/DeleteGroupOffsets", Server.KIND_UNARY) { ctx, reqs, sink ->
                         val req = DeleteGroupOffsetsRequest()
                         reqs.recvInto(req)
-                        sink.send(impl.DeleteGroupOffsets(ctx, req).marshalDc())
+                        sink.send(ctx.encodeMessage(impl.DeleteGroupOffsets(ctx, req)))
                     },
                     Server.Method("DescribeAcls", "/grpcdc.kafka.v1.Kafka/DescribeAcls", Server.KIND_UNARY) { ctx, reqs, sink ->
                         val req = DescribeAclsRequest()
                         reqs.recvInto(req)
-                        sink.send(impl.DescribeAcls(ctx, req).marshalDc())
+                        sink.send(ctx.encodeMessage(impl.DescribeAcls(ctx, req)))
                     },
                     Server.Method("CreateAcls", "/grpcdc.kafka.v1.Kafka/CreateAcls", Server.KIND_UNARY) { ctx, reqs, sink ->
                         val req = CreateAclsRequest()
                         reqs.recvInto(req)
-                        sink.send(impl.CreateAcls(ctx, req).marshalDc())
+                        sink.send(ctx.encodeMessage(impl.CreateAcls(ctx, req)))
                     },
                     Server.Method("DeleteAcls", "/grpcdc.kafka.v1.Kafka/DeleteAcls", Server.KIND_UNARY) { ctx, reqs, sink ->
                         val req = DeleteAclsRequest()
                         reqs.recvInto(req)
-                        sink.send(impl.DeleteAcls(ctx, req).marshalDc())
+                        sink.send(ctx.encodeMessage(impl.DeleteAcls(ctx, req)))
                     },
                     Server.Method("ListTransactions", "/grpcdc.kafka.v1.Kafka/ListTransactions", Server.KIND_UNARY) { ctx, reqs, sink ->
                         val req = ListTransactionsRequest()
                         reqs.recvInto(req)
-                        sink.send(impl.ListTransactions(ctx, req).marshalDc())
+                        sink.send(ctx.encodeMessage(impl.ListTransactions(ctx, req)))
                     },
                     Server.Method("DescribeTransactions", "/grpcdc.kafka.v1.Kafka/DescribeTransactions", Server.KIND_UNARY) { ctx, reqs, sink ->
                         val req = DescribeTransactionsRequest()
                         reqs.recvInto(req)
-                        sink.send(impl.DescribeTransactions(ctx, req).marshalDc())
+                        sink.send(ctx.encodeMessage(impl.DescribeTransactions(ctx, req)))
                     },
                     Server.Method("OpenShareGroup", "/grpcdc.kafka.v1.Kafka/OpenShareGroup", Server.KIND_UNARY) { ctx, reqs, sink ->
                         val req = OpenShareGroupRequest()
                         reqs.recvInto(req)
-                        sink.send(impl.OpenShareGroup(ctx, req).marshalDc())
+                        sink.send(ctx.encodeMessage(impl.OpenShareGroup(ctx, req)))
                     },
                     Server.Method("SharePoll", "/grpcdc.kafka.v1.Kafka/SharePoll", Server.KIND_UNARY) { ctx, reqs, sink ->
                         val req = SharePollRequest()
                         reqs.recvInto(req)
-                        sink.send(impl.SharePoll(ctx, req).marshalDc())
+                        sink.send(ctx.encodeMessage(impl.SharePoll(ctx, req)))
                     },
                     Server.Method("ShareAck", "/grpcdc.kafka.v1.Kafka/ShareAck", Server.KIND_UNARY) { ctx, reqs, sink ->
                         val req = ShareAckRequest()
                         reqs.recvInto(req)
-                        sink.send(impl.ShareAck(ctx, req).marshalDc())
+                        sink.send(ctx.encodeMessage(impl.ShareAck(ctx, req)))
                     },
                     Server.Method("CloseShareGroup", "/grpcdc.kafka.v1.Kafka/CloseShareGroup", Server.KIND_UNARY) { ctx, reqs, sink ->
                         val req = CloseShareGroupRequest()
                         reqs.recvInto(req)
-                        sink.send(impl.CloseShareGroup(ctx, req).marshalDc())
+                        sink.send(ctx.encodeMessage(impl.CloseShareGroup(ctx, req)))
                     },
                     Server.Method("DescribeShareGroups", "/grpcdc.kafka.v1.Kafka/DescribeShareGroups", Server.KIND_UNARY) { ctx, reqs, sink ->
                         val req = DescribeShareGroupsRequest()
                         reqs.recvInto(req)
-                        sink.send(impl.DescribeShareGroups(ctx, req).marshalDc())
+                        sink.send(ctx.encodeMessage(impl.DescribeShareGroups(ctx, req)))
                     }
                 )
             )

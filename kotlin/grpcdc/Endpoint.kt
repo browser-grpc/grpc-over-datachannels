@@ -85,6 +85,11 @@ class Endpoint(private val transport: Transport, creator: Boolean) {
     class CallContext(val metadata: Map<String, String>) {
         /** This call's server span context (null when dormant). */
         var traceContext: Tracing.TraceContext? = null
+        /** Whether this call negotiated the struct codec (HEADERS dc-codec: struct-v1). */
+        var structCodec: Boolean = false
+
+        /** Marshal a response message with this call's negotiated codec (generated server code calls this). */
+        fun encodeMessage(msg: Marshaler): ByteArray = Codec.marshalForCodec(structCodec, msg)
         /** Response initial metadata recorded via setHeaders. */
         val responseHeaders = HashMap<String, String>()
         /** Response trailing metadata recorded via setTrailers. */

@@ -28,18 +28,18 @@ public final class SharePollRecord implements grpcdc.Marshaler, grpcdc.Unmarshal
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
-        w.stringField(1, topic);
-        if (partition != 0) { w.tag(2, 0); w.varint(partition); }
-        if (offset != 0) { w.tag(3, 0); w.varint(offset); }
-        if (key != null && key.length > 0) w.bytesField(4, key);
-        if (value != null && value.length > 0) w.bytesField(5, value);
-        if (headers != null) for (Header x : headers) w.bytesField(6, x.marshalDc());
-        if (timestampMs != 0) { w.tag(7, 0); w.varint(timestampMs); }
-        if (deliveryCount != 0) { w.tag(8, 0); w.varint(deliveryCount); }
-        if (nullKey) { w.tag(9, 0); w.varint((nullKey ? 1 : 0)); }
-        w.raw(unknownFields);
-        return w.toBytes();
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
+        pbW.stringField(1, topic);
+        if (partition != 0) { pbW.tag(2, 0); pbW.varint(partition); }
+        if (offset != 0) { pbW.tag(3, 0); pbW.varint(offset); }
+        if (key != null && key.length > 0) pbW.bytesField(4, key);
+        if (value != null && value.length > 0) pbW.bytesField(5, value);
+        if (headers != null) for (Header pbX : headers) pbW.bytesField(6, pbX.marshalDc());
+        if (timestampMs != 0) { pbW.tag(7, 0); pbW.varint(timestampMs); }
+        if (deliveryCount != 0) { pbW.tag(8, 0); pbW.varint(deliveryCount); }
+        if (nullKey) { pbW.tag(9, 0); pbW.varint((nullKey ? 1 : 0)); }
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -54,40 +54,40 @@ public final class SharePollRecord implements grpcdc.Marshaler, grpcdc.Unmarshal
         timestampMs = 0L;
         deliveryCount = 0;
         nullKey = false;
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    topic = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    topic = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 2 -> {
-                    partition = (int) field.varintValue;
+                    partition = (int) pbField.varintValue;
                 }
                 case 3 -> {
-                    offset = field.varintValue;
+                    offset = pbField.varintValue;
                 }
                 case 4 -> {
-                    key = field.bytesValue;
+                    key = pbField.bytesValue;
                 }
                 case 5 -> {
-                    value = field.bytesValue;
+                    value = pbField.bytesValue;
                 }
                 case 6 -> {
-                    Header item = new Header();
-                    item.unmarshalDc(field.bytesValue);
-                    headers.add(item);
+                    Header pbItem = new Header();
+                    pbItem.unmarshalDc(pbField.bytesValue);
+                    headers.add(pbItem);
                 }
                 case 7 -> {
-                    timestampMs = field.varintValue;
+                    timestampMs = pbField.varintValue;
                 }
                 case 8 -> {
-                    deliveryCount = (int) field.varintValue;
+                    deliveryCount = (int) pbField.varintValue;
                 }
                 case 9 -> {
-                    nullKey = field.varintValue != 0;
+                    nullKey = pbField.varintValue != 0;
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

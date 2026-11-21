@@ -16,12 +16,12 @@ public final class FetchOffsetResponse implements grpcdc.Marshaler, grpcdc.Unmar
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
-        if (committedOffset != 0) { w.tag(1, 0); w.varint(committedOffset); }
-        w.stringField(2, metadata);
-        if (errorCode != 0) { w.tag(3, 0); w.varint(errorCode); }
-        w.raw(unknownFields);
-        return w.toBytes();
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
+        if (committedOffset != 0) { pbW.tag(1, 0); pbW.varint(committedOffset); }
+        pbW.stringField(2, metadata);
+        if (errorCode != 0) { pbW.tag(3, 0); pbW.varint(errorCode); }
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -30,20 +30,20 @@ public final class FetchOffsetResponse implements grpcdc.Marshaler, grpcdc.Unmar
         committedOffset = 0L;
         metadata = "";
         errorCode = 0;
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    committedOffset = field.varintValue;
+                    committedOffset = pbField.varintValue;
                 }
                 case 2 -> {
-                    metadata = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    metadata = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 3 -> {
-                    errorCode = (int) field.varintValue;
+                    errorCode = (int) pbField.varintValue;
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

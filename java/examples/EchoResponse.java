@@ -14,11 +14,11 @@ public final class EchoResponse implements grpcdc.Marshaler, grpcdc.Unmarshaler 
 
     @Override
     public byte[] marshalDc() {
-        EchoPb.Writer w = new EchoPb.Writer();
-        w.stringField(1, message);
-        if (index != 0) { w.tag(2, 0); w.varint(index); }
-        w.raw(unknownFields);
-        return w.toBytes();
+        EchoPb.Writer pbW = new EchoPb.Writer();
+        pbW.stringField(1, message);
+        if (index != 0) { pbW.tag(2, 0); pbW.varint(index); }
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -26,18 +26,31 @@ public final class EchoResponse implements grpcdc.Marshaler, grpcdc.Unmarshaler 
         unknownFields = new byte[0];
         message = "";
         index = 0;
-        EchoPb.Reader r = new EchoPb.Reader(data);
-        EchoPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        EchoPb.Reader pbR = new EchoPb.Reader(data);
+        EchoPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    message = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    message = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 2 -> {
-                    index = (int) field.varintValue;
+                    index = (int) pbField.varintValue;
                 }
-                default -> { unknownFields = EchoPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = EchoPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
+    }
+
+    @Override
+    public byte[] marshalStruct() {
+        return EchoResponseStruct.marshal(this);
+    }
+
+    @Override
+    public void unmarshalStruct(byte[] data) {
+        EchoResponse _s = EchoResponseStruct.unmarshal(data);
+        this.message = _s.message;
+        this.index = _s.index;
+        this.unknownFields = _s.unknownFields;
     }
 }

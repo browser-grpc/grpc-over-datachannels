@@ -24,16 +24,16 @@ public final class Acl implements grpcdc.Marshaler, grpcdc.Unmarshaler {
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
-        if (resourceType != 0) { w.tag(1, 0); w.varint(resourceType); }
-        w.stringField(2, resourceName);
-        if (patternType != 0) { w.tag(3, 0); w.varint(patternType); }
-        w.stringField(4, principal);
-        w.stringField(5, host);
-        if (operation != 0) { w.tag(6, 0); w.varint(operation); }
-        if (permissionType != 0) { w.tag(7, 0); w.varint(permissionType); }
-        w.raw(unknownFields);
-        return w.toBytes();
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
+        if (resourceType != 0) { pbW.tag(1, 0); pbW.varint(resourceType); }
+        pbW.stringField(2, resourceName);
+        if (patternType != 0) { pbW.tag(3, 0); pbW.varint(patternType); }
+        pbW.stringField(4, principal);
+        pbW.stringField(5, host);
+        if (operation != 0) { pbW.tag(6, 0); pbW.varint(operation); }
+        if (permissionType != 0) { pbW.tag(7, 0); pbW.varint(permissionType); }
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -46,32 +46,32 @@ public final class Acl implements grpcdc.Marshaler, grpcdc.Unmarshaler {
         host = "";
         operation = 0;
         permissionType = 0;
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    resourceType = (int) field.varintValue;
+                    resourceType = (int) pbField.varintValue;
                 }
                 case 2 -> {
-                    resourceName = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    resourceName = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 3 -> {
-                    patternType = (int) field.varintValue;
+                    patternType = (int) pbField.varintValue;
                 }
                 case 4 -> {
-                    principal = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    principal = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 5 -> {
-                    host = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    host = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 6 -> {
-                    operation = (int) field.varintValue;
+                    operation = (int) pbField.varintValue;
                 }
                 case 7 -> {
-                    permissionType = (int) field.varintValue;
+                    permissionType = (int) pbField.varintValue;
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

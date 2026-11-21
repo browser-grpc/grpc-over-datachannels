@@ -22,15 +22,15 @@ public final class DescribedTransaction implements grpcdc.Marshaler, grpcdc.Unma
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
-        w.stringField(1, transactionalId);
-        if (errorCode != 0) { w.tag(2, 0); w.varint(errorCode); }
-        if (producerId != 0) { w.tag(3, 0); w.varint(producerId); }
-        if (producerEpoch != 0) { w.tag(4, 0); w.varint(producerEpoch); }
-        w.stringField(5, transactionState);
-        if (lastUpdateTimestampMs != 0) { w.tag(6, 0); w.varint(lastUpdateTimestampMs); }
-        w.raw(unknownFields);
-        return w.toBytes();
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
+        pbW.stringField(1, transactionalId);
+        if (errorCode != 0) { pbW.tag(2, 0); pbW.varint(errorCode); }
+        if (producerId != 0) { pbW.tag(3, 0); pbW.varint(producerId); }
+        if (producerEpoch != 0) { pbW.tag(4, 0); pbW.varint(producerEpoch); }
+        pbW.stringField(5, transactionState);
+        if (lastUpdateTimestampMs != 0) { pbW.tag(6, 0); pbW.varint(lastUpdateTimestampMs); }
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -42,29 +42,29 @@ public final class DescribedTransaction implements grpcdc.Marshaler, grpcdc.Unma
         producerEpoch = 0;
         transactionState = "";
         lastUpdateTimestampMs = 0L;
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    transactionalId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    transactionalId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 2 -> {
-                    errorCode = (int) field.varintValue;
+                    errorCode = (int) pbField.varintValue;
                 }
                 case 3 -> {
-                    producerId = field.varintValue;
+                    producerId = pbField.varintValue;
                 }
                 case 4 -> {
-                    producerEpoch = (int) field.varintValue;
+                    producerEpoch = (int) pbField.varintValue;
                 }
                 case 5 -> {
-                    transactionState = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    transactionState = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 6 -> {
-                    lastUpdateTimestampMs = field.varintValue;
+                    lastUpdateTimestampMs = pbField.varintValue;
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

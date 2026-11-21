@@ -9,7 +9,7 @@ class Server {
   import Server.{Method, ServerSink, ServiceDesc}
 
   /** Reads request messages of one inbound call. */
-  class RequestStream(private val input: Endpoint#StreamInput) {
+  class RequestStream(private val input: Endpoint#StreamInput, private val structCodec: Boolean = false) {
     /** Next request payload; EOFException at half-close. */
     def recvRaw(): Array[Byte] = {
       while (true) {
@@ -31,11 +31,23 @@ class Server {
 
     /** Decode the next request message into req. */
     def recvInto(req: Unmarshaler): Unit = {
-      req.unmarshalDc(recvRaw())
+      Codec.unmarshalForCodec(structCodec, recvRaw(), req)
     }
   }
 
   private val methods = scala.collection.mutable.HashMap[String, Method]()
+  private var structCodec: Boolean = false
+
+  /**
+   * Enable the struct codec on this server: a call carrying
+   * HEADERS dc-codec: struct-v1 is decoded with the struct codec
+   * and answered in kind. A struct-v1 request to a server without
+   * it enabled fails UNIMPLEMENTED, as does any other dc-codec
+   * value. Mirrors the Go Server.SetStructCodec.
+   */
+  def setStructCodec(enabled: Boolean): Unit = {
+    structCodec = enabled
+  }
 
   /** Adds a service's methods (generated code calls it). */
   def registerService(desc: ServiceDesc): Unit = {
@@ -63,11 +75,22 @@ class Server {
     if (method == null) {
       return StatusException(Wire.CODE_UNIMPLEMENTED, "unknown method " + headers.path)
     }
+    // Struct codec negotiation: an explicit dc-codec marker
+    // must be struct-v1 and enabled here, else UNIMPLEMENTED.
+    var useStruct = false
+    val marker = headers.metadata.getOrElse(Codec.STRUCT_CODEC_HEADER, null)
+    if (marker != null) {
+      if (marker != Codec.STRUCT_CODEC_V1 || !structCodec) {
+        return StatusException(Wire.CODE_UNIMPLEMENTED, "struct codec not enabled")
+      }
+      useStruct = true
+    }
+    ctx.structCodec = useStruct
     val traceCtx = Tracing.traceStart("server", headers.path, Tracing.parseTraceparent(headers.metadata.getOrElse("traceparent", null)))
     ctx.traceContext = traceCtx
     var result: StatusException = null
     try {
-      method.handler(ctx, new RequestStream(input), new ServerSink {
+      method.handler(ctx, new RequestStream(input, useStruct), new ServerSink {
         def send(payload: Array[Byte]): Unit = sink.send(payload)
       })
     } catch {

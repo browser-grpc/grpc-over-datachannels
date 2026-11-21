@@ -127,27 +127,27 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        w.stringField(1, key)
-        if (value.isNotEmpty()) w.bytesField(2, value)
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        pbW.stringField(1, key)
+        if (value.isNotEmpty()) pbW.bytesField(2, value)
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         key = ""
         value = ByteArray(0)
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    key = String(field.bytesValue, Charsets.UTF_8)
+                    key = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    value = field.bytesValue
+                    value = pbField.bytesValue
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -161,14 +161,14 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        if (key.isNotEmpty()) w.bytesField(1, key)
-        if (value.isNotEmpty()) w.bytesField(2, value)
-        for (x in headers) w.bytesField(3, x.marshalDc())
-        if (timestampMs != 0L) { w.tag(4, 0); w.varint(timestampMs) }
-        if (nullKey) { w.tag(5, 0); w.varint(if (nullKey) 1L else 0L) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        if (key.isNotEmpty()) pbW.bytesField(1, key)
+        if (value.isNotEmpty()) pbW.bytesField(2, value)
+        for (pbX in headers) pbW.bytesField(3, pbX.marshalDc())
+        if (timestampMs != 0L) { pbW.tag(4, 0); pbW.varint(timestampMs) }
+        if (nullKey) { pbW.tag(5, 0); pbW.varint(if (nullKey) 1L else 0L) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
@@ -177,28 +177,28 @@ enum class ConfigOp(val number: Int) {
         headers = mutableListOf()
         timestampMs = 0L
         nullKey = false
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    key = field.bytesValue
+                    key = pbField.bytesValue
                 }
                 2 -> {
-                    value = field.bytesValue
+                    value = pbField.bytesValue
                 }
                 3 -> {
-                    val item = Header()
-                    item.unmarshalDc(field.bytesValue)
-                    headers.add(item)
+                    val pbItem = Header()
+                    pbItem.unmarshalDc(pbField.bytesValue)
+                    headers.add(pbItem)
                 }
                 4 -> {
-                    timestampMs = field.varintValue
+                    timestampMs = pbField.varintValue
                 }
                 5 -> {
-                    nullKey = field.varintValue != 0L
+                    nullKey = pbField.varintValue != 0L
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -213,15 +213,15 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        if (offset != 0L) { w.tag(1, 0); w.varint(offset) }
-        if (timestampMs != 0L) { w.tag(2, 0); w.varint(timestampMs) }
-        if (key.isNotEmpty()) w.bytesField(3, key)
-        if (value.isNotEmpty()) w.bytesField(4, value)
-        for (x in headers) w.bytesField(5, x.marshalDc())
-        if (keyNull) { w.tag(6, 0); w.varint(if (keyNull) 1L else 0L) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        if (offset != 0L) { pbW.tag(1, 0); pbW.varint(offset) }
+        if (timestampMs != 0L) { pbW.tag(2, 0); pbW.varint(timestampMs) }
+        if (key.isNotEmpty()) pbW.bytesField(3, key)
+        if (value.isNotEmpty()) pbW.bytesField(4, value)
+        for (pbX in headers) pbW.bytesField(5, pbX.marshalDc())
+        if (keyNull) { pbW.tag(6, 0); pbW.varint(if (keyNull) 1L else 0L) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
@@ -231,31 +231,31 @@ enum class ConfigOp(val number: Int) {
         value = ByteArray(0)
         headers = mutableListOf()
         keyNull = false
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    offset = field.varintValue
+                    offset = pbField.varintValue
                 }
                 2 -> {
-                    timestampMs = field.varintValue
+                    timestampMs = pbField.varintValue
                 }
                 3 -> {
-                    key = field.bytesValue
+                    key = pbField.bytesValue
                 }
                 4 -> {
-                    value = field.bytesValue
+                    value = pbField.bytesValue
                 }
                 5 -> {
-                    val item = Header()
-                    item.unmarshalDc(field.bytesValue)
-                    headers.add(item)
+                    val pbItem = Header()
+                    pbItem.unmarshalDc(pbField.bytesValue)
+                    headers.add(pbItem)
                 }
                 6 -> {
-                    keyNull = field.varintValue != 0L
+                    keyNull = pbField.varintValue != 0L
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -266,27 +266,27 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        w.stringField(1, topic)
-        if (partition != 0) { w.tag(2, 0); w.varint(partition.toLong()) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        pbW.stringField(1, topic)
+        if (partition != 0) { pbW.tag(2, 0); pbW.varint(partition.toLong()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         topic = ""
         partition = 0
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    topic = String(field.bytesValue, Charsets.UTF_8)
+                    topic = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    partition = field.varintValue.toInt()
+                    partition = pbField.varintValue.toInt()
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -297,27 +297,27 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        for (x in topics) w.bytesField(1, x.toByteArray(Charsets.UTF_8))
-        if (allowAutoTopicCreation) { w.tag(2, 0); w.varint(if (allowAutoTopicCreation) 1L else 0L) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        for (pbX in topics) pbW.bytesField(1, pbX.toByteArray(Charsets.UTF_8))
+        if (allowAutoTopicCreation) { pbW.tag(2, 0); pbW.varint(if (allowAutoTopicCreation) 1L else 0L) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         topics = mutableListOf()
         allowAutoTopicCreation = false
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    topics.add(String(field.bytesValue, Charsets.UTF_8))
+                    topics.add(String(pbField.bytesValue, Charsets.UTF_8))
                 }
                 2 -> {
-                    allowAutoTopicCreation = field.varintValue != 0L
+                    allowAutoTopicCreation = pbField.varintValue != 0L
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -330,13 +330,13 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        if (nodeId != 0) { w.tag(1, 0); w.varint(nodeId.toLong()) }
-        w.stringField(2, host)
-        if (port != 0) { w.tag(3, 0); w.varint(port.toLong()) }
-        w.stringField(4, rack)
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        if (nodeId != 0) { pbW.tag(1, 0); pbW.varint(nodeId.toLong()) }
+        pbW.stringField(2, host)
+        if (port != 0) { pbW.tag(3, 0); pbW.varint(port.toLong()) }
+        pbW.stringField(4, rack)
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
@@ -344,23 +344,23 @@ enum class ConfigOp(val number: Int) {
         host = ""
         port = 0
         rack = ""
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    nodeId = field.varintValue.toInt()
+                    nodeId = pbField.varintValue.toInt()
                 }
                 2 -> {
-                    host = String(field.bytesValue, Charsets.UTF_8)
+                    host = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 3 -> {
-                    port = field.varintValue.toInt()
+                    port = pbField.varintValue.toInt()
                 }
                 4 -> {
-                    rack = String(field.bytesValue, Charsets.UTF_8)
+                    rack = String(pbField.bytesValue, Charsets.UTF_8)
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -375,23 +375,23 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        if (id != 0) { w.tag(1, 0); w.varint(id.toLong()) }
-        if (leaderId != 0) { w.tag(2, 0); w.varint(leaderId.toLong()) }
-        if (leaderEpoch != 0) { w.tag(3, 0); w.varint(leaderEpoch.toLong()) }
+        val pbW = KafkaPb.Writer()
+        if (id != 0) { pbW.tag(1, 0); pbW.varint(id.toLong()) }
+        if (leaderId != 0) { pbW.tag(2, 0); pbW.varint(leaderId.toLong()) }
+        if (leaderEpoch != 0) { pbW.tag(3, 0); pbW.varint(leaderEpoch.toLong()) }
         if (replicas.isNotEmpty()) {
-            val payload = KafkaPb.Writer()
-            for (x in replicas) payload.varint(x.toLong())
-            w.bytesField(4, payload.toBytes())
+            val pbPayload = KafkaPb.Writer()
+            for (pbX in replicas) pbPayload.varint(pbX.toLong())
+            pbW.bytesField(4, pbPayload.toBytes())
         }
         if (isr.isNotEmpty()) {
-            val payload = KafkaPb.Writer()
-            for (x in isr) payload.varint(x.toLong())
-            w.bytesField(5, payload.toBytes())
+            val pbPayload = KafkaPb.Writer()
+            for (pbX in isr) pbPayload.varint(pbX.toLong())
+            pbW.bytesField(5, pbPayload.toBytes())
         }
-        if (errorCode != 0) { w.tag(6, 0); w.varint(errorCode.toLong()) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        if (errorCode != 0) { pbW.tag(6, 0); pbW.varint(errorCode.toLong()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
@@ -401,43 +401,43 @@ enum class ConfigOp(val number: Int) {
         replicas = mutableListOf()
         isr = mutableListOf()
         errorCode = 0
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    id = field.varintValue.toInt()
+                    id = pbField.varintValue.toInt()
                 }
                 2 -> {
-                    leaderId = field.varintValue.toInt()
+                    leaderId = pbField.varintValue.toInt()
                 }
                 3 -> {
-                    leaderEpoch = field.varintValue.toInt()
+                    leaderEpoch = pbField.varintValue.toInt()
                 }
                 4 -> {
-                    if (field.wire == 2) {
-                        val sub = KafkaPb.Reader(field.bytesValue)
-                        while (!sub.done()) {
-                            replicas.add(sub.varint().toInt())
+                    if (pbField.wire == 2) {
+                        val pbSub = KafkaPb.Reader(pbField.bytesValue)
+                        while (!pbSub.done()) {
+                            replicas.add(pbSub.varint().toInt())
                         }
                     } else {
-                        replicas.add(field.varintValue.toInt())
+                        replicas.add(pbField.varintValue.toInt())
                     }
                 }
                 5 -> {
-                    if (field.wire == 2) {
-                        val sub = KafkaPb.Reader(field.bytesValue)
-                        while (!sub.done()) {
-                            isr.add(sub.varint().toInt())
+                    if (pbField.wire == 2) {
+                        val pbSub = KafkaPb.Reader(pbField.bytesValue)
+                        while (!pbSub.done()) {
+                            isr.add(pbSub.varint().toInt())
                         }
                     } else {
-                        isr.add(field.varintValue.toInt())
+                        isr.add(pbField.varintValue.toInt())
                     }
                 }
                 6 -> {
-                    errorCode = field.varintValue.toInt()
+                    errorCode = pbField.varintValue.toInt()
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -450,13 +450,13 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        w.stringField(1, name)
-        if (isInternal) { w.tag(2, 0); w.varint(if (isInternal) 1L else 0L) }
-        if (errorCode != 0) { w.tag(3, 0); w.varint(errorCode.toLong()) }
-        for (x in partitions) w.bytesField(4, x.marshalDc())
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        pbW.stringField(1, name)
+        if (isInternal) { pbW.tag(2, 0); pbW.varint(if (isInternal) 1L else 0L) }
+        if (errorCode != 0) { pbW.tag(3, 0); pbW.varint(errorCode.toLong()) }
+        for (pbX in partitions) pbW.bytesField(4, pbX.marshalDc())
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
@@ -464,25 +464,25 @@ enum class ConfigOp(val number: Int) {
         isInternal = false
         errorCode = 0
         partitions = mutableListOf()
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    name = String(field.bytesValue, Charsets.UTF_8)
+                    name = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    isInternal = field.varintValue != 0L
+                    isInternal = pbField.varintValue != 0L
                 }
                 3 -> {
-                    errorCode = field.varintValue.toInt()
+                    errorCode = pbField.varintValue.toInt()
                 }
                 4 -> {
-                    val item = PartitionMetadata()
-                    item.unmarshalDc(field.bytesValue)
-                    partitions.add(item)
+                    val pbItem = PartitionMetadata()
+                    pbItem.unmarshalDc(pbField.bytesValue)
+                    partitions.add(pbItem)
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -496,14 +496,14 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        if (throttleTimeMs != 0) { w.tag(1, 0); w.varint(throttleTimeMs.toLong()) }
-        for (x in brokers) w.bytesField(2, x.marshalDc())
-        w.stringField(3, clusterId)
-        if (controllerId != 0) { w.tag(4, 0); w.varint(controllerId.toLong()) }
-        for (x in topics) w.bytesField(5, x.marshalDc())
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        if (throttleTimeMs != 0) { pbW.tag(1, 0); pbW.varint(throttleTimeMs.toLong()) }
+        for (pbX in brokers) pbW.bytesField(2, pbX.marshalDc())
+        pbW.stringField(3, clusterId)
+        if (controllerId != 0) { pbW.tag(4, 0); pbW.varint(controllerId.toLong()) }
+        for (pbX in topics) pbW.bytesField(5, pbX.marshalDc())
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
@@ -512,30 +512,30 @@ enum class ConfigOp(val number: Int) {
         clusterId = ""
         controllerId = 0
         topics = mutableListOf()
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    throttleTimeMs = field.varintValue.toInt()
+                    throttleTimeMs = pbField.varintValue.toInt()
                 }
                 2 -> {
-                    val item = BrokerMetadata()
-                    item.unmarshalDc(field.bytesValue)
-                    brokers.add(item)
+                    val pbItem = BrokerMetadata()
+                    pbItem.unmarshalDc(pbField.bytesValue)
+                    brokers.add(pbItem)
                 }
                 3 -> {
-                    clusterId = String(field.bytesValue, Charsets.UTF_8)
+                    clusterId = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 4 -> {
-                    controllerId = field.varintValue.toInt()
+                    controllerId = pbField.varintValue.toInt()
                 }
                 5 -> {
-                    val item = TopicMetadata()
-                    item.unmarshalDc(field.bytesValue)
-                    topics.add(item)
+                    val pbItem = TopicMetadata()
+                    pbItem.unmarshalDc(pbField.bytesValue)
+                    topics.add(pbItem)
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -546,27 +546,27 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        w.stringField(1, transactionalId)
-        if (transactionTimeoutMs != 0) { w.tag(2, 0); w.varint(transactionTimeoutMs.toLong()) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        pbW.stringField(1, transactionalId)
+        if (transactionTimeoutMs != 0) { pbW.tag(2, 0); pbW.varint(transactionTimeoutMs.toLong()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         transactionalId = ""
         transactionTimeoutMs = 0
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    transactionalId = String(field.bytesValue, Charsets.UTF_8)
+                    transactionalId = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    transactionTimeoutMs = field.varintValue.toInt()
+                    transactionTimeoutMs = pbField.varintValue.toInt()
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -579,13 +579,13 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        w.stringField(1, sessionId)
-        if (producerId != 0L) { w.tag(2, 0); w.varint(producerId) }
-        if (producerEpoch != 0) { w.tag(3, 0); w.varint(producerEpoch.toLong()) }
-        if (errorCode != 0) { w.tag(4, 0); w.varint(errorCode.toLong()) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        pbW.stringField(1, sessionId)
+        if (producerId != 0L) { pbW.tag(2, 0); pbW.varint(producerId) }
+        if (producerEpoch != 0) { pbW.tag(3, 0); pbW.varint(producerEpoch.toLong()) }
+        if (errorCode != 0) { pbW.tag(4, 0); pbW.varint(errorCode.toLong()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
@@ -593,23 +593,23 @@ enum class ConfigOp(val number: Int) {
         producerId = 0L
         producerEpoch = 0
         errorCode = 0
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    sessionId = String(field.bytesValue, Charsets.UTF_8)
+                    sessionId = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    producerId = field.varintValue
+                    producerId = pbField.varintValue
                 }
                 3 -> {
-                    producerEpoch = field.varintValue.toInt()
+                    producerEpoch = pbField.varintValue.toInt()
                 }
                 4 -> {
-                    errorCode = field.varintValue.toInt()
+                    errorCode = pbField.varintValue.toInt()
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -619,22 +619,22 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        w.stringField(1, sessionId)
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        pbW.stringField(1, sessionId)
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         sessionId = ""
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    sessionId = String(field.bytesValue, Charsets.UTF_8)
+                    sessionId = String(pbField.bytesValue, Charsets.UTF_8)
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -644,22 +644,22 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        if (errorCode != 0) { w.tag(1, 0); w.varint(errorCode.toLong()) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        if (errorCode != 0) { pbW.tag(1, 0); pbW.varint(errorCode.toLong()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         errorCode = 0
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    errorCode = field.varintValue.toInt()
+                    errorCode = pbField.varintValue.toInt()
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -670,27 +670,27 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        w.stringField(1, sessionId)
-        if (commit) { w.tag(2, 0); w.varint(if (commit) 1L else 0L) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        pbW.stringField(1, sessionId)
+        if (commit) { pbW.tag(2, 0); pbW.varint(if (commit) 1L else 0L) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         sessionId = ""
         commit = false
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    sessionId = String(field.bytesValue, Charsets.UTF_8)
+                    sessionId = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    commit = field.varintValue != 0L
+                    commit = pbField.varintValue != 0L
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -700,22 +700,22 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        if (errorCode != 0) { w.tag(1, 0); w.varint(errorCode.toLong()) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        if (errorCode != 0) { pbW.tag(1, 0); pbW.varint(errorCode.toLong()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         errorCode = 0
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    errorCode = field.varintValue.toInt()
+                    errorCode = pbField.varintValue.toInt()
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -732,17 +732,17 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        w.stringField(1, topic)
-        if (partition != 0) { w.tag(2, 0); w.varint(partition.toLong()) }
-        for (x in records) w.bytesField(3, x.marshalDc())
-        if (acks.number != 0) { w.tag(4, 0); w.varint(acks.number.toLong()) }
-        if (timeoutMs != 0) { w.tag(5, 0); w.varint(timeoutMs.toLong()) }
-        if (compression.number != 0) { w.tag(6, 0); w.varint(compression.number.toLong()) }
-        w.stringField(7, sessionId)
-        w.stringField(8, transactionalId)
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        pbW.stringField(1, topic)
+        if (partition != 0) { pbW.tag(2, 0); pbW.varint(partition.toLong()) }
+        for (pbX in records) pbW.bytesField(3, pbX.marshalDc())
+        if (acks.number != 0) { pbW.tag(4, 0); pbW.varint(acks.number.toLong()) }
+        if (timeoutMs != 0) { pbW.tag(5, 0); pbW.varint(timeoutMs.toLong()) }
+        if (compression.number != 0) { pbW.tag(6, 0); pbW.varint(compression.number.toLong()) }
+        pbW.stringField(7, sessionId)
+        pbW.stringField(8, transactionalId)
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
@@ -754,37 +754,37 @@ enum class ConfigOp(val number: Int) {
         compression = Compression.COMPRESSION_NONE
         sessionId = ""
         transactionalId = ""
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    topic = String(field.bytesValue, Charsets.UTF_8)
+                    topic = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    partition = field.varintValue.toInt()
+                    partition = pbField.varintValue.toInt()
                 }
                 3 -> {
-                    val item = Record()
-                    item.unmarshalDc(field.bytesValue)
-                    records.add(item)
+                    val pbItem = Record()
+                    pbItem.unmarshalDc(pbField.bytesValue)
+                    records.add(pbItem)
                 }
                 4 -> {
-                    acks = Acks.fromNumber(field.varintValue.toInt())
+                    acks = Acks.fromNumber(pbField.varintValue.toInt())
                 }
                 5 -> {
-                    timeoutMs = field.varintValue.toInt()
+                    timeoutMs = pbField.varintValue.toInt()
                 }
                 6 -> {
-                    compression = Compression.fromNumber(field.varintValue.toInt())
+                    compression = Compression.fromNumber(pbField.varintValue.toInt())
                 }
                 7 -> {
-                    sessionId = String(field.bytesValue, Charsets.UTF_8)
+                    sessionId = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 8 -> {
-                    transactionalId = String(field.bytesValue, Charsets.UTF_8)
+                    transactionalId = String(pbField.bytesValue, Charsets.UTF_8)
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -797,13 +797,13 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        if (partition != 0) { w.tag(1, 0); w.varint(partition.toLong()) }
-        if (baseOffset != 0L) { w.tag(2, 0); w.varint(baseOffset) }
-        if (logAppendTimeMs != 0L) { w.tag(3, 0); w.varint(logAppendTimeMs) }
-        if (errorCode != 0) { w.tag(4, 0); w.varint(errorCode.toLong()) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        if (partition != 0) { pbW.tag(1, 0); pbW.varint(partition.toLong()) }
+        if (baseOffset != 0L) { pbW.tag(2, 0); pbW.varint(baseOffset) }
+        if (logAppendTimeMs != 0L) { pbW.tag(3, 0); pbW.varint(logAppendTimeMs) }
+        if (errorCode != 0) { pbW.tag(4, 0); pbW.varint(errorCode.toLong()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
@@ -811,23 +811,23 @@ enum class ConfigOp(val number: Int) {
         baseOffset = 0L
         logAppendTimeMs = 0L
         errorCode = 0
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    partition = field.varintValue.toInt()
+                    partition = pbField.varintValue.toInt()
                 }
                 2 -> {
-                    baseOffset = field.varintValue
+                    baseOffset = pbField.varintValue
                 }
                 3 -> {
-                    logAppendTimeMs = field.varintValue
+                    logAppendTimeMs = pbField.varintValue
                 }
                 4 -> {
-                    errorCode = field.varintValue.toInt()
+                    errorCode = pbField.varintValue.toInt()
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -843,16 +843,16 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        w.stringField(1, topic)
-        if (partition != 0) { w.tag(2, 0); w.varint(partition.toLong()) }
-        if (offset != 0L) { w.tag(3, 0); w.varint(offset) }
-        if (maxRecords != 0) { w.tag(4, 0); w.varint(maxRecords.toLong()) }
-        if (maxWaitMs != 0) { w.tag(5, 0); w.varint(maxWaitMs.toLong()) }
-        if (minBytes != 0) { w.tag(6, 0); w.varint(minBytes.toLong()) }
-        if (readCommitted) { w.tag(7, 0); w.varint(if (readCommitted) 1L else 0L) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        pbW.stringField(1, topic)
+        if (partition != 0) { pbW.tag(2, 0); pbW.varint(partition.toLong()) }
+        if (offset != 0L) { pbW.tag(3, 0); pbW.varint(offset) }
+        if (maxRecords != 0) { pbW.tag(4, 0); pbW.varint(maxRecords.toLong()) }
+        if (maxWaitMs != 0) { pbW.tag(5, 0); pbW.varint(maxWaitMs.toLong()) }
+        if (minBytes != 0) { pbW.tag(6, 0); pbW.varint(minBytes.toLong()) }
+        if (readCommitted) { pbW.tag(7, 0); pbW.varint(if (readCommitted) 1L else 0L) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
@@ -863,32 +863,32 @@ enum class ConfigOp(val number: Int) {
         maxWaitMs = 0
         minBytes = 0
         readCommitted = false
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    topic = String(field.bytesValue, Charsets.UTF_8)
+                    topic = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    partition = field.varintValue.toInt()
+                    partition = pbField.varintValue.toInt()
                 }
                 3 -> {
-                    offset = field.varintValue
+                    offset = pbField.varintValue
                 }
                 4 -> {
-                    maxRecords = field.varintValue.toInt()
+                    maxRecords = pbField.varintValue.toInt()
                 }
                 5 -> {
-                    maxWaitMs = field.varintValue.toInt()
+                    maxWaitMs = pbField.varintValue.toInt()
                 }
                 6 -> {
-                    minBytes = field.varintValue.toInt()
+                    minBytes = pbField.varintValue.toInt()
                 }
                 7 -> {
-                    readCommitted = field.varintValue != 0L
+                    readCommitted = pbField.varintValue != 0L
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -902,14 +902,14 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        w.stringField(1, topic)
-        if (partition != 0) { w.tag(2, 0); w.varint(partition.toLong()) }
-        if (highWatermark != 0L) { w.tag(3, 0); w.varint(highWatermark) }
-        if (errorCode != 0) { w.tag(4, 0); w.varint(errorCode.toLong()) }
-        for (x in records) w.bytesField(5, x.marshalDc())
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        pbW.stringField(1, topic)
+        if (partition != 0) { pbW.tag(2, 0); pbW.varint(partition.toLong()) }
+        if (highWatermark != 0L) { pbW.tag(3, 0); pbW.varint(highWatermark) }
+        if (errorCode != 0) { pbW.tag(4, 0); pbW.varint(errorCode.toLong()) }
+        for (pbX in records) pbW.bytesField(5, pbX.marshalDc())
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
@@ -918,28 +918,28 @@ enum class ConfigOp(val number: Int) {
         highWatermark = 0L
         errorCode = 0
         records = mutableListOf()
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    topic = String(field.bytesValue, Charsets.UTF_8)
+                    topic = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    partition = field.varintValue.toInt()
+                    partition = pbField.varintValue.toInt()
                 }
                 3 -> {
-                    highWatermark = field.varintValue
+                    highWatermark = pbField.varintValue
                 }
                 4 -> {
-                    errorCode = field.varintValue.toInt()
+                    errorCode = pbField.varintValue.toInt()
                 }
                 5 -> {
-                    val item = FetchedRecord()
-                    item.unmarshalDc(field.bytesValue)
-                    records.add(item)
+                    val pbItem = FetchedRecord()
+                    pbItem.unmarshalDc(pbField.bytesValue)
+                    records.add(pbItem)
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -956,17 +956,17 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        w.stringField(1, groupId)
-        for (x in topics) w.bytesField(2, x.toByteArray(Charsets.UTF_8))
-        w.stringField(3, groupInstanceId)
-        if (sessionTimeoutMs != 0) { w.tag(4, 0); w.varint(sessionTimeoutMs.toLong()) }
-        if (maxPollRecords != 0) { w.tag(5, 0); w.varint(maxPollRecords.toLong()) }
-        w.stringField(6, autoOffsetReset)
-        if (readCommitted) { w.tag(7, 0); w.varint(if (readCommitted) 1L else 0L) }
-        w.stringField(8, groupProtocol)
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        pbW.stringField(1, groupId)
+        for (pbX in topics) pbW.bytesField(2, pbX.toByteArray(Charsets.UTF_8))
+        pbW.stringField(3, groupInstanceId)
+        if (sessionTimeoutMs != 0) { pbW.tag(4, 0); pbW.varint(sessionTimeoutMs.toLong()) }
+        if (maxPollRecords != 0) { pbW.tag(5, 0); pbW.varint(maxPollRecords.toLong()) }
+        pbW.stringField(6, autoOffsetReset)
+        if (readCommitted) { pbW.tag(7, 0); pbW.varint(if (readCommitted) 1L else 0L) }
+        pbW.stringField(8, groupProtocol)
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
@@ -978,35 +978,35 @@ enum class ConfigOp(val number: Int) {
         autoOffsetReset = ""
         readCommitted = false
         groupProtocol = ""
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    groupId = String(field.bytesValue, Charsets.UTF_8)
+                    groupId = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    topics.add(String(field.bytesValue, Charsets.UTF_8))
+                    topics.add(String(pbField.bytesValue, Charsets.UTF_8))
                 }
                 3 -> {
-                    groupInstanceId = String(field.bytesValue, Charsets.UTF_8)
+                    groupInstanceId = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 4 -> {
-                    sessionTimeoutMs = field.varintValue.toInt()
+                    sessionTimeoutMs = pbField.varintValue.toInt()
                 }
                 5 -> {
-                    maxPollRecords = field.varintValue.toInt()
+                    maxPollRecords = pbField.varintValue.toInt()
                 }
                 6 -> {
-                    autoOffsetReset = String(field.bytesValue, Charsets.UTF_8)
+                    autoOffsetReset = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 7 -> {
-                    readCommitted = field.varintValue != 0L
+                    readCommitted = pbField.varintValue != 0L
                 }
                 8 -> {
-                    groupProtocol = String(field.bytesValue, Charsets.UTF_8)
+                    groupProtocol = String(pbField.bytesValue, Charsets.UTF_8)
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -1018,45 +1018,45 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
+        val pbW = KafkaPb.Writer()
         if (!(batch != null || groupError != null)) {
-        assignment?.let { w.bytesField(1, it.marshalDc()) }
+        assignment?.let { pbW.bytesField(1, it.marshalDc()) }
         }
         if (!(groupError != null)) {
-        batch?.let { w.bytesField(2, it.marshalDc()) }
+        batch?.let { pbW.bytesField(2, it.marshalDc()) }
         }
-        groupError?.let { w.bytesField(3, it.marshalDc()) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        groupError?.let { pbW.bytesField(3, it.marshalDc()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         assignment = null
         batch = null
         groupError = null
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
                     batch = null
                     groupError = null
                     assignment = Assignment()
-                    assignment!!.unmarshalDc(field.bytesValue)
+                    assignment!!.unmarshalDc(pbField.bytesValue)
                 }
                 2 -> {
                     assignment = null
                     groupError = null
                     batch = RecordBatch()
-                    batch!!.unmarshalDc(field.bytesValue)
+                    batch!!.unmarshalDc(pbField.bytesValue)
                 }
                 3 -> {
                     assignment = null
                     batch = null
                     groupError = GroupError()
-                    groupError!!.unmarshalDc(field.bytesValue)
+                    groupError!!.unmarshalDc(pbField.bytesValue)
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -1068,34 +1068,34 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        if (generationId != 0) { w.tag(1, 0); w.varint(generationId.toLong()) }
-        w.stringField(2, memberId)
-        for (x in partitions) w.bytesField(3, x.marshalDc())
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        if (generationId != 0) { pbW.tag(1, 0); pbW.varint(generationId.toLong()) }
+        pbW.stringField(2, memberId)
+        for (pbX in partitions) pbW.bytesField(3, pbX.marshalDc())
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         generationId = 0
         memberId = ""
         partitions = mutableListOf()
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    generationId = field.varintValue.toInt()
+                    generationId = pbField.varintValue.toInt()
                 }
                 2 -> {
-                    memberId = String(field.bytesValue, Charsets.UTF_8)
+                    memberId = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 3 -> {
-                    val item = TopicPartition()
-                    item.unmarshalDc(field.bytesValue)
-                    partitions.add(item)
+                    val pbItem = TopicPartition()
+                    pbItem.unmarshalDc(pbField.bytesValue)
+                    partitions.add(pbItem)
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -1108,13 +1108,13 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        w.stringField(1, topic)
-        if (partition != 0) { w.tag(2, 0); w.varint(partition.toLong()) }
-        if (highWatermark != 0L) { w.tag(3, 0); w.varint(highWatermark) }
-        for (x in records) w.bytesField(4, x.marshalDc())
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        pbW.stringField(1, topic)
+        if (partition != 0) { pbW.tag(2, 0); pbW.varint(partition.toLong()) }
+        if (highWatermark != 0L) { pbW.tag(3, 0); pbW.varint(highWatermark) }
+        for (pbX in records) pbW.bytesField(4, pbX.marshalDc())
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
@@ -1122,25 +1122,25 @@ enum class ConfigOp(val number: Int) {
         partition = 0
         highWatermark = 0L
         records = mutableListOf()
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    topic = String(field.bytesValue, Charsets.UTF_8)
+                    topic = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    partition = field.varintValue.toInt()
+                    partition = pbField.varintValue.toInt()
                 }
                 3 -> {
-                    highWatermark = field.varintValue
+                    highWatermark = pbField.varintValue
                 }
                 4 -> {
-                    val item = FetchedRecord()
-                    item.unmarshalDc(field.bytesValue)
-                    records.add(item)
+                    val pbItem = FetchedRecord()
+                    pbItem.unmarshalDc(pbField.bytesValue)
+                    records.add(pbItem)
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -1151,27 +1151,27 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        if (errorCode != 0) { w.tag(1, 0); w.varint(errorCode.toLong()) }
-        w.stringField(2, message)
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        if (errorCode != 0) { pbW.tag(1, 0); pbW.varint(errorCode.toLong()) }
+        pbW.stringField(2, message)
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         errorCode = 0
         message = ""
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    errorCode = field.varintValue.toInt()
+                    errorCode = pbField.varintValue.toInt()
                 }
                 2 -> {
-                    message = String(field.bytesValue, Charsets.UTF_8)
+                    message = String(pbField.bytesValue, Charsets.UTF_8)
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -1184,13 +1184,13 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        w.stringField(1, topic)
-        if (partition != 0) { w.tag(2, 0); w.varint(partition.toLong()) }
-        if (timestamp != 0L) { w.tag(3, 0); w.varint(timestamp) }
-        if (readCommitted) { w.tag(4, 0); w.varint(if (readCommitted) 1L else 0L) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        pbW.stringField(1, topic)
+        if (partition != 0) { pbW.tag(2, 0); pbW.varint(partition.toLong()) }
+        if (timestamp != 0L) { pbW.tag(3, 0); pbW.varint(timestamp) }
+        if (readCommitted) { pbW.tag(4, 0); pbW.varint(if (readCommitted) 1L else 0L) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
@@ -1198,23 +1198,23 @@ enum class ConfigOp(val number: Int) {
         partition = 0
         timestamp = 0L
         readCommitted = false
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    topic = String(field.bytesValue, Charsets.UTF_8)
+                    topic = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    partition = field.varintValue.toInt()
+                    partition = pbField.varintValue.toInt()
                 }
                 3 -> {
-                    timestamp = field.varintValue
+                    timestamp = pbField.varintValue
                 }
                 4 -> {
-                    readCommitted = field.varintValue != 0L
+                    readCommitted = pbField.varintValue != 0L
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -1226,32 +1226,32 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        if (offset != 0L) { w.tag(1, 0); w.varint(offset) }
-        if (timestampMs != 0L) { w.tag(2, 0); w.varint(timestampMs) }
-        if (errorCode != 0) { w.tag(3, 0); w.varint(errorCode.toLong()) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        if (offset != 0L) { pbW.tag(1, 0); pbW.varint(offset) }
+        if (timestampMs != 0L) { pbW.tag(2, 0); pbW.varint(timestampMs) }
+        if (errorCode != 0) { pbW.tag(3, 0); pbW.varint(errorCode.toLong()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         offset = 0L
         timestampMs = 0L
         errorCode = 0
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    offset = field.varintValue
+                    offset = pbField.varintValue
                 }
                 2 -> {
-                    timestampMs = field.varintValue
+                    timestampMs = pbField.varintValue
                 }
                 3 -> {
-                    errorCode = field.varintValue.toInt()
+                    errorCode = pbField.varintValue.toInt()
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -1266,15 +1266,15 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        w.stringField(1, groupId)
-        w.stringField(2, topic)
-        if (partition != 0) { w.tag(3, 0); w.varint(partition.toLong()) }
-        if (committedOffset != 0L) { w.tag(4, 0); w.varint(committedOffset) }
-        w.stringField(5, metadata)
-        w.stringField(6, sessionId)
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        pbW.stringField(1, groupId)
+        pbW.stringField(2, topic)
+        if (partition != 0) { pbW.tag(3, 0); pbW.varint(partition.toLong()) }
+        if (committedOffset != 0L) { pbW.tag(4, 0); pbW.varint(committedOffset) }
+        pbW.stringField(5, metadata)
+        pbW.stringField(6, sessionId)
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
@@ -1284,29 +1284,29 @@ enum class ConfigOp(val number: Int) {
         committedOffset = 0L
         metadata = ""
         sessionId = ""
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    groupId = String(field.bytesValue, Charsets.UTF_8)
+                    groupId = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    topic = String(field.bytesValue, Charsets.UTF_8)
+                    topic = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 3 -> {
-                    partition = field.varintValue.toInt()
+                    partition = pbField.varintValue.toInt()
                 }
                 4 -> {
-                    committedOffset = field.varintValue
+                    committedOffset = pbField.varintValue
                 }
                 5 -> {
-                    metadata = String(field.bytesValue, Charsets.UTF_8)
+                    metadata = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 6 -> {
-                    sessionId = String(field.bytesValue, Charsets.UTF_8)
+                    sessionId = String(pbField.bytesValue, Charsets.UTF_8)
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -1316,22 +1316,22 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        if (errorCode != 0) { w.tag(1, 0); w.varint(errorCode.toLong()) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        if (errorCode != 0) { pbW.tag(1, 0); pbW.varint(errorCode.toLong()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         errorCode = 0
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    errorCode = field.varintValue.toInt()
+                    errorCode = pbField.varintValue.toInt()
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -1343,32 +1343,32 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        w.stringField(1, groupId)
-        w.stringField(2, topic)
-        if (partition != 0) { w.tag(3, 0); w.varint(partition.toLong()) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        pbW.stringField(1, groupId)
+        pbW.stringField(2, topic)
+        if (partition != 0) { pbW.tag(3, 0); pbW.varint(partition.toLong()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         groupId = ""
         topic = ""
         partition = 0
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    groupId = String(field.bytesValue, Charsets.UTF_8)
+                    groupId = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    topic = String(field.bytesValue, Charsets.UTF_8)
+                    topic = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 3 -> {
-                    partition = field.varintValue.toInt()
+                    partition = pbField.varintValue.toInt()
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -1380,32 +1380,32 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        if (committedOffset != 0L) { w.tag(1, 0); w.varint(committedOffset) }
-        w.stringField(2, metadata)
-        if (errorCode != 0) { w.tag(3, 0); w.varint(errorCode.toLong()) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        if (committedOffset != 0L) { pbW.tag(1, 0); pbW.varint(committedOffset) }
+        pbW.stringField(2, metadata)
+        if (errorCode != 0) { pbW.tag(3, 0); pbW.varint(errorCode.toLong()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         committedOffset = 0L
         metadata = ""
         errorCode = 0
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    committedOffset = field.varintValue
+                    committedOffset = pbField.varintValue
                 }
                 2 -> {
-                    metadata = String(field.bytesValue, Charsets.UTF_8)
+                    metadata = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 3 -> {
-                    errorCode = field.varintValue.toInt()
+                    errorCode = pbField.varintValue.toInt()
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -1417,32 +1417,32 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        w.stringField(1, name)
-        if (numPartitions != 0) { w.tag(2, 0); w.varint(numPartitions.toLong()) }
-        if (replicationFactor != 0) { w.tag(3, 0); w.varint(replicationFactor.toLong()) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        pbW.stringField(1, name)
+        if (numPartitions != 0) { pbW.tag(2, 0); pbW.varint(numPartitions.toLong()) }
+        if (replicationFactor != 0) { pbW.tag(3, 0); pbW.varint(replicationFactor.toLong()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         name = ""
         numPartitions = 0
         replicationFactor = 0
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    name = String(field.bytesValue, Charsets.UTF_8)
+                    name = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    numPartitions = field.varintValue.toInt()
+                    numPartitions = pbField.varintValue.toInt()
                 }
                 3 -> {
-                    replicationFactor = field.varintValue.toInt()
+                    replicationFactor = pbField.varintValue.toInt()
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -1454,34 +1454,34 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        for (x in topics) w.bytesField(1, x.marshalDc())
-        if (timeoutMs != 0) { w.tag(2, 0); w.varint(timeoutMs.toLong()) }
-        if (validateOnly) { w.tag(3, 0); w.varint(if (validateOnly) 1L else 0L) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        for (pbX in topics) pbW.bytesField(1, pbX.marshalDc())
+        if (timeoutMs != 0) { pbW.tag(2, 0); pbW.varint(timeoutMs.toLong()) }
+        if (validateOnly) { pbW.tag(3, 0); pbW.varint(if (validateOnly) 1L else 0L) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         topics = mutableListOf()
         timeoutMs = 0
         validateOnly = false
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    val item = NewTopic()
-                    item.unmarshalDc(field.bytesValue)
-                    topics.add(item)
+                    val pbItem = NewTopic()
+                    pbItem.unmarshalDc(pbField.bytesValue)
+                    topics.add(pbItem)
                 }
                 2 -> {
-                    timeoutMs = field.varintValue.toInt()
+                    timeoutMs = pbField.varintValue.toInt()
                 }
                 3 -> {
-                    validateOnly = field.varintValue != 0L
+                    validateOnly = pbField.varintValue != 0L
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -1492,27 +1492,27 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        w.stringField(1, name)
-        if (errorCode != 0) { w.tag(2, 0); w.varint(errorCode.toLong()) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        pbW.stringField(1, name)
+        if (errorCode != 0) { pbW.tag(2, 0); pbW.varint(errorCode.toLong()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         name = ""
         errorCode = 0
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    name = String(field.bytesValue, Charsets.UTF_8)
+                    name = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    errorCode = field.varintValue.toInt()
+                    errorCode = pbField.varintValue.toInt()
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -1522,24 +1522,24 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        for (x in results) w.bytesField(1, x.marshalDc())
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        for (pbX in results) pbW.bytesField(1, pbX.marshalDc())
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         results = mutableListOf()
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    val item = TopicError()
-                    item.unmarshalDc(field.bytesValue)
-                    results.add(item)
+                    val pbItem = TopicError()
+                    pbItem.unmarshalDc(pbField.bytesValue)
+                    results.add(pbItem)
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -1550,27 +1550,27 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        for (x in topics) w.bytesField(1, x.toByteArray(Charsets.UTF_8))
-        if (timeoutMs != 0) { w.tag(2, 0); w.varint(timeoutMs.toLong()) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        for (pbX in topics) pbW.bytesField(1, pbX.toByteArray(Charsets.UTF_8))
+        if (timeoutMs != 0) { pbW.tag(2, 0); pbW.varint(timeoutMs.toLong()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         topics = mutableListOf()
         timeoutMs = 0
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    topics.add(String(field.bytesValue, Charsets.UTF_8))
+                    topics.add(String(pbField.bytesValue, Charsets.UTF_8))
                 }
                 2 -> {
-                    timeoutMs = field.varintValue.toInt()
+                    timeoutMs = pbField.varintValue.toInt()
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -1580,24 +1580,24 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        for (x in results) w.bytesField(1, x.marshalDc())
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        for (pbX in results) pbW.bytesField(1, pbX.marshalDc())
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         results = mutableListOf()
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    val item = TopicError()
-                    item.unmarshalDc(field.bytesValue)
-                    results.add(item)
+                    val pbItem = TopicError()
+                    pbItem.unmarshalDc(pbField.bytesValue)
+                    results.add(pbItem)
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -1608,27 +1608,27 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        w.stringField(1, name)
-        w.stringField(2, value)
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        pbW.stringField(1, name)
+        pbW.stringField(2, value)
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         name = ""
         value = ""
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    name = String(field.bytesValue, Charsets.UTF_8)
+                    name = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    value = String(field.bytesValue, Charsets.UTF_8)
+                    value = String(pbField.bytesValue, Charsets.UTF_8)
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -1640,32 +1640,32 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        w.stringField(1, name)
-        w.stringField(2, value)
-        if (op.number != 0) { w.tag(3, 0); w.varint(op.number.toLong()) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        pbW.stringField(1, name)
+        pbW.stringField(2, value)
+        if (op.number != 0) { pbW.tag(3, 0); pbW.varint(op.number.toLong()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         name = ""
         value = ""
         op = ConfigOp.CONFIG_OP_SET
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    name = String(field.bytesValue, Charsets.UTF_8)
+                    name = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    value = String(field.bytesValue, Charsets.UTF_8)
+                    value = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 3 -> {
-                    op = ConfigOp.fromNumber(field.varintValue.toInt())
+                    op = ConfigOp.fromNumber(pbField.varintValue.toInt())
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -1678,13 +1678,13 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        if (resourceType.number != 0) { w.tag(1, 0); w.varint(resourceType.number.toLong()) }
-        w.stringField(2, resourceName)
-        for (x in configKeys) w.bytesField(3, x.toByteArray(Charsets.UTF_8))
-        if (includeSynonyms) { w.tag(4, 0); w.varint(if (includeSynonyms) 1L else 0L) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        if (resourceType.number != 0) { pbW.tag(1, 0); pbW.varint(resourceType.number.toLong()) }
+        pbW.stringField(2, resourceName)
+        for (pbX in configKeys) pbW.bytesField(3, pbX.toByteArray(Charsets.UTF_8))
+        if (includeSynonyms) { pbW.tag(4, 0); pbW.varint(if (includeSynonyms) 1L else 0L) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
@@ -1692,23 +1692,23 @@ enum class ConfigOp(val number: Int) {
         resourceName = ""
         configKeys = mutableListOf()
         includeSynonyms = false
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    resourceType = ConfigResourceType.fromNumber(field.varintValue.toInt())
+                    resourceType = ConfigResourceType.fromNumber(pbField.varintValue.toInt())
                 }
                 2 -> {
-                    resourceName = String(field.bytesValue, Charsets.UTF_8)
+                    resourceName = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 3 -> {
-                    configKeys.add(String(field.bytesValue, Charsets.UTF_8))
+                    configKeys.add(String(pbField.bytesValue, Charsets.UTF_8))
                 }
                 4 -> {
-                    includeSynonyms = field.varintValue != 0L
+                    includeSynonyms = pbField.varintValue != 0L
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -1722,14 +1722,14 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        w.stringField(1, name)
-        w.stringField(2, value)
-        if (readOnly) { w.tag(3, 0); w.varint(if (readOnly) 1L else 0L) }
-        if (source != 0) { w.tag(4, 0); w.varint(source.toLong()) }
-        if (isSensitive) { w.tag(5, 0); w.varint(if (isSensitive) 1L else 0L) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        pbW.stringField(1, name)
+        pbW.stringField(2, value)
+        if (readOnly) { pbW.tag(3, 0); pbW.varint(if (readOnly) 1L else 0L) }
+        if (source != 0) { pbW.tag(4, 0); pbW.varint(source.toLong()) }
+        if (isSensitive) { pbW.tag(5, 0); pbW.varint(if (isSensitive) 1L else 0L) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
@@ -1738,26 +1738,26 @@ enum class ConfigOp(val number: Int) {
         readOnly = false
         source = 0
         isSensitive = false
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    name = String(field.bytesValue, Charsets.UTF_8)
+                    name = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    value = String(field.bytesValue, Charsets.UTF_8)
+                    value = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 3 -> {
-                    readOnly = field.varintValue != 0L
+                    readOnly = pbField.varintValue != 0L
                 }
                 4 -> {
-                    source = field.varintValue.toInt()
+                    source = pbField.varintValue.toInt()
                 }
                 5 -> {
-                    isSensitive = field.varintValue != 0L
+                    isSensitive = pbField.varintValue != 0L
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -1768,29 +1768,29 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        if (errorCode != 0) { w.tag(1, 0); w.varint(errorCode.toLong()) }
-        for (x in values) w.bytesField(2, x.marshalDc())
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        if (errorCode != 0) { pbW.tag(1, 0); pbW.varint(errorCode.toLong()) }
+        for (pbX in values) pbW.bytesField(2, pbX.marshalDc())
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         errorCode = 0
         values = mutableListOf()
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    errorCode = field.varintValue.toInt()
+                    errorCode = pbField.varintValue.toInt()
                 }
                 2 -> {
-                    val item = ConfigValue()
-                    item.unmarshalDc(field.bytesValue)
-                    values.add(item)
+                    val pbItem = ConfigValue()
+                    pbItem.unmarshalDc(pbField.bytesValue)
+                    values.add(pbItem)
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -1803,13 +1803,13 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        if (resourceType.number != 0) { w.tag(1, 0); w.varint(resourceType.number.toLong()) }
-        w.stringField(2, resourceName)
-        for (x in entries) w.bytesField(3, x.marshalDc())
-        if (validateOnly) { w.tag(4, 0); w.varint(if (validateOnly) 1L else 0L) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        if (resourceType.number != 0) { pbW.tag(1, 0); pbW.varint(resourceType.number.toLong()) }
+        pbW.stringField(2, resourceName)
+        for (pbX in entries) pbW.bytesField(3, pbX.marshalDc())
+        if (validateOnly) { pbW.tag(4, 0); pbW.varint(if (validateOnly) 1L else 0L) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
@@ -1817,25 +1817,25 @@ enum class ConfigOp(val number: Int) {
         resourceName = ""
         entries = mutableListOf()
         validateOnly = false
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    resourceType = ConfigResourceType.fromNumber(field.varintValue.toInt())
+                    resourceType = ConfigResourceType.fromNumber(pbField.varintValue.toInt())
                 }
                 2 -> {
-                    resourceName = String(field.bytesValue, Charsets.UTF_8)
+                    resourceName = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 3 -> {
-                    val item = AlterConfigEntry()
-                    item.unmarshalDc(field.bytesValue)
-                    entries.add(item)
+                    val pbItem = AlterConfigEntry()
+                    pbItem.unmarshalDc(pbField.bytesValue)
+                    entries.add(pbItem)
                 }
                 4 -> {
-                    validateOnly = field.varintValue != 0L
+                    validateOnly = pbField.varintValue != 0L
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -1845,22 +1845,22 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        if (errorCode != 0) { w.tag(1, 0); w.varint(errorCode.toLong()) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        if (errorCode != 0) { pbW.tag(1, 0); pbW.varint(errorCode.toLong()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         errorCode = 0
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    errorCode = field.varintValue.toInt()
+                    errorCode = pbField.varintValue.toInt()
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -1873,13 +1873,13 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        w.stringField(1, topic)
-        if (totalCount != 0) { w.tag(2, 0); w.varint(totalCount.toLong()) }
-        if (validateOnly) { w.tag(3, 0); w.varint(if (validateOnly) 1L else 0L) }
-        if (timeoutMs != 0) { w.tag(4, 0); w.varint(timeoutMs.toLong()) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        pbW.stringField(1, topic)
+        if (totalCount != 0) { pbW.tag(2, 0); pbW.varint(totalCount.toLong()) }
+        if (validateOnly) { pbW.tag(3, 0); pbW.varint(if (validateOnly) 1L else 0L) }
+        if (timeoutMs != 0) { pbW.tag(4, 0); pbW.varint(timeoutMs.toLong()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
@@ -1887,23 +1887,23 @@ enum class ConfigOp(val number: Int) {
         totalCount = 0
         validateOnly = false
         timeoutMs = 0
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    topic = String(field.bytesValue, Charsets.UTF_8)
+                    topic = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    totalCount = field.varintValue.toInt()
+                    totalCount = pbField.varintValue.toInt()
                 }
                 3 -> {
-                    validateOnly = field.varintValue != 0L
+                    validateOnly = pbField.varintValue != 0L
                 }
                 4 -> {
-                    timeoutMs = field.varintValue.toInt()
+                    timeoutMs = pbField.varintValue.toInt()
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -1913,22 +1913,22 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        if (errorCode != 0) { w.tag(1, 0); w.varint(errorCode.toLong()) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        if (errorCode != 0) { pbW.tag(1, 0); pbW.varint(errorCode.toLong()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         errorCode = 0
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    errorCode = field.varintValue.toInt()
+                    errorCode = pbField.varintValue.toInt()
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -1940,32 +1940,32 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        w.stringField(1, topic)
-        if (partition != 0) { w.tag(2, 0); w.varint(partition.toLong()) }
-        if (beforeOffset != 0L) { w.tag(3, 0); w.varint(beforeOffset) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        pbW.stringField(1, topic)
+        if (partition != 0) { pbW.tag(2, 0); pbW.varint(partition.toLong()) }
+        if (beforeOffset != 0L) { pbW.tag(3, 0); pbW.varint(beforeOffset) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         topic = ""
         partition = 0
         beforeOffset = 0L
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    topic = String(field.bytesValue, Charsets.UTF_8)
+                    topic = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    partition = field.varintValue.toInt()
+                    partition = pbField.varintValue.toInt()
                 }
                 3 -> {
-                    beforeOffset = field.varintValue
+                    beforeOffset = pbField.varintValue
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -1976,27 +1976,27 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        if (lowWatermark != 0L) { w.tag(1, 0); w.varint(lowWatermark) }
-        if (errorCode != 0) { w.tag(2, 0); w.varint(errorCode.toLong()) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        if (lowWatermark != 0L) { pbW.tag(1, 0); pbW.varint(lowWatermark) }
+        if (errorCode != 0) { pbW.tag(2, 0); pbW.varint(errorCode.toLong()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         lowWatermark = 0L
         errorCode = 0
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    lowWatermark = field.varintValue
+                    lowWatermark = pbField.varintValue
                 }
                 2 -> {
-                    errorCode = field.varintValue.toInt()
+                    errorCode = pbField.varintValue.toInt()
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -2006,17 +2006,17 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
-                else -> { unknownFields = unknownFields + field.rawValue }
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -2028,32 +2028,32 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        w.stringField(1, groupId)
-        w.stringField(2, protocolType)
-        w.stringField(3, groupState)
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        pbW.stringField(1, groupId)
+        pbW.stringField(2, protocolType)
+        pbW.stringField(3, groupState)
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         groupId = ""
         protocolType = ""
         groupState = ""
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    groupId = String(field.bytesValue, Charsets.UTF_8)
+                    groupId = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    protocolType = String(field.bytesValue, Charsets.UTF_8)
+                    protocolType = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 3 -> {
-                    groupState = String(field.bytesValue, Charsets.UTF_8)
+                    groupState = String(pbField.bytesValue, Charsets.UTF_8)
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -2064,29 +2064,29 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        if (errorCode != 0) { w.tag(1, 0); w.varint(errorCode.toLong()) }
-        for (x in groups) w.bytesField(2, x.marshalDc())
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        if (errorCode != 0) { pbW.tag(1, 0); pbW.varint(errorCode.toLong()) }
+        for (pbX in groups) pbW.bytesField(2, pbX.marshalDc())
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         errorCode = 0
         groups = mutableListOf()
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    errorCode = field.varintValue.toInt()
+                    errorCode = pbField.varintValue.toInt()
                 }
                 2 -> {
-                    val item = GroupListing()
-                    item.unmarshalDc(field.bytesValue)
-                    groups.add(item)
+                    val pbItem = GroupListing()
+                    pbItem.unmarshalDc(pbField.bytesValue)
+                    groups.add(pbItem)
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -2096,22 +2096,22 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        for (x in groupIds) w.bytesField(1, x.toByteArray(Charsets.UTF_8))
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        for (pbX in groupIds) pbW.bytesField(1, pbX.toByteArray(Charsets.UTF_8))
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         groupIds = mutableListOf()
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    groupIds.add(String(field.bytesValue, Charsets.UTF_8))
+                    groupIds.add(String(pbField.bytesValue, Charsets.UTF_8))
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -2124,13 +2124,13 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        w.stringField(1, memberId)
-        w.stringField(2, clientId)
-        w.stringField(3, clientHost)
-        for (x in assignment) w.bytesField(4, x.marshalDc())
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        pbW.stringField(1, memberId)
+        pbW.stringField(2, clientId)
+        pbW.stringField(3, clientHost)
+        for (pbX in assignment) pbW.bytesField(4, pbX.marshalDc())
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
@@ -2138,25 +2138,25 @@ enum class ConfigOp(val number: Int) {
         clientId = ""
         clientHost = ""
         assignment = mutableListOf()
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    memberId = String(field.bytesValue, Charsets.UTF_8)
+                    memberId = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    clientId = String(field.bytesValue, Charsets.UTF_8)
+                    clientId = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 3 -> {
-                    clientHost = String(field.bytesValue, Charsets.UTF_8)
+                    clientHost = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 4 -> {
-                    val item = TopicPartition()
-                    item.unmarshalDc(field.bytesValue)
-                    assignment.add(item)
+                    val pbItem = TopicPartition()
+                    pbItem.unmarshalDc(pbField.bytesValue)
+                    assignment.add(pbItem)
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -2171,15 +2171,15 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        w.stringField(1, groupId)
-        if (errorCode != 0) { w.tag(2, 0); w.varint(errorCode.toLong()) }
-        w.stringField(3, groupState)
-        w.stringField(4, protocolType)
-        w.stringField(5, protocol)
-        for (x in members) w.bytesField(6, x.marshalDc())
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        pbW.stringField(1, groupId)
+        if (errorCode != 0) { pbW.tag(2, 0); pbW.varint(errorCode.toLong()) }
+        pbW.stringField(3, groupState)
+        pbW.stringField(4, protocolType)
+        pbW.stringField(5, protocol)
+        for (pbX in members) pbW.bytesField(6, pbX.marshalDc())
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
@@ -2189,31 +2189,31 @@ enum class ConfigOp(val number: Int) {
         protocolType = ""
         protocol = ""
         members = mutableListOf()
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    groupId = String(field.bytesValue, Charsets.UTF_8)
+                    groupId = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    errorCode = field.varintValue.toInt()
+                    errorCode = pbField.varintValue.toInt()
                 }
                 3 -> {
-                    groupState = String(field.bytesValue, Charsets.UTF_8)
+                    groupState = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 4 -> {
-                    protocolType = String(field.bytesValue, Charsets.UTF_8)
+                    protocolType = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 5 -> {
-                    protocol = String(field.bytesValue, Charsets.UTF_8)
+                    protocol = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 6 -> {
-                    val item = GroupMember()
-                    item.unmarshalDc(field.bytesValue)
-                    members.add(item)
+                    val pbItem = GroupMember()
+                    pbItem.unmarshalDc(pbField.bytesValue)
+                    members.add(pbItem)
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -2223,24 +2223,24 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        for (x in groups) w.bytesField(1, x.marshalDc())
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        for (pbX in groups) pbW.bytesField(1, pbX.marshalDc())
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         groups = mutableListOf()
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    val item = DescribedGroup()
-                    item.unmarshalDc(field.bytesValue)
-                    groups.add(item)
+                    val pbItem = DescribedGroup()
+                    pbItem.unmarshalDc(pbField.bytesValue)
+                    groups.add(pbItem)
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -2250,22 +2250,22 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        for (x in groupIds) w.bytesField(1, x.toByteArray(Charsets.UTF_8))
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        for (pbX in groupIds) pbW.bytesField(1, pbX.toByteArray(Charsets.UTF_8))
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         groupIds = mutableListOf()
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    groupIds.add(String(field.bytesValue, Charsets.UTF_8))
+                    groupIds.add(String(pbField.bytesValue, Charsets.UTF_8))
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -2276,27 +2276,27 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        w.stringField(1, groupId)
-        if (errorCode != 0) { w.tag(2, 0); w.varint(errorCode.toLong()) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        pbW.stringField(1, groupId)
+        if (errorCode != 0) { pbW.tag(2, 0); pbW.varint(errorCode.toLong()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         groupId = ""
         errorCode = 0
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    groupId = String(field.bytesValue, Charsets.UTF_8)
+                    groupId = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    errorCode = field.varintValue.toInt()
+                    errorCode = pbField.varintValue.toInt()
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -2306,24 +2306,24 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        for (x in results) w.bytesField(1, x.marshalDc())
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        for (pbX in results) pbW.bytesField(1, pbX.marshalDc())
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         results = mutableListOf()
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    val item = GroupErrorResult()
-                    item.unmarshalDc(field.bytesValue)
-                    results.add(item)
+                    val pbItem = GroupErrorResult()
+                    pbItem.unmarshalDc(pbField.bytesValue)
+                    results.add(pbItem)
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -2335,43 +2335,43 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        w.stringField(1, groupId)
-        w.stringField(2, topic)
+        val pbW = KafkaPb.Writer()
+        pbW.stringField(1, groupId)
+        pbW.stringField(2, topic)
         if (partitions.isNotEmpty()) {
-            val payload = KafkaPb.Writer()
-            for (x in partitions) payload.varint(x.toLong())
-            w.bytesField(3, payload.toBytes())
+            val pbPayload = KafkaPb.Writer()
+            for (pbX in partitions) pbPayload.varint(pbX.toLong())
+            pbW.bytesField(3, pbPayload.toBytes())
         }
-        w.raw(unknownFields)
-        return w.toBytes()
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         groupId = ""
         topic = ""
         partitions = mutableListOf()
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    groupId = String(field.bytesValue, Charsets.UTF_8)
+                    groupId = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    topic = String(field.bytesValue, Charsets.UTF_8)
+                    topic = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 3 -> {
-                    if (field.wire == 2) {
-                        val sub = KafkaPb.Reader(field.bytesValue)
-                        while (!sub.done()) {
-                            partitions.add(sub.varint().toInt())
+                    if (pbField.wire == 2) {
+                        val pbSub = KafkaPb.Reader(pbField.bytesValue)
+                        while (!pbSub.done()) {
+                            partitions.add(pbSub.varint().toInt())
                         }
                     } else {
-                        partitions.add(field.varintValue.toInt())
+                        partitions.add(pbField.varintValue.toInt())
                     }
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -2381,22 +2381,22 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        if (errorCode != 0) { w.tag(1, 0); w.varint(errorCode.toLong()) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        if (errorCode != 0) { pbW.tag(1, 0); pbW.varint(errorCode.toLong()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         errorCode = 0
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    errorCode = field.varintValue.toInt()
+                    errorCode = pbField.varintValue.toInt()
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -2412,16 +2412,16 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        if (resourceType != 0) { w.tag(1, 0); w.varint(resourceType.toLong()) }
-        w.stringField(2, resourceName)
-        if (patternType != 0) { w.tag(3, 0); w.varint(patternType.toLong()) }
-        w.stringField(4, principal)
-        w.stringField(5, host)
-        if (operation != 0) { w.tag(6, 0); w.varint(operation.toLong()) }
-        if (permissionType != 0) { w.tag(7, 0); w.varint(permissionType.toLong()) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        if (resourceType != 0) { pbW.tag(1, 0); pbW.varint(resourceType.toLong()) }
+        pbW.stringField(2, resourceName)
+        if (patternType != 0) { pbW.tag(3, 0); pbW.varint(patternType.toLong()) }
+        pbW.stringField(4, principal)
+        pbW.stringField(5, host)
+        if (operation != 0) { pbW.tag(6, 0); pbW.varint(operation.toLong()) }
+        if (permissionType != 0) { pbW.tag(7, 0); pbW.varint(permissionType.toLong()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
@@ -2432,32 +2432,32 @@ enum class ConfigOp(val number: Int) {
         host = ""
         operation = 0
         permissionType = 0
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    resourceType = field.varintValue.toInt()
+                    resourceType = pbField.varintValue.toInt()
                 }
                 2 -> {
-                    resourceName = String(field.bytesValue, Charsets.UTF_8)
+                    resourceName = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 3 -> {
-                    patternType = field.varintValue.toInt()
+                    patternType = pbField.varintValue.toInt()
                 }
                 4 -> {
-                    principal = String(field.bytesValue, Charsets.UTF_8)
+                    principal = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 5 -> {
-                    host = String(field.bytesValue, Charsets.UTF_8)
+                    host = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 6 -> {
-                    operation = field.varintValue.toInt()
+                    operation = pbField.varintValue.toInt()
                 }
                 7 -> {
-                    permissionType = field.varintValue.toInt()
+                    permissionType = pbField.varintValue.toInt()
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -2467,23 +2467,23 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        filter?.let { w.bytesField(1, it.marshalDc()) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        filter?.let { pbW.bytesField(1, it.marshalDc()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         filter = null
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
                     filter = Acl()
-                    filter!!.unmarshalDc(field.bytesValue)
+                    filter!!.unmarshalDc(pbField.bytesValue)
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -2494,29 +2494,29 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        if (errorCode != 0) { w.tag(1, 0); w.varint(errorCode.toLong()) }
-        for (x in acls) w.bytesField(2, x.marshalDc())
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        if (errorCode != 0) { pbW.tag(1, 0); pbW.varint(errorCode.toLong()) }
+        for (pbX in acls) pbW.bytesField(2, pbX.marshalDc())
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         errorCode = 0
         acls = mutableListOf()
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    errorCode = field.varintValue.toInt()
+                    errorCode = pbField.varintValue.toInt()
                 }
                 2 -> {
-                    val item = Acl()
-                    item.unmarshalDc(field.bytesValue)
-                    acls.add(item)
+                    val pbItem = Acl()
+                    pbItem.unmarshalDc(pbField.bytesValue)
+                    acls.add(pbItem)
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -2526,24 +2526,24 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        for (x in acls) w.bytesField(1, x.marshalDc())
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        for (pbX in acls) pbW.bytesField(1, pbX.marshalDc())
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         acls = mutableListOf()
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    val item = Acl()
-                    item.unmarshalDc(field.bytesValue)
-                    acls.add(item)
+                    val pbItem = Acl()
+                    pbItem.unmarshalDc(pbField.bytesValue)
+                    acls.add(pbItem)
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -2553,33 +2553,33 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
+        val pbW = KafkaPb.Writer()
         if (errorCodes.isNotEmpty()) {
-            val payload = KafkaPb.Writer()
-            for (x in errorCodes) payload.varint(x.toLong())
-            w.bytesField(1, payload.toBytes())
+            val pbPayload = KafkaPb.Writer()
+            for (pbX in errorCodes) pbPayload.varint(pbX.toLong())
+            pbW.bytesField(1, pbPayload.toBytes())
         }
-        w.raw(unknownFields)
-        return w.toBytes()
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         errorCodes = mutableListOf()
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    if (field.wire == 2) {
-                        val sub = KafkaPb.Reader(field.bytesValue)
-                        while (!sub.done()) {
-                            errorCodes.add(sub.varint().toInt())
+                    if (pbField.wire == 2) {
+                        val pbSub = KafkaPb.Reader(pbField.bytesValue)
+                        while (!pbSub.done()) {
+                            errorCodes.add(pbSub.varint().toInt())
                         }
                     } else {
-                        errorCodes.add(field.varintValue.toInt())
+                        errorCodes.add(pbField.varintValue.toInt())
                     }
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -2589,24 +2589,24 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        for (x in filters) w.bytesField(1, x.marshalDc())
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        for (pbX in filters) pbW.bytesField(1, pbX.marshalDc())
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         filters = mutableListOf()
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    val item = Acl()
-                    item.unmarshalDc(field.bytesValue)
-                    filters.add(item)
+                    val pbItem = Acl()
+                    pbItem.unmarshalDc(pbField.bytesValue)
+                    filters.add(pbItem)
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -2616,33 +2616,33 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
+        val pbW = KafkaPb.Writer()
         if (errorCodes.isNotEmpty()) {
-            val payload = KafkaPb.Writer()
-            for (x in errorCodes) payload.varint(x.toLong())
-            w.bytesField(1, payload.toBytes())
+            val pbPayload = KafkaPb.Writer()
+            for (pbX in errorCodes) pbPayload.varint(pbX.toLong())
+            pbW.bytesField(1, pbPayload.toBytes())
         }
-        w.raw(unknownFields)
-        return w.toBytes()
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         errorCodes = mutableListOf()
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    if (field.wire == 2) {
-                        val sub = KafkaPb.Reader(field.bytesValue)
-                        while (!sub.done()) {
-                            errorCodes.add(sub.varint().toInt())
+                    if (pbField.wire == 2) {
+                        val pbSub = KafkaPb.Reader(pbField.bytesValue)
+                        while (!pbSub.done()) {
+                            errorCodes.add(pbSub.varint().toInt())
                         }
                     } else {
-                        errorCodes.add(field.varintValue.toInt())
+                        errorCodes.add(pbField.varintValue.toInt())
                     }
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -2652,17 +2652,17 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
-                else -> { unknownFields = unknownFields + field.rawValue }
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -2674,32 +2674,32 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        w.stringField(1, transactionalId)
-        if (producerId != 0L) { w.tag(2, 0); w.varint(producerId) }
-        w.stringField(3, transactionState)
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        pbW.stringField(1, transactionalId)
+        if (producerId != 0L) { pbW.tag(2, 0); pbW.varint(producerId) }
+        pbW.stringField(3, transactionState)
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         transactionalId = ""
         producerId = 0L
         transactionState = ""
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    transactionalId = String(field.bytesValue, Charsets.UTF_8)
+                    transactionalId = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    producerId = field.varintValue
+                    producerId = pbField.varintValue
                 }
                 3 -> {
-                    transactionState = String(field.bytesValue, Charsets.UTF_8)
+                    transactionState = String(pbField.bytesValue, Charsets.UTF_8)
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -2710,29 +2710,29 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        if (errorCode != 0) { w.tag(1, 0); w.varint(errorCode.toLong()) }
-        for (x in transactions) w.bytesField(2, x.marshalDc())
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        if (errorCode != 0) { pbW.tag(1, 0); pbW.varint(errorCode.toLong()) }
+        for (pbX in transactions) pbW.bytesField(2, pbX.marshalDc())
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         errorCode = 0
         transactions = mutableListOf()
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    errorCode = field.varintValue.toInt()
+                    errorCode = pbField.varintValue.toInt()
                 }
                 2 -> {
-                    val item = TransactionListing()
-                    item.unmarshalDc(field.bytesValue)
-                    transactions.add(item)
+                    val pbItem = TransactionListing()
+                    pbItem.unmarshalDc(pbField.bytesValue)
+                    transactions.add(pbItem)
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -2742,22 +2742,22 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        for (x in transactionalIds) w.bytesField(1, x.toByteArray(Charsets.UTF_8))
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        for (pbX in transactionalIds) pbW.bytesField(1, pbX.toByteArray(Charsets.UTF_8))
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         transactionalIds = mutableListOf()
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    transactionalIds.add(String(field.bytesValue, Charsets.UTF_8))
+                    transactionalIds.add(String(pbField.bytesValue, Charsets.UTF_8))
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -2772,15 +2772,15 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        w.stringField(1, transactionalId)
-        if (errorCode != 0) { w.tag(2, 0); w.varint(errorCode.toLong()) }
-        if (producerId != 0L) { w.tag(3, 0); w.varint(producerId) }
-        if (producerEpoch != 0) { w.tag(4, 0); w.varint(producerEpoch.toLong()) }
-        w.stringField(5, transactionState)
-        if (lastUpdateTimestampMs != 0L) { w.tag(6, 0); w.varint(lastUpdateTimestampMs) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        pbW.stringField(1, transactionalId)
+        if (errorCode != 0) { pbW.tag(2, 0); pbW.varint(errorCode.toLong()) }
+        if (producerId != 0L) { pbW.tag(3, 0); pbW.varint(producerId) }
+        if (producerEpoch != 0) { pbW.tag(4, 0); pbW.varint(producerEpoch.toLong()) }
+        pbW.stringField(5, transactionState)
+        if (lastUpdateTimestampMs != 0L) { pbW.tag(6, 0); pbW.varint(lastUpdateTimestampMs) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
@@ -2790,29 +2790,29 @@ enum class ConfigOp(val number: Int) {
         producerEpoch = 0
         transactionState = ""
         lastUpdateTimestampMs = 0L
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    transactionalId = String(field.bytesValue, Charsets.UTF_8)
+                    transactionalId = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    errorCode = field.varintValue.toInt()
+                    errorCode = pbField.varintValue.toInt()
                 }
                 3 -> {
-                    producerId = field.varintValue
+                    producerId = pbField.varintValue
                 }
                 4 -> {
-                    producerEpoch = field.varintValue.toInt()
+                    producerEpoch = pbField.varintValue.toInt()
                 }
                 5 -> {
-                    transactionState = String(field.bytesValue, Charsets.UTF_8)
+                    transactionState = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 6 -> {
-                    lastUpdateTimestampMs = field.varintValue
+                    lastUpdateTimestampMs = pbField.varintValue
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -2822,24 +2822,24 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        for (x in transactions) w.bytesField(1, x.marshalDc())
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        for (pbX in transactions) pbW.bytesField(1, pbX.marshalDc())
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         transactions = mutableListOf()
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    val item = DescribedTransaction()
-                    item.unmarshalDc(field.bytesValue)
-                    transactions.add(item)
+                    val pbItem = DescribedTransaction()
+                    pbItem.unmarshalDc(pbField.bytesValue)
+                    transactions.add(pbItem)
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -2852,13 +2852,13 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        w.stringField(1, groupId)
-        for (x in topics) w.bytesField(2, x.toByteArray(Charsets.UTF_8))
-        w.stringField(3, groupInstanceId)
-        if (sessionTimeoutMs != 0) { w.tag(4, 0); w.varint(sessionTimeoutMs.toLong()) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        pbW.stringField(1, groupId)
+        for (pbX in topics) pbW.bytesField(2, pbX.toByteArray(Charsets.UTF_8))
+        pbW.stringField(3, groupInstanceId)
+        if (sessionTimeoutMs != 0) { pbW.tag(4, 0); pbW.varint(sessionTimeoutMs.toLong()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
@@ -2866,23 +2866,23 @@ enum class ConfigOp(val number: Int) {
         topics = mutableListOf()
         groupInstanceId = ""
         sessionTimeoutMs = 0
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    groupId = String(field.bytesValue, Charsets.UTF_8)
+                    groupId = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    topics.add(String(field.bytesValue, Charsets.UTF_8))
+                    topics.add(String(pbField.bytesValue, Charsets.UTF_8))
                 }
                 3 -> {
-                    groupInstanceId = String(field.bytesValue, Charsets.UTF_8)
+                    groupInstanceId = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 4 -> {
-                    sessionTimeoutMs = field.varintValue.toInt()
+                    sessionTimeoutMs = pbField.varintValue.toInt()
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -2894,33 +2894,33 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        w.stringField(1, sessionId)
-        if (errorCode != 0) { w.tag(2, 0); w.varint(errorCode.toLong()) }
-        assignment?.let { w.bytesField(3, it.marshalDc()) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        pbW.stringField(1, sessionId)
+        if (errorCode != 0) { pbW.tag(2, 0); pbW.varint(errorCode.toLong()) }
+        assignment?.let { pbW.bytesField(3, it.marshalDc()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         sessionId = ""
         errorCode = 0
         assignment = null
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    sessionId = String(field.bytesValue, Charsets.UTF_8)
+                    sessionId = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    errorCode = field.varintValue.toInt()
+                    errorCode = pbField.varintValue.toInt()
                 }
                 3 -> {
                     assignment = Assignment()
-                    assignment!!.unmarshalDc(field.bytesValue)
+                    assignment!!.unmarshalDc(pbField.bytesValue)
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -2932,32 +2932,32 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        w.stringField(1, sessionId)
-        if (maxRecords != 0) { w.tag(2, 0); w.varint(maxRecords.toLong()) }
-        if (maxWaitMs != 0) { w.tag(3, 0); w.varint(maxWaitMs.toLong()) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        pbW.stringField(1, sessionId)
+        if (maxRecords != 0) { pbW.tag(2, 0); pbW.varint(maxRecords.toLong()) }
+        if (maxWaitMs != 0) { pbW.tag(3, 0); pbW.varint(maxWaitMs.toLong()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         sessionId = ""
         maxRecords = 0
         maxWaitMs = 0
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    sessionId = String(field.bytesValue, Charsets.UTF_8)
+                    sessionId = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    maxRecords = field.varintValue.toInt()
+                    maxRecords = pbField.varintValue.toInt()
                 }
                 3 -> {
-                    maxWaitMs = field.varintValue.toInt()
+                    maxWaitMs = pbField.varintValue.toInt()
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -2975,18 +2975,18 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        w.stringField(1, topic)
-        if (partition != 0) { w.tag(2, 0); w.varint(partition.toLong()) }
-        if (offset != 0L) { w.tag(3, 0); w.varint(offset) }
-        if (key.isNotEmpty()) w.bytesField(4, key)
-        if (value.isNotEmpty()) w.bytesField(5, value)
-        for (x in headers) w.bytesField(6, x.marshalDc())
-        if (timestampMs != 0L) { w.tag(7, 0); w.varint(timestampMs) }
-        if (deliveryCount != 0) { w.tag(8, 0); w.varint(deliveryCount.toLong()) }
-        if (nullKey) { w.tag(9, 0); w.varint(if (nullKey) 1L else 0L) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        pbW.stringField(1, topic)
+        if (partition != 0) { pbW.tag(2, 0); pbW.varint(partition.toLong()) }
+        if (offset != 0L) { pbW.tag(3, 0); pbW.varint(offset) }
+        if (key.isNotEmpty()) pbW.bytesField(4, key)
+        if (value.isNotEmpty()) pbW.bytesField(5, value)
+        for (pbX in headers) pbW.bytesField(6, pbX.marshalDc())
+        if (timestampMs != 0L) { pbW.tag(7, 0); pbW.varint(timestampMs) }
+        if (deliveryCount != 0) { pbW.tag(8, 0); pbW.varint(deliveryCount.toLong()) }
+        if (nullKey) { pbW.tag(9, 0); pbW.varint(if (nullKey) 1L else 0L) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
@@ -2999,40 +2999,40 @@ enum class ConfigOp(val number: Int) {
         timestampMs = 0L
         deliveryCount = 0
         nullKey = false
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    topic = String(field.bytesValue, Charsets.UTF_8)
+                    topic = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    partition = field.varintValue.toInt()
+                    partition = pbField.varintValue.toInt()
                 }
                 3 -> {
-                    offset = field.varintValue
+                    offset = pbField.varintValue
                 }
                 4 -> {
-                    key = field.bytesValue
+                    key = pbField.bytesValue
                 }
                 5 -> {
-                    value = field.bytesValue
+                    value = pbField.bytesValue
                 }
                 6 -> {
-                    val item = Header()
-                    item.unmarshalDc(field.bytesValue)
-                    headers.add(item)
+                    val pbItem = Header()
+                    pbItem.unmarshalDc(pbField.bytesValue)
+                    headers.add(pbItem)
                 }
                 7 -> {
-                    timestampMs = field.varintValue
+                    timestampMs = pbField.varintValue
                 }
                 8 -> {
-                    deliveryCount = field.varintValue.toInt()
+                    deliveryCount = pbField.varintValue.toInt()
                 }
                 9 -> {
-                    nullKey = field.varintValue != 0L
+                    nullKey = pbField.varintValue != 0L
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -3043,29 +3043,29 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        for (x in records) w.bytesField(1, x.marshalDc())
-        if (errorCode != 0) { w.tag(2, 0); w.varint(errorCode.toLong()) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        for (pbX in records) pbW.bytesField(1, pbX.marshalDc())
+        if (errorCode != 0) { pbW.tag(2, 0); pbW.varint(errorCode.toLong()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         records = mutableListOf()
         errorCode = 0
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    val item = SharePollRecord()
-                    item.unmarshalDc(field.bytesValue)
-                    records.add(item)
+                    val pbItem = SharePollRecord()
+                    pbItem.unmarshalDc(pbField.bytesValue)
+                    records.add(pbItem)
                 }
                 2 -> {
-                    errorCode = field.varintValue.toInt()
+                    errorCode = pbField.varintValue.toInt()
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -3078,13 +3078,13 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        w.stringField(1, topic)
-        if (partition != 0) { w.tag(2, 0); w.varint(partition.toLong()) }
-        if (offset != 0L) { w.tag(3, 0); w.varint(offset) }
-        if (ackType != 0) { w.tag(4, 0); w.varint(ackType.toLong()) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        pbW.stringField(1, topic)
+        if (partition != 0) { pbW.tag(2, 0); pbW.varint(partition.toLong()) }
+        if (offset != 0L) { pbW.tag(3, 0); pbW.varint(offset) }
+        if (ackType != 0) { pbW.tag(4, 0); pbW.varint(ackType.toLong()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
@@ -3092,23 +3092,23 @@ enum class ConfigOp(val number: Int) {
         partition = 0
         offset = 0L
         ackType = 0
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    topic = String(field.bytesValue, Charsets.UTF_8)
+                    topic = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    partition = field.varintValue.toInt()
+                    partition = pbField.varintValue.toInt()
                 }
                 3 -> {
-                    offset = field.varintValue
+                    offset = pbField.varintValue
                 }
                 4 -> {
-                    ackType = field.varintValue.toInt()
+                    ackType = pbField.varintValue.toInt()
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -3119,29 +3119,29 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        w.stringField(1, sessionId)
-        for (x in entries) w.bytesField(2, x.marshalDc())
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        pbW.stringField(1, sessionId)
+        for (pbX in entries) pbW.bytesField(2, pbX.marshalDc())
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         sessionId = ""
         entries = mutableListOf()
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    sessionId = String(field.bytesValue, Charsets.UTF_8)
+                    sessionId = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    val item = ShareAckEntry()
-                    item.unmarshalDc(field.bytesValue)
-                    entries.add(item)
+                    val pbItem = ShareAckEntry()
+                    pbItem.unmarshalDc(pbField.bytesValue)
+                    entries.add(pbItem)
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -3151,22 +3151,22 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        if (errorCode != 0) { w.tag(1, 0); w.varint(errorCode.toLong()) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        if (errorCode != 0) { pbW.tag(1, 0); pbW.varint(errorCode.toLong()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         errorCode = 0
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    errorCode = field.varintValue.toInt()
+                    errorCode = pbField.varintValue.toInt()
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -3176,22 +3176,22 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        w.stringField(1, sessionId)
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        pbW.stringField(1, sessionId)
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         sessionId = ""
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    sessionId = String(field.bytesValue, Charsets.UTF_8)
+                    sessionId = String(pbField.bytesValue, Charsets.UTF_8)
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -3201,22 +3201,22 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        if (errorCode != 0) { w.tag(1, 0); w.varint(errorCode.toLong()) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        if (errorCode != 0) { pbW.tag(1, 0); pbW.varint(errorCode.toLong()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         errorCode = 0
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    errorCode = field.varintValue.toInt()
+                    errorCode = pbField.varintValue.toInt()
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -3231,15 +3231,15 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        w.stringField(1, memberId)
-        if (memberEpoch != 0) { w.tag(2, 0); w.varint(memberEpoch.toLong()) }
-        w.stringField(3, clientId)
-        w.stringField(4, clientHost)
-        for (x in subscribedTopics) w.bytesField(5, x.toByteArray(Charsets.UTF_8))
-        for (x in assignment) w.bytesField(6, x.marshalDc())
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        pbW.stringField(1, memberId)
+        if (memberEpoch != 0) { pbW.tag(2, 0); pbW.varint(memberEpoch.toLong()) }
+        pbW.stringField(3, clientId)
+        pbW.stringField(4, clientHost)
+        for (pbX in subscribedTopics) pbW.bytesField(5, pbX.toByteArray(Charsets.UTF_8))
+        for (pbX in assignment) pbW.bytesField(6, pbX.marshalDc())
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
@@ -3249,31 +3249,31 @@ enum class ConfigOp(val number: Int) {
         clientHost = ""
         subscribedTopics = mutableListOf()
         assignment = mutableListOf()
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    memberId = String(field.bytesValue, Charsets.UTF_8)
+                    memberId = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    memberEpoch = field.varintValue.toInt()
+                    memberEpoch = pbField.varintValue.toInt()
                 }
                 3 -> {
-                    clientId = String(field.bytesValue, Charsets.UTF_8)
+                    clientId = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 4 -> {
-                    clientHost = String(field.bytesValue, Charsets.UTF_8)
+                    clientHost = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 5 -> {
-                    subscribedTopics.add(String(field.bytesValue, Charsets.UTF_8))
+                    subscribedTopics.add(String(pbField.bytesValue, Charsets.UTF_8))
                 }
                 6 -> {
-                    val item = TopicPartition()
-                    item.unmarshalDc(field.bytesValue)
-                    assignment.add(item)
+                    val pbItem = TopicPartition()
+                    pbItem.unmarshalDc(pbField.bytesValue)
+                    assignment.add(pbItem)
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -3288,15 +3288,15 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        w.stringField(1, groupId)
-        if (errorCode != 0) { w.tag(2, 0); w.varint(errorCode.toLong()) }
-        w.stringField(3, state)
-        if (groupEpoch != 0) { w.tag(4, 0); w.varint(groupEpoch.toLong()) }
-        if (assignmentEpoch != 0) { w.tag(5, 0); w.varint(assignmentEpoch.toLong()) }
-        for (x in members) w.bytesField(6, x.marshalDc())
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        pbW.stringField(1, groupId)
+        if (errorCode != 0) { pbW.tag(2, 0); pbW.varint(errorCode.toLong()) }
+        pbW.stringField(3, state)
+        if (groupEpoch != 0) { pbW.tag(4, 0); pbW.varint(groupEpoch.toLong()) }
+        if (assignmentEpoch != 0) { pbW.tag(5, 0); pbW.varint(assignmentEpoch.toLong()) }
+        for (pbX in members) pbW.bytesField(6, pbX.marshalDc())
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
@@ -3306,31 +3306,31 @@ enum class ConfigOp(val number: Int) {
         groupEpoch = 0
         assignmentEpoch = 0
         members = mutableListOf()
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    groupId = String(field.bytesValue, Charsets.UTF_8)
+                    groupId = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    errorCode = field.varintValue.toInt()
+                    errorCode = pbField.varintValue.toInt()
                 }
                 3 -> {
-                    state = String(field.bytesValue, Charsets.UTF_8)
+                    state = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 4 -> {
-                    groupEpoch = field.varintValue.toInt()
+                    groupEpoch = pbField.varintValue.toInt()
                 }
                 5 -> {
-                    assignmentEpoch = field.varintValue.toInt()
+                    assignmentEpoch = pbField.varintValue.toInt()
                 }
                 6 -> {
-                    val item = ShareGroupMember()
-                    item.unmarshalDc(field.bytesValue)
-                    members.add(item)
+                    val pbItem = ShareGroupMember()
+                    pbItem.unmarshalDc(pbField.bytesValue)
+                    members.add(pbItem)
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -3340,22 +3340,22 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        for (x in groupIds) w.bytesField(1, x.toByteArray(Charsets.UTF_8))
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        for (pbX in groupIds) pbW.bytesField(1, pbX.toByteArray(Charsets.UTF_8))
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         groupIds = mutableListOf()
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    groupIds.add(String(field.bytesValue, Charsets.UTF_8))
+                    groupIds.add(String(pbField.bytesValue, Charsets.UTF_8))
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -3366,29 +3366,29 @@ enum class ConfigOp(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = KafkaPb.Writer()
-        for (x in groups) w.bytesField(1, x.marshalDc())
-        if (errorCode != 0) { w.tag(2, 0); w.varint(errorCode.toLong()) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = KafkaPb.Writer()
+        for (pbX in groups) pbW.bytesField(1, pbX.marshalDc())
+        if (errorCode != 0) { pbW.tag(2, 0); pbW.varint(errorCode.toLong()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         groups = mutableListOf()
         errorCode = 0
-        val r = KafkaPb.Reader(data)
+        val pbR = KafkaPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    val item = ShareGroupDescription()
-                    item.unmarshalDc(field.bytesValue)
-                    groups.add(item)
+                    val pbItem = ShareGroupDescription()
+                    pbItem.unmarshalDc(pbField.bytesValue)
+                    groups.add(pbItem)
                 }
                 2 -> {
-                    errorCode = field.varintValue.toInt()
+                    errorCode = pbField.varintValue.toInt()
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }

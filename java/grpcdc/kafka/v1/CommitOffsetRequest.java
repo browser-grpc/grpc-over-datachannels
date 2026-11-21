@@ -22,15 +22,15 @@ public final class CommitOffsetRequest implements grpcdc.Marshaler, grpcdc.Unmar
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
-        w.stringField(1, groupId);
-        w.stringField(2, topic);
-        if (partition != 0) { w.tag(3, 0); w.varint(partition); }
-        if (committedOffset != 0) { w.tag(4, 0); w.varint(committedOffset); }
-        w.stringField(5, metadata);
-        w.stringField(6, sessionId);
-        w.raw(unknownFields);
-        return w.toBytes();
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
+        pbW.stringField(1, groupId);
+        pbW.stringField(2, topic);
+        if (partition != 0) { pbW.tag(3, 0); pbW.varint(partition); }
+        if (committedOffset != 0) { pbW.tag(4, 0); pbW.varint(committedOffset); }
+        pbW.stringField(5, metadata);
+        pbW.stringField(6, sessionId);
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -42,29 +42,29 @@ public final class CommitOffsetRequest implements grpcdc.Marshaler, grpcdc.Unmar
         committedOffset = 0L;
         metadata = "";
         sessionId = "";
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    groupId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    groupId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 2 -> {
-                    topic = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    topic = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 3 -> {
-                    partition = (int) field.varintValue;
+                    partition = (int) pbField.varintValue;
                 }
                 case 4 -> {
-                    committedOffset = field.varintValue;
+                    committedOffset = pbField.varintValue;
                 }
                 case 5 -> {
-                    metadata = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    metadata = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 6 -> {
-                    sessionId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    sessionId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

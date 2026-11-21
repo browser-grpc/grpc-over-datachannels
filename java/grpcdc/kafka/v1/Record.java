@@ -20,14 +20,14 @@ public final class Record implements grpcdc.Marshaler, grpcdc.Unmarshaler {
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
-        if (key != null && key.length > 0) w.bytesField(1, key);
-        if (value != null && value.length > 0) w.bytesField(2, value);
-        if (headers != null) for (Header x : headers) w.bytesField(3, x.marshalDc());
-        if (timestampMs != 0) { w.tag(4, 0); w.varint(timestampMs); }
-        if (nullKey) { w.tag(5, 0); w.varint((nullKey ? 1 : 0)); }
-        w.raw(unknownFields);
-        return w.toBytes();
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
+        if (key != null && key.length > 0) pbW.bytesField(1, key);
+        if (value != null && value.length > 0) pbW.bytesField(2, value);
+        if (headers != null) for (Header pbX : headers) pbW.bytesField(3, pbX.marshalDc());
+        if (timestampMs != 0) { pbW.tag(4, 0); pbW.varint(timestampMs); }
+        if (nullKey) { pbW.tag(5, 0); pbW.varint((nullKey ? 1 : 0)); }
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -38,28 +38,28 @@ public final class Record implements grpcdc.Marshaler, grpcdc.Unmarshaler {
         headers = new java.util.ArrayList<>();
         timestampMs = 0L;
         nullKey = false;
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    key = field.bytesValue;
+                    key = pbField.bytesValue;
                 }
                 case 2 -> {
-                    value = field.bytesValue;
+                    value = pbField.bytesValue;
                 }
                 case 3 -> {
-                    Header item = new Header();
-                    item.unmarshalDc(field.bytesValue);
-                    headers.add(item);
+                    Header pbItem = new Header();
+                    pbItem.unmarshalDc(pbField.bytesValue);
+                    headers.add(pbItem);
                 }
                 case 4 -> {
-                    timestampMs = field.varintValue;
+                    timestampMs = pbField.varintValue;
                 }
                 case 5 -> {
-                    nullKey = field.varintValue != 0;
+                    nullKey = pbField.varintValue != 0;
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

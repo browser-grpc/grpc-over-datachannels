@@ -14,11 +14,11 @@ public final class ShareAckRequest implements grpcdc.Marshaler, grpcdc.Unmarshal
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
-        w.stringField(1, sessionId);
-        if (entries != null) for (ShareAckEntry x : entries) w.bytesField(2, x.marshalDc());
-        w.raw(unknownFields);
-        return w.toBytes();
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
+        pbW.stringField(1, sessionId);
+        if (entries != null) for (ShareAckEntry pbX : entries) pbW.bytesField(2, pbX.marshalDc());
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -26,19 +26,19 @@ public final class ShareAckRequest implements grpcdc.Marshaler, grpcdc.Unmarshal
         unknownFields = new byte[0];
         sessionId = "";
         entries = new java.util.ArrayList<>();
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    sessionId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    sessionId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 2 -> {
-                    ShareAckEntry item = new ShareAckEntry();
-                    item.unmarshalDc(field.bytesValue);
-                    entries.add(item);
+                    ShareAckEntry pbItem = new ShareAckEntry();
+                    pbItem.unmarshalDc(pbField.bytesValue);
+                    entries.add(pbItem);
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

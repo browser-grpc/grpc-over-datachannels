@@ -10,6 +10,7 @@ fun main(args: Array<String>) {
     }
     try {
         when (args[0]) {
+            "TestStructCodec" -> testStructCodec()
             "TestCodec" -> testCodec()
             "TestEcho" -> testEcho()
             "TestInterop" -> testInterop()

@@ -18,13 +18,13 @@ public final class BrokerMetadata implements grpcdc.Marshaler, grpcdc.Unmarshale
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
-        if (nodeId != 0) { w.tag(1, 0); w.varint(nodeId); }
-        w.stringField(2, host);
-        if (port != 0) { w.tag(3, 0); w.varint(port); }
-        w.stringField(4, rack);
-        w.raw(unknownFields);
-        return w.toBytes();
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
+        if (nodeId != 0) { pbW.tag(1, 0); pbW.varint(nodeId); }
+        pbW.stringField(2, host);
+        if (port != 0) { pbW.tag(3, 0); pbW.varint(port); }
+        pbW.stringField(4, rack);
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -34,23 +34,23 @@ public final class BrokerMetadata implements grpcdc.Marshaler, grpcdc.Unmarshale
         host = "";
         port = 0;
         rack = "";
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    nodeId = (int) field.varintValue;
+                    nodeId = (int) pbField.varintValue;
                 }
                 case 2 -> {
-                    host = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    host = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 3 -> {
-                    port = (int) field.varintValue;
+                    port = (int) pbField.varintValue;
                 }
                 case 4 -> {
-                    rack = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    rack = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

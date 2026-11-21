@@ -32,20 +32,20 @@ public final class SimpleRequest implements grpcdc.Marshaler, grpcdc.Unmarshaler
 
     @Override
     public byte[] marshalDc() {
-        MessagesPb.Writer w = new MessagesPb.Writer();
-        if (responseType != null && responseType.number != 0) { w.tag(1, 0); w.varint(responseType.number); }
-        if (responseSize != 0) { w.tag(2, 0); w.varint(responseSize); }
-        if (payload != null) w.bytesField(3, payload.marshalDc());
-        if (fillUsername) { w.tag(4, 0); w.varint((fillUsername ? 1 : 0)); }
-        if (fillOauthScope) { w.tag(5, 0); w.varint((fillOauthScope ? 1 : 0)); }
-        if (responseCompressed != null) w.bytesField(6, responseCompressed.marshalDc());
-        if (responseStatus != null) w.bytesField(7, responseStatus.marshalDc());
-        if (expectCompressed != null) w.bytesField(8, expectCompressed.marshalDc());
-        if (fillServerId) { w.tag(9, 0); w.varint((fillServerId ? 1 : 0)); }
-        if (fillGrpclbRouteType) { w.tag(10, 0); w.varint((fillGrpclbRouteType ? 1 : 0)); }
-        if (orcaPerQueryReport != null) w.bytesField(11, orcaPerQueryReport.marshalDc());
-        w.raw(unknownFields);
-        return w.toBytes();
+        MessagesPb.Writer pbW = new MessagesPb.Writer();
+        if (responseType != null && responseType.number != 0) { pbW.tag(1, 0); pbW.varint(responseType.number); }
+        if (responseSize != 0) { pbW.tag(2, 0); pbW.varint(responseSize); }
+        if (payload != null) pbW.bytesField(3, payload.marshalDc());
+        if (fillUsername) { pbW.tag(4, 0); pbW.varint((fillUsername ? 1 : 0)); }
+        if (fillOauthScope) { pbW.tag(5, 0); pbW.varint((fillOauthScope ? 1 : 0)); }
+        if (responseCompressed != null) pbW.bytesField(6, responseCompressed.marshalDc());
+        if (responseStatus != null) pbW.bytesField(7, responseStatus.marshalDc());
+        if (expectCompressed != null) pbW.bytesField(8, expectCompressed.marshalDc());
+        if (fillServerId) { pbW.tag(9, 0); pbW.varint((fillServerId ? 1 : 0)); }
+        if (fillGrpclbRouteType) { pbW.tag(10, 0); pbW.varint((fillGrpclbRouteType ? 1 : 0)); }
+        if (orcaPerQueryReport != null) pbW.bytesField(11, orcaPerQueryReport.marshalDc());
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -62,49 +62,49 @@ public final class SimpleRequest implements grpcdc.Marshaler, grpcdc.Unmarshaler
         fillServerId = false;
         fillGrpclbRouteType = false;
         orcaPerQueryReport = null;
-        MessagesPb.Reader r = new MessagesPb.Reader(data);
-        MessagesPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        MessagesPb.Reader pbR = new MessagesPb.Reader(data);
+        MessagesPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    responseType = PayloadType.fromNumber((int) field.varintValue);
+                    responseType = PayloadType.fromNumber((int) pbField.varintValue);
                 }
                 case 2 -> {
-                    responseSize = (int) field.varintValue;
+                    responseSize = (int) pbField.varintValue;
                 }
                 case 3 -> {
                     payload = new Payload();
-                    payload.unmarshalDc(field.bytesValue);
+                    payload.unmarshalDc(pbField.bytesValue);
                 }
                 case 4 -> {
-                    fillUsername = field.varintValue != 0;
+                    fillUsername = pbField.varintValue != 0;
                 }
                 case 5 -> {
-                    fillOauthScope = field.varintValue != 0;
+                    fillOauthScope = pbField.varintValue != 0;
                 }
                 case 6 -> {
                     responseCompressed = new BoolValue();
-                    responseCompressed.unmarshalDc(field.bytesValue);
+                    responseCompressed.unmarshalDc(pbField.bytesValue);
                 }
                 case 7 -> {
                     responseStatus = new EchoStatus();
-                    responseStatus.unmarshalDc(field.bytesValue);
+                    responseStatus.unmarshalDc(pbField.bytesValue);
                 }
                 case 8 -> {
                     expectCompressed = new BoolValue();
-                    expectCompressed.unmarshalDc(field.bytesValue);
+                    expectCompressed.unmarshalDc(pbField.bytesValue);
                 }
                 case 9 -> {
-                    fillServerId = field.varintValue != 0;
+                    fillServerId = pbField.varintValue != 0;
                 }
                 case 10 -> {
-                    fillGrpclbRouteType = field.varintValue != 0;
+                    fillGrpclbRouteType = pbField.varintValue != 0;
                 }
                 case 11 -> {
                     orcaPerQueryReport = new TestOrcaReport();
-                    orcaPerQueryReport.unmarshalDc(field.bytesValue);
+                    orcaPerQueryReport.unmarshalDc(pbField.bytesValue);
                 }
-                default -> { unknownFields = MessagesPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = MessagesPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

@@ -16,12 +16,12 @@ public final class AlterConfigEntry implements grpcdc.Marshaler, grpcdc.Unmarsha
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
-        w.stringField(1, name);
-        w.stringField(2, value);
-        if (op != null && op.number != 0) { w.tag(3, 0); w.varint(op.number); }
-        w.raw(unknownFields);
-        return w.toBytes();
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
+        pbW.stringField(1, name);
+        pbW.stringField(2, value);
+        if (op != null && op.number != 0) { pbW.tag(3, 0); pbW.varint(op.number); }
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -30,20 +30,20 @@ public final class AlterConfigEntry implements grpcdc.Marshaler, grpcdc.Unmarsha
         name = "";
         value = "";
         op = ConfigOp.CONFIG_OP_SET;
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    name = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    name = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 2 -> {
-                    value = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    value = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 3 -> {
-                    op = ConfigOp.fromNumber((int) field.varintValue);
+                    op = ConfigOp.fromNumber((int) pbField.varintValue);
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

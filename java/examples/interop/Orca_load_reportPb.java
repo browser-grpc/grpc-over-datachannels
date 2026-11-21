@@ -6,21 +6,21 @@ final class Orca_load_reportPb {
     private Orca_load_reportPb() {}
 
     static byte[] OrcaLoadReportRequestCostEntryEncode(String key, Double value) {
-        Writer w = new Writer();
-        w.stringField(1, key);
-        if (value != 0) { w.tag(2, 1); w.fixedDouble(value); }
-        return w.toBytes();
+        Writer pbW = new Writer();
+        pbW.stringField(1, key);
+        if (value != 0) { pbW.tag(2, 1); pbW.fixedDouble(value); }
+        return pbW.toBytes();
     }
 
     static Object[] OrcaLoadReportRequestCostEntryDecode(byte[] bytes) {
         String key = "";
         Double value = 0.0;
-        Reader r = new Reader(bytes);
-        Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
-                case 1: key = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8); break;
-                case 2: value = Double.longBitsToDouble(field.fixedValue); break;
+        Reader pbR = new Reader(bytes);
+        Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
+                case 1: key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8); break;
+                case 2: value = Double.longBitsToDouble(pbField.fixedValue); break;
                 default: break;
             }
         }
@@ -28,21 +28,21 @@ final class Orca_load_reportPb {
     }
 
     static byte[] OrcaLoadReportUtilizationEntryEncode(String key, Double value) {
-        Writer w = new Writer();
-        w.stringField(1, key);
-        if (value != 0) { w.tag(2, 1); w.fixedDouble(value); }
-        return w.toBytes();
+        Writer pbW = new Writer();
+        pbW.stringField(1, key);
+        if (value != 0) { pbW.tag(2, 1); pbW.fixedDouble(value); }
+        return pbW.toBytes();
     }
 
     static Object[] OrcaLoadReportUtilizationEntryDecode(byte[] bytes) {
         String key = "";
         Double value = 0.0;
-        Reader r = new Reader(bytes);
-        Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
-                case 1: key = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8); break;
-                case 2: value = Double.longBitsToDouble(field.fixedValue); break;
+        Reader pbR = new Reader(bytes);
+        Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
+                case 1: key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8); break;
+                case 2: value = Double.longBitsToDouble(pbField.fixedValue); break;
                 default: break;
             }
         }

@@ -61,6 +61,7 @@ Browser legs run via the `test-wasm*` and `test-*-wasm-browser` make targets (Ch
 - [`lib.rs`](rust/src/lib.rs) — Generated suite/example
 - [`EchoScalaJsGrpcDc.scala`](scalajs/EchoScalaJsGrpcDc.scala) — Echo: all four call shapes
 - [`EchoServerImpl.scala`](scalajs/EchoServerImpl.scala) — Echo: all four call shapes
+- [`StructDcStub.scala`](scalajs/StructDcStub.scala) — Generated suite/example
 - [`bridge.scala`](scalajs/bridge.scala) — Generated suite/example
 - [`echo_client.scala`](scalajs/echo_client.scala) — Echo: all four call shapes
 - [`echo_server_facade.scala`](scalajs/echo_server_facade.scala) — Echo: all four call shapes

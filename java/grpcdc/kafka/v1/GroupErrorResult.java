@@ -14,11 +14,11 @@ public final class GroupErrorResult implements grpcdc.Marshaler, grpcdc.Unmarsha
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
-        w.stringField(1, groupId);
-        if (errorCode != 0) { w.tag(2, 0); w.varint(errorCode); }
-        w.raw(unknownFields);
-        return w.toBytes();
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
+        pbW.stringField(1, groupId);
+        if (errorCode != 0) { pbW.tag(2, 0); pbW.varint(errorCode); }
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -26,17 +26,17 @@ public final class GroupErrorResult implements grpcdc.Marshaler, grpcdc.Unmarsha
         unknownFields = new byte[0];
         groupId = "";
         errorCode = 0;
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    groupId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    groupId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 2 -> {
-                    errorCode = (int) field.varintValue;
+                    errorCode = (int) pbField.varintValue;
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

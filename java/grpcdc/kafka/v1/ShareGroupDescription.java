@@ -22,15 +22,15 @@ public final class ShareGroupDescription implements grpcdc.Marshaler, grpcdc.Unm
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
-        w.stringField(1, groupId);
-        if (errorCode != 0) { w.tag(2, 0); w.varint(errorCode); }
-        w.stringField(3, state);
-        if (groupEpoch != 0) { w.tag(4, 0); w.varint(groupEpoch); }
-        if (assignmentEpoch != 0) { w.tag(5, 0); w.varint(assignmentEpoch); }
-        if (members != null) for (ShareGroupMember x : members) w.bytesField(6, x.marshalDc());
-        w.raw(unknownFields);
-        return w.toBytes();
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
+        pbW.stringField(1, groupId);
+        if (errorCode != 0) { pbW.tag(2, 0); pbW.varint(errorCode); }
+        pbW.stringField(3, state);
+        if (groupEpoch != 0) { pbW.tag(4, 0); pbW.varint(groupEpoch); }
+        if (assignmentEpoch != 0) { pbW.tag(5, 0); pbW.varint(assignmentEpoch); }
+        if (members != null) for (ShareGroupMember pbX : members) pbW.bytesField(6, pbX.marshalDc());
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -42,31 +42,31 @@ public final class ShareGroupDescription implements grpcdc.Marshaler, grpcdc.Unm
         groupEpoch = 0;
         assignmentEpoch = 0;
         members = new java.util.ArrayList<>();
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    groupId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    groupId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 2 -> {
-                    errorCode = (int) field.varintValue;
+                    errorCode = (int) pbField.varintValue;
                 }
                 case 3 -> {
-                    state = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    state = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 4 -> {
-                    groupEpoch = (int) field.varintValue;
+                    groupEpoch = (int) pbField.varintValue;
                 }
                 case 5 -> {
-                    assignmentEpoch = (int) field.varintValue;
+                    assignmentEpoch = (int) pbField.varintValue;
                 }
                 case 6 -> {
-                    ShareGroupMember item = new ShareGroupMember();
-                    item.unmarshalDc(field.bytesValue);
-                    members.add(item);
+                    ShareGroupMember pbItem = new ShareGroupMember();
+                    pbItem.unmarshalDc(pbField.bytesValue);
+                    members.add(pbItem);
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }
