@@ -388,7 +388,7 @@ RUN git init -q && git add -A \
 
 # Reproduce every generated artifact in-image (plugins, wire tables,
 # fixtures, stubs) — this is also the toolchain smoke test.
-RUN make generate
+RUN make generate && make webapp-assets
 
 # Build the Go/WASM browser client artifacts for the wasm test.
 RUN cd wasm/go && GOOS=js GOARCH=wasm go build -o ../../browser-test/echo.wasm ./cmd/echo_wasm \
