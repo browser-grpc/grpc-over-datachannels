@@ -55,7 +55,6 @@ Browser legs run via the `test-wasm*` and `test-*-wasm-browser` make targets (Ch
 - [`echo_tracing.lua`](lua/echo_tracing.lua) — Tracing: traceparent propagation, span observers, nested calls
 - [`embed_modules.py`](lua/embed_modules.py) — Generated suite/example
 - [`host.c`](lua/host.c) — Generated suite/example
-- [`modules.h`](lua/modules.h) — Generated suite/example
 - [`sjlj_rt.c`](lua/sjlj_rt.c) — Generated suite/example
 - [`Cargo.toml`](rust/Cargo.toml) — Generated suite/example
 - [`lib.rs`](rust/src/lib.rs) — Generated suite/example

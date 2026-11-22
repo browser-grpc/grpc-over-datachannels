@@ -6,7 +6,8 @@
 (require racket/file
          racket/list
          racket/path
-         racket/string)
+         racket/string
+         racket/system)
 (require "spec.rkt")
 
 (define languages
@@ -37,19 +38,41 @@
   (define ext (path-get-extension p))
   (and ext (member (bytes->string/utf-8 ext) source-exts)))
 
+(define (tracked-files root)
+  ;; Deterministic inventory: tracked files only, so generated
+  ;; build artifacts present in a dirty tree cannot leak into
+  ;; the docs and drift check-generated. #f when git is unusable
+  ;; (release exports), where the walk below applies.
+  (define out (open-output-string))
+  (define ok
+    (parameterize ([current-output-port out])
+      (system (format "git ls-files -- ~a" (path->string root)))))
+  (and ok
+       (let ([lines (filter (lambda (l) (not (string=? l "")))
+                            (string-split (get-output-string out) "\n"))])
+         (and (pair? lines) lines))))
+
 (define (collect root)
-  (define out '())
-  (let walk ([dir root] [depth 0])
-    (when (and (directory-exists? dir) (< depth 4))
-      (for ([entry (in-list (directory-list dir #:build? #t))])
-        (define name (path->string (file-name-from-path entry)))
-        (cond
-          [(and (directory-exists? entry)
-                (not (member name skip-dirs)))
-           (walk entry (add1 depth))]
-          [(and (file-exists? entry) (source-file? entry))
-           (set! out (cons entry out))]))))
-  (sort out string<? #:key path->string))
+  (define tracked (tracked-files root))
+  (if tracked
+      (sort (filter (lambda (p)
+                      (and (source-file? p)
+                           (not (for/or ([part (in-list (explode-path p))])
+                                  (member (path->string part) skip-dirs)))))
+                    (map string->path tracked))
+            string<? #:key path->string)
+      (let ([out '()])
+        (let walk ([dir root] [depth 0])
+          (when (and (directory-exists? dir) (< depth 4))
+            (for ([entry (in-list (directory-list dir #:build? #t))])
+              (define name (path->string (file-name-from-path entry)))
+              (cond
+                [(and (directory-exists? entry)
+                      (not (member name skip-dirs)))
+                 (walk entry (add1 depth))]
+                [(and (file-exists? entry) (source-file? entry))
+                 (set! out (cons entry out))]))))
+        (sort out string<? #:key path->string))))
 
 (define (blurb name)
   (define n (string-downcase name))
