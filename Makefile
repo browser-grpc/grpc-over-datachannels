@@ -284,10 +284,12 @@ ci-status:
 	node scripts/ci-status.mjs $(if $(CI_WATCH),--watch,)
 
 check-generated:
-	@before=$$(find . -path ./.git -prune -o -path ./node_modules -prune -o -path '*/target' -prune -o -path '*/build' -prune -o -path '*/node_modules' -prune -o -path './browser-test/scalajs_gen' -prune -o -path '*/.scala-build' -prune -o -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1); \
+	@find . -path ./.git -prune -o -path ./node_modules -prune -o -path '*/target' -prune -o -path '*/build' -prune -o -path '*/node_modules' -prune -o -path './browser-test/scalajs_gen' -prune -o -path '*/.scala-build' -prune -o -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum > /tmp/check-generated.before; \
+	before=$$(sha256sum < /tmp/check-generated.before | cut -d' ' -f1); \
 	$(MAKE) --no-print-directory generate; \
-	after=$$(find . -path ./.git -prune -o -path ./node_modules -prune -o -path '*/target' -prune -o -path '*/build' -prune -o -path '*/node_modules' -prune -o -path './browser-test/scalajs_gen' -prune -o -path '*/.scala-build' -prune -o -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1); \
-	if [ "$$before" != "$$after" ]; then echo "check-generated: FAIL (generated files drift from Racket sources; run make generate and commit the result)"; exit 1; fi; \
+	find . -path ./.git -prune -o -path ./node_modules -prune -o -path '*/target' -prune -o -path '*/build' -prune -o -path '*/node_modules' -prune -o -path './browser-test/scalajs_gen' -prune -o -path '*/.scala-build' -prune -o -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum > /tmp/check-generated.after; \
+	after=$$(sha256sum < /tmp/check-generated.after | cut -d' ' -f1); \
+	if [ "$$before" != "$$after" ]; then echo "check-generated: FAIL (generated files drift from Racket sources; run make generate and commit the result)"; diff /tmp/check-generated.before /tmp/check-generated.after | head -40; exit 1; fi; \
 	echo "check-generated: OK (generated tree is byte-stable)"
 
 # Serve the built SPA locally with the COOP/COEP headers the
