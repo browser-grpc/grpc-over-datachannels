@@ -434,7 +434,8 @@ RUN cd webapp/compiler && go mod download \
 # Merge the pre-COPY Racket/Wasm bootstrap (staged at
 # /opt/racket-wasm-built above) into the webapp assets and
 # build the in-browser plugins; tests then run them offline.
-RUN cp -a /opt/racket-wasm-built/. webapp/assets/racket/ \
+RUN mkdir -p webapp/assets/racket \
+  && cp -a /opt/racket-wasm-built/. webapp/assets/racket/ \
   && make webapp-plugins
 
 # Playwright browsers + OS libraries for the real-browser test
