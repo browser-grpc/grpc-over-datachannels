@@ -14,11 +14,14 @@ LOG="${GRPC_DC_TEST_LOG:-/tmp/grpc-dc-test.log}"
 # GRPC_DC_TARGETS runs one parallel job's subset of the suite
 # (see the CI workflow matrix); empty means the full suite.
 TARGETS="${GRPC_DC_TARGETS:-}"
+# wasm-cores-gen output (browser-test/dc_*_gen) is consumed by
+# the JS/WebRTC legs in most groups, not just test-racket.
+make wasm-cores-gen || exit 1
 if [ -z "$TARGETS" ]; then
-  make wasm-cores-gen artifacts || exit 1
+  make artifacts || exit 1
 else
   case " $TARGETS " in
-    *" test-racket "*) make wasm-cores-gen artifacts || exit 1 ;;
+    *" test-racket "*) make artifacts || exit 1 ;;
   esac
 fi
 if [ -n "$TARGETS" ]; then
