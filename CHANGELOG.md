@@ -3,6 +3,24 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.44.0 — 2026-11-18 (published to GitHub/npm/PyPI/pub.dev/crates.io/GHCR/NuGet/GitHub Maven/RubyGems/LuaRocks/JSR; Maven Central sync deferred to its weekly slot)
+
+- Rust-only WebRTC consolidation: the mirrored Go and
+  JavaScript ICE/DTLS/SCTP stacks (and their generated SCTP
+  state machines) are deleted. Go reaches the Rust cores
+  through FFI seams (`dc_sctp`/`dc_dtls`/`dc_ice` build tags,
+  Rust backends by default, mirrors retained only behind
+  `dc_native`); JavaScript uses the Wasm cores as its default
+  peer backends. One implementation of each protocol now
+  exists, in Rust, shared by every language.
+- Generator stops emitting the Go/JS mirror copies; seams,
+  host-control surfaces (ICE credentials/candidates/role),
+  and scratch-buffer DTLS paths added so language runtimes
+  keep their existing APIs over the shared cores.
+- Release exports ship the shared Rust core crates so the
+  public Go/JS stacks build standalone; generated-repo CI
+  green across the export set.
+
 ## v0.43.0 — 2026-11-16 (published to GitHub/npm/PyPI/pub.dev/crates.io/GHCR/NuGet/Maven Central/GitHub Maven/RubyGems/LuaRocks/JSR + GitHub Packages npm/NuGet/RubyGems mirrors)
 
 - Host/plugin support (GitHub issue #2): one public endpoint
