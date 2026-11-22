@@ -314,7 +314,7 @@ test-go:
 	cd go && GRPCDC_STRUCTDC_LIB=$(CURDIR)/rust/target/release/libgrpc_dc.so go test -race ./...
 
 test-webrtc-rust:
-	cd webrtc/rust && $(CARGO) test
+	cd webrtc/rust && $(CARGO) test -- --test-threads=2
 
 # IoT/embedded proof: bare-metal net-stack tests (ICE/DHCP over
 # raw Ethernet), the two-device cable bring-up example, and the
