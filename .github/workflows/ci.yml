@@ -1,8 +1,10 @@
 name: CI
 
 # All build/test/tooling concerns live in Dockerfile.ci; this
-# workflow only builds that image and runs the full suite in
-# it, mirroring the local gate:
+# workflow only builds that image (BuildKit layer cache) and
+# runs the suite in it, split into parallel per-group jobs that
+# each pass their target subset via GRPC_DC_TARGETS (see
+# scripts/ci-test.sh). Mirrors the local gate:
 #   docker build -f Dockerfile.ci -t grpc-dc-ci .
 #   docker run --rm grpc-dc-ci make test
 on:
@@ -16,11 +18,27 @@ on:
 jobs:
   test:
     if: github.event_name != 'schedule'
+    name: test (${{ matrix.name }})
     runs-on: ubuntu-latest
-    # The full suite (image build + ~40 test targets incl.
-    # browser matrices) exceeds 120 minutes on standard
-    # runners; 300 leaves headroom under the 360 cap.
-    timeout-minutes: 300
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: core
+            targets: "check-generated test-struct-corpus test-racket compat test-schema-shapes"
+          - name: lang-jvm
+            targets: "test-java test-kotlin test-scala test-csharp"
+          - name: lang-native
+            targets: "test-cpp test-c test-c-cross test-zig test-lua test-ruby test-php"
+          - name: lang-managed
+            targets: "test-rust test-rust-nostd test-go test-js test-python test-dart test-swift"
+          - name: webrtc
+            targets: "test-webrtc-rust test-webrtc-nostd test-iot test-webrtc-js test-proxy test-webrtc-go test-grpc-webrtc"
+          - name: browser
+            targets: "test-browser test-wasm test-zig-wasm-browser test-zig-wasm-native-browser test-dart-browser test-dart-wasm-browser test-lua-wasm-browser test-cpp-wasm-browser test-cpp-wasm-native-browser test-swift-wasm-browser test-swift-wasm-native-browser test-kotlin-wasm-browser test-kotlin-wasm-native-browser test-scalajs-browser test-wasm-matrix test-browser-examples test-webapp"
+          - name: integration
+            targets: "test-interop-matrix test-webrtc-matrix test-live-stun-ci test-kafka soak-smoke stress-smoke test-direct-examples"
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
@@ -34,10 +52,10 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       # Bare run uses the image CMD (scripts/ci-test.sh): the
-      # full suite plus the env-gated coverage summary, with
-      # GRPC_DC_REQUIRE_ORACLE baked into the image.
-      - name: Run full test suite
-        run: docker run --rm grpc-dc-ci
+      # group's suite slice plus the env-gated coverage summary,
+      # with GRPC_DC_REQUIRE_ORACLE baked into the image.
+      - name: Run test group
+        run: docker run --rm -e GRPC_DC_TARGETS="${{ matrix.targets }}" grpc-dc-ci
 
   soak-stress:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'

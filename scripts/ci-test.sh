@@ -11,8 +11,22 @@ LOG="${GRPC_DC_TEST_LOG:-/tmp/grpc-dc-test.log}"
 # artifacts the releasegen test expects to find; on a fresh
 # checkout nothing has built them yet (Playwright browsers exist
 # only at this runtime layer, not during the image build).
-make wasm-cores-gen artifacts || exit 1
-make test 2>&1 | tee "$LOG"
+# GRPC_DC_TARGETS runs one parallel job's subset of the suite
+# (see the CI workflow matrix); empty means the full suite.
+TARGETS="${GRPC_DC_TARGETS:-}"
+if [ -z "$TARGETS" ]; then
+  make wasm-cores-gen artifacts || exit 1
+else
+  case " $TARGETS " in
+    *" test-racket "*) make wasm-cores-gen artifacts || exit 1 ;;
+  esac
+fi
+if [ -n "$TARGETS" ]; then
+  # shellcheck disable=SC2086
+  make $TARGETS 2>&1 | tee "$LOG"
+else
+  make test 2>&1 | tee "$LOG"
+fi
 status=${PIPESTATUS[0]}
 python3 scripts/coverage-summary.py "$LOG" || status=1
 exit $status
