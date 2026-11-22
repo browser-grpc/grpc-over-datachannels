@@ -1959,6 +1959,11 @@ export function generateFiles(lang, setBytes, entries, parameter) {
   const emit = EMITTERS[lang];
   if (!emit) throw new Error('unsupported generator language: ' + lang);
   const params = parseParams(parameter || '');
+  if (params.struct_codec === 'true') {
+    // The JS emitters have no struct-codec companions: fail
+    // loudly instead of silently emitting the protobuf form.
+    throw new Error('struct_codec=true is not supported by the JavaScript plugins; use the Racket protoc plugins (bin/protoc-gen-grpc-dc-*)');
+  }
   const files = [];
   for (const model of buildModel(setBytes, entries)) {
     const produced = emit(model, params);
