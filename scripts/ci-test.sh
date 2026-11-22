@@ -7,6 +7,11 @@
 # here so every image run ends with the summary.
 set -u
 LOG="${GRPC_DC_TEST_LOG:-/tmp/grpc-dc-test.log}"
+# Browser-example bundles + wasm-core glue are gitignored build
+# artifacts the releasegen test expects to find; on a fresh
+# checkout nothing has built them yet (Playwright browsers exist
+# only at this runtime layer, not during the image build).
+make wasm-cores-gen artifacts || exit 1
 make test 2>&1 | tee "$LOG"
 status=${PIPESTATUS[0]}
 python3 scripts/coverage-summary.py "$LOG" || status=1
