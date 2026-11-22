@@ -893,7 +893,9 @@ SWIFT_WASM_LIBDIR ?= $(shell $(SWIFTC) -print-target-info 2>/dev/null | sed -n '
 # wasm-ld links it with the bump-allocator support in
 # wasm/swift/support.c and the toolchain's Unicode tables.
 test-swift-wasm-browser:
-
+	mkdir -p wasm/swift/build
+	$(ZIG) cc -target wasm32-freestanding -O1 -c wasm/swift/support.c \
+		-o wasm/swift/build/support.o
 	$(SWIFTC) -target wasm32-unknown-none-wasm \
 		-enable-experimental-feature Embedded \
 		-enable-experimental-feature Extern -wmo -O \
@@ -930,7 +932,6 @@ test-swift-wasm-browser:
 		-o browser-test/echo_swift_stream_server.wasm
 	cd browser-test && node wasm_swift_stream_server.test.mjs all
 
-	mkdir -p wasm/swift/build
 	$(SWIFTC) -target wasm32-unknown-none-wasm \
 		-enable-experimental-feature Embedded \
 		-enable-experimental-feature Extern -wmo -O \
@@ -938,8 +939,6 @@ test-swift-wasm-browser:
 		swift/grpcdc/Wire.swift swift/examples/Pb.swift \
 		swift/examples/EchoMessages.swift wasm/swift/echo_client.swift \
 		-o wasm/swift/build/echo_swift.o
-	$(ZIG) cc -target wasm32-freestanding -O1 -c wasm/swift/support.c \
-		-o wasm/swift/build/support.o
 	$(WASM_LD) --no-entry --allow-undefined \
 		--export=run_echo_client --export=wasm_alloc --export=wasm_free \
 		--export=on_bridge_message --export=on_bridge_done \
