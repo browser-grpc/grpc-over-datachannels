@@ -1,0 +1,8 @@
+name: dart_interop_oracle
+description: Official grpc-dart (package:grpc) interop oracle — TestService server and client for the canonical gRPC interop cases, mirroring oracle/go-interop (grpc-go) and oracle/java (grpc-java).
+publish_to: none
+environment:
+  sdk: ^3.0.0
+dependencies:
+  grpc: ^4.1.0
+  protobuf: ^3.1.0

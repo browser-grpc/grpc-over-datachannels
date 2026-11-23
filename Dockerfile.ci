@@ -426,6 +426,18 @@ COPY oracle/go-interop/oracle-server ./oracle/go-interop/oracle-server
 RUN cd oracle/go-interop && GOFLAGS=-mod=mod go build -o interop-server ./oracle-server \
   && GOFLAGS=-mod=mod go build -o interop-client google.golang.org/grpc/interop/client
 
+# Build the official grpc-dart interop oracle binaries (third
+# Google interop peer after grpc-java and grpc-go; pub deps
+# download at image build time, tests then run offline). The
+# Dart protoc plugin version is pinned in oracle/dart-interop/gen.sh;
+# generated stubs are committed, so no plugin is needed here.
+COPY oracle/dart-interop/pubspec.yaml ./oracle/dart-interop/
+COPY oracle/dart-interop/bin ./oracle/dart-interop/bin
+COPY oracle/dart-interop/lib ./oracle/dart-interop/lib
+RUN cd oracle/dart-interop && dart pub get \
+  && dart compile exe bin/interop_server.dart -o interop-server \
+  && dart compile exe bin/interop_client.dart -o interop-client
+
 # Warm the webapp schema compiler (protocompile -> WASM; module
 # downloads happen at image build time, test-webapp runs offline).
 RUN cd webapp/compiler && go mod download \

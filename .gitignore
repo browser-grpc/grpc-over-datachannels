@@ -120,3 +120,8 @@ generated_images/
 
 # scala-cli user.home artifact from container runs
 /?/
+
+# Dart oracle build outputs
+/oracle/dart-interop/interop-client
+/oracle/dart-interop/interop-server
+/oracle/dart-interop/.dart_tool/

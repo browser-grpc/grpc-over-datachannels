@@ -497,7 +497,7 @@ test-dart:
 	$(DART) compile exe dart/examples/DynamicEchoServerStdio/main.dart -o dart/build/dynamic_echo_server_stdio
 	$(DART) compile exe dart/examples/InteropServerStdio/main.dart -o dart/build/interop_server_stdio
 	cd dart && GRPCDC_STRUCTDC_LIB=$(CURDIR)/rust/target/release/libgrpc_dc.so ./build/tests TestStructCodec && ./build/tests TestCodec && ./build/tests TestEcho \
-		&& ./build/tests TestInterop && ./build/tests TestInteropOracle && ./build/tests TestInteropServerOracle && ./build/tests TestHttp2Oracle && ./build/tests TestOracle \
+		&& ./build/tests TestInterop && ./build/tests TestInteropOracle && ./build/tests TestInteropServerOracle && ./build/tests TestDartOracle && ./build/tests TestHttp2Oracle && ./build/tests TestOracle \
 		&& ./build/tests TestDynamic && ./build/tests TestBdd && ./build/tests TestDeadline && ./build/tests TestTracing \
 		&& ./build/tests TestEventBus \
 		&& ./build/tests TestSidecar && ./build/tests TestKafkaE2E && ./build/tests TestPbMessages && ./build/tests TestBddSchemas
