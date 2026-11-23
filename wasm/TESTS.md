@@ -85,6 +85,7 @@ Browser legs run via the `test-wasm*` and `test-*-wasm-browser` make targets (Ch
 - [`echo_client.zig`](zig/native/echo_client.zig) — Echo: all four call shapes
 - [`echo_server.zig`](zig/native/echo_server.zig) — Echo: all four call shapes
 - [`echo_tracing.zig`](zig/native/echo_tracing.zig) — Tracing: traceparent propagation, span observers, nested calls
+- [`structdc_wasm.zig`](zig/structdc_wasm.zig) — Generated suite/example
 
 ## Examples and harnesses
 
