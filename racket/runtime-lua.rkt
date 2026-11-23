@@ -1751,6 +1751,10 @@ encodeStruct = function(model, message, file)
       writeScalar(buf, off, field, values[1])
     end
   end
+  for _, chunk in ipairs(message.unknown or {}) do
+    buf[vp] = chunk
+    vp = vp + #chunk
+  end
   -- Assemble chunks by absolute position, zero-filling gaps.
   local keys = {}
   for k in pairs(buf) do keys[#keys + 1] = k end

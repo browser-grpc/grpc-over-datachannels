@@ -223,8 +223,22 @@ class EchoRequestStruct:
 
     @staticmethod
     def unmarshal(data):
+        wire = _grpcdc_transcode(_STRUCTDC_DESCRIPTOR, "echo.EchoRequest", data, False)
         m = EchoRequest()
-        m.unmarshal_dc(_grpcdc_transcode(_STRUCTDC_DESCRIPTOR, "echo.EchoRequest", data, False))
+        m.unmarshal_dc(wire)
+        present = set()
+        reader = _Reader(wire)
+        while True:
+            item = reader.field()
+            if item is None:
+                break
+            present.add(item[0])
+        if 1 not in present:
+            m.message = ""
+        if 2 not in present:
+            m.count = 0
+        if 3 not in present:
+            m.delay_ms = 0
         return m
 
 
@@ -235,8 +249,20 @@ class EchoResponseStruct:
 
     @staticmethod
     def unmarshal(data):
+        wire = _grpcdc_transcode(_STRUCTDC_DESCRIPTOR, "echo.EchoResponse", data, False)
         m = EchoResponse()
-        m.unmarshal_dc(_grpcdc_transcode(_STRUCTDC_DESCRIPTOR, "echo.EchoResponse", data, False))
+        m.unmarshal_dc(wire)
+        present = set()
+        reader = _Reader(wire)
+        while True:
+            item = reader.field()
+            if item is None:
+                break
+            present.add(item[0])
+        if 1 not in present:
+            m.message = ""
+        if 2 not in present:
+            m.index = 0
         return m
 
 

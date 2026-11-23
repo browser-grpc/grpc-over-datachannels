@@ -191,7 +191,12 @@
         [else 8]))
 
 (define (rs-struct-sorted-fields msg)
-  (sort (hash-ref msg 'fields) < #:key (lambda (f) (hash-ref f 'number))))
+  ;; Extension fields are not struct fields: their bytes ride
+  ;; the unknown-fields tail (see SPEC.md), like the shared
+  ;; descriptor-driven codec.
+  (sort (filter (lambda (f) (not (hash-ref f 'extension #f)))
+                (hash-ref msg 'fields))
+        < #:key (lambda (f) (hash-ref f 'number))))
 
 (define (rs-struct-map-entry model f)
   (and (= (hash-ref f 'type) 11)
@@ -284,6 +289,9 @@
 (define (rs-struct-message-one model msg)
   (define type-name (rs-struct-type-name model (hash-ref msg 'full-name)))
   (define fields (rs-struct-sorted-fields msg))
+  (define ext-fields
+    (sort (filter (lambda (f) (hash-ref f 'extension #f)) (hash-ref msg 'fields))
+          < #:key (lambda (f) (hash-ref f 'number))))
   (define nfields (length fields))
   (define words (max 1 (quotient (+ nfields 31) 32)))
   (define header-size (+ 12 (* 4 words)))
@@ -316,7 +324,18 @@
           [(= t 11) (fprintf out "        if let Some(v) = &self.~a { size += v.struct_size(); }\n" fn)]
           [(member t '(9 12)) (fprintf out "        size += self.~a.len();\n" fn)]
           [else (void)]))
-  (fprintf out "        size += self.unknown_fields.len();\n        size\n    }\n\n")
+  (fprintf out "        size += self.unknown_fields.len();\n")
+  (unless (null? ext-fields)
+    (fprintf out "        size += self.struct_ext_bytes().len();\n"))
+  (fprintf out "        size\n    }\n\n")
+  (unless (null? ext-fields)
+    ;; Extension fields ride the unknown-fields tail as
+    ;; protobuf bytes (see SPEC.md), encoded exactly as the
+    ;; generated protobuf encoder emits them.
+    (fprintf out "    fn struct_ext_bytes(&self) -> Vec<u8> {\n        let mut out = Vec::new();\n")
+    (for ([f (in-list ext-fields)])
+      (fprintf out "~a" (rs-pb-encode-field model f)))
+    (fprintf out "        out\n    }\n\n"))
   ;; marshal
   (fprintf out "    pub fn marshal_struct(&self) -> Vec<u8> {\n")
   (fprintf out "        let size = self.struct_size();\n        let mut buf = vec![0u8; size];\n")
@@ -379,6 +398,8 @@
            (fprintf out "        { let off = ~a; ~a }\n" off
                     (rs-struct-scalar-encode f (format "self.~a" fn)))])
     )
+  (unless (null? ext-fields)
+    (fprintf out "        let ext = self.struct_ext_bytes();\n        buf[vp..vp + ext.len()].copy_from_slice(&ext);\n        vp += ext.len();\n"))
   (fprintf out "        buf[vp..vp + self.unknown_fields.len()].copy_from_slice(&self.unknown_fields);\n        buf\n    }\n\n")
   ;; unmarshal
   (fprintf out "    pub fn unmarshal_struct(bytes: &[u8]) -> Result<Self, String> {\n")
@@ -392,6 +413,15 @@
     (display (rs-struct-decode-field model f (seg-rs-field-name f) (foff i)) out)
     (fprintf out "        }\n"))
   (fprintf out "        if vend < bytes.len() { msg.unknown_fields = bytes[vend..].to_vec(); }\n")
+  (unless (null? ext-fields)
+    ;; Extension fields ride the tail as protobuf bytes:
+    ;; lift them back into their typed fields (the protobuf
+    ;; decoder keeps non-extension chunks in unknown_fields).
+    (fprintf out "        if let Ok(ext_msg) = Self::decode(&msg.unknown_fields) {\n")
+    (for ([f (in-list ext-fields)])
+      (define fn (seg-rs-field-name f))
+      (fprintf out "            msg.~a = ext_msg.~a;\n" fn fn))
+    (fprintf out "            msg.unknown_fields = ext_msg.unknown_fields;\n        }\n"))
   (fprintf out "        Ok(msg)\n    }\n}\n\n")
   (get-output-string out))
 

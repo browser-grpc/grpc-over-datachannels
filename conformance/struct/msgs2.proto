@@ -1,0 +1,19 @@
+syntax = "proto2";
+package shapes;
+
+// Proto2 coverage for the struct corpus: required/optional
+// presence, explicit defaults (one set to its default, others
+// set or unset), unpacked repeated, and an extension field.
+message P2 {
+  required string name = 1;
+  optional int32 count = 2 [default = 42];
+  optional string greeting = 3 [default = "hello"];
+  optional bool enabled = 4 [default = true];
+  optional double ratio = 5 [default = 1.5];
+  repeated int32 nums = 6;
+  extensions 100 to 199;
+}
+
+extend P2 {
+  optional string ext_note = 100;
+}

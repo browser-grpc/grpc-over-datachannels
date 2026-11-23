@@ -162,6 +162,9 @@
 (define (lua-pb-default model f)
   (run-segments lua-pb-default-program f #f model))
 
+(define (lua-pb-zero-field model f)
+  (run-segments lua-pb-zero-field-program f #f model))
+
 (define (lua-pb-varint-expr f v)
   (run-segments lua-pb-varint-expr-program f #f #f (list v)))
 
@@ -317,7 +320,10 @@
                   (define (emit-companion msg)
                     (unless (hash-ref msg 'map-entry)
                       (define flat (lua-pb-flat pkg (hash-ref msg 'full-name)))
-                      (fprintf out "~aStruct = {}\nfunction ~aStruct.marshal(m)\n  return Structdc.transcodeStruct(_STRUCTDC_DESCRIPTOR, \"~a\", m:marshalDc(), true)\nend\nfunction ~aStruct.unmarshal(data)\n  local m = ~a.new()\n  m:unmarshalDc(Structdc.transcodeStruct(_STRUCTDC_DESCRIPTOR, \"~a\", data, false))\n  return m\nend\n\n" flat flat (hash-ref msg 'full-name) flat flat (hash-ref msg 'full-name)))
+                      (fprintf out "~aStruct = {}\nfunction ~aStruct.marshal(m)\n  return Structdc.transcodeStruct(_STRUCTDC_DESCRIPTOR, \"~a\", m:marshalDc(), true)\nend\nfunction ~aStruct.unmarshal(data)\n  local wire = Structdc.transcodeStruct(_STRUCTDC_DESCRIPTOR, \"~a\", data, false)\n  local m = ~a.new()\n  m:unmarshalDc(wire)\n  local present = {}\n  local r = Reader.new(wire)\n  while true do\n    local field = r:next()\n    if field == nil then break end\n    present[field.number] = true\n  end\n" flat flat (hash-ref msg 'full-name) flat (hash-ref msg 'full-name) flat)
+                      (for ([f (in-list (hash-ref msg 'fields))])
+                        (display (lua-pb-zero-field file-model f) out))
+                      (fprintf out "  return m\nend\n\n"))
                     (for ([n (in-list (hash-ref msg 'nested))]) (emit-companion n)))
                   (for ([m (in-list messages)]) (emit-companion m))
                   (get-output-string out))

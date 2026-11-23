@@ -1,6 +1,7 @@
 // Struct corpus driver (js): generated struct codec vs Go golden.
 import { readFileSync } from "node:fs";
 import { Outer, Inner, Hue } from "./msgs_pb.js";
+import { P2 } from "./msgs2_pb.js";
 
 const goldenHex = process.argv[2];
 const golden = Uint8Array.from(Buffer.from(goldenHex, "hex"));
@@ -32,6 +33,32 @@ if (hexOf(got) !== goldenHex) {
 const back = Outer.decodeStruct(golden);
 if (hexOf(Outer.encodeStruct(back)) !== goldenHex) {
   console.log("ROUNDTRIP_MISMATCH");
+  process.exit(1);
+}
+
+// Proto2 shape (msgs2.proto): explicit defaults, unpacked
+// repeated, extension field merged as extNote. Decode is into
+// the zero value: decodeStruct must not apply proto2 defaults,
+// or absent fields (enabled=false) would be manufactured.
+const golden2Hex = process.argv[3];
+const golden2 = Uint8Array.from(Buffer.from(golden2Hex, "hex"));
+const p2 = new P2({
+  name: "req",
+  count: 42,
+  greeting: "hi",
+  enabled: false,
+  ratio: 2.5,
+  nums: [5, -6],
+  extNote: "note!",
+});
+const got2 = P2.encodeStruct(p2);
+if (hexOf(got2) !== golden2Hex) {
+  console.log(`P2_MARSHAL_MISMATCH\n got ${hexOf(got2)}\nwant ${golden2Hex}`);
+  process.exit(1);
+}
+const back2 = P2.decodeStruct(golden2);
+if (hexOf(P2.encodeStruct(back2)) !== golden2Hex) {
+  console.log("P2_ROUNDTRIP_MISMATCH");
   process.exit(1);
 }
 console.log("DECODE_OK");

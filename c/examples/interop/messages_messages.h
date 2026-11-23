@@ -597,7 +597,7 @@ static inline MessagesPbBytes BoolValue_marshal(const BoolValue *m) {
 }
 
 static inline void BoolValue_unmarshal(BoolValue *m, const uint8_t *data, size_t len) {
-    BoolValue_init(m);
+    memset(m, 0, sizeof(*m));
     MessagesPbReader r; MessagesPb_reader_init(&r, data, len);
     MessagesPbField field;
     while (MessagesPb_reader_next(&r, &field)) {
@@ -631,7 +631,9 @@ static inline MessagesPbBytes Payload_marshal(const Payload *m) {
 }
 
 static inline void Payload_unmarshal(Payload *m, const uint8_t *data, size_t len) {
-    Payload_init(m);
+    memset(m, 0, sizeof(*m));
+    m->type = PayloadType_COMPRESSABLE;
+    m->body = MessagesPb_bytes_empty();
     MessagesPbReader r; MessagesPb_reader_init(&r, data, len);
     MessagesPbField field;
     while (MessagesPb_reader_next(&r, &field)) {
@@ -669,7 +671,8 @@ static inline MessagesPbBytes EchoStatus_marshal(const EchoStatus *m) {
 }
 
 static inline void EchoStatus_unmarshal(EchoStatus *m, const uint8_t *data, size_t len) {
-    EchoStatus_init(m);
+    memset(m, 0, sizeof(*m));
+    m->message = "";
     MessagesPbReader r; MessagesPb_reader_init(&r, data, len);
     MessagesPbField field;
     while (MessagesPb_reader_next(&r, &field)) {
@@ -716,7 +719,8 @@ static inline MessagesPbBytes SimpleRequest_marshal(const SimpleRequest *m) {
 }
 
 static inline void SimpleRequest_unmarshal(SimpleRequest *m, const uint8_t *data, size_t len) {
-    SimpleRequest_init(m);
+    memset(m, 0, sizeof(*m));
+    m->response_type = PayloadType_COMPRESSABLE;
     MessagesPbReader r; MessagesPb_reader_init(&r, data, len);
     MessagesPbField field;
     while (MessagesPb_reader_next(&r, &field)) {
@@ -803,7 +807,12 @@ static inline MessagesPbBytes SimpleResponse_marshal(const SimpleResponse *m) {
 }
 
 static inline void SimpleResponse_unmarshal(SimpleResponse *m, const uint8_t *data, size_t len) {
-    SimpleResponse_init(m);
+    memset(m, 0, sizeof(*m));
+    m->username = "";
+    m->oauth_scope = "";
+    m->server_id = "";
+    m->grpclb_route_type = GrpclbRouteType_GRPCLB_ROUTE_TYPE_UNKNOWN;
+    m->hostname = "";
     MessagesPbReader r; MessagesPb_reader_init(&r, data, len);
     MessagesPbField field;
     while (MessagesPb_reader_next(&r, &field)) {
@@ -857,7 +866,7 @@ static inline MessagesPbBytes StreamingInputCallRequest_marshal(const StreamingI
 }
 
 static inline void StreamingInputCallRequest_unmarshal(StreamingInputCallRequest *m, const uint8_t *data, size_t len) {
-    StreamingInputCallRequest_init(m);
+    memset(m, 0, sizeof(*m));
     MessagesPbReader r; MessagesPb_reader_init(&r, data, len);
     MessagesPbField field;
     while (MessagesPb_reader_next(&r, &field)) {
@@ -895,7 +904,7 @@ static inline MessagesPbBytes StreamingInputCallResponse_marshal(const Streaming
 }
 
 static inline void StreamingInputCallResponse_unmarshal(StreamingInputCallResponse *m, const uint8_t *data, size_t len) {
-    StreamingInputCallResponse_init(m);
+    memset(m, 0, sizeof(*m));
     MessagesPbReader r; MessagesPb_reader_init(&r, data, len);
     MessagesPbField field;
     while (MessagesPb_reader_next(&r, &field)) {
@@ -929,7 +938,7 @@ static inline MessagesPbBytes ResponseParameters_marshal(const ResponseParameter
 }
 
 static inline void ResponseParameters_unmarshal(ResponseParameters *m, const uint8_t *data, size_t len) {
-    ResponseParameters_init(m);
+    memset(m, 0, sizeof(*m));
     MessagesPbReader r; MessagesPb_reader_init(&r, data, len);
     MessagesPbField field;
     while (MessagesPb_reader_next(&r, &field)) {
@@ -975,7 +984,8 @@ static inline MessagesPbBytes StreamingOutputCallRequest_marshal(const Streaming
 }
 
 static inline void StreamingOutputCallRequest_unmarshal(StreamingOutputCallRequest *m, const uint8_t *data, size_t len) {
-    StreamingOutputCallRequest_init(m);
+    memset(m, 0, sizeof(*m));
+    m->response_type = PayloadType_COMPRESSABLE;
     MessagesPbReader r; MessagesPb_reader_init(&r, data, len);
     MessagesPbField field;
     while (MessagesPb_reader_next(&r, &field)) {
@@ -1029,7 +1039,7 @@ static inline MessagesPbBytes StreamingOutputCallResponse_marshal(const Streamin
 }
 
 static inline void StreamingOutputCallResponse_unmarshal(StreamingOutputCallResponse *m, const uint8_t *data, size_t len) {
-    StreamingOutputCallResponse_init(m);
+    memset(m, 0, sizeof(*m));
     MessagesPbReader r; MessagesPb_reader_init(&r, data, len);
     MessagesPbField field;
     while (MessagesPb_reader_next(&r, &field)) {
@@ -1062,7 +1072,7 @@ static inline MessagesPbBytes ReconnectParams_marshal(const ReconnectParams *m) 
 }
 
 static inline void ReconnectParams_unmarshal(ReconnectParams *m, const uint8_t *data, size_t len) {
-    ReconnectParams_init(m);
+    memset(m, 0, sizeof(*m));
     MessagesPbReader r; MessagesPb_reader_init(&r, data, len);
     MessagesPbField field;
     while (MessagesPb_reader_next(&r, &field)) {
@@ -1099,7 +1109,7 @@ static inline MessagesPbBytes ReconnectInfo_marshal(const ReconnectInfo *m) {
 }
 
 static inline void ReconnectInfo_unmarshal(ReconnectInfo *m, const uint8_t *data, size_t len) {
-    ReconnectInfo_init(m);
+    memset(m, 0, sizeof(*m));
     MessagesPbReader r; MessagesPb_reader_init(&r, data, len);
     MessagesPbField field;
     while (MessagesPb_reader_next(&r, &field)) {
@@ -1146,7 +1156,7 @@ static inline MessagesPbBytes LoadBalancerStatsRequest_marshal(const LoadBalance
 }
 
 static inline void LoadBalancerStatsRequest_unmarshal(LoadBalancerStatsRequest *m, const uint8_t *data, size_t len) {
-    LoadBalancerStatsRequest_init(m);
+    memset(m, 0, sizeof(*m));
     MessagesPbReader r; MessagesPb_reader_init(&r, data, len);
     MessagesPbField field;
     while (MessagesPb_reader_next(&r, &field)) {
@@ -1184,7 +1194,7 @@ static inline MessagesPbBytes LoadBalancerStatsResponse_marshal(const LoadBalanc
 }
 
 static inline void LoadBalancerStatsResponse_unmarshal(LoadBalancerStatsResponse *m, const uint8_t *data, size_t len) {
-    LoadBalancerStatsResponse_init(m);
+    memset(m, 0, sizeof(*m));
     MessagesPbReader r; MessagesPb_reader_init(&r, data, len);
     MessagesPbField field;
     while (MessagesPb_reader_next(&r, &field)) {
@@ -1228,7 +1238,7 @@ static inline MessagesPbBytes LoadBalancerStatsResponse_RpcsByPeer_marshal(const
 }
 
 static inline void LoadBalancerStatsResponse_RpcsByPeer_unmarshal(LoadBalancerStatsResponse_RpcsByPeer *m, const uint8_t *data, size_t len) {
-    LoadBalancerStatsResponse_RpcsByPeer_init(m);
+    memset(m, 0, sizeof(*m));
     MessagesPbReader r; MessagesPb_reader_init(&r, data, len);
     MessagesPbField field;
     while (MessagesPb_reader_next(&r, &field)) {
@@ -1261,7 +1271,7 @@ static inline MessagesPbBytes LoadBalancerAccumulatedStatsRequest_marshal(const 
 }
 
 static inline void LoadBalancerAccumulatedStatsRequest_unmarshal(LoadBalancerAccumulatedStatsRequest *m, const uint8_t *data, size_t len) {
-    LoadBalancerAccumulatedStatsRequest_init(m);
+    memset(m, 0, sizeof(*m));
     MessagesPbReader r; MessagesPb_reader_init(&r, data, len);
     MessagesPbField field;
     while (MessagesPb_reader_next(&r, &field)) {
@@ -1292,7 +1302,7 @@ static inline MessagesPbBytes LoadBalancerAccumulatedStatsResponse_marshal(const
 }
 
 static inline void LoadBalancerAccumulatedStatsResponse_unmarshal(LoadBalancerAccumulatedStatsResponse *m, const uint8_t *data, size_t len) {
-    LoadBalancerAccumulatedStatsResponse_init(m);
+    memset(m, 0, sizeof(*m));
     MessagesPbReader r; MessagesPb_reader_init(&r, data, len);
     MessagesPbField field;
     while (MessagesPb_reader_next(&r, &field)) {
@@ -1345,7 +1355,7 @@ static inline MessagesPbBytes LoadBalancerAccumulatedStatsResponse_MethodStats_m
 }
 
 static inline void LoadBalancerAccumulatedStatsResponse_MethodStats_unmarshal(LoadBalancerAccumulatedStatsResponse_MethodStats *m, const uint8_t *data, size_t len) {
-    LoadBalancerAccumulatedStatsResponse_MethodStats_init(m);
+    memset(m, 0, sizeof(*m));
     MessagesPbReader r; MessagesPb_reader_init(&r, data, len);
     MessagesPbField field;
     while (MessagesPb_reader_next(&r, &field)) {
@@ -1390,7 +1400,8 @@ static inline MessagesPbBytes ClientConfigureRequest_marshal(const ClientConfigu
 }
 
 static inline void ClientConfigureRequest_unmarshal(ClientConfigureRequest *m, const uint8_t *data, size_t len) {
-    ClientConfigureRequest_init(m);
+    memset(m, 0, sizeof(*m));
+    m->types = NULL;
     MessagesPbReader r; MessagesPb_reader_init(&r, data, len);
     MessagesPbField field;
     while (MessagesPb_reader_next(&r, &field)) {
@@ -1448,7 +1459,10 @@ static inline MessagesPbBytes ClientConfigureRequest_Metadata_marshal(const Clie
 }
 
 static inline void ClientConfigureRequest_Metadata_unmarshal(ClientConfigureRequest_Metadata *m, const uint8_t *data, size_t len) {
-    ClientConfigureRequest_Metadata_init(m);
+    memset(m, 0, sizeof(*m));
+    m->type = ClientConfigureRequest_RpcType_EMPTY_CALL;
+    m->key = "";
+    m->value = "";
     MessagesPbReader r; MessagesPb_reader_init(&r, data, len);
     MessagesPbField field;
     while (MessagesPb_reader_next(&r, &field)) {
@@ -1487,7 +1501,7 @@ static inline MessagesPbBytes ClientConfigureResponse_marshal(const ClientConfig
 }
 
 static inline void ClientConfigureResponse_unmarshal(ClientConfigureResponse *m, const uint8_t *data, size_t len) {
-    ClientConfigureResponse_init(m);
+    memset(m, 0, sizeof(*m));
     MessagesPbReader r; MessagesPb_reader_init(&r, data, len);
     MessagesPbField field;
     while (MessagesPb_reader_next(&r, &field)) {
@@ -1518,7 +1532,7 @@ static inline MessagesPbBytes TestOrcaReport_marshal(const TestOrcaReport *m) {
 }
 
 static inline void TestOrcaReport_unmarshal(TestOrcaReport *m, const uint8_t *data, size_t len) {
-    TestOrcaReport_init(m);
+    memset(m, 0, sizeof(*m));
     MessagesPbReader r; MessagesPb_reader_init(&r, data, len);
     MessagesPbField field;
     while (MessagesPb_reader_next(&r, &field)) {

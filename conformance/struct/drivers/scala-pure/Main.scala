@@ -47,6 +47,29 @@ object StructDriverPure {
       println("ROUNDTRIP_MISMATCH")
       sys.exit(1)
     }
+    val golden2Hex = args(2)
+    val golden2 = unhex(golden2Hex)
+    val descriptor2 = unhex(args(3))
+    val p2 = new P2()
+    p2.name = "req"
+    p2.count = 42
+    p2.greeting = "hi"
+    p2.enabled = false
+    p2.ratio = 2.5
+    p2.nums = List(5, -6)
+    p2.extNote = "note!"
+    val got2 = grpcdc.StructDc.encode(descriptor2, "shapes.P2", p2.marshalDc())
+    if (!got2.sameElements(golden2)) {
+      println("MARSHAL2_MISMATCH\n got " + hex(got2) + "\nwant " + golden2Hex)
+      sys.exit(1)
+    }
+    val back2Pb = grpcdc.StructDc.decode(descriptor2, "shapes.P2", golden2)
+    val back2 = new P2(); back2.unmarshalDc(back2Pb)
+    val re2 = grpcdc.StructDc.encode(descriptor2, "shapes.P2", back2.marshalDc())
+    if (!re2.sameElements(golden2)) {
+      println("ROUNDTRIP2_MISMATCH")
+      sys.exit(1)
+    }
     println("DECODE_OK")
   }
 }

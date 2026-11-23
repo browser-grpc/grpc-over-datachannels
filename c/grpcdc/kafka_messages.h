@@ -1088,7 +1088,9 @@ static inline KafkaPbBytes Header_marshal(const Header *m) {
 }
 
 static inline void Header_unmarshal(Header *m, const uint8_t *data, size_t len) {
-    Header_init(m);
+    memset(m, 0, sizeof(*m));
+    m->key = "";
+    m->value = KafkaPb_bytes_empty();
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -1128,7 +1130,9 @@ static inline KafkaPbBytes Record_marshal(const Record *m) {
 }
 
 static inline void Record_unmarshal(Record *m, const uint8_t *data, size_t len) {
-    Record_init(m);
+    memset(m, 0, sizeof(*m));
+    m->key = KafkaPb_bytes_empty();
+    m->value = KafkaPb_bytes_empty();
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -1184,7 +1188,9 @@ static inline KafkaPbBytes FetchedRecord_marshal(const FetchedRecord *m) {
 }
 
 static inline void FetchedRecord_unmarshal(FetchedRecord *m, const uint8_t *data, size_t len) {
-    FetchedRecord_init(m);
+    memset(m, 0, sizeof(*m));
+    m->key = KafkaPb_bytes_empty();
+    m->value = KafkaPb_bytes_empty();
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -1241,7 +1247,8 @@ static inline KafkaPbBytes TopicPartition_marshal(const TopicPartition *m) {
 }
 
 static inline void TopicPartition_unmarshal(TopicPartition *m, const uint8_t *data, size_t len) {
-    TopicPartition_init(m);
+    memset(m, 0, sizeof(*m));
+    m->topic = "";
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -1279,7 +1286,8 @@ static inline KafkaPbBytes MetadataRequest_marshal(const MetadataRequest *m) {
 }
 
 static inline void MetadataRequest_unmarshal(MetadataRequest *m, const uint8_t *data, size_t len) {
-    MetadataRequest_init(m);
+    memset(m, 0, sizeof(*m));
+    m->topics = NULL;
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -1321,7 +1329,9 @@ static inline KafkaPbBytes BrokerMetadata_marshal(const BrokerMetadata *m) {
 }
 
 static inline void BrokerMetadata_unmarshal(BrokerMetadata *m, const uint8_t *data, size_t len) {
-    BrokerMetadata_init(m);
+    memset(m, 0, sizeof(*m));
+    m->host = "";
+    m->rack = "";
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -1378,7 +1388,7 @@ static inline KafkaPbBytes PartitionMetadata_marshal(const PartitionMetadata *m)
 }
 
 static inline void PartitionMetadata_unmarshal(PartitionMetadata *m, const uint8_t *data, size_t len) {
-    PartitionMetadata_init(m);
+    memset(m, 0, sizeof(*m));
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -1454,7 +1464,8 @@ static inline KafkaPbBytes TopicMetadata_marshal(const TopicMetadata *m) {
 }
 
 static inline void TopicMetadata_unmarshal(TopicMetadata *m, const uint8_t *data, size_t len) {
-    TopicMetadata_init(m);
+    memset(m, 0, sizeof(*m));
+    m->name = "";
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -1506,7 +1517,8 @@ static inline KafkaPbBytes MetadataResponse_marshal(const MetadataResponse *m) {
 }
 
 static inline void MetadataResponse_unmarshal(MetadataResponse *m, const uint8_t *data, size_t len) {
-    MetadataResponse_init(m);
+    memset(m, 0, sizeof(*m));
+    m->cluster_id = "";
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -1562,7 +1574,8 @@ static inline KafkaPbBytes OpenProducerRequest_marshal(const OpenProducerRequest
 }
 
 static inline void OpenProducerRequest_unmarshal(OpenProducerRequest *m, const uint8_t *data, size_t len) {
-    OpenProducerRequest_init(m);
+    memset(m, 0, sizeof(*m));
+    m->transactional_id = "";
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -1602,7 +1615,8 @@ static inline KafkaPbBytes OpenProducerResponse_marshal(const OpenProducerRespon
 }
 
 static inline void OpenProducerResponse_unmarshal(OpenProducerResponse *m, const uint8_t *data, size_t len) {
-    OpenProducerResponse_init(m);
+    memset(m, 0, sizeof(*m));
+    m->session_id = "";
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -1647,7 +1661,8 @@ static inline KafkaPbBytes CloseProducerRequest_marshal(const CloseProducerReque
 }
 
 static inline void CloseProducerRequest_unmarshal(CloseProducerRequest *m, const uint8_t *data, size_t len) {
-    CloseProducerRequest_init(m);
+    memset(m, 0, sizeof(*m));
+    m->session_id = "";
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -1679,7 +1694,7 @@ static inline KafkaPbBytes CloseProducerResponse_marshal(const CloseProducerResp
 }
 
 static inline void CloseProducerResponse_unmarshal(CloseProducerResponse *m, const uint8_t *data, size_t len) {
-    CloseProducerResponse_init(m);
+    memset(m, 0, sizeof(*m));
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -1713,7 +1728,8 @@ static inline KafkaPbBytes EndTransactionRequest_marshal(const EndTransactionReq
 }
 
 static inline void EndTransactionRequest_unmarshal(EndTransactionRequest *m, const uint8_t *data, size_t len) {
-    EndTransactionRequest_init(m);
+    memset(m, 0, sizeof(*m));
+    m->session_id = "";
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -1749,7 +1765,7 @@ static inline KafkaPbBytes EndTransactionResponse_marshal(const EndTransactionRe
 }
 
 static inline void EndTransactionResponse_unmarshal(EndTransactionResponse *m, const uint8_t *data, size_t len) {
-    EndTransactionResponse_init(m);
+    memset(m, 0, sizeof(*m));
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -1793,7 +1809,12 @@ static inline KafkaPbBytes ProduceRequest_marshal(const ProduceRequest *m) {
 }
 
 static inline void ProduceRequest_unmarshal(ProduceRequest *m, const uint8_t *data, size_t len) {
-    ProduceRequest_init(m);
+    memset(m, 0, sizeof(*m));
+    m->topic = "";
+    m->acks = Acks_ACKS_UNSPECIFIED;
+    m->compression = Compression_COMPRESSION_NONE;
+    m->session_id = "";
+    m->transactional_id = "";
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -1859,7 +1880,7 @@ static inline KafkaPbBytes ProduceResponse_marshal(const ProduceResponse *m) {
 }
 
 static inline void ProduceResponse_unmarshal(ProduceResponse *m, const uint8_t *data, size_t len) {
-    ProduceResponse_init(m);
+    memset(m, 0, sizeof(*m));
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -1910,7 +1931,8 @@ static inline KafkaPbBytes ConsumeRequest_marshal(const ConsumeRequest *m) {
 }
 
 static inline void ConsumeRequest_unmarshal(ConsumeRequest *m, const uint8_t *data, size_t len) {
-    ConsumeRequest_init(m);
+    memset(m, 0, sizeof(*m));
+    m->topic = "";
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -1971,7 +1993,8 @@ static inline KafkaPbBytes ConsumeResponse_marshal(const ConsumeResponse *m) {
 }
 
 static inline void ConsumeResponse_unmarshal(ConsumeResponse *m, const uint8_t *data, size_t len) {
-    ConsumeResponse_init(m);
+    memset(m, 0, sizeof(*m));
+    m->topic = "";
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -2034,7 +2057,12 @@ static inline KafkaPbBytes GroupSubscribeRequest_marshal(const GroupSubscribeReq
 }
 
 static inline void GroupSubscribeRequest_unmarshal(GroupSubscribeRequest *m, const uint8_t *data, size_t len) {
-    GroupSubscribeRequest_init(m);
+    memset(m, 0, sizeof(*m));
+    m->group_id = "";
+    m->topics = NULL;
+    m->group_instance_id = "";
+    m->auto_offset_reset = "";
+    m->group_protocol = "";
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -2101,7 +2129,7 @@ static inline KafkaPbBytes GroupSubscribeResponse_marshal(const GroupSubscribeRe
 }
 
 static inline void GroupSubscribeResponse_unmarshal(GroupSubscribeResponse *m, const uint8_t *data, size_t len) {
-    GroupSubscribeResponse_init(m);
+    memset(m, 0, sizeof(*m));
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -2153,7 +2181,8 @@ static inline KafkaPbBytes Assignment_marshal(const Assignment *m) {
 }
 
 static inline void Assignment_unmarshal(Assignment *m, const uint8_t *data, size_t len) {
-    Assignment_init(m);
+    memset(m, 0, sizeof(*m));
+    m->member_id = "";
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -2200,7 +2229,8 @@ static inline KafkaPbBytes RecordBatch_marshal(const RecordBatch *m) {
 }
 
 static inline void RecordBatch_unmarshal(RecordBatch *m, const uint8_t *data, size_t len) {
-    RecordBatch_init(m);
+    memset(m, 0, sizeof(*m));
+    m->topic = "";
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -2249,7 +2279,8 @@ static inline KafkaPbBytes GroupError_marshal(const GroupError *m) {
 }
 
 static inline void GroupError_unmarshal(GroupError *m, const uint8_t *data, size_t len) {
-    GroupError_init(m);
+    memset(m, 0, sizeof(*m));
+    m->message = "";
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -2289,7 +2320,8 @@ static inline KafkaPbBytes ListOffsetsRequest_marshal(const ListOffsetsRequest *
 }
 
 static inline void ListOffsetsRequest_unmarshal(ListOffsetsRequest *m, const uint8_t *data, size_t len) {
-    ListOffsetsRequest_init(m);
+    memset(m, 0, sizeof(*m));
+    m->topic = "";
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -2335,7 +2367,7 @@ static inline KafkaPbBytes ListOffsetsResponse_marshal(const ListOffsetsResponse
 }
 
 static inline void ListOffsetsResponse_unmarshal(ListOffsetsResponse *m, const uint8_t *data, size_t len) {
-    ListOffsetsResponse_init(m);
+    memset(m, 0, sizeof(*m));
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -2384,7 +2416,11 @@ static inline KafkaPbBytes CommitOffsetRequest_marshal(const CommitOffsetRequest
 }
 
 static inline void CommitOffsetRequest_unmarshal(CommitOffsetRequest *m, const uint8_t *data, size_t len) {
-    CommitOffsetRequest_init(m);
+    memset(m, 0, sizeof(*m));
+    m->group_id = "";
+    m->topic = "";
+    m->metadata = "";
+    m->session_id = "";
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -2436,7 +2472,7 @@ static inline KafkaPbBytes CommitOffsetResponse_marshal(const CommitOffsetRespon
 }
 
 static inline void CommitOffsetResponse_unmarshal(CommitOffsetResponse *m, const uint8_t *data, size_t len) {
-    CommitOffsetResponse_init(m);
+    memset(m, 0, sizeof(*m));
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -2472,7 +2508,9 @@ static inline KafkaPbBytes FetchOffsetRequest_marshal(const FetchOffsetRequest *
 }
 
 static inline void FetchOffsetRequest_unmarshal(FetchOffsetRequest *m, const uint8_t *data, size_t len) {
-    FetchOffsetRequest_init(m);
+    memset(m, 0, sizeof(*m));
+    m->group_id = "";
+    m->topic = "";
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -2515,7 +2553,8 @@ static inline KafkaPbBytes FetchOffsetResponse_marshal(const FetchOffsetResponse
 }
 
 static inline void FetchOffsetResponse_unmarshal(FetchOffsetResponse *m, const uint8_t *data, size_t len) {
-    FetchOffsetResponse_init(m);
+    memset(m, 0, sizeof(*m));
+    m->metadata = "";
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -2558,7 +2597,8 @@ static inline KafkaPbBytes NewTopic_marshal(const NewTopic *m) {
 }
 
 static inline void NewTopic_unmarshal(NewTopic *m, const uint8_t *data, size_t len) {
-    NewTopic_init(m);
+    memset(m, 0, sizeof(*m));
+    m->name = "";
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -2600,7 +2640,7 @@ static inline KafkaPbBytes CreateTopicsRequest_marshal(const CreateTopicsRequest
 }
 
 static inline void CreateTopicsRequest_unmarshal(CreateTopicsRequest *m, const uint8_t *data, size_t len) {
-    CreateTopicsRequest_init(m);
+    memset(m, 0, sizeof(*m));
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -2645,7 +2685,8 @@ static inline KafkaPbBytes TopicError_marshal(const TopicError *m) {
 }
 
 static inline void TopicError_unmarshal(TopicError *m, const uint8_t *data, size_t len) {
-    TopicError_init(m);
+    memset(m, 0, sizeof(*m));
+    m->name = "";
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -2681,7 +2722,7 @@ static inline KafkaPbBytes CreateTopicsResponse_marshal(const CreateTopicsRespon
 }
 
 static inline void CreateTopicsResponse_unmarshal(CreateTopicsResponse *m, const uint8_t *data, size_t len) {
-    CreateTopicsResponse_init(m);
+    memset(m, 0, sizeof(*m));
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -2718,7 +2759,8 @@ static inline KafkaPbBytes DeleteTopicsRequest_marshal(const DeleteTopicsRequest
 }
 
 static inline void DeleteTopicsRequest_unmarshal(DeleteTopicsRequest *m, const uint8_t *data, size_t len) {
-    DeleteTopicsRequest_init(m);
+    memset(m, 0, sizeof(*m));
+    m->topics = NULL;
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -2755,7 +2797,7 @@ static inline KafkaPbBytes DeleteTopicsResponse_marshal(const DeleteTopicsRespon
 }
 
 static inline void DeleteTopicsResponse_unmarshal(DeleteTopicsResponse *m, const uint8_t *data, size_t len) {
-    DeleteTopicsResponse_init(m);
+    memset(m, 0, sizeof(*m));
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -2793,7 +2835,9 @@ static inline KafkaPbBytes ConfigEntry_marshal(const ConfigEntry *m) {
 }
 
 static inline void ConfigEntry_unmarshal(ConfigEntry *m, const uint8_t *data, size_t len) {
-    ConfigEntry_init(m);
+    memset(m, 0, sizeof(*m));
+    m->name = "";
+    m->value = "";
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -2834,7 +2878,10 @@ static inline KafkaPbBytes AlterConfigEntry_marshal(const AlterConfigEntry *m) {
 }
 
 static inline void AlterConfigEntry_unmarshal(AlterConfigEntry *m, const uint8_t *data, size_t len) {
-    AlterConfigEntry_init(m);
+    memset(m, 0, sizeof(*m));
+    m->name = "";
+    m->value = "";
+    m->op = ConfigOp_CONFIG_OP_SET;
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -2880,7 +2927,10 @@ static inline KafkaPbBytes DescribeConfigsRequest_marshal(const DescribeConfigsR
 }
 
 static inline void DescribeConfigsRequest_unmarshal(DescribeConfigsRequest *m, const uint8_t *data, size_t len) {
-    DescribeConfigsRequest_init(m);
+    memset(m, 0, sizeof(*m));
+    m->resource_type = ConfigResourceType_CONFIG_RESOURCE_UNKNOWN;
+    m->resource_name = "";
+    m->config_keys = NULL;
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -2931,7 +2981,9 @@ static inline KafkaPbBytes ConfigValue_marshal(const ConfigValue *m) {
 }
 
 static inline void ConfigValue_unmarshal(ConfigValue *m, const uint8_t *data, size_t len) {
-    ConfigValue_init(m);
+    memset(m, 0, sizeof(*m));
+    m->name = "";
+    m->value = "";
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -2980,7 +3032,7 @@ static inline KafkaPbBytes DescribeConfigsResponse_marshal(const DescribeConfigs
 }
 
 static inline void DescribeConfigsResponse_unmarshal(DescribeConfigsResponse *m, const uint8_t *data, size_t len) {
-    DescribeConfigsResponse_init(m);
+    memset(m, 0, sizeof(*m));
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -3024,7 +3076,9 @@ static inline KafkaPbBytes AlterConfigsRequest_marshal(const AlterConfigsRequest
 }
 
 static inline void AlterConfigsRequest_unmarshal(AlterConfigsRequest *m, const uint8_t *data, size_t len) {
-    AlterConfigsRequest_init(m);
+    memset(m, 0, sizeof(*m));
+    m->resource_type = ConfigResourceType_CONFIG_RESOURCE_UNKNOWN;
+    m->resource_name = "";
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -3071,7 +3125,7 @@ static inline KafkaPbBytes AlterConfigsResponse_marshal(const AlterConfigsRespon
 }
 
 static inline void AlterConfigsResponse_unmarshal(AlterConfigsResponse *m, const uint8_t *data, size_t len) {
-    AlterConfigsResponse_init(m);
+    memset(m, 0, sizeof(*m));
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -3107,7 +3161,8 @@ static inline KafkaPbBytes CreatePartitionsRequest_marshal(const CreatePartition
 }
 
 static inline void CreatePartitionsRequest_unmarshal(CreatePartitionsRequest *m, const uint8_t *data, size_t len) {
-    CreatePartitionsRequest_init(m);
+    memset(m, 0, sizeof(*m));
+    m->topic = "";
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -3151,7 +3206,7 @@ static inline KafkaPbBytes CreatePartitionsResponse_marshal(const CreatePartitio
 }
 
 static inline void CreatePartitionsResponse_unmarshal(CreatePartitionsResponse *m, const uint8_t *data, size_t len) {
-    CreatePartitionsResponse_init(m);
+    memset(m, 0, sizeof(*m));
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -3186,7 +3241,8 @@ static inline KafkaPbBytes DeleteRecordsRequest_marshal(const DeleteRecordsReque
 }
 
 static inline void DeleteRecordsRequest_unmarshal(DeleteRecordsRequest *m, const uint8_t *data, size_t len) {
-    DeleteRecordsRequest_init(m);
+    memset(m, 0, sizeof(*m));
+    m->topic = "";
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -3227,7 +3283,7 @@ static inline KafkaPbBytes DeleteRecordsResponse_marshal(const DeleteRecordsResp
 }
 
 static inline void DeleteRecordsResponse_unmarshal(DeleteRecordsResponse *m, const uint8_t *data, size_t len) {
-    DeleteRecordsResponse_init(m);
+    memset(m, 0, sizeof(*m));
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -3262,7 +3318,7 @@ static inline KafkaPbBytes ListGroupsRequest_marshal(const ListGroupsRequest *m)
 }
 
 static inline void ListGroupsRequest_unmarshal(ListGroupsRequest *m, const uint8_t *data, size_t len) {
-    ListGroupsRequest_init(m);
+    memset(m, 0, sizeof(*m));
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -3295,7 +3351,10 @@ static inline KafkaPbBytes GroupListing_marshal(const GroupListing *m) {
 }
 
 static inline void GroupListing_unmarshal(GroupListing *m, const uint8_t *data, size_t len) {
-    GroupListing_init(m);
+    memset(m, 0, sizeof(*m));
+    m->group_id = "";
+    m->protocol_type = "";
+    m->group_state = "";
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -3336,7 +3395,7 @@ static inline KafkaPbBytes ListGroupsResponse_marshal(const ListGroupsResponse *
 }
 
 static inline void ListGroupsResponse_unmarshal(ListGroupsResponse *m, const uint8_t *data, size_t len) {
-    ListGroupsResponse_init(m);
+    memset(m, 0, sizeof(*m));
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -3376,7 +3435,8 @@ static inline KafkaPbBytes DescribeGroupsRequest_marshal(const DescribeGroupsReq
 }
 
 static inline void DescribeGroupsRequest_unmarshal(DescribeGroupsRequest *m, const uint8_t *data, size_t len) {
-    DescribeGroupsRequest_init(m);
+    memset(m, 0, sizeof(*m));
+    m->group_ids = NULL;
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -3415,7 +3475,10 @@ static inline KafkaPbBytes GroupMember_marshal(const GroupMember *m) {
 }
 
 static inline void GroupMember_unmarshal(GroupMember *m, const uint8_t *data, size_t len) {
-    GroupMember_init(m);
+    memset(m, 0, sizeof(*m));
+    m->member_id = "";
+    m->client_id = "";
+    m->client_host = "";
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -3471,7 +3534,11 @@ static inline KafkaPbBytes DescribedGroup_marshal(const DescribedGroup *m) {
 }
 
 static inline void DescribedGroup_unmarshal(DescribedGroup *m, const uint8_t *data, size_t len) {
-    DescribedGroup_init(m);
+    memset(m, 0, sizeof(*m));
+    m->group_id = "";
+    m->group_state = "";
+    m->protocol_type = "";
+    m->protocol = "";
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -3526,7 +3593,7 @@ static inline KafkaPbBytes DescribeGroupsResponse_marshal(const DescribeGroupsRe
 }
 
 static inline void DescribeGroupsResponse_unmarshal(DescribeGroupsResponse *m, const uint8_t *data, size_t len) {
-    DescribeGroupsResponse_init(m);
+    memset(m, 0, sizeof(*m));
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -3562,7 +3629,8 @@ static inline KafkaPbBytes DeleteGroupsRequest_marshal(const DeleteGroupsRequest
 }
 
 static inline void DeleteGroupsRequest_unmarshal(DeleteGroupsRequest *m, const uint8_t *data, size_t len) {
-    DeleteGroupsRequest_init(m);
+    memset(m, 0, sizeof(*m));
+    m->group_ids = NULL;
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -3597,7 +3665,8 @@ static inline KafkaPbBytes GroupErrorResult_marshal(const GroupErrorResult *m) {
 }
 
 static inline void GroupErrorResult_unmarshal(GroupErrorResult *m, const uint8_t *data, size_t len) {
-    GroupErrorResult_init(m);
+    memset(m, 0, sizeof(*m));
+    m->group_id = "";
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -3633,7 +3702,7 @@ static inline KafkaPbBytes DeleteGroupsResponse_marshal(const DeleteGroupsRespon
 }
 
 static inline void DeleteGroupsResponse_unmarshal(DeleteGroupsResponse *m, const uint8_t *data, size_t len) {
-    DeleteGroupsResponse_init(m);
+    memset(m, 0, sizeof(*m));
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -3676,7 +3745,9 @@ static inline KafkaPbBytes DeleteGroupOffsetsRequest_marshal(const DeleteGroupOf
 }
 
 static inline void DeleteGroupOffsetsRequest_unmarshal(DeleteGroupOffsetsRequest *m, const uint8_t *data, size_t len) {
-    DeleteGroupOffsetsRequest_init(m);
+    memset(m, 0, sizeof(*m));
+    m->group_id = "";
+    m->topic = "";
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -3726,7 +3797,7 @@ static inline KafkaPbBytes DeleteGroupOffsetsResponse_marshal(const DeleteGroupO
 }
 
 static inline void DeleteGroupOffsetsResponse_unmarshal(DeleteGroupOffsetsResponse *m, const uint8_t *data, size_t len) {
-    DeleteGroupOffsetsResponse_init(m);
+    memset(m, 0, sizeof(*m));
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -3767,7 +3838,10 @@ static inline KafkaPbBytes Acl_marshal(const Acl *m) {
 }
 
 static inline void Acl_unmarshal(Acl *m, const uint8_t *data, size_t len) {
-    Acl_init(m);
+    memset(m, 0, sizeof(*m));
+    m->resource_name = "";
+    m->principal = "";
+    m->host = "";
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -3823,7 +3897,7 @@ static inline KafkaPbBytes DescribeAclsRequest_marshal(const DescribeAclsRequest
 }
 
 static inline void DescribeAclsRequest_unmarshal(DescribeAclsRequest *m, const uint8_t *data, size_t len) {
-    DescribeAclsRequest_init(m);
+    memset(m, 0, sizeof(*m));
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -3857,7 +3931,7 @@ static inline KafkaPbBytes DescribeAclsResponse_marshal(const DescribeAclsRespon
 }
 
 static inline void DescribeAclsResponse_unmarshal(DescribeAclsResponse *m, const uint8_t *data, size_t len) {
-    DescribeAclsResponse_init(m);
+    memset(m, 0, sizeof(*m));
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -3896,7 +3970,7 @@ static inline KafkaPbBytes CreateAclsRequest_marshal(const CreateAclsRequest *m)
 }
 
 static inline void CreateAclsRequest_unmarshal(CreateAclsRequest *m, const uint8_t *data, size_t len) {
-    CreateAclsRequest_init(m);
+    memset(m, 0, sizeof(*m));
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -3935,7 +4009,7 @@ static inline KafkaPbBytes CreateAclsResponse_marshal(const CreateAclsResponse *
 }
 
 static inline void CreateAclsResponse_unmarshal(CreateAclsResponse *m, const uint8_t *data, size_t len) {
-    CreateAclsResponse_init(m);
+    memset(m, 0, sizeof(*m));
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -3977,7 +4051,7 @@ static inline KafkaPbBytes DeleteAclsRequest_marshal(const DeleteAclsRequest *m)
 }
 
 static inline void DeleteAclsRequest_unmarshal(DeleteAclsRequest *m, const uint8_t *data, size_t len) {
-    DeleteAclsRequest_init(m);
+    memset(m, 0, sizeof(*m));
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -4016,7 +4090,7 @@ static inline KafkaPbBytes DeleteAclsResponse_marshal(const DeleteAclsResponse *
 }
 
 static inline void DeleteAclsResponse_unmarshal(DeleteAclsResponse *m, const uint8_t *data, size_t len) {
-    DeleteAclsResponse_init(m);
+    memset(m, 0, sizeof(*m));
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -4057,7 +4131,7 @@ static inline KafkaPbBytes ListTransactionsRequest_marshal(const ListTransaction
 }
 
 static inline void ListTransactionsRequest_unmarshal(ListTransactionsRequest *m, const uint8_t *data, size_t len) {
-    ListTransactionsRequest_init(m);
+    memset(m, 0, sizeof(*m));
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -4089,7 +4163,9 @@ static inline KafkaPbBytes TransactionListing_marshal(const TransactionListing *
 }
 
 static inline void TransactionListing_unmarshal(TransactionListing *m, const uint8_t *data, size_t len) {
-    TransactionListing_init(m);
+    memset(m, 0, sizeof(*m));
+    m->transactional_id = "";
+    m->transaction_state = "";
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -4130,7 +4206,7 @@ static inline KafkaPbBytes ListTransactionsResponse_marshal(const ListTransactio
 }
 
 static inline void ListTransactionsResponse_unmarshal(ListTransactionsResponse *m, const uint8_t *data, size_t len) {
-    ListTransactionsResponse_init(m);
+    memset(m, 0, sizeof(*m));
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -4170,7 +4246,8 @@ static inline KafkaPbBytes DescribeTransactionsRequest_marshal(const DescribeTra
 }
 
 static inline void DescribeTransactionsRequest_unmarshal(DescribeTransactionsRequest *m, const uint8_t *data, size_t len) {
-    DescribeTransactionsRequest_init(m);
+    memset(m, 0, sizeof(*m));
+    m->transactional_ids = NULL;
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -4210,7 +4287,9 @@ static inline KafkaPbBytes DescribedTransaction_marshal(const DescribedTransacti
 }
 
 static inline void DescribedTransaction_unmarshal(DescribedTransaction *m, const uint8_t *data, size_t len) {
-    DescribedTransaction_init(m);
+    memset(m, 0, sizeof(*m));
+    m->transactional_id = "";
+    m->transaction_state = "";
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -4262,7 +4341,7 @@ static inline KafkaPbBytes DescribeTransactionsResponse_marshal(const DescribeTr
 }
 
 static inline void DescribeTransactionsResponse_unmarshal(DescribeTransactionsResponse *m, const uint8_t *data, size_t len) {
-    DescribeTransactionsResponse_init(m);
+    memset(m, 0, sizeof(*m));
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -4303,7 +4382,10 @@ static inline KafkaPbBytes OpenShareGroupRequest_marshal(const OpenShareGroupReq
 }
 
 static inline void OpenShareGroupRequest_unmarshal(OpenShareGroupRequest *m, const uint8_t *data, size_t len) {
-    OpenShareGroupRequest_init(m);
+    memset(m, 0, sizeof(*m));
+    m->group_id = "";
+    m->topics = NULL;
+    m->group_instance_id = "";
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -4351,7 +4433,8 @@ static inline KafkaPbBytes OpenShareGroupResponse_marshal(const OpenShareGroupRe
 }
 
 static inline void OpenShareGroupResponse_unmarshal(OpenShareGroupResponse *m, const uint8_t *data, size_t len) {
-    OpenShareGroupResponse_init(m);
+    memset(m, 0, sizeof(*m));
+    m->session_id = "";
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -4395,7 +4478,8 @@ static inline KafkaPbBytes SharePollRequest_marshal(const SharePollRequest *m) {
 }
 
 static inline void SharePollRequest_unmarshal(SharePollRequest *m, const uint8_t *data, size_t len) {
-    SharePollRequest_init(m);
+    memset(m, 0, sizeof(*m));
+    m->session_id = "";
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -4444,7 +4528,10 @@ static inline KafkaPbBytes SharePollRecord_marshal(const SharePollRecord *m) {
 }
 
 static inline void SharePollRecord_unmarshal(SharePollRecord *m, const uint8_t *data, size_t len) {
-    SharePollRecord_init(m);
+    memset(m, 0, sizeof(*m));
+    m->topic = "";
+    m->key = KafkaPb_bytes_empty();
+    m->value = KafkaPb_bytes_empty();
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -4512,7 +4599,7 @@ static inline KafkaPbBytes SharePollResponse_marshal(const SharePollResponse *m)
 }
 
 static inline void SharePollResponse_unmarshal(SharePollResponse *m, const uint8_t *data, size_t len) {
-    SharePollResponse_init(m);
+    memset(m, 0, sizeof(*m));
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -4555,7 +4642,8 @@ static inline KafkaPbBytes ShareAckEntry_marshal(const ShareAckEntry *m) {
 }
 
 static inline void ShareAckEntry_unmarshal(ShareAckEntry *m, const uint8_t *data, size_t len) {
-    ShareAckEntry_init(m);
+    memset(m, 0, sizeof(*m));
+    m->topic = "";
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -4601,7 +4689,8 @@ static inline KafkaPbBytes ShareAckRequest_marshal(const ShareAckRequest *m) {
 }
 
 static inline void ShareAckRequest_unmarshal(ShareAckRequest *m, const uint8_t *data, size_t len) {
-    ShareAckRequest_init(m);
+    memset(m, 0, sizeof(*m));
+    m->session_id = "";
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -4640,7 +4729,7 @@ static inline KafkaPbBytes ShareAckResponse_marshal(const ShareAckResponse *m) {
 }
 
 static inline void ShareAckResponse_unmarshal(ShareAckResponse *m, const uint8_t *data, size_t len) {
-    ShareAckResponse_init(m);
+    memset(m, 0, sizeof(*m));
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -4673,7 +4762,8 @@ static inline KafkaPbBytes CloseShareGroupRequest_marshal(const CloseShareGroupR
 }
 
 static inline void CloseShareGroupRequest_unmarshal(CloseShareGroupRequest *m, const uint8_t *data, size_t len) {
-    CloseShareGroupRequest_init(m);
+    memset(m, 0, sizeof(*m));
+    m->session_id = "";
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -4705,7 +4795,7 @@ static inline KafkaPbBytes CloseShareGroupResponse_marshal(const CloseShareGroup
 }
 
 static inline void CloseShareGroupResponse_unmarshal(CloseShareGroupResponse *m, const uint8_t *data, size_t len) {
-    CloseShareGroupResponse_init(m);
+    memset(m, 0, sizeof(*m));
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -4746,7 +4836,11 @@ static inline KafkaPbBytes ShareGroupMember_marshal(const ShareGroupMember *m) {
 }
 
 static inline void ShareGroupMember_unmarshal(ShareGroupMember *m, const uint8_t *data, size_t len) {
-    ShareGroupMember_init(m);
+    memset(m, 0, sizeof(*m));
+    m->member_id = "";
+    m->client_id = "";
+    m->client_host = "";
+    m->subscribed_topics = NULL;
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -4809,7 +4903,9 @@ static inline KafkaPbBytes ShareGroupDescription_marshal(const ShareGroupDescrip
 }
 
 static inline void ShareGroupDescription_unmarshal(ShareGroupDescription *m, const uint8_t *data, size_t len) {
-    ShareGroupDescription_init(m);
+    memset(m, 0, sizeof(*m));
+    m->group_id = "";
+    m->state = "";
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -4865,7 +4961,8 @@ static inline KafkaPbBytes DescribeShareGroupsRequest_marshal(const DescribeShar
 }
 
 static inline void DescribeShareGroupsRequest_unmarshal(DescribeShareGroupsRequest *m, const uint8_t *data, size_t len) {
-    DescribeShareGroupsRequest_init(m);
+    memset(m, 0, sizeof(*m));
+    m->group_ids = NULL;
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {
@@ -4899,7 +4996,7 @@ static inline KafkaPbBytes DescribeShareGroupsResponse_marshal(const DescribeSha
 }
 
 static inline void DescribeShareGroupsResponse_unmarshal(DescribeShareGroupsResponse *m, const uint8_t *data, size_t len) {
-    DescribeShareGroupsResponse_init(m);
+    memset(m, 0, sizeof(*m));
     KafkaPbReader r; KafkaPb_reader_init(&r, data, len);
     KafkaPbField field;
     while (KafkaPb_reader_next(&r, &field)) {

@@ -151,7 +151,8 @@
                    (loop (append-map (lambda (m) (hash-ref m 'nested)) msgs)))))))
   (define (add-to msg ext)
     (if (equal? (hash-ref msg 'full-name) (hash-ref ext 'extendee))
-        (hash-set msg 'fields (append (hash-ref msg 'fields) (list ext)))
+        (hash-set msg 'fields (append (hash-ref msg 'fields)
+                                       (list (hash-set ext 'extension #t))))
         (hash-set msg 'nested
                   (map (lambda (n) (add-to n ext)) (hash-ref msg 'nested)))))
   (for/fold ([fs files]) ([ext (in-list exts)])

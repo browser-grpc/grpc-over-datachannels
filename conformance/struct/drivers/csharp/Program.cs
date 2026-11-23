@@ -26,6 +26,18 @@ public static class Program {
         return m;
     }
 
+    static P2 BuildP2() {
+        var m = new P2();
+        m.Name = "req";
+        m.Count = 42;
+        m.Greeting = "hi";
+        m.Enabled = false;
+        m.Ratio = 2.5;
+        m.Nums = new System.Collections.Generic.List<int> { 5, -6 };
+        m.ExtNote = "note!";
+        return m;
+    }
+
     static string Hex(byte[] b) {
         var sb = new System.Text.StringBuilder();
         foreach (var x in b) sb.Append(x.ToString("x2"));
@@ -45,6 +57,20 @@ public static class Program {
         var back = OuterStruct.Unmarshal(golden);
         if (Hex(OuterStruct.Marshal(back)) != goldenHex) {
             Console.WriteLine("ROUNDTRIP_MISMATCH");
+            return 1;
+        }
+        var golden2Hex = args[1];
+        var golden2 = new byte[golden2Hex.Length / 2];
+        for (var i = 0; i < golden2.Length; i++)
+            golden2[i] = Convert.ToByte(golden2Hex.Substring(2 * i, 2), 16);
+        var got2 = P2Struct.Marshal(BuildP2());
+        if (Hex(got2) != golden2Hex) {
+            Console.WriteLine("MARSHAL2_MISMATCH\n got " + Hex(got2) + "\nwant " + golden2Hex);
+            return 1;
+        }
+        var back2 = P2Struct.Unmarshal(golden2);
+        if (Hex(P2Struct.Marshal(back2)) != golden2Hex) {
+            Console.WriteLine("ROUNDTRIP2_MISMATCH");
             return 1;
         }
         Console.WriteLine("DECODE_OK");

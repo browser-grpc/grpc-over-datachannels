@@ -164,7 +164,10 @@ export class EchoRequest {
     return _grpcdcTranscode(_structdcDescriptor, "echo.EchoRequest", EchoRequest.encode(msg), true);
   }
   static decodeStruct(bytes) {
-    return EchoRequest.decode(_grpcdcTranscode(_structdcDescriptor, "echo.EchoRequest", bytes, false));
+    const msg = new EchoRequest();
+    msg._resetZero();
+    EchoRequest._fill(msg, _grpcdcTranscode(_structdcDescriptor, "echo.EchoRequest", bytes, false));
+    return msg;
   }
   static _fill(msg, bytes) {
     const reader = new Reader(bytes);
@@ -181,6 +184,12 @@ export class EchoRequest {
     return msg;
   }
   _reset() {
+    this.message = "";
+    this.count = 0;
+    this.delayMs = 0;
+    this.unknownFields = EMPTY_BYTES;
+  }
+  _resetZero() {
     this.message = "";
     this.count = 0;
     this.delayMs = 0;
@@ -215,7 +224,10 @@ export class EchoResponse {
     return _grpcdcTranscode(_structdcDescriptor, "echo.EchoResponse", EchoResponse.encode(msg), true);
   }
   static decodeStruct(bytes) {
-    return EchoResponse.decode(_grpcdcTranscode(_structdcDescriptor, "echo.EchoResponse", bytes, false));
+    const msg = new EchoResponse();
+    msg._resetZero();
+    EchoResponse._fill(msg, _grpcdcTranscode(_structdcDescriptor, "echo.EchoResponse", bytes, false));
+    return msg;
   }
   static _fill(msg, bytes) {
     const reader = new Reader(bytes);
@@ -231,6 +243,11 @@ export class EchoResponse {
     return msg;
   }
   _reset() {
+    this.message = "";
+    this.index = 0;
+    this.unknownFields = EMPTY_BYTES;
+  }
+  _resetZero() {
     this.message = "";
     this.index = 0;
     this.unknownFields = EMPTY_BYTES;

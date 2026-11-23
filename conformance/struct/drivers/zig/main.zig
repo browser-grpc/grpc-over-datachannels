@@ -1,6 +1,8 @@
 const std = @import("std");
 const messages = @import("msgs_messages.zig");
 const structs = @import("msgs_struct.zig");
+const messages2 = @import("msgs2_messages.zig");
+const structs2 = @import("msgs2_struct.zig");
 
 const Inner = messages.Inner;
 const Outer = messages.Outer;
@@ -68,6 +70,31 @@ pub fn main() !void {
     const rt = try OuterStruct.marshal(&back, alloc);
     if (!std.mem.eql(u8, rt, golden)) {
         std.debug.print("ROUNDTRIP_MISMATCH\n", .{});
+        std.process.exit(1);
+    }
+
+    const P2 = messages2.P2;
+    const P2Struct = structs2.P2Struct;
+    const golden2 = try parseHex(alloc, args[2]);
+    const nums2 = [_]i32{ 5, -6 };
+    const p2 = P2{
+        .name = "req",
+        .count = 42,
+        .greeting = "hi",
+        .enabled = false,
+        .ratio = 2.5,
+        .nums = &nums2,
+        .ext_note = "note!",
+    };
+    const got2 = try P2Struct.marshal(&p2, alloc);
+    if (!std.mem.eql(u8, got2, golden2)) {
+        std.debug.print("MARSHAL2_MISMATCH\n got {x}\nwant {x}\n", .{ got2, golden2 });
+        std.process.exit(1);
+    }
+    const back2 = try P2Struct.unmarshal(alloc, golden2);
+    const rt2 = try P2Struct.marshal(&back2, alloc);
+    if (!std.mem.eql(u8, rt2, golden2)) {
+        std.debug.print("ROUNDTRIP2_MISMATCH\n", .{});
         std.process.exit(1);
     }
     std.debug.print("DECODE_OK\n", .{});

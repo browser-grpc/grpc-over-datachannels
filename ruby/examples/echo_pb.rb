@@ -245,8 +245,20 @@ end
     end
 
     def self.unmarshal(data)
+      wire = Grpcdc::Structdc.transcode_struct(STRUCTDC_DESCRIPTOR.unpack1("m"), "echo.EchoRequest", data, false)
       m = EchoRequest.new
-      m.unmarshal_dc(Grpcdc::Structdc.transcode_struct(STRUCTDC_DESCRIPTOR.unpack1("m"), "echo.EchoRequest", data, false))
+      m.unmarshal_dc(wire)
+      present = {}
+      reader = Reader.new(wire)
+      loop do
+        item = reader.field
+        break if item.nil?
+
+        present[item[0]] = true
+      end
+      m.message = "" unless present.key?(1)
+      m.count = 0 unless present.key?(2)
+      m.delay_ms = 0 unless present.key?(3)
       m
     end
   end
@@ -257,8 +269,19 @@ end
     end
 
     def self.unmarshal(data)
+      wire = Grpcdc::Structdc.transcode_struct(STRUCTDC_DESCRIPTOR.unpack1("m"), "echo.EchoResponse", data, false)
       m = EchoResponse.new
-      m.unmarshal_dc(Grpcdc::Structdc.transcode_struct(STRUCTDC_DESCRIPTOR.unpack1("m"), "echo.EchoResponse", data, false))
+      m.unmarshal_dc(wire)
+      present = {}
+      reader = Reader.new(wire)
+      loop do
+        item = reader.field
+        break if item.nil?
+
+        present[item[0]] = true
+      end
+      m.message = "" unless present.key?(1)
+      m.index = 0 unless present.key?(2)
       m
     end
   end

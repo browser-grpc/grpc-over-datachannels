@@ -1,6 +1,8 @@
 -- Struct corpus driver (lua): generated struct codec vs Go golden.
 local messages = require("msgs_messages")
 local Outer, Inner, Hue = messages.Outer, messages.Inner, messages.Hue
+local messages2 = require("msgs2_messages")
+local P2 = messages2.P2
 
 local goldenHex = arg[1]
 local golden = (goldenHex:gsub("%s", "")):gsub("..", function(cc)
@@ -41,6 +43,28 @@ local back = Outer.new()
 back:unmarshalStruct(golden)
 if hexOf(back:marshalStruct()) ~= goldenHex then
   print("ROUNDTRIP_MISMATCH")
+  os.exit(1)
+end
+
+-- Proto2 shape (msgs2.proto): explicit defaults, unpacked
+-- repeated, extension field merged as extNote. Decode into a
+-- zero-value message: applying proto2 defaults at decode would
+-- manufacture presence (enabled=true) the struct bytes do not
+-- carry.
+local golden2Hex = arg[2]
+local golden2 = (golden2Hex:gsub("%s", "")):gsub("..", function(cc)
+  return string.char(tonumber(cc, 16))
+end)
+local p2 = P2.new("req", 42, "hi", false, 2.5, { 5, -6 }, "note!")
+local got2 = p2:marshalStruct()
+if hexOf(got2) ~= golden2Hex then
+  print("P2_MARSHAL_MISMATCH\n got " .. hexOf(got2) .. "\nwant " .. golden2Hex)
+  os.exit(1)
+end
+local back2 = P2.new("", 0, "", false, 0.0, {}, "")
+back2:unmarshalStruct(golden2)
+if hexOf(back2:marshalStruct()) ~= golden2Hex then
+  print("P2_ROUNDTRIP_MISMATCH")
   os.exit(1)
 end
 print("DECODE_OK")

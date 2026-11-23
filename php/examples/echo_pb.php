@@ -306,8 +306,23 @@ final class EchoRequestStruct
 
     public static function unmarshal(string $data): EchoRequest
     {
+        $wire = \Grpcdc\Structdc::transcodeStruct(\base64_decode(STRUCTDC_DESCRIPTOR), "echo.EchoRequest", $data, false);
         $m = new EchoRequest();
-        $m->unmarshalDc(\Grpcdc\Structdc::transcodeStruct(\base64_decode(STRUCTDC_DESCRIPTOR), "echo.EchoRequest", $data, false));
+        $m->unmarshalDc($wire);
+        $present = [];
+        $reader = new Reader($wire);
+        while (($item = $reader->field()) !== null) {
+            $present[$item[0]] = true;
+        }
+        if (!isset($present[1])) {
+            $m->message = "";
+        }
+        if (!isset($present[2])) {
+            $m->count = 0;
+        }
+        if (!isset($present[3])) {
+            $m->delayMs = 0;
+        }
         return $m;
     }
 }
@@ -321,8 +336,20 @@ final class EchoResponseStruct
 
     public static function unmarshal(string $data): EchoResponse
     {
+        $wire = \Grpcdc\Structdc::transcodeStruct(\base64_decode(STRUCTDC_DESCRIPTOR), "echo.EchoResponse", $data, false);
         $m = new EchoResponse();
-        $m->unmarshalDc(\Grpcdc\Structdc::transcodeStruct(\base64_decode(STRUCTDC_DESCRIPTOR), "echo.EchoResponse", $data, false));
+        $m->unmarshalDc($wire);
+        $present = [];
+        $reader = new Reader($wire);
+        while (($item = $reader->field()) !== null) {
+            $present[$item[0]] = true;
+        }
+        if (!isset($present[1])) {
+            $m->message = "";
+        }
+        if (!isset($present[2])) {
+            $m->index = 0;
+        }
         return $m;
     }
 }

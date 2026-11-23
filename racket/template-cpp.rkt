@@ -506,15 +506,22 @@
         [(cpp-struct-fixed32-type? t) "4"]
         [else "8"]))
 
+(define (cpp-structdc-detail-name model)
+  (define base (path->string (path-replace-extension
+                              (file-name-from-path (hash-ref model 'name)) "")))
+  (string-append "structdc_detail_"
+                 (regexp-replace* #rx"[^A-Za-z0-9_]" base "_")))
+
 (define (cpp-struct-message model msg)
+  (define detail (cpp-structdc-detail-name model))
   (define type-name (cpp-struct-type-name model msg))
   (define flat (cpp-struct-flat-name model msg))
   (define full-name (hash-ref msg 'full-name))
   (define out (open-output-string))
   (fprintf out "struct ~aStruct {\n" flat)
   (fprintf out "    static std::size_t Size(const ~a& m) { return Marshal(m).size(); }\n\n" type-name)
-  (fprintf out "    static grpcdc::Bytes Marshal(const ~a& m) {\n        return structdc_detail::Transcode(true, \"~a\", m.MarshalDc());\n    }\n\n" type-name full-name)
-  (fprintf out "    static ~a Unmarshal(const grpcdc::Bytes& data) {\n        auto pb = structdc_detail::Transcode(false, \"~a\", data);\n        ~a m;\n        m.UnmarshalDc(pb);\n        return m;\n    }\n};\n\n" type-name full-name type-name)
+  (fprintf out "    static grpcdc::Bytes Marshal(const ~a& m) {\n        return ~a::Transcode(true, \"~a\", m.MarshalDc());\n    }\n\n" type-name detail full-name)
+  (fprintf out "    static ~a Unmarshal(const grpcdc::Bytes& data) {\n        auto pb = ~a::Transcode(false, \"~a\", data);\n        ~a m;\n        m.UnmarshalDc(pb);\n        return m;\n    }\n};\n\n" type-name detail full-name type-name)
   (fprintf out "#if !defined(__wasm__)\n")
   (fprintf out "inline grpcdc::Bytes ~a::MarshalStruct() const { return ~aStruct::Marshal(*this); }\n" type-name flat)
   (fprintf out "inline void ~a::UnmarshalStruct(const grpcdc::Bytes& data) { *this = ~aStruct::Unmarshal(data); }\n" type-name flat)
@@ -652,7 +659,7 @@
             "void grpcdc_struct_free(std::uint8_t*, std::size_t);\n"
             "void grpcdc_struct_error_free(char*);\n"
             "}\n\n"
-            "namespace structdc_detail {\n"
+            (format "namespace ~a {\n" (cpp-structdc-detail-name file-model))
             (format "inline const std::uint8_t kDescriptor[] = {~a};\n"
                     (string-join (for/list ([b (in-bytes (hash-ref file-model 'descriptor-set #""))]) (format "0x~x" b)) ","))
             "inline grpcdc::Bytes Transcode(bool encode, const char* type, const grpcdc::Bytes& input) {\n"
@@ -663,7 +670,7 @@
             "    if (rc != 0) { std::string msg = err ? err : \"struct codec transcode failed\"; grpcdc_struct_error_free(err); throw std::runtime_error(msg); }\n"
             "    grpcdc::Bytes result(out, out + out_len); grpcdc_struct_free(out, out_len); return result;\n"
             "}\n"
-            "}  // namespace structdc_detail\n\n"
+            (format "}  // namespace ~a\n\n" (cpp-structdc-detail-name file-model))
             (apply string-append
                    (map (lambda (m) (cpp-struct-message file-model m)) all))
             (format "}  // namespace ~a\n" (cpp-pb-ns pkg))))

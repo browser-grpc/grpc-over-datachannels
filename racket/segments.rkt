@@ -55,6 +55,7 @@
          js-method-table-entry-program js-service-program
          js-pb-varint-expr-program js-pb-varint-decode-program
          js-pb-explicit-literal-program js-pb-default-program
+         js-pb-zero-program
          js-pb-set-expr-program js-pb-oneof-clearing-program
          js-pb-encode-singular-program js-pb-encode-field-program
          js-pb-decode-singular-program js-pb-decode-case-program
@@ -100,7 +101,8 @@
          rb-method-entry-program rb-service-program
          rb-pb-varint-expr-program rb-pb-varint-decode-program
          rb-pb-nonzero-program rb-pb-explicit-literal-program
-         rb-pb-default-program rb-pb-encode-singular-program
+         rb-pb-default-program rb-pb-zero-program rb-pb-zero-field-program
+         rb-pb-encode-singular-program
          rb-pb-set-expr-program rb-pb-oneof-clearing-program
          rb-pb-encode-field-program rb-pb-decode-singular-program
          rb-pb-decode-case-program rb-pb-map-helpers-program
@@ -109,7 +111,8 @@
          php-fiber-client-method-program php-server-handler-program
          php-method-entry-program php-service-program
          php-pb-type-program php-pb-explicit-literal-program
-         php-pb-default-program php-pb-varint-expr-program
+         php-pb-default-program php-pb-zero-program php-pb-zero-field-program
+         php-pb-varint-expr-program
          php-pb-varint-decode-program php-pb-nonzero-program
          php-pb-fixed-decode-program php-pb-set-expr-program
          php-pb-oneof-clearing-program php-pb-encode-singular-program
@@ -121,6 +124,7 @@
          py-method-entry-program py-service-program
          py-pb-varint-expr-program py-pb-varint-decode-program
          py-pb-explicit-literal-program py-pb-default-program
+         py-pb-zero-program py-pb-zero-field-program
          py-pb-default-expr-program py-pb-encode-singular-program
          py-pb-set-expr-program py-pb-oneof-clearing-program
          py-pb-encode-field-program py-pb-decode-singular-program
@@ -129,7 +133,7 @@
          py-pb-enum-program
          c-pb-varint-expr-program c-pb-varint-decode-program
          c-pb-nonzero-program c-pb-explicit-literal-program
-         c-pb-default-program c-pb-type-program
+         c-pb-default-program c-pb-zero-program c-pb-type-program
          c-pb-encode-singular-program c-pb-set-expr-program
          c-pb-oneof-clearing-program c-pb-encode-field-program
          c-pb-decode-singular-program c-pb-grow-program
@@ -147,7 +151,7 @@
          sc-pb-varint-expr-program sc-pb-varint-decode-program
          sc-pb-fixed-encode-program sc-pb-fixed-decode-program
          sc-pb-nonzero-program sc-pb-explicit-literal-program
-         sc-pb-default-program sc-pb-elem-type-program
+         sc-pb-default-program sc-pb-zero-program sc-pb-elem-type-program
          sc-pb-type-program sc-pb-set-expr-program
          sc-pb-oneof-clearing-program sc-pb-encode-singular-program
          sc-pb-encode-field-program sc-pb-decode-singular-program
@@ -159,7 +163,7 @@
          dart-register-method-program dart-service-program
          dt-pb-varint-expr-program dt-pb-varint-decode-program
          dt-pb-nonzero-program dt-pb-explicit-literal-program
-         dt-pb-default-program dt-pb-elem-type-program
+         dt-pb-default-program dt-pb-zero-program dt-pb-elem-type-program
          dt-pb-type-program dt-pb-set-expr-program
          dt-pb-oneof-clearing-program dt-pb-encode-singular-program
          dt-pb-encode-field-program dt-pb-decode-singular-program
@@ -172,7 +176,7 @@
          swift-server-async-adapter-method-program swift-stream-impl-program
          swift-register-method-program
          swift-pb-message-program swift-pb-nested-enum-program
-         swift-pb-type-program swift-pb-default-program
+         swift-pb-type-program swift-pb-default-program swift-pb-zero-program
          swift-pb-explicit-literal-program swift-pb-varint-expr-program
          swift-pb-varint-decode-program swift-pb-nonzero-program
          swift-pb-encode-singular-program swift-pb-set-expr-program
@@ -187,6 +191,7 @@
          lua-coro-client-stream-class-program lua-server-stream-class-program
          lua-register-method-program
          lua-pb-explicit-literal-program lua-pb-default-program
+         lua-pb-zero-program lua-pb-zero-field-program
          lua-pb-varint-expr-program lua-pb-varint-decode-program
          lua-pb-nonzero-program lua-pb-encode-singular-program
          lua-pb-set-expr-program lua-pb-encode-guard-program
@@ -200,7 +205,7 @@
          zig-server-vtable-field-program zig-adapter-program
          zig-register-method-program
          zig-pb-type-program zig-pb-explicit-literal-program
-         zig-pb-default-program zig-pb-varint-expr-program
+         zig-pb-default-program zig-pb-zero-program zig-pb-varint-expr-program
          zig-pb-varint-decode-program zig-pb-nonzero-program
          zig-pb-encode-singular-program zig-pb-set-expr-program
          zig-pb-encode-guard-program zig-pb-encode-field-program
@@ -219,7 +224,7 @@
          kotlin-server-async-adapter-method-program
          kotlin-stream-impl-program kotlin-register-method-program
          kt-pb-type-program kt-pb-type-or-ref-program
-         kt-pb-explicit-literal-program kt-pb-default-program
+         kt-pb-explicit-literal-program kt-pb-default-program kt-pb-zero-program
          kt-pb-varint-expr-program kt-pb-varint-decode-program
          kt-pb-nonzero-program kt-pb-encode-singular-program
          kt-pb-set-expr-program kt-pb-encode-guard-program
@@ -236,7 +241,7 @@
          cs-server-async-iface-method-program
          cs-server-async-adapter-method-program
          cs-pb-type-program cs-pb-explicit-literal-program
-         cs-pb-default-program cs-pb-varint-expr-program
+         cs-pb-default-program cs-pb-zero-program cs-pb-varint-expr-program
          cs-pb-varint-decode-program cs-pb-nonzero-program
          cs-pb-fixed-bits-program cs-pb-encode-singular-program
          cs-pb-set-expr-program cs-pb-encode-guard-program
@@ -272,7 +277,7 @@
          cpp-server-async-adapter-method-program cpp-stream-impl-program
          cpp-register-method-program
          cpp-pb-type-program cpp-pb-type-or-ref-program
-         cpp-pb-explicit-literal-program cpp-pb-default-program
+         cpp-pb-explicit-literal-program cpp-pb-default-program cpp-pb-zero-program
          cpp-pb-varint-expr-program cpp-pb-varint-decode-program
          cpp-pb-nonzero-program cpp-pb-encode-singular-program
          cpp-pb-set-expr-program cpp-pb-encode-guard-program
@@ -749,6 +754,21 @@
                 ((11 10) "undefined")
                 (else (if (bigint-type) (then "0n") (else "0"))))))))))
 
+;; Zero value of a field's type, ignoring any explicit (proto2)
+;; default: struct decode fills a zeroed message so fields the
+;; struct bytes do not carry stay zero instead of manufactured
+;; defaults (mirrors decoding into a Go zero value).
+(define js-pb-zero-program
+  '((if (repeated)
+        (then (if (is-map) (then "new Map()") (else "[]")))
+        (else
+         (case-on (type)
+           (9 "\"\"")
+           (12 "new Uint8Array(0)")
+           (8 "false")
+           ((11 10) "undefined")
+           (else (if (bigint-type) (then "0n") (else "0"))))))))
+
 (define js-pb-set-expr-program
   '((case-on (type)
       ((11 10) (fmt "msg.~a" (js-name)))
@@ -875,14 +895,20 @@
     "    putRaw(out, msg.unknownFields);\n    return new Uint8Array(out);\n  }\n"
     (fmt "  static decode(bytes) {\n    const msg = new ~a();\n    ~a._fill(msg, bytes);\n    return msg;\n  }\n  static decodeInto(msg, bytes) {\n    msg._reset();\n    ~a._fill(msg, bytes);\n    return msg;\n  }\n" (flat) (flat) (flat))
     (if (struct-codec)
-        (then (if (ref map-entry) (then "") (else (fmt "  static encodeStruct(msg) {\n    return _grpcdcTranscode(_structdcDescriptor, \"~a\", ~a.encode(msg), true);\n  }\n  static decodeStruct(bytes) {\n    return ~a.decode(_grpcdcTranscode(_structdcDescriptor, \"~a\", bytes, false));\n  }\n" (ref full-name) (flat) (flat) (ref full-name)))))
+        (then (if (ref map-entry) (then "") (else (fmt "  static encodeStruct(msg) {\n    return _grpcdcTranscode(_structdcDescriptor, \"~a\", ~a.encode(msg), true);\n  }\n  static decodeStruct(bytes) {\n    const msg = new ~a();\n    msg._resetZero();\n    ~a._fill(msg, _grpcdcTranscode(_structdcDescriptor, \"~a\", bytes, false));\n    return msg;\n  }\n" (ref full-name) (flat) (flat) (flat) (ref full-name)))))
         (else ""))
     "  static _fill(msg, bytes) {\n"
     "    const reader = new Reader(bytes);\n    let f;\n    while ((f = reader.field()) !== null) {\n      const [num, wire, value, raw] = f;\n      switch (num) {\n"
     (each fields (call jsPbDecodeCase))
     "        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;\n      }\n    }\n    return msg;\n  }\n  _reset() {\n"
     (each fields (fmt "    this.~a = ~a;\n" (js-name) (call jsPbDefault)))
-    "    this.unknownFields = EMPTY_BYTES;\n  }\n}\n\n"))
+    "    this.unknownFields = EMPTY_BYTES;\n  }\n"
+    (if (struct-codec)
+        (then "  _resetZero() {\n"
+              (each fields (fmt "    this.~a = ~a;\n" (js-name) (call jsPbZero)))
+              "    this.unknownFields = EMPTY_BYTES;\n  }\n")
+        (else ""))
+    "}\n\n"))
 
 ;; ---------------------------------------------------------------------------
 ;; Wasm-Swift facade emitter (mirrors template-wasm-swift.rkt).
@@ -1867,6 +1893,25 @@
                      (14 (fmt "~a" (enum-first-value-num)))
                      (else "0"))))))))))
 
+;; Zero value of a field's type, ignoring any explicit (proto2)
+;; default (see js-pb-zero-program).
+(define rb-pb-zero-program
+  '((case-on (type)
+      (11 "nil")
+      (9 "\"\"")
+      (12 "\"\".b")
+      (8 "false")
+      ((1 2) "0.0")
+      (else "0"))))
+
+;; Struct-decode fixup: zero a singular field the transcoded wire
+;; does not carry (see py-pb-zero-field-program).
+(define rb-pb-zero-field-program
+  '((if (repeated)
+        (then "")
+        (else (fmt "      m.~a = ~a unless present.key?(~a)\n"
+                   (ref name) (call rbPbZero) (ref number))))))
+
 (define rb-pb-encode-singular-program
   '((case-on (category)
       ("varint"
@@ -2103,6 +2148,24 @@
                      ((1 2) "0.0")
                      (14 (fmt "~a" (enum-first-value-num)))
                      (else "0"))))))))))
+
+;; Zero value of a field's type, ignoring any explicit (proto2)
+;; default (see js-pb-zero-program).
+(define php-pb-zero-program
+  '((case-on (type)
+      (11 "null")
+      ((9 12) "\"\"")
+      (8 "false")
+      ((1 2) "0.0")
+      (else "0"))))
+
+;; Struct-decode fixup: zero a singular field the transcoded wire
+;; does not carry (see py-pb-zero-field-program).
+(define php-pb-zero-field-program
+  '((if (repeated)
+        (then "")
+        (else (fmt "        if (!isset($present[~a])) {\n            $m->~a = ~a;\n        }\n"
+                   (ref number) (php-field-name) (call phpPbZero))))))
 
 (define php-pb-varint-expr-program
   '((case-on (type)
@@ -2370,6 +2433,26 @@
                 ((1 2) "0.0")
                 (else "0"))))))))
 
+;; Zero value of a field's type, ignoring any explicit (proto2)
+;; default (see js-pb-zero-program).
+(define py-pb-zero-program
+  '((case-on (type)
+      (9 "\"\"")
+      (12 "b\"\"")
+      (8 "False")
+      ((11 10) "None")
+      ((1 2) "0.0")
+      (else "0"))))
+
+;; Struct-decode fixup: zero a singular field the transcoded wire
+;; does not carry, undoing the explicit default unmarshal_dc
+;; applied (struct bytes record nonzero presence only).
+(define py-pb-zero-field-program
+  '((if (repeated)
+        (then "")
+        (else (fmt "        if ~a not in present:\n            m.~a = ~a\n"
+                   (ref number) (ref name) (call pyPbZero))))))
+
 (define py-pb-default-expr-program
   '((case-on (call pyPbDefault) ("list" "[]") ("dict" "{}") (else (call pyPbDefault)))))
 
@@ -2554,6 +2637,19 @@
                      (12 (fmt "~a_bytes_empty()" (arg 0)))
                      (14 (fmt "~a_~a" (c-entry-ref) (enum-first-value-name)))
                      (else (c-scalar-zero)))))))))))
+
+(define c-pb-zero-program
+  '((if (is-map)
+        (then "NULL")
+        (else
+         (if (repeated)
+             (then "NULL")
+             (else
+              (case-on (type)
+                (11 "NULL")
+                (12 (fmt "~a_bytes_empty()" (arg 0)))
+                (14 (fmt "~a_~a" (c-entry-ref) (enum-first-value-name)))
+                (else (c-scalar-zero)))))))))
 
 (define c-pb-type-program
   '((if (is-map)
@@ -2768,8 +2864,14 @@
     (fmt "static inline ~aBytes ~a_marshal(const ~a *m) {\n    ~aWriter w; ~a_writer_init(&w);\n" (arg 0) (flat) (flat) (arg 0) (arg 0))
     (each fields (guarded cPbSetExpr "    if (!(~a)) {\n" "    }\n" (call cPbEncodeField (arg 0))))
     (fmt "    ~a_writer_raw(&w, m->unknown_fields.data, m->unknown_fields.len);\n    return ~a_writer_to_bytes(&w);\n}\n\n" (arg 0) (arg 0))
-    (fmt "static inline void ~a_unmarshal(~a *m, const uint8_t *data, size_t len) {\n    ~a_init(m);\n    ~aReader r; ~a_reader_init(&r, data, len);\n    ~aField field;\n    while (~a_reader_next(&r, &field)) {\n        switch (field.number) {\n"
-         (flat) (flat) (flat) (arg 0) (arg 0) (arg 0) (arg 0))
+    (fmt "static inline void ~a_unmarshal(~a *m, const uint8_t *data, size_t len) {\n    memset(m, 0, sizeof(*m));\n"
+         (flat) (flat))
+    (each fields
+          (if (case-on (type) ((9 12 14) "y") (else ""))
+              (then (fmt "    m->~a = ~a;\n" (ref name) (call cPbZero (arg 0))))
+              (else "")))
+    (fmt "    ~aReader r; ~a_reader_init(&r, data, len);\n    ~aField field;\n    while (~a_reader_next(&r, &field)) {\n        switch (field.number) {\n"
+         (arg 0) (arg 0) (arg 0) (arg 0))
     (each fields (call cPbDecodeCase (arg 0)))
     (fmt "            default: {\n                ~aBytes raw = ~a_bytes_copy(field.raw_value.data, field.raw_value.len);\n" (arg 0) (arg 0))
     "                m->unknown_fields.data = (uint8_t *)realloc(m->unknown_fields.data, m->unknown_fields.len + raw.len);\n                if (raw.len) memcpy(m->unknown_fields.data + m->unknown_fields.len, raw.data, raw.len);\n                m->unknown_fields.len += raw.len; free(raw.data);\n                break;\n            }\n        }\n    }\n}\n\n"))
@@ -3109,6 +3211,24 @@
                      (14 (fmt "~a" (enum-first-value-num)))
                      (else "0"))))))))))
 
+(define sc-pb-zero-program
+  '((if (is-map)
+        (then "Map.empty")
+        (else
+         (if (repeated)
+             (then "List.empty")
+             (else
+              (case-on (type)
+                (11 "null")
+                (9 "\"\"")
+                (12 "Array.empty[Byte]")
+                (8 "false")
+                (1 "0.0")
+                (2 "0.0f")
+                ((3 4 6 16 18) "0L")
+                (14 (fmt "~a" (enum-first-value-num)))
+                (else "0"))))))))
+
 (define sc-pb-elem-type-program
   '((case-on (type)
       (11 (sc-entry-ref))
@@ -3240,7 +3360,7 @@
     (fmt "    val pbW = new ~a.Writer()\n" (arg 0))
     (each fields (guarded scPbSetExpr "    if (!(~a)) {\n" "    }\n" (call scPbEncodeField (arg 0))))
     "    pbW.raw(unknownFields)\n    pbW.toBytes\n  }\n\n  def unmarshalDc(data: Array[Byte]): Unit = {\n    unknownFields = Array.empty[Byte]\n"
-    (each fields (fmt "    ~a = ~a\n" (sc-field-name) (call scPbDefault)))
+    (each fields (fmt "    ~a = ~a\n" (sc-field-name) (call scPbZero)))
     (fmt "    val pbR = new ~a.Reader(data)\n" (arg 0))
     "    var pbField = pbR.next()\n    while (pbField != null) {\n      pbField.number match {\n"
     (each fields (call scPbDecodeCase (arg 0)))
@@ -3385,6 +3505,18 @@
                      (11 "null")
                      (14 (fmt "~a.~a" (dart-type-ref) (enum-first-value-name)))
                      (else (dart-scalar-zero)))))))))))
+
+(define dt-pb-zero-program
+  '((if (is-map)
+        (then "{}")
+        (else
+         (if (repeated)
+             (then "[]")
+             (else
+              (case-on (type)
+                (11 "null")
+                (14 (fmt "~a.~a" (dart-type-ref) (enum-first-value-name)))
+                (else (dart-scalar-zero)))))))))
 
 (define dt-pb-elem-type-program
   '((case-on (type)
@@ -3591,7 +3723,7 @@
     (each fields (guarded dtPbSetExpr "    if (!(~a)) {\n" "    }\n" (call dtPbEncodeField (arg 0))))
     (fmt "~a    pbW.raw(unknownFields);\n~a    return pbW.toBytes();\n~a  }\n" (arg 1) (arg 1) (arg 1))
     (fmt "~a  @override\n~a  void unmarshalDc(List<int> data) {\n~a    unknownFields = Uint8List(0);\n" (arg 1) (arg 1) (arg 1))
-    (each fields (fmt "~a    ~a = ~a;\n" (arg 1) (dart-field-name) (call dtPbDefault)))
+    (each fields (fmt "~a    ~a = ~a;\n" (arg 1) (dart-field-name) (call dtPbZero)))
     (fmt "~a    final pbR = ~aReader(Uint8List.fromList(data));\n~a    while (true) {\n~a      final pbField = pbR.next();\n~a      if (pbField == null) break;\n~a      switch (pbField.number) {\n" (arg 1) (arg 0) (arg 1) (arg 1) (arg 1) (arg 1))
     (each fields (call dtPbDecodeCase (arg 0)))
     (fmt "~a        default:\n~a          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);\n~a          break;\n~a      }\n~a    }\n~a  }\n" (arg 1) (arg 1) (arg 1) (arg 1) (arg 1) (arg 1))
@@ -3798,6 +3930,17 @@
                                        ((11) "nil")
                                        ((14) (fmt "~a.~a" (swift-entry-ref) (enum-first-value-name)))
                                        (else (swift-scalar-zero))))))))))))
+
+(define swift-pb-zero-program
+  '((fmt "~a"
+         (if (is-map)
+             (then "[:]")
+             (else (case-on (ref label)
+                     ((3) "[]")
+                     (else (case-on (ref type)
+                             ((11) "nil")
+                             ((14) (fmt "~a.~a" (swift-entry-ref) (enum-first-value-name)))
+                             (else (swift-scalar-zero))))))))))
 
 (define swift-pb-varint-expr-program
   '((fmt "~a"
@@ -4045,7 +4188,7 @@
     (fmt "~a        return pbW.ToBytes()\n~a    }\n" (arg 1) (arg 1))
     (fmt "~a    func UnmarshalDc(_ data: [UInt8]) {\n" (arg 1))
     (fmt "~a        unknownFields = []\n" (arg 1))
-    (each fields (fmt "~a        ~a = ~a\n" (arg 1) (swift-field-name) (call swiftPbDefault)))
+    (each fields (fmt "~a        ~a = ~a\n" (arg 1) (swift-field-name) (call swiftPbZero)))
     (fmt "~a        let pbR = ~a.Reader(data)\n" (arg 1) (arg 0))
     (fmt "~a        while true {\n" (arg 1))
     (fmt "~a            let next: ~a.Field?\n" (arg 1) (arg 0))
@@ -4193,6 +4336,24 @@
                                        ((8) "false")
                                        ((14) (fmt "~a" (enum-first-value-num)))
                                        (else "0")))))))))))
+
+;; Zero value of a field's type, ignoring any explicit (proto2)
+;; default (see js-pb-zero-program).
+(define lua-pb-zero-program
+  '((case-on (type)
+      (11 "nil")
+      (9 "\"\"")
+      (12 "\"\"")
+      (8 "false")
+      (else "0"))))
+
+;; Struct-decode fixup: zero a singular field the transcoded wire
+;; does not carry (see py-pb-zero-field-program).
+(define lua-pb-zero-field-program
+  '((if (repeated)
+        (then "")
+        (else (fmt "  if not present[~a] then m.~a = ~a end\n"
+                   (ref number) (lua-field-name) (call luaPbZero))))))
 
 (define lua-pb-varint-expr-program
   '((fmt "~a"
@@ -4368,7 +4529,15 @@
     (fmt "function ~a.new(~a)\n  return setmetatable({ ~a~aunknownFields = \"\" }, ~a)\nend\n\n"
          (flat)
          (each-sep ", " fields (lua-field-name))
-         (each-sep ", " fields (fmt "~a = ~a or ~a" (lua-field-name) (lua-field-name) (call luaPbDefault)))
+         ;; `x or true` would coerce an explicit false to the
+         ;; proto2 default true; nil-check that one case.
+         (each-sep ", " fields
+                   (fmt "~a = ~a" (lua-field-name)
+                        (case-on (call luaPbDefault)
+                          ("true" (fmt "~a == nil and true or ~a"
+                                       (lua-field-name) (lua-field-name)))
+                          (else (fmt "~a or ~a"
+                                     (lua-field-name) (call luaPbDefault))))))
          (if (no-fields) (then "") (else ", "))
          (flat))
     (fmt "function ~a:marshalDc()\n  local w = Writer.new()\n" (flat))
@@ -4521,6 +4690,17 @@
                                        ((11) "null")
                                        ((14) (fmt ".~a" (enum-first-value-name)))
                                        (else (zig-scalar-zero))))))))))))
+
+(define zig-pb-zero-program
+  '((fmt "~a"
+         (if (is-map)
+             (then "&.{}")
+             (else (case-on (ref label)
+                     ((3) "&.{}")
+                     (else (case-on (ref type)
+                             ((11) "null")
+                             ((14) (fmt ".~a" (enum-first-value-name)))
+                             (else (zig-scalar-zero))))))))))
 
 (define zig-pb-varint-expr-program
   '((fmt "~a"
@@ -4782,7 +4962,7 @@
     (fmt "~a        return w.toBytes();\n~a    }\n" (arg 0) (arg 0))
     (fmt "~a    pub fn unmarshalDc(self: *~a, alloc: std.mem.Allocator, data: []const u8) void {\n" (arg 0) (ref name))
     (fmt "~a        _ = .{ self, alloc, data };\n" (arg 0))
-    (each fields (fmt "~a        self.~a = ~a;\n" (arg 0) (ref name) (call zigPbDefault)))
+    (each fields (fmt "~a        self.~a = ~a;\n" (arg 0) (ref name) (call zigPbZero)))
     (each fields (call zigPbListDecl (arg 0)))
     (fmt "~a        self.unknown_fields = &.{};\n" (arg 0))
     (fmt "~a        var unknown_fields_list = std.ArrayList(u8).empty;\n" (arg 0))
@@ -5008,6 +5188,17 @@
                                        ((14) (fmt "~a.~a" (kt-entry-ref) (enum-first-value-name)))
                                        (else (kt-scalar-zero))))))))))))
 
+(define kt-pb-zero-program
+  '((fmt "~a"
+         (if (is-map)
+             (then "mutableMapOf()")
+             (else (case-on (ref label)
+                     ((3) "mutableListOf()")
+                     (else (case-on (ref type)
+                             ((11) "null")
+                             ((14) (fmt "~a.~a" (kt-entry-ref) (enum-first-value-name)))
+                             (else (kt-scalar-zero))))))))))
+
 (define kt-pb-varint-expr-program
   '((fmt "~a"
          (case-on (ref type)
@@ -5042,11 +5233,11 @@
   '((case-on (category)
       ("varint"
        (if (proto2)
-           (then (fmt "~a{ pbW.tag(~a, 0); pbW.varint(~a) }\n" (arg 1) (ref number) (call ktPbVarintExpr (arg 0))))
+           (then (fmt "~apbW.tag(~a, 0); pbW.varint(~a)\n" (arg 1) (ref number) (call ktPbVarintExpr (arg 0))))
            (else (fmt "~aif (~a) { pbW.tag(~a, 0); pbW.varint(~a) }\n" (arg 1) (call ktPbNonzero (arg 0)) (ref number) (call ktPbVarintExpr (arg 0))))))
       ("fixed"
        (if (proto2)
-           (then (fmt "~a{ pbW.tag(~a, ~a); pbW.fixed~a(~a) }\n" (arg 1) (ref number)
+           (then (fmt "~apbW.tag(~a, ~a); pbW.fixed~a(~a)\n" (arg 1) (ref number)
                       (case-on (kt-fixed-size) ((8) "1") (else "5")) (kt-fixed-name) (arg 0)))
            (else (fmt "~aif (~a) { pbW.tag(~a, ~a); pbW.fixed~a(~a) }\n" (arg 1) (call ktPbNonzero (arg 0)) (ref number)
                       (case-on (kt-fixed-size) ((8) "1") (else "5")) (kt-fixed-name) (arg 0)))))
@@ -5244,7 +5435,7 @@
     (fmt "~a        return pbW.toBytes()\n~a    }\n" (arg 1) (arg 1))
     (fmt "~a    override fun unmarshalDc(data: ByteArray) {\n" (arg 1))
     (fmt "~a        unknownFields = ByteArray(0)\n" (arg 1))
-    (each fields (fmt "~a        ~a = ~a\n" (arg 1) (kt-field-name) (call ktPbDefault)))
+    (each fields (fmt "~a        ~a = ~a\n" (arg 1) (kt-field-name) (call ktPbZero)))
     (fmt "~a        val pbR = ~a.Reader(data)\n" (arg 1) (arg 0))
     (fmt "~a        while (true) {\n" (arg 1))
     (fmt "~a            val pbField = pbR.next() ?: break\n" (arg 1))
@@ -5434,6 +5625,17 @@
                                        ((11) "null")
                                        ((14) (fmt "~a.~a" (cs-entry-ref) (enum-first-value-name)))
                                        (else (cs-scalar-zero))))))))))))
+
+(define cs-pb-zero-program
+  '((fmt "~a"
+         (if (is-map)
+             (then (fmt "new ~a()" (call csPbType)))
+             (else (case-on (ref label)
+                     ((3) (fmt "new ~a()" (call csPbType)))
+                     (else (case-on (ref type)
+                             ((11) "null")
+                             ((14) (fmt "~a.~a" (cs-entry-ref) (enum-first-value-name)))
+                             (else (cs-scalar-zero))))))))))
 
 (define cs-pb-varint-expr-program
   '((fmt "~a"
@@ -5664,7 +5866,7 @@
     (fmt "~a        return w.ToBytes();\n~a    }\n" (arg 1) (arg 1))
     (fmt "~a    public void UnmarshalDc(byte[] data) {\n" (arg 1))
     (fmt "~a        UnknownFields = new byte[0];\n" (arg 1))
-    (each fields (fmt "~a        ~a = ~a;\n" (arg 1) (cs-field-name) (call csPbDefault)))
+    (each fields (fmt "~a        ~a = ~a;\n" (arg 1) (cs-field-name) (call csPbZero)))
     (fmt "~a        var r = new ~a.Reader(data);\n" (arg 1) (arg 0))
     (fmt "~a        ~a.Field field;\n" (arg 1) (arg 0))
     (fmt "~a        while ((field = r.Next()) != null) {\n~a            switch (field.Number) {\n" (arg 1) (arg 1))
@@ -6418,6 +6620,17 @@
                                        ((14) (fmt "~a::~a" (cpp-entry-ref) (enum-first-value-name)))
                                        (else (cpp-scalar-zero))))))))))))
 
+(define cpp-pb-zero-program
+  '((fmt "~a"
+         (if (is-map)
+             (then "{}")
+             (else (case-on (ref label)
+                     ((3) "{}")
+                     (else (case-on (ref type)
+                             ((11) "std::nullopt")
+                             ((14) (fmt "~a::~a" (cpp-entry-ref) (enum-first-value-name)))
+                             (else (cpp-scalar-zero))))))))))
+
 (define cpp-pb-varint-expr-program
   '((fmt "~a"
          (case-on (ref type)
@@ -6670,7 +6883,7 @@
     "    return pb_w.ToBytes();\n}\n\n"
     (fmt "inline void ~a::UnmarshalDc(const grpcdc::Bytes& pb_data_) {\n" (if (arg 1) (then (fmt "~a::~a" (arg 1) (ref name))) (else (ref name))))
     "    unknown_fields.clear();\n"
-    (each fields (fmt "    ~a = ~a;\n" (ref name) (call cppPbDefault)))
+    (each fields (fmt "    ~a = ~a;\n" (ref name) (call cppPbZero)))
     (fmt "    ~a::Reader pb_r(pb_data_);\n" (arg 0))
     (fmt "    ~a::Field pb_field;\n" (arg 0))
     "    while (pb_r.Next(pb_field)) {\n      switch (pb_field.number) {\n"
@@ -6712,6 +6925,7 @@
           'jsPbVarintDecode js-pb-varint-decode-program
           'jsPbExplicitLiteral js-pb-explicit-literal-program
           'jsPbDefault js-pb-default-program
+          'jsPbZero js-pb-zero-program
           'jsPbSetExpr js-pb-set-expr-program
           'jsPbOneofClearing js-pb-oneof-clearing-program
           'jsPbEncodeSingular js-pb-encode-singular-program
@@ -6798,6 +7012,8 @@
           'rbPbNonzero rb-pb-nonzero-program
           'rbPbExplicitLiteral rb-pb-explicit-literal-program
           'rbPbDefault rb-pb-default-program
+          'rbPbZero rb-pb-zero-program
+          'rbPbZeroField rb-pb-zero-field-program
           'rbPbEncodeSingular rb-pb-encode-singular-program
           'rbPbSetExpr rb-pb-set-expr-program
           'rbPbOneofClearing rb-pb-oneof-clearing-program
@@ -6816,6 +7032,8 @@
           'phpPbType php-pb-type-program
           'phpPbExplicitLiteral php-pb-explicit-literal-program
           'phpPbDefault php-pb-default-program
+          'phpPbZero php-pb-zero-program
+          'phpPbZeroField php-pb-zero-field-program
           'phpPbVarintExpr php-pb-varint-expr-program
           'phpPbVarintDecode php-pb-varint-decode-program
           'phpPbNonzero php-pb-nonzero-program
@@ -6839,6 +7057,8 @@
           'pyPbVarintDecode py-pb-varint-decode-program
           'pyPbExplicitLiteral py-pb-explicit-literal-program
           'pyPbDefault py-pb-default-program
+          'pyPbZero py-pb-zero-program
+          'pyPbZeroField py-pb-zero-field-program
           'pyPbDefaultExpr py-pb-default-expr-program
           'pyPbEncodeSingular py-pb-encode-singular-program
           'pyPbSetExpr py-pb-set-expr-program
@@ -6855,6 +7075,7 @@
           'cPbNonzero c-pb-nonzero-program
           'cPbExplicitLiteral c-pb-explicit-literal-program
           'cPbDefault c-pb-default-program
+          'cPbZero c-pb-zero-program
           'cPbType c-pb-type-program
           'cPbEncodeSingular c-pb-encode-singular-program
           'cPbSetExpr c-pb-set-expr-program
@@ -6889,6 +7110,7 @@
           'scPbNonzero sc-pb-nonzero-program
           'scPbExplicitLiteral sc-pb-explicit-literal-program
           'scPbDefault sc-pb-default-program
+          'scPbZero sc-pb-zero-program
           'scPbElemType sc-pb-elem-type-program
           'scPbType sc-pb-type-program
           'scPbSetExpr sc-pb-set-expr-program
@@ -6913,6 +7135,7 @@
           'dtPbNonzero dt-pb-nonzero-program
           'dtPbExplicitLiteral dt-pb-explicit-literal-program
           'dtPbDefault dt-pb-default-program
+          'dtPbZero dt-pb-zero-program
           'dtPbElemType dt-pb-elem-type-program
           'dtPbType dt-pb-type-program
           'dtPbSetExpr dt-pb-set-expr-program
@@ -6936,6 +7159,7 @@
           'swiftRegisterMethod swift-register-method-program
           'swiftPbType swift-pb-type-program
           'swiftPbDefault swift-pb-default-program
+          'swiftPbZero swift-pb-zero-program
           'swiftPbExplicitLiteral swift-pb-explicit-literal-program
           'swiftPbVarintExpr swift-pb-varint-expr-program
           'swiftPbVarintDecode swift-pb-varint-decode-program
@@ -6965,6 +7189,8 @@
           'luaRegisterMethod lua-register-method-program
           'luaPbExplicitLiteral lua-pb-explicit-literal-program
           'luaPbDefault lua-pb-default-program
+          'luaPbZero lua-pb-zero-program
+          'luaPbZeroField lua-pb-zero-field-program
           'luaPbVarintExpr lua-pb-varint-expr-program
           'luaPbVarintDecode lua-pb-varint-decode-program
           'luaPbNonzero lua-pb-nonzero-program
@@ -6992,6 +7218,7 @@
           'zigPbType zig-pb-type-program
           'zigPbExplicitLiteral zig-pb-explicit-literal-program
           'zigPbDefault zig-pb-default-program
+          'zigPbZero zig-pb-zero-program
           'zigPbVarintExpr zig-pb-varint-expr-program
           'zigPbVarintDecode zig-pb-varint-decode-program
           'zigPbNonzero zig-pb-nonzero-program
@@ -7028,6 +7255,7 @@
           'ktPbTypeOrRef kt-pb-type-or-ref-program
           'ktPbExplicitLiteral kt-pb-explicit-literal-program
           'ktPbDefault kt-pb-default-program
+          'ktPbZero kt-pb-zero-program
           'ktPbVarintExpr kt-pb-varint-expr-program
           'ktPbVarintDecode kt-pb-varint-decode-program
           'ktPbNonzero kt-pb-nonzero-program
@@ -7059,6 +7287,7 @@
           'csPbType cs-pb-type-program
           'csPbExplicitLiteral cs-pb-explicit-literal-program
           'csPbDefault cs-pb-default-program
+          'csPbZero cs-pb-zero-program
           'csPbVarintExpr cs-pb-varint-expr-program
           'csPbVarintDecode cs-pb-varint-decode-program
           'csPbNonzero cs-pb-nonzero-program
@@ -7126,6 +7355,7 @@
           'cppPbTypeOrRef cpp-pb-type-or-ref-program
           'cppPbExplicitLiteral cpp-pb-explicit-literal-program
           'cppPbDefault cpp-pb-default-program
+          'cppPbZero cpp-pb-zero-program
           'cppPbVarintExpr cpp-pb-varint-expr-program
           'cppPbVarintDecode cpp-pb-varint-decode-program
           'cppPbNonzero cpp-pb-nonzero-program

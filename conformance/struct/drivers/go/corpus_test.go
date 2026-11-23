@@ -33,3 +33,32 @@ func TestStructCorpus(t *testing.T) {
 	}
 	t.Log("PASS go")
 }
+
+func TestStructCorpusP2(t *testing.T) {
+	golden, err := hex.DecodeString(os.Getenv("STRUCT_GOLDEN2_HEX"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := NewP2()
+	m.Name = "req"
+	m.Count = 42 // explicitly the default value
+	m.Greeting = "hi"
+	m.Enabled = false
+	m.Ratio = 2.5
+	m.Nums = []int32{5, -6}
+	m.ExtNote = "note!"
+	if len(golden) == 0 {
+		t.Fatalf("golden2: %x", m.MarshalStructDC())
+	}
+	if got := m.MarshalStructDC(); !bytes.Equal(got, golden) {
+		t.Fatalf("marshal mismatch:\n got %x\nwant %x", got, golden)
+	}
+	// Decode into the zero value (not NewP2): applying proto2
+	// defaults at decode would manufacture presence the struct
+	// bytes do not carry (e.g. enabled=true).
+	rt := &P2{}
+	if err := rt.UnmarshalStructDC(golden); err != nil || !bytes.Equal(rt.MarshalStructDC(), golden) {
+		t.Fatal("decode/roundtrip failed", err)
+	}
+	t.Log("PASS go p2")
+}

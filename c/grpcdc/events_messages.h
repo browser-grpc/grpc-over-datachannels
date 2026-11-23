@@ -154,7 +154,9 @@ static inline EventsPbBytes TagValue_marshal(const TagValue *m) {
 }
 
 static inline void TagValue_unmarshal(TagValue *m, const uint8_t *data, size_t len) {
-    TagValue_init(m);
+    memset(m, 0, sizeof(*m));
+    m->tag = Tag_TAG_UNSPECIFIED;
+    m->string_value = "";
     EventsPbReader r; EventsPb_reader_init(&r, data, len);
     EventsPbField field;
     while (EventsPb_reader_next(&r, &field)) {
@@ -229,7 +231,9 @@ static inline EventsPbBytes PublishRequest_marshal(const PublishRequest *m) {
 }
 
 static inline void PublishRequest_unmarshal(PublishRequest *m, const uint8_t *data, size_t len) {
-    PublishRequest_init(m);
+    memset(m, 0, sizeof(*m));
+    m->payload = EventsPb_bytes_empty();
+    m->publisher_id = "";
     EventsPbReader r; EventsPb_reader_init(&r, data, len);
     EventsPbField field;
     while (EventsPb_reader_next(&r, &field)) {
@@ -272,7 +276,7 @@ static inline EventsPbBytes PublishReply_marshal(const PublishReply *m) {
 }
 
 static inline void PublishReply_unmarshal(PublishReply *m, const uint8_t *data, size_t len) {
-    PublishReply_init(m);
+    memset(m, 0, sizeof(*m));
     EventsPbReader r; EventsPb_reader_init(&r, data, len);
     EventsPbField field;
     while (EventsPb_reader_next(&r, &field)) {
@@ -304,7 +308,7 @@ static inline EventsPbBytes SubscribeRequest_marshal(const SubscribeRequest *m) 
 }
 
 static inline void SubscribeRequest_unmarshal(SubscribeRequest *m, const uint8_t *data, size_t len) {
-    SubscribeRequest_init(m);
+    memset(m, 0, sizeof(*m));
     EventsPbReader r; EventsPb_reader_init(&r, data, len);
     EventsPbField field;
     while (EventsPb_reader_next(&r, &field)) {
@@ -344,7 +348,9 @@ static inline EventsPbBytes Event_marshal(const Event *m) {
 }
 
 static inline void Event_unmarshal(Event *m, const uint8_t *data, size_t len) {
-    Event_init(m);
+    memset(m, 0, sizeof(*m));
+    m->payload = EventsPb_bytes_empty();
+    m->publisher_id = "";
     EventsPbReader r; EventsPb_reader_init(&r, data, len);
     EventsPbField field;
     while (EventsPb_reader_next(&r, &field)) {

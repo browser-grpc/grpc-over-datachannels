@@ -368,9 +368,14 @@
   (define type-name (sw-struct-type-name model msg))
   (define out (open-output-string))
   (fprintf out "public enum ~aStruct {\n" type-name)
+  (fprintf out "    private static let descriptor: [UInt8] = [~a]\n\n"
+           (string-join
+            (for/list ([b (in-bytes (hash-ref model 'descriptor-set #""))])
+              (number->string b))
+            ","))
   (fprintf out "    public static func Size(_ m: ~a) -> Int { Marshal(m).count }\n\n" type-name)
-  (fprintf out "    public static func Marshal(_ m: ~a) -> [UInt8] {\n        StructDcBridge.encode(\"~a\", m.MarshalDc())\n    }\n\n" type-name (hash-ref msg 'full-name))
-  (fprintf out "    public static func Unmarshal(_ data: [UInt8]) -> ~a {\n        let m = ~a()\n        m.UnmarshalDc(StructDcBridge.decode(\"~a\", data))\n        return m\n    }\n}\n" type-name type-name (hash-ref msg 'full-name))
+  (fprintf out "    public static func Marshal(_ m: ~a) -> [UInt8] {\n        StructDcBridge.encode(descriptor, \"~a\", m.MarshalDc())\n    }\n\n" type-name (hash-ref msg 'full-name))
+  (fprintf out "    public static func Unmarshal(_ data: [UInt8]) -> ~a {\n        let m = ~a()\n        m.UnmarshalDc(StructDcBridge.decode(descriptor, \"~a\", data))\n        return m\n    }\n}\n" type-name type-name (hash-ref msg 'full-name))
   (get-output-string out))
 
 (define (sw-struct-value-write model f v)
@@ -496,14 +501,9 @@
    "@_silgen_name(\"grpcdc_struct_error_free\")\n"
    "func _grpcdcStructErrorFree(_ ptr: UnsafeMutablePointer<UInt8>)\n\n"
    "public enum StructDcBridge {\n"
-   (format "    static let descriptor: [UInt8] = [~a]\n\n"
-           (string-join
-            (for/list ([b (in-bytes (hash-ref model 'descriptor-set #""))])
-              (number->string b))
-            ","))
-   "    public static func encode(_ typeName: String, _ pb: [UInt8]) -> [UInt8] { transcode(true, typeName, pb) }\n\n"
-   "    public static func decode(_ typeName: String, _ data: [UInt8]) -> [UInt8] { transcode(false, typeName, data) }\n\n"
-   "    static func transcode(_ encode: Bool, _ typeName: String, _ input: [UInt8]) -> [UInt8] {\n"
+   "    public static func encode(_ descriptor: [UInt8], _ typeName: String, _ pb: [UInt8]) -> [UInt8] { transcode(descriptor, true, typeName, pb) }\n\n"
+   "    public static func decode(_ descriptor: [UInt8], _ typeName: String, _ data: [UInt8]) -> [UInt8] { transcode(descriptor, false, typeName, data) }\n\n"
+   "    static func transcode(_ descriptor: [UInt8], _ encode: Bool, _ typeName: String, _ input: [UInt8]) -> [UInt8] {\n"
    "        let typeBytes = [UInt8](typeName.utf8)\n"
    "        var out: UnsafeMutablePointer<UInt8>? = nil\n"
    "        var outLen = 0\n"
@@ -561,14 +561,9 @@
                            "// same API as StructDcBridge.swift, transcoding via grpcdc/structdc.swift.\n"
                            "// Native builds compile StructDcBridge.swift instead.\n\n"
                            "public enum StructDcBridge {\n"
-                           (format "    static let descriptor: [UInt8] = [~a]\n\n"
-                                   (string-join
-                                    (for/list ([b (in-bytes (hash-ref file-model 'descriptor-set #""))])
-                                      (number->string b))
-                                    ","))
-                           "    public static func encode(_ typeName: String, _ pb: [UInt8]) -> [UInt8] { transcode(true, typeName, pb) }\n\n"
-                           "    public static func decode(_ typeName: String, _ data: [UInt8]) -> [UInt8] { transcode(false, typeName, data) }\n\n"
-                           "    static func transcode(_ encode: Bool, _ typeName: String, _ input: [UInt8]) -> [UInt8] {\n"
+                           "    public static func encode(_ descriptor: [UInt8], _ typeName: String, _ pb: [UInt8]) -> [UInt8] { transcode(descriptor, true, typeName, pb) }\n\n"
+                           "    public static func decode(_ descriptor: [UInt8], _ typeName: String, _ data: [UInt8]) -> [UInt8] { transcode(descriptor, false, typeName, data) }\n\n"
+                           "    static func transcode(_ descriptor: [UInt8], _ encode: Bool, _ typeName: String, _ input: [UInt8]) -> [UInt8] {\n"
                            "        do { return try Structdc.transcode(descriptor, typeName, input, encode) }\n"
                            "        catch { fatalError(\"struct codec transcode failed: \\(error)\") }\n"
                            "    }\n"

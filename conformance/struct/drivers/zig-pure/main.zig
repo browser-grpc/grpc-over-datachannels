@@ -3,6 +3,7 @@
 const std = @import("std");
 const structdc = @import("grpcdc_structdc");
 const messages = @import("msgs_messages.zig");
+const messages2 = @import("msgs2_messages.zig");
 
 const Inner = messages.Inner;
 const Outer = messages.Outer;
@@ -71,6 +72,33 @@ pub fn main() !void {
     const re = try structdc.transcode(alloc, descriptor, "shapes.Outer", back.marshalDc(alloc), true);
     if (!std.mem.eql(u8, re, golden)) {
         std.debug.print("ROUNDTRIP_MISMATCH\n", .{});
+        std.process.exit(1);
+    }
+
+    const P2 = messages2.P2;
+    const golden2 = try parseHex(alloc, args[3]);
+    const descriptor2 = try parseHex(alloc, args[4]);
+    const nums2 = [_]i32{ 5, -6 };
+    const p2 = P2{
+        .name = "req",
+        .count = 42,
+        .greeting = "hi",
+        .enabled = false,
+        .ratio = 2.5,
+        .nums = &nums2,
+        .ext_note = "note!",
+    };
+    const got2 = try structdc.transcode(alloc, descriptor2, "shapes.P2", p2.marshalDc(alloc), true);
+    if (!std.mem.eql(u8, got2, golden2)) {
+        std.debug.print("MARSHAL2_MISMATCH\n got {x}\nwant {x}\n", .{ got2, golden2 });
+        std.process.exit(1);
+    }
+    const back2_pb = try structdc.transcode(alloc, descriptor2, "shapes.P2", golden2, false);
+    var back2 = P2{};
+    back2.unmarshalDc(alloc, back2_pb);
+    const re2 = try structdc.transcode(alloc, descriptor2, "shapes.P2", back2.marshalDc(alloc), true);
+    if (!std.mem.eql(u8, re2, golden2)) {
+        std.debug.print("ROUNDTRIP2_MISMATCH\n", .{});
         std.process.exit(1);
     }
     std.debug.print("DECODE_OK\n", .{});
