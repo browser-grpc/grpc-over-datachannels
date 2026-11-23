@@ -4,7 +4,10 @@
 //!
 //! Client direction: Rust client -> bridge (dc-to-http2) ->
 //! reference grpc-go TestService server (with ORCA service):
-//! empty/large unary, orca_per_rpc, orca_oob.
+//! empty/large unary, orca_per_rpc, orca_oob; and the same
+//! empty/large unary cases against the reference grpc-dart
+//! (package:grpc) TestService server, which registers no ORCA
+//! service.
 //! Server direction: official grpc-java client (and the
 //! grpc-go client for ORCA, which the Java client cannot
 //! grade, and the grpc-dart client over the shared cases)
@@ -93,9 +96,11 @@ fn wait_port(port: u16, what: &str) {
 
 struct KillOnDrop(Child);
 
-/// free_port()+bridge spawn is racy between parallel tests in
-/// this binary (two tests can claim the same ephemeral port);
-/// serialize the bridge-owning tests.
+/// free_port()+server spawn is racy between parallel tests in
+/// this binary (two tests can claim the same ephemeral port
+/// in the window between free_port dropping its probe listener
+/// and the server binding it); hold this lock from free_port
+/// until wait_port confirms the bind.
 static BRIDGE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 impl Drop for KillOnDrop {
@@ -114,8 +119,8 @@ fn go_server_clients() -> Option<(KillOnDrop, KillOnDrop, TestServiceClient, orc
         oracle_skip("go interop server not built (oracle/go-interop)");
         return None;
     }
-    let port = free_port();
     let _bridge_lock = BRIDGE_LOCK.lock().unwrap();
+    let port = free_port();
     let server = Command::new(&binary)
         .args(["-port", &port.to_string()])
         .stdout(Stdio::null())
@@ -148,9 +153,76 @@ fn go_server_clients() -> Option<(KillOnDrop, KillOnDrop, TestServiceClient, orc
     ))
 }
 
+/// Spawn the reference Dart (grpc-dart) TestService server and
+/// a dc-to-http2 bridge; returns the Rust client. The Dart
+/// server registers no ORCA service, so there is no ORCA client.
+fn dart_server_client() -> Option<(KillOnDrop, KillOnDrop, TestServiceClient)> {
+    let root = root();
+    let binary = format!("{root}/oracle/dart-interop/interop-server");
+    if !std::path::Path::new(&binary).exists() {
+        oracle_skip("dart interop server not built (oracle/dart-interop)");
+        return None;
+    }
+    let _bridge_lock = BRIDGE_LOCK.lock().unwrap();
+    let port = free_port();
+    let server = Command::new(&binary)
+        // grpc-go spells the port flag -port, grpc-dart --port.
+        .args(["--port", &port.to_string()])
+        .stdout(Stdio::null())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .expect("spawn dart interop server");
+    wait_port(port, "dart interop server");
+    let mut bridge = Command::new("node")
+        .args([
+            &format!("{root}/oracle/bridge.mjs"),
+            "dc-to-http2",
+            "--grpc",
+            &format!("127.0.0.1:{port}"),
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .expect("spawn bridge");
+    let transport: Arc<dyn DcTransport> = Arc::new(StdioDc {
+        tx: Mutex::new(bridge.stdin.take().unwrap()),
+        rx: Mutex::new(bridge.stdout.take().unwrap()),
+    });
+    let channel = Channel::new(transport);
+    Some((
+        KillOnDrop(server),
+        KillOnDrop(bridge),
+        TestServiceClient::new(channel),
+    ))
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn rust_client_calls_go_reference_server() {
     let Some((_server, _bridge, client, _orca_client)) = go_server_clients() else {
+        return;
+    };
+
+    let empty = client.empty_call(pb::Empty::default()).await.unwrap();
+    assert_eq!(empty, pb::Empty::default());
+
+    let large = client
+        .unary_call(pb::SimpleRequest {
+            response_size: 314_159,
+            payload: Some(Box::new(pb::Payload {
+                body: vec![0u8; 271_828],
+                ..Default::default()
+            })),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(large.payload.unwrap().body.len(), 314_159);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn rust_client_calls_dart_reference_server() {
+    let Some((_server, _bridge, client)) = dart_server_client() else {
         return;
     };
 
@@ -313,8 +385,8 @@ async fn official_clients_call_rust_server() {
         oracle_skip("interop_server_stdio not built");
         return;
     }
-    let port = free_port();
     let _bridge_lock = BRIDGE_LOCK.lock().unwrap();
+    let port = free_port();
     let mut bridge = Command::new("node")
         .args([
             &format!("{root}/oracle/bridge.mjs"),
