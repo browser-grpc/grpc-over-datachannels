@@ -117,3 +117,6 @@ generated_images/
 /crates/dc-dtls-wasm/target/
 /crates/dc-ice-wasm/target/
 /crates/dc-ice-ffi/target/
+
+# scala-cli user.home artifact from container runs
+/?/
