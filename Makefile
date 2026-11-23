@@ -1132,10 +1132,10 @@ webapp-assets:
 	cd webapp/compiler && GOOS=js GOARCH=wasm go build -buildvcs=false -o ../assets/protocompile.wasm .
 	cp "$$(go env GOROOT)/lib/wasm/wasm_exec.js" webapp/assets/wasm_exec.js
 	cp proto/echo.proto webapp/assets/echo.proto
-	cp js/src/codec.js js/src/endpoint.js js/src/channel.js js/src/server.js js/src/loopback.js js/src/dynamic.js webapp/assets/runtime/js/
+	cp js/src/codec.js js/src/endpoint.js js/src/channel.js js/src/server.js js/src/loopback.js js/src/dynamic.js js/src/structdc.js webapp/assets/runtime/js/
 	cp js/wire_gen.js webapp/assets/runtime/wire_gen.js
 	cp go/channel.go go/codec.go go/dynamic.go go/endpoint.go go/loopback.go go/server.go go/wire_gen.go go/webrtc_transport.go webapp/assets/runtime/go/
-	cp python/grpcdc/__init__.py python/grpcdc/channel.py python/grpcdc/codec.py python/grpcdc/dynamic.py python/grpcdc/endpoint.py python/grpcdc/http2.py python/grpcdc/loopback.py python/grpcdc/server.py python/grpcdc/sidecar.py python/grpcdc/wire_gen.py webapp/assets/runtime/python/
+	cp python/grpcdc/__init__.py python/grpcdc/channel.py python/grpcdc/codec.py python/grpcdc/dynamic.py python/grpcdc/endpoint.py python/grpcdc/http2.py python/grpcdc/loopback.py python/grpcdc/server.py python/grpcdc/sidecar.py python/grpcdc/structdc.py python/grpcdc/wire_gen.py webapp/assets/runtime/python/
 	mkdir -p webapp/assets/runtime/rust/src
 	cp rust/Cargo.toml webapp/assets/runtime/rust/Cargo.toml
 	cp rust/src/channel.rs rust/src/codec.rs rust/src/dynamic.rs rust/src/endpoint.rs rust/src/lib.rs rust/src/message.rs rust/src/server.rs rust/src/status.rs rust/src/transport.rs rust/src/webrtc_transport.rs rust/src/wire_gen.rs webapp/assets/runtime/rust/src/
@@ -1152,34 +1152,34 @@ webapp-assets:
 	mkdir -p webapp/assets/runtime/kotlin-native
 	cp wasm/kotlin/grpcdc/Channel.kt wasm/kotlin/grpcdc/Codec.kt wasm/kotlin/grpcdc/Endpoint.kt wasm/kotlin/grpcdc/MemoryTransport.kt wasm/kotlin/grpcdc/Server.kt wasm/kotlin/grpcdc/Status.kt wasm/kotlin/grpcdc/Transport.kt wasm/kotlin/grpcdc/Wire.kt webapp/assets/runtime/kotlin-native/
 	mkdir -p webapp/assets/runtime/dart
-	cp dart/grpcdc/channel.dart dart/grpcdc/codec.dart dart/grpcdc/dynamic.dart dart/grpcdc/endpoint.dart dart/grpcdc/memory_transport.dart dart/grpcdc/server.dart dart/grpcdc/status.dart dart/grpcdc/transport.dart dart/grpcdc/wire.dart webapp/assets/runtime/dart/
+	cp dart/grpcdc/channel.dart dart/grpcdc/codec.dart dart/grpcdc/dynamic.dart dart/grpcdc/endpoint.dart dart/grpcdc/memory_transport.dart dart/grpcdc/server.dart dart/grpcdc/status.dart dart/grpcdc/structdc.dart dart/grpcdc/transport.dart dart/grpcdc/wire.dart webapp/assets/runtime/dart/
 	mkdir -p webapp/assets/runtime/zig/grpcdc
 	cp zig/build.zig webapp/assets/runtime/zig/build.zig
 	cp zig/grpcdc/channel.zig zig/grpcdc/codec.zig zig/grpcdc/dynamic.zig zig/grpcdc/endpoint.zig zig/grpcdc/grpcdc.zig zig/grpcdc/memory_transport.zig zig/grpcdc/server.zig zig/grpcdc/status.zig zig/grpcdc/transport.zig zig/grpcdc/wire.zig webapp/assets/runtime/zig/grpcdc/
 	mkdir -p webapp/assets/runtime/c/grpcdc
 	cp c/grpcdc/grpcdc.h c/grpcdc/grpcdc.c c/grpcdc/memory_transport.h c/grpcdc/memory_transport.c webapp/assets/runtime/c/grpcdc/
 	mkdir -p webapp/assets/runtime/lua/grpcdc
-	cp lua/grpcdc/channel.lua lua/grpcdc/codec.lua lua/grpcdc/dynamic.lua lua/grpcdc/endpoint.lua lua/grpcdc/memory_transport.lua lua/grpcdc/server.lua lua/grpcdc/status.lua lua/grpcdc/transport.lua lua/grpcdc/wire.lua webapp/assets/runtime/lua/grpcdc/
+	cp lua/grpcdc/channel.lua lua/grpcdc/codec.lua lua/grpcdc/dynamic.lua lua/grpcdc/endpoint.lua lua/grpcdc/memory_transport.lua lua/grpcdc/server.lua lua/grpcdc/status.lua lua/grpcdc/structdc.lua lua/grpcdc/transport.lua lua/grpcdc/wire.lua webapp/assets/runtime/lua/grpcdc/
 	mkdir -p webapp/assets/runtime/ruby/grpcdc
 	cp ruby/grpcdc.rb webapp/assets/runtime/ruby/grpcdc.rb
-	cp ruby/grpcdc/channel.rb ruby/grpcdc/codec.rb ruby/grpcdc/dynamic.rb ruby/grpcdc/endpoint.rb ruby/grpcdc/loopback.rb ruby/grpcdc/server.rb ruby/grpcdc/wire_gen.rb webapp/assets/runtime/ruby/grpcdc/
+	cp ruby/grpcdc/channel.rb ruby/grpcdc/codec.rb ruby/grpcdc/dynamic.rb ruby/grpcdc/endpoint.rb ruby/grpcdc/loopback.rb ruby/grpcdc/server.rb ruby/grpcdc/structdc.rb ruby/grpcdc/wire_gen.rb webapp/assets/runtime/ruby/grpcdc/
 	mkdir -p webapp/assets/runtime/php/grpcdc
 	cp php/grpcdc.php webapp/assets/runtime/php/grpcdc.php
-	cp php/grpcdc/channel.php php/grpcdc/codec.php php/grpcdc/dynamic.php php/grpcdc/endpoint.php php/grpcdc/loopback.php php/grpcdc/server.php php/grpcdc/wire_gen.php webapp/assets/runtime/php/grpcdc/
+	cp php/grpcdc/channel.php php/grpcdc/codec.php php/grpcdc/dynamic.php php/grpcdc/endpoint.php php/grpcdc/loopback.php php/grpcdc/server.php php/grpcdc/structdc.php php/grpcdc/wire_gen.php webapp/assets/runtime/php/grpcdc/
 	mkdir -p webapp/assets/runtime/scala
 	cp scala/grpcdc/Channel.scala scala/grpcdc/Codec.scala scala/grpcdc/Dynamic.scala scala/grpcdc/Endpoint.scala scala/grpcdc/Futures.scala scala/grpcdc/MemoryTransport.scala scala/grpcdc/Server.scala scala/grpcdc/Status.scala scala/grpcdc/Transport.scala scala/grpcdc/WireGen.scala webapp/assets/runtime/scala/
 	mkdir -p webapp/assets/runtime/wasm-go
-	cp js/src/wasm_bridge.js js/src/codec.js js/src/endpoint.js js/src/channel.js js/src/server.js js/src/loopback.js js/src/dynamic.js webapp/assets/runtime/wasm-go/
+	cp js/src/wasm_bridge.js js/src/codec.js js/src/endpoint.js js/src/channel.js js/src/server.js js/src/loopback.js js/src/dynamic.js js/src/structdc.js webapp/assets/runtime/wasm-go/
 	mkdir -p webapp/assets/runtime/wasm-zig
-	cp js/src/wasm_bridge.js js/src/codec.js js/src/endpoint.js js/src/channel.js js/src/server.js js/src/loopback.js js/src/dynamic.js webapp/assets/runtime/wasm-zig/
+	cp js/src/wasm_bridge.js js/src/codec.js js/src/endpoint.js js/src/channel.js js/src/server.js js/src/loopback.js js/src/dynamic.js js/src/structdc.js webapp/assets/runtime/wasm-zig/
 	mkdir -p webapp/assets/runtime/wasm-cpp
-	cp js/src/wasm_bridge.js js/src/codec.js js/src/endpoint.js js/src/channel.js js/src/server.js js/src/loopback.js js/src/dynamic.js webapp/assets/runtime/wasm-cpp/
+	cp js/src/wasm_bridge.js js/src/codec.js js/src/endpoint.js js/src/channel.js js/src/server.js js/src/loopback.js js/src/dynamic.js js/src/structdc.js webapp/assets/runtime/wasm-cpp/
 	mkdir -p webapp/assets/runtime/wasm-swift
-	cp js/src/wasm_bridge.js js/src/codec.js js/src/endpoint.js js/src/channel.js js/src/server.js js/src/loopback.js js/src/dynamic.js webapp/assets/runtime/wasm-swift/
+	cp js/src/wasm_bridge.js js/src/codec.js js/src/endpoint.js js/src/channel.js js/src/server.js js/src/loopback.js js/src/dynamic.js js/src/structdc.js webapp/assets/runtime/wasm-swift/
 	mkdir -p webapp/assets/runtime/wasm-kotlin
-	cp js/src/wasm_bridge.js js/src/codec.js js/src/endpoint.js js/src/channel.js js/src/server.js js/src/loopback.js js/src/dynamic.js webapp/assets/runtime/wasm-kotlin/
+	cp js/src/wasm_bridge.js js/src/codec.js js/src/endpoint.js js/src/channel.js js/src/server.js js/src/loopback.js js/src/dynamic.js js/src/structdc.js webapp/assets/runtime/wasm-kotlin/
 	mkdir -p webapp/assets/runtime/wasm-scala
-	cp js/src/wasm_bridge.js js/src/codec.js js/src/endpoint.js js/src/channel.js js/src/server.js js/src/loopback.js js/src/dynamic.js webapp/assets/runtime/wasm-scala/
+	cp js/src/wasm_bridge.js js/src/codec.js js/src/endpoint.js js/src/channel.js js/src/server.js js/src/loopback.js js/src/dynamic.js js/src/structdc.js webapp/assets/runtime/wasm-scala/
 	python3 scripts/copy-corpus.py
 
 ## Self-contained static bundle: serve webapp/dist with any
