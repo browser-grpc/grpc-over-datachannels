@@ -2472,4 +2472,736 @@ GRPC_RUNTIME_EOF
         (cons "grpcdc/Server.swift" swift-server-body)
         (cons "grpcdc/MemoryTransport.swift" swift-loopback-body)
         (cons "grpcdc/SidecarTransport.swift" swift-sidecar-body)
-        (cons "grpcdc/Dynamic.swift" swift-dynamic-body))))
+        (cons "grpcdc/Dynamic.swift" swift-dynamic-body)
+        (cons "grpcdc/structdc.swift" swift-structdc-body))))
+
+(define swift-structdc-body
+#<<GRPC_RUNTIME_EOF
+/// Descriptor-driven struct codec (layout v1, DCS1): the
+/// packed struct format from SPEC.md, implemented in pure
+/// Swift over a minimal internal dynamic model so Wasm builds
+/// (no native cdylib) transcode protobuf <-> struct without
+/// the FFI bridge. Byte-identical to the shared Rust
+/// implementation (conformance/struct). Foundation-free for
+/// Embedded Swift on wasm32.
+
+public enum StructdcError: Error {
+    case invalid(String)
+}
+
+private func _fail(_ msg: String) -> StructdcError { .invalid(msg) }
+
+private let T_DOUBLE = 1
+private let T_FLOAT = 2
+private let T_INT64 = 3
+private let T_UINT64 = 4
+private let T_INT32 = 5
+private let T_FIXED64 = 6
+private let T_FIXED32 = 7
+private let T_BOOL = 8
+private let T_STRING = 9
+private let T_GROUP = 10
+private let T_MESSAGE = 11
+private let T_BYTES = 12
+private let T_UINT32 = 13
+private let T_ENUM = 14
+private let T_SFIXED32 = 15
+private let T_SFIXED64 = 16
+private let T_SINT32 = 17
+private let T_SINT64 = 18
+
+private final class SField {
+    var number: Int = 0
+    var name: String = ""
+    var type: Int = 0
+    var repeated: Bool = false
+    var typeName: String = ""
+}
+
+private final class SMsg {
+    let fullName: String
+    var fields: [Int: SField] = [:]
+    var mapEntry: Bool = false
+    init(_ fullName: String) { self.fullName = fullName }
+}
+
+private final class SFile {
+    var messages: [String: SMsg] = [:]
+}
+
+private enum SValue {
+    case i64(Int64)
+    case u64(UInt64)
+    case boolean(Bool)
+    case dbl(Double)
+    case str(String)
+    case bytes([UInt8])
+    case msg(SGeneric)
+}
+
+private final class SGeneric {
+    var values: [Int: [SValue]] = [:]
+    var unknown: [[UInt8]] = []
+    func add(_ number: Int, _ value: SValue) { values[number, default: []].append(value) }
+    func set(_ number: Int, _ value: SValue) { values[number] = [value] }
+    func get(_ number: Int) -> SValue? { values[number]?.first }
+    func getAll(_ number: Int) -> [SValue] { values[number] ?? [] }
+}
+
+private struct SReader {
+    let buf: [UInt8]
+    var pos: Int = 0
+    mutating func varint() throws -> UInt64 {
+        var result: UInt64 = 0
+        var shift = 0
+        while true {
+            if pos >= buf.count { throw _fail("truncated varint") }
+            let b = buf[pos]
+            pos += 1
+            result |= UInt64(b & 0x7f) << shift
+            if (b & 0x80) == 0 { return result }
+            shift += 7
+            if shift >= 70 { throw _fail("varint too long") }
+        }
+    }
+    mutating func take(_ n: Int) throws -> [UInt8] {
+        if pos + n > buf.count { throw _fail("truncated field") }
+        defer { pos += n }
+        return Array(buf[pos..<(pos + n)])
+    }
+    mutating func bytesField() throws -> [UInt8] { try take(Int(try varint())) }
+}
+
+private func _parseField(_ data: [UInt8]) throws -> SField {
+    let f = SField()
+    var r = SReader(buf: data)
+    while r.pos < data.count {
+        let tag = try r.varint()
+        let num = Int(tag >> 3)
+        switch Int(tag & 7) {
+        case 0:
+            let v = try r.varint()
+            switch num {
+            case 3: f.number = Int(v)
+            case 4: f.repeated = v == 3
+            case 5: f.type = Int(v)
+            default: break
+            }
+        case 2:
+            let v = try r.bytesField()
+            switch num {
+            case 1: f.name = String(decoding: v, as: UTF8.self)
+            case 6: f.typeName = String(decoding: v, as: UTF8.self)
+            default: break
+            }
+        case 1: _ = try r.take(8)
+        case 5: _ = try r.take(4)
+        default: throw _fail("unsupported wire type")
+        }
+    }
+    return f
+}
+
+private func _parseMessage(_ prefix: String, _ data: [UInt8], _ file: SFile) throws {
+    var name = ""
+    var options: [UInt8]? = nil
+    var rawFields: [[UInt8]] = []
+    var nested: [[UInt8]] = []
+    var r = SReader(buf: data)
+    while r.pos < data.count {
+        let tag = try r.varint()
+        let num = Int(tag >> 3)
+        switch Int(tag & 7) {
+        case 0: _ = try r.varint()
+        case 2:
+            let v = try r.bytesField()
+            switch num {
+            case 1: name = String(decoding: v, as: UTF8.self)
+            case 2: rawFields.append(v)
+            case 3: nested.append(v)
+            case 7: options = v
+            default: break
+            }
+        case 1: _ = try r.take(8)
+        case 5: _ = try r.take(4)
+        default: throw _fail("unsupported wire type")
+        }
+    }
+    let fullName = prefix.isEmpty ? name : "\(prefix).\(name)"
+    let model = SMsg(fullName)
+    if let options = options {
+        var ordr = SReader(buf: options)
+        while ordr.pos < options.count {
+            let tag = try ordr.varint()
+            let num = Int(tag >> 3)
+            switch Int(tag & 7) {
+            case 0:
+                let ov = try ordr.varint()
+                if num == 7 && ov != 0 { model.mapEntry = true }
+            case 2: _ = try ordr.bytesField()
+            case 1: _ = try ordr.take(8)
+            case 5: _ = try ordr.take(4)
+            default: throw _fail("unsupported wire type")
+            }
+        }
+    }
+    file.messages["." + fullName] = model
+    for b in rawFields {
+        let f = try _parseField(b)
+        model.fields[f.number] = f
+    }
+    for b in nested { try _parseMessage(fullName, b, file) }
+}
+
+private func _parseDescriptorSet(_ data: [UInt8]) throws -> SFile {
+    let file = SFile()
+    var r = SReader(buf: data)
+    while r.pos < data.count {
+        let tag = try r.varint()
+        let num = Int(tag >> 3)
+        switch Int(tag & 7) {
+        case 0: _ = try r.varint()
+        case 2:
+            let fileBytes = try r.bytesField()
+            if num == 1 {
+                var pkg = ""
+                var msgs: [[UInt8]] = []
+                var fr = SReader(buf: fileBytes)
+                while fr.pos < fileBytes.count {
+                    let t2 = try fr.varint()
+                    let n2 = Int(t2 >> 3)
+                    switch Int(t2 & 7) {
+                    case 0: _ = try fr.varint()
+                    case 2:
+                        let v = try fr.bytesField()
+                        if n2 == 2 { pkg = String(decoding: v, as: UTF8.self) }
+                        else if n2 == 4 { msgs.append(v) }
+                    case 1: _ = try fr.take(8)
+                    case 5: _ = try fr.take(4)
+                    default: throw _fail("unsupported wire type")
+                    }
+                }
+                for m in msgs { try _parseMessage(pkg, m, file) }
+            }
+        case 1: _ = try r.take(8)
+        case 5: _ = try r.take(4)
+        default: throw _fail("unsupported wire type")
+        }
+    }
+    return file
+}
+
+private func _zigzagDecode(_ v: UInt64) -> Int64 {
+    Int64(bitPattern: (v >> 1)) ^ -Int64(v & 1)
+}
+
+private func _u32(_ b: [UInt8], _ off: Int) throws -> UInt64 {
+    if off + 4 > b.count { throw _fail("struct codec: out of bounds") }
+    return UInt64(b[off]) | (UInt64(b[off + 1]) << 8) | (UInt64(b[off + 2]) << 16) | (UInt64(b[off + 3]) << 24)
+}
+
+private func _u64(_ b: [UInt8], _ off: Int) throws -> UInt64 {
+    if off + 8 > b.count { throw _fail("struct codec: out of bounds") }
+    var v: UInt64 = 0
+    for i in 0..<8 { v |= UInt64(b[off + i]) << (8 * i) }
+    return v
+}
+
+private func _decodeValueS(_ f: SField, _ wire: Int, _ raw: Any, _ fm: SFile) throws -> SValue {
+    switch wire {
+    case 0:
+        let v = raw as! UInt64
+        switch f.type {
+        case T_BOOL: return .boolean(v != 0)
+        case T_SINT32, T_SINT64: return .i64(_zigzagDecode(v))
+        case T_INT32, T_ENUM: return .i64(Int64(Int32(bitPattern: UInt32(truncatingIfNeeded: v))))
+        case T_UINT32: return .u64(v & 0xffffffff)
+        case T_INT64: return .i64(Int64(bitPattern: v))
+        default: return .u64(v)
+        }
+    case 1:
+        let b = raw as! [UInt8]
+        if f.type == T_DOUBLE { return .dbl(Double(bitPattern: try _u64(b, 0))) }
+        if f.type == T_SFIXED64 { return .i64(Int64(bitPattern: try _u64(b, 0))) }
+        return .u64(try _u64(b, 0))
+    case 5:
+        let b = raw as! [UInt8]
+        if f.type == T_FLOAT { return .dbl(Double(Float(bitPattern: UInt32(try _u32(b, 0))))) }
+        if f.type == T_SFIXED32 { return .i64(Int64(Int32(bitPattern: UInt32(try _u32(b, 0))))) }
+        return .u64(try _u32(b, 0))
+    default:
+        let b = raw as! [UInt8]
+        switch f.type {
+        case T_STRING: return .str(String(decoding: b, as: UTF8.self))
+        case T_MESSAGE: return .msg(try _decodeGenericS(fm.messages[f.typeName]!, b, fm))
+        default: return .bytes(b)
+        }
+    }
+}
+
+private func _decodePacked(_ f: SField, _ data: [UInt8], _ fm: SFile) throws -> [SValue] {
+    var out: [SValue] = []
+    if f.type == T_DOUBLE || f.type == T_FIXED64 || f.type == T_SFIXED64 {
+        var i = 0
+        while i + 8 <= data.count { out.append(try _decodeValueS(f, 1, Array(data[i..<(i + 8)]), fm)); i += 8 }
+    } else if f.type == T_FLOAT || f.type == T_FIXED32 || f.type == T_SFIXED32 {
+        var i = 0
+        while i + 4 <= data.count { out.append(try _decodeValueS(f, 5, Array(data[i..<(i + 4)]), fm)); i += 4 }
+    } else {
+        var r = SReader(buf: data)
+        while r.pos < data.count { out.append(try _decodeValueS(f, 0, try r.varint(), fm)) }
+    }
+    return out
+}
+
+private func _decodeGenericS(_ model: SMsg, _ data: [UInt8], _ fm: SFile) throws -> SGeneric {
+    let msg = SGeneric()
+    var r = SReader(buf: data)
+    while r.pos < data.count {
+        let start = r.pos
+        let tag = try r.varint()
+        let num = Int(tag >> 3)
+        let wire = Int(tag & 7)
+        var raw: Any = UInt64(0)
+        switch wire {
+        case 0: raw = try r.varint()
+        case 2: raw = try r.bytesField()
+        case 1: raw = try r.take(8)
+        case 5: raw = try r.take(4)
+        default: throw _fail("unsupported wire type \(wire)")
+        }
+        let chunk = Array(data[start..<r.pos])
+        guard let f = model.fields[num] else { msg.unknown.append(chunk); continue }
+        if f.repeated && wire == 2 && f.type != T_STRING && f.type != T_BYTES && f.type != T_MESSAGE && f.type != T_GROUP {
+            for v in try _decodePacked(f, raw as! [UInt8], fm) { msg.add(num, v) }
+        } else {
+            msg.add(num, try _decodeValueS(f, wire, raw, fm))
+        }
+    }
+    return msg
+}
+
+private func _encodeVarint(_ out: inout [UInt8], _ value: UInt64) {
+    var v = value
+    while (v & ~UInt64(0x7f)) != 0 {
+        out.append(UInt8((v & 0x7f) | 0x80))
+        v >>= 7
+    }
+    out.append(UInt8(v & 0xff))
+}
+
+private func _wireType(_ t: Int) -> Int {
+    switch t {
+    case T_INT64, T_UINT64, T_INT32, T_BOOL, T_UINT32, T_ENUM, T_SINT32, T_SINT64: return 0
+    case T_FIXED64, T_SFIXED64, T_DOUBLE: return 1
+    case T_STRING, T_MESSAGE, T_BYTES, T_GROUP: return 2
+    default: return 5
+    }
+}
+
+private func _asU64(_ v: SValue) -> UInt64 {
+    switch v {
+    case .i64(let x): return UInt64(bitPattern: x)
+    case .u64(let x): return x
+    case .boolean(let b): return b ? 1 : 0
+    case .dbl(let d): return UInt64(bitPattern: Int64(d))
+    default: return 0
+    }
+}
+
+private func _asI64(_ v: SValue) -> Int64 { Int64(bitPattern: _asU64(v)) }
+
+private func _append32(_ out: inout [UInt8], _ v: UInt64) {
+    for i in 0..<4 { out.append(UInt8((v >> (8 * i)) & 0xff)) }
+}
+
+private func _append64(_ out: inout [UInt8], _ v: UInt64) {
+    for i in 0..<8 { out.append(UInt8((v >> (8 * i)) & 0xff)) }
+}
+
+private func _encodeValue(_ out: inout [UInt8], _ f: SField, _ v: SValue, _ fm: SFile) throws {
+    let wire = _wireType(f.type)
+    _encodeVarint(&out, UInt64((f.number << 3) | wire))
+    switch wire {
+    case 0:
+        switch f.type {
+        case T_SINT32:
+            let sv = Int64(Int32(bitPattern: UInt32(truncatingIfNeeded: _asU64(v))))
+            _encodeVarint(&out, UInt64(bitPattern: (sv << 1) ^ (sv >> 31)) & 0xffffffff)
+        case T_SINT64:
+            let sv = _asI64(v)
+            _encodeVarint(&out, UInt64(bitPattern: (sv << 1) ^ (sv >> 63)))
+        case T_BOOL:
+            _encodeVarint(&out, _asU64(v) != 0 ? 1 : 0)
+        default:
+            _encodeVarint(&out, _asU64(v))
+        }
+    case 1:
+        if f.type == T_DOUBLE {
+            if case .dbl(let d) = v { _append64(&out, d.bitPattern) } else { _append64(&out, 0) }
+        } else { _append64(&out, _asU64(v)) }
+    case 5:
+        if f.type == T_FLOAT {
+            if case .dbl(let d) = v { _append32(&out, UInt64(Float(d).bitPattern)) } else { _append32(&out, 0) }
+        } else { _append32(&out, _asU64(v) & 0xffffffff) }
+    default:
+        var data: [UInt8] = []
+        switch f.type {
+        case T_STRING:
+            if case .str(let s) = v { data = Array(s.utf8) }
+        case T_MESSAGE:
+            if case .msg(let m) = v { data = try _encodeGeneric(fm.messages[f.typeName]!, m, fm) }
+        default:
+            if case .bytes(let b) = v { data = b }
+        }
+        _encodeVarint(&out, UInt64(data.count))
+        out.append(contentsOf: data)
+    }
+}
+
+private func _encodeGeneric(_ model: SMsg, _ msg: SGeneric, _ fm: SFile) throws -> [UInt8] {
+    var out: [UInt8] = []
+    for num in msg.values.keys.sorted() {
+        guard let f = model.fields[num] else { throw _fail("unknown field \(num) for \(model.fullName)") }
+        let values = msg.values[num]!
+        if f.repeated {
+            for v in values { try _encodeValue(&out, f, v, fm) }
+        } else if let first = values.first {
+            try _encodeValue(&out, f, first, fm)
+        }
+    }
+    for c in msg.unknown { out.append(contentsOf: c) }
+    return out
+}
+
+private func _fingerprint(_ fullName: String) -> UInt64 {
+    var h: UInt64 = 2166136261
+    for b in Array(fullName.utf8) { h = ((h ^ UInt64(b)) * 16777619) & 0xffffffff }
+    return h
+}
+
+private func _isFixed32(_ f: SField) -> Bool { f.type == T_FLOAT || f.type == T_FIXED32 || f.type == T_SFIXED32 }
+private func _slotSize(_ f: SField) -> Int { _isFixed32(f) ? 4 : 8 }
+
+private func _bytesOf(_ f: SField, _ v: SValue) throws -> [UInt8] {
+    switch v {
+    case .str(let s): return Array(s.utf8)
+    case .bytes(let b): return b
+    default: throw _fail("value does not match field \(f.name) type \(f.type)")
+    }
+}
+
+private func _nonzero(_ f: SField, _ v: SValue) -> Bool {
+    switch f.type {
+    case T_STRING:
+        if case .str(let s) = v { return !s.isEmpty }
+        return false
+    case T_BYTES:
+        if case .bytes(let b) = v { return !b.isEmpty }
+        return false
+    case T_MESSAGE:
+        if case .msg = v { return true }
+        return false
+    case T_BOOL:
+        if case .boolean(let b) = v { return b }
+        return _asU64(v) != 0
+    case T_FLOAT, T_DOUBLE:
+        if case .dbl(let d) = v { return d != 0.0 }
+        return false
+    default:
+        return _asU64(v) != 0
+    }
+}
+
+private func _sortedFields(_ model: SMsg) -> [SField] {
+    model.fields.keys.sorted().map { model.fields[$0]! }
+}
+
+private func _mapModel(_ f: SField, _ fm: SFile) -> SMsg? {
+    if f.type != T_MESSAGE || !f.repeated { return nil }
+    let m = fm.messages[f.typeName]
+    return (m != nil && m!.mapEntry) ? m : nil
+}
+
+private func _defaultValue(_ f: SField) -> SValue {
+    switch f.type {
+    case T_STRING: return .str("")
+    case T_BYTES: return .bytes([])
+    case T_BOOL: return .boolean(false)
+    case T_FLOAT, T_DOUBLE: return .dbl(0.0)
+    case T_MESSAGE: return .msg(SGeneric())
+    default: return .u64(0)
+    }
+}
+
+private func _keyCmp(_ kf: SField, _ a: SValue, _ b: SValue) -> Int {
+    if kf.type == T_STRING {
+        let x = { if case .str(let s) = a { return s }; return "" }()
+        let y = { if case .str(let s) = b { return s }; return "" }()
+        return x == y ? 0 : (x < y ? -1 : 1)
+    }
+    if kf.type == T_BOOL || kf.type == T_UINT32 || kf.type == T_UINT64 || kf.type == T_FIXED32 || kf.type == T_FIXED64 {
+        let av = _asU64(a); let bv = _asU64(b)
+        return av == bv ? 0 : (av < bv ? -1 : 1)
+    }
+    let av = _asI64(a); let bv = _asI64(b)
+    return av == bv ? 0 : (av < bv ? -1 : 1)
+}
+
+private func _mapEntries(_ f: SField, _ values: [SValue], _ em: SMsg) throws -> [(SValue, SValue)] {
+    let kf = em.fields[1]!
+    let vf = em.fields[2]!
+    var entries: [(SValue, SValue)] = []
+    for e in values {
+        guard case .msg(let entry) = e else { throw _fail("map field \(f.name) entry not a message") }
+        guard let key = entry.get(1) else { throw _fail("map field \(f.name) entry missing key") }
+        entries.append((key, entry.get(2) ?? _defaultValue(vf)))
+    }
+    entries.sort { _keyCmp(kf, $0.0, $1.0) < 0 }
+    return entries
+}
+
+private func _valueSize(_ f: SField, _ v: SValue, _ fm: SFile) throws -> Int {
+    switch f.type {
+    case T_STRING, T_BYTES: return try _bytesOf(f, v).count
+    case T_MESSAGE:
+        guard case .msg(let m) = v else { throw _fail("value does not match field \(f.name) type \(f.type)") }
+        return try _encodeStruct(fm.messages[f.typeName]!, m, fm).count
+    default: return _isFixed32(f) ? 4 : 8
+    }
+}
+
+private func _fieldPresent(_ f: SField, _ msg: SGeneric, _ fm: SFile) -> Bool {
+    let values = msg.getAll(f.number)
+    if _mapModel(f, fm) != nil || f.repeated { return !values.isEmpty }
+    return !values.isEmpty && _nonzero(f, values[0])
+}
+
+private func _structSize(_ model: SMsg, _ msg: SGeneric, _ fm: SFile) throws -> Int {
+    let fields = _sortedFields(model)
+    let words = Swift.max(1, (fields.count + 31) / 32)
+    var size = 12 + 4 * words + fields.map { _slotSize($0) }.reduce(0, +)
+    for f in fields {
+        let values = msg.getAll(f.number)
+        if let em = _mapModel(f, fm) {
+            let kf = em.fields[1]!
+            let vf = em.fields[2]!
+            for (k, v) in try _mapEntries(f, values, em) {
+                size += 8 + (try _valueSize(kf, k, fm)) + (try _valueSize(vf, v, fm))
+            }
+        } else if f.repeated {
+            if !values.isEmpty {
+                if f.type == T_STRING || f.type == T_BYTES || f.type == T_MESSAGE { size += 8 * values.count }
+                for v in values { size += try _valueSize(f, v, fm) }
+            }
+        } else if (f.type == T_STRING || f.type == T_BYTES || f.type == T_MESSAGE) && _fieldPresent(f, msg, fm) {
+            size += try _valueSize(f, values[0], fm)
+        }
+    }
+    for c in msg.unknown { size += c.count }
+    return size
+}
+
+private func _putU32(_ buf: inout [UInt8], _ off: Int, _ v: UInt64) {
+    for i in 0..<4 { buf[off + i] = UInt8((v >> (8 * i)) & 0xff) }
+}
+
+private func _putU64(_ buf: inout [UInt8], _ off: Int, _ v: UInt64) {
+    for i in 0..<8 { buf[off + i] = UInt8((v >> (8 * i)) & 0xff) }
+}
+
+private func _writeScalar(_ buf: inout [UInt8], _ off: Int, _ f: SField, _ v: SValue) {
+    switch f.type {
+    case T_FLOAT:
+        if case .dbl(let d) = v { _putU32(&buf, off, UInt64(Float(d).bitPattern)) }
+    case T_FIXED32: _putU32(&buf, off, _asU64(v))
+    case T_SFIXED32: _putU32(&buf, off, _asU64(v) & 0xffffffff)
+    case T_DOUBLE:
+        if case .dbl(let d) = v { _putU64(&buf, off, d.bitPattern) }
+    case T_FIXED64, T_SFIXED64: _putU64(&buf, off, _asU64(v))
+    case T_BOOL: buf[off] = _asU64(v) != 0 ? 1 : 0
+    default: _putU64(&buf, off, _asU64(v))
+    }
+}
+
+private func _writeValue(_ buf: inout [UInt8], _ off: Int, _ f: SField, _ v: SValue, _ fm: SFile) throws {
+    switch f.type {
+    case T_STRING, T_BYTES:
+        let b = try _bytesOf(f, v)
+        buf.replaceSubrange(off..<(off + b.count), with: b)
+    case T_MESSAGE:
+        guard case .msg(let m) = v else { throw _fail("value does not match field \(f.name) type \(f.type)") }
+        let enc = try _encodeStruct(fm.messages[f.typeName]!, m, fm)
+        buf.replaceSubrange(off..<(off + enc.count), with: enc)
+    default:
+        _writeScalar(&buf, off, f, v)
+    }
+}
+
+private func _encodeStruct(_ model: SMsg, _ msg: SGeneric, _ fm: SFile) throws -> [UInt8] {
+    let fields = _sortedFields(model)
+    let words = Swift.max(1, (fields.count + 31) / 32)
+    let header = 12 + 4 * words
+    var offsets: [Int] = []
+    var cursor = header
+    for f in fields { offsets.append(cursor); cursor += _slotSize(f) }
+    let fixedEnd = cursor
+    var buf = [UInt8](repeating: 0, count: try _structSize(model, msg, fm))
+    buf.replaceSubrange(0..<4, with: Array("DCS1".utf8))
+    _putU32(&buf, 4, UInt64(buf.count))
+    _putU32(&buf, 8, _fingerprint(model.fullName))
+    for i in fields.indices {
+        if _fieldPresent(fields[i], msg, fm) {
+            let at = 12 + 4 * (i / 32)
+            _putU32(&buf, at, (try _u32(buf, at)) | (UInt64(1) << (i % 32)))
+        }
+    }
+    var vp = fixedEnd
+    for i in fields.indices {
+        let f = fields[i]
+        let off = offsets[i]
+        let values = msg.getAll(f.number)
+        if let em = _mapModel(f, fm) {
+            if !values.isEmpty {
+                let kf = em.fields[1]!
+                let vf = em.fields[2]!
+                _putU32(&buf, off, UInt64(vp))
+                _putU32(&buf, off + 4, UInt64(values.count))
+                for (k, v) in try _mapEntries(f, values, em) {
+                    let klen = try _valueSize(kf, k, fm)
+                    let vlen = try _valueSize(vf, v, fm)
+                    _putU32(&buf, vp, UInt64(klen)); _putU32(&buf, vp + 4, UInt64(vlen)); vp += 8
+                    try _writeValue(&buf, vp, kf, k, fm); vp += klen
+                    try _writeValue(&buf, vp, vf, v, fm); vp += vlen
+                }
+            }
+        } else if f.repeated {
+            if !values.isEmpty {
+                _putU32(&buf, off, UInt64(vp))
+                _putU32(&buf, off + 4, UInt64(values.count))
+                if f.type == T_STRING || f.type == T_BYTES || f.type == T_MESSAGE {
+                    var doff = vp + 8 * values.count
+                    for v in values {
+                        _putU32(&buf, vp, UInt64(doff)); _putU32(&buf, vp + 4, UInt64(try _valueSize(f, v, fm)))
+                        doff += try _valueSize(f, v, fm); vp += 8
+                    }
+                    for v in values { try _writeValue(&buf, vp, f, v, fm); vp += try _valueSize(f, v, fm) }
+                } else {
+                    for v in values { _writeScalar(&buf, vp, f, v); vp += _slotSize(f) }
+                }
+            }
+        } else if f.type == T_STRING || f.type == T_BYTES || f.type == T_MESSAGE {
+            if _fieldPresent(f, msg, fm) {
+                _putU32(&buf, off, UInt64(vp))
+                _putU32(&buf, off + 4, UInt64(try _valueSize(f, values[0], fm)))
+                try _writeValue(&buf, vp, f, values[0], fm)
+                vp += try _valueSize(f, values[0], fm)
+            }
+        } else if _fieldPresent(f, msg, fm) {
+            _writeScalar(&buf, off, f, values[0])
+        }
+    }
+    for chunk in msg.unknown {
+        buf.replaceSubrange(vp..<(vp + chunk.count), with: chunk)
+        vp += chunk.count
+    }
+    return buf
+}
+
+private func _readScalar(_ data: [UInt8], _ off: Int, _ f: SField) throws -> SValue {
+    switch f.type {
+    case T_FLOAT: return .dbl(Double(Float(bitPattern: UInt32(try _u32(data, off)))))
+    case T_FIXED32: return .u64(try _u32(data, off))
+    case T_SFIXED32: return .i64(Int64(Int32(bitPattern: UInt32(try _u32(data, off)))))
+    case T_DOUBLE: return .dbl(Double(bitPattern: try _u64(data, off)))
+    case T_FIXED64, T_SFIXED64: return .i64(Int64(bitPattern: try _u64(data, off)))
+    case T_BOOL: return .boolean(data[off] != 0)
+    case T_ENUM, T_INT32, T_SINT32: return .i64(Int64(Int32(bitPattern: UInt32(truncatingIfNeeded: try _u64(data, off)))))
+    case T_INT64, T_SINT64: return .i64(Int64(bitPattern: try _u64(data, off)))
+    case T_UINT32: return .u64((try _u64(data, off)) & 0xffffffff)
+    default: return .u64(try _u64(data, off))
+    }
+}
+
+private func _readValue(_ data: [UInt8], _ off: Int, _ len: Int, _ f: SField, _ fm: SFile) throws -> SValue {
+    if off + len > data.count { throw _fail("struct codec: out of bounds") }
+    switch f.type {
+    case T_STRING: return .str(String(decoding: Array(data[off..<(off + len)]), as: UTF8.self))
+    case T_BYTES: return .bytes(Array(data[off..<(off + len)]))
+    case T_MESSAGE:
+        if len == 0 { return .msg(SGeneric()) }
+        return .msg(try _decodeStruct(fm.messages[f.typeName]!, Array(data[off..<(off + len)]), fm))
+    default: return try _readScalar(data, off, f)
+    }
+}
+
+private func _decodeStruct(_ model: SMsg, _ data: [UInt8], _ fm: SFile) throws -> SGeneric {
+    let fields = _sortedFields(model)
+    let words = Swift.max(1, (fields.count + 31) / 32)
+    let header = 12 + 4 * words
+    if data.count < header || Array(data[0..<4]) != Array("DCS1".utf8) { throw _fail("struct codec: bad header") }
+    if (try _u32(data, 8)) != _fingerprint(model.fullName) { throw _fail("struct codec: schema fingerprint mismatch") }
+    if (try _u32(data, 4)) != UInt64(data.count) { throw _fail("struct codec: length mismatch") }
+    var offsets: [Int] = []
+    var cursor = header
+    for f in fields { offsets.append(cursor); cursor += _slotSize(f) }
+    let msg = SGeneric()
+    var vend = cursor
+    for i in fields.indices {
+        if ((try _u32(data, 12 + 4 * (i / 32))) & (UInt64(1) << (i % 32))) == 0 { continue }
+        let f = fields[i]
+        let off = offsets[i]
+        if let em = _mapModel(f, fm) {
+            let kf = em.fields[1]!
+            let vf = em.fields[2]!
+            let base = Int(try _u32(data, off))
+            let n = Int(try _u32(data, off + 4))
+            var p = base
+            for _ in 0..<n {
+                let kl = Int(try _u32(data, p)); let vl = Int(try _u32(data, p + 4)); p += 8
+                let key = try _readValue(data, p, kl, kf, fm)
+                let v = try _readValue(data, p + kl, vl, vf, fm)
+                let entry = SGeneric(); entry.set(1, key); entry.set(2, v)
+                msg.add(f.number, .msg(entry))
+                p += kl + vl
+            }
+            vend = Swift.max(vend, p)
+        } else if f.repeated {
+            let base = Int(try _u32(data, off))
+            let n = Int(try _u32(data, off + 4))
+            if f.type == T_STRING || f.type == T_BYTES || f.type == T_MESSAGE {
+                for j in 0..<n {
+                    let eo = Int(try _u32(data, base + 8 * j)); let el = Int(try _u32(data, base + 8 * j + 4))
+                    if el > 0 || f.type != T_MESSAGE { msg.add(f.number, try _readValue(data, eo, el, f, fm)) }
+                    vend = Swift.max(vend, eo + el)
+                }
+            } else {
+                for j in 0..<n { msg.add(f.number, try _readScalar(data, base + j * _slotSize(f), f)) }
+                vend = Swift.max(vend, base + n * _slotSize(f))
+            }
+        } else if f.type == T_STRING || f.type == T_BYTES || f.type == T_MESSAGE {
+            let base = Int(try _u32(data, off)); let len = Int(try _u32(data, off + 4))
+            msg.add(f.number, try _readValue(data, base, len, f, fm))
+            vend = Swift.max(vend, base + len)
+        } else {
+            msg.add(f.number, try _readScalar(data, off, f))
+        }
+    }
+    if vend < data.count { msg.unknown.append(Array(data[vend..<data.count])) }
+    return msg
+}
+
+/// Pure struct transcoder: protobuf <-> struct bytes for
+/// `typeName` under the FileDescriptorSet bytes `descriptor`.
+public enum Structdc {
+    public static func transcode(_ descriptor: [UInt8], _ typeName: String, _ data: [UInt8], _ encode: Bool) throws -> [UInt8] {
+        let fm = try _parseDescriptorSet(descriptor)
+        guard let model = fm.messages[typeName] ?? fm.messages["." + typeName] else {
+            throw _fail("unknown message type \(typeName)")
+        }
+        if encode { return try _encodeStruct(model, try _decodeGenericS(model, data, fm), fm) }
+        return try _encodeGeneric(model, try _decodeStruct(model, data, fm), fm)
+    }
+}
+GRPC_RUNTIME_EOF
+)

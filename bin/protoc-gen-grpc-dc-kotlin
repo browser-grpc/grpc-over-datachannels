@@ -9197,7 +9197,6 @@
        (if (ref map-entry)
          (then "")
          (else
-          (fmt "~a#if canImport(Foundation)\n" (arg 1))
           (fmt
            "~a    func MarshalStruct() throws -> [UInt8] { ~aStruct.Marshal(self) }\n"
            (arg 1)
@@ -9219,8 +9218,7 @@
           (fmt
            "~a        unknownFields = _s.unknownFields\n~a    }\n"
            (arg 1)
-           (arg 1))
-          (fmt "~a#endif\n" (arg 1)))))
+           (arg 1)))))
       (else ""))
     (each nested (call swiftPbMessage (arg 0) (fmt "~a    " (arg 1)) "final"))
     (each enums (call swiftPbNestedEnum (fmt "~a    " (arg 1))))

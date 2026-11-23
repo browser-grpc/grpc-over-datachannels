@@ -902,8 +902,10 @@ test-swift-wasm-browser:
 		-enable-experimental-feature Embedded \
 		-enable-experimental-feature Extern -wmo -O \
 		-c wasm/swift/bridge.swift wasm/swift/EchoWasmGrpcDc.swift \
-		swift/grpcdc/Wire.swift swift/examples/Pb.swift \
-		swift/examples/EchoMessages.swift wasm/swift/echo_server.swift \
+		swift/grpcdc/Wire.swift swift/grpcdc/structdc.swift swift/examples/Pb.swift \
+		swift/examples/EchoMessages.swift swift/examples/EchoRequestStruct.swift \
+		swift/examples/EchoResponseStruct.swift swift/examples/StructDcBridgePure.swift \
+		wasm/swift/echo_server.swift \
 		-o wasm/swift/build/echo_swift_server.o
 	$(WASM_LD) --no-entry --allow-undefined \
 		--export=run_echo_server --export=wasm_alloc --export=wasm_free \
@@ -919,8 +921,10 @@ test-swift-wasm-browser:
 		-enable-experimental-feature Embedded \
 		-enable-experimental-feature Extern -wmo -O \
 		-c wasm/swift/bridge.swift wasm/swift/EchoWasmGrpcDc.swift \
-		swift/grpcdc/Wire.swift swift/examples/Pb.swift \
-		swift/examples/EchoMessages.swift wasm/swift/echo_stream_server.swift \
+		swift/grpcdc/Wire.swift swift/grpcdc/structdc.swift swift/examples/Pb.swift \
+		swift/examples/EchoMessages.swift swift/examples/EchoRequestStruct.swift \
+		swift/examples/EchoResponseStruct.swift swift/examples/StructDcBridgePure.swift \
+		wasm/swift/echo_stream_server.swift \
 		-o wasm/swift/build/echo_swift_stream_server.o
 	$(WASM_LD) --no-entry --allow-undefined \
 		--export=run_echo_stream_server --export=wasm_alloc --export=wasm_free \

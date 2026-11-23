@@ -39,6 +39,7 @@ Browser legs run via the `test-wasm*` and `test-*-wasm-browser` make targets (Ch
 - [`MemoryTransport.kt`](kotlin/grpcdc/MemoryTransport.kt) — In-memory transport
 - [`Server.kt`](kotlin/grpcdc/Server.kt) — Generated suite/example
 - [`Status.kt`](kotlin/grpcdc/Status.kt) — Generated suite/example
+- [`StructDc.kt`](kotlin/grpcdc/StructDc.kt) — Generated suite/example
 - [`Transport.kt`](kotlin/grpcdc/Transport.kt) — Generated suite/example
 - [`Wire.kt`](kotlin/grpcdc/Wire.kt) — Generated suite/example
 - [`EchoGrpcDc.kt`](kotlin/native/EchoGrpcDc.kt) — Echo: all four call shapes

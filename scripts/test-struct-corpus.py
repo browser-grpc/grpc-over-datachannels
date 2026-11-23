@@ -12,7 +12,7 @@ CORPUS = os.path.join(ROOT, "conformance", "struct")
 PROTO = os.path.join(CORPUS, "msgs.proto")
 GOLDEN = open(os.path.join(CORPUS, "golden.hex")).read().strip()
 
-ADMITTED = ["go", "rust", "rust-shared", "java", "kotlin", "scala", "swift", "dart", "csharp", "c", "cpp", "zig", "js", "python", "lua", "php", "ruby", "dart-pure", "scala-pure", "kotlin-pure"]
+ADMITTED = ["go", "rust", "rust-shared", "java", "kotlin", "scala", "swift", "dart", "csharp", "c", "cpp", "zig", "js", "python", "lua", "php", "ruby", "dart-pure", "scala-pure", "kotlin-pure", "swift-pure"]
 
 
 def run(*args, **kw):
@@ -178,6 +178,27 @@ def check_scala_pure(tmp):
     run("scala", "-cp", jar, "shapes.StructDriverPure", GOLDEN, desc_hex, env=jvm_env())
 
 
+def check_swift_pure(tmp):
+    # The Swift/Wasm (no-cdylib) StructDc: StructDcBridgePure
+    # over grpcdc/structdc.swift against the Go golden.
+    import glob as _g
+    d = os.path.join(tmp, "swift"); protoc("swift", d)
+    shutil.copy(os.path.join(CORPUS, "drivers", "swift", "main.swift"), d)
+    files = []
+    for dirpath, _dirs, names in os.walk(d):
+        for n in names:
+            if n.endswith(".swift") and "GrpcDc" not in n and n != "StructDcBridge.swift":
+                files.append(os.path.join(dirpath, n))
+    out = os.path.join(tmp, "swiftdriver")
+    run("swiftc", "-swift-version", "5",
+        os.path.join(ROOT, "swift", "grpcdc", "structdc.swift"),
+        os.path.join(ROOT, "swift", "grpcdc", "Status.swift"),
+        os.path.join(ROOT, "swift", "grpcdc", "Wire.swift"),
+        os.path.join(ROOT, "swift", "grpcdc", "Transport.swift"),
+        *sorted(files), "-o", out)
+    run(out, GOLDEN)
+
+
 def check_swift(tmp):
     import glob as _g
     d = os.path.join(tmp, "swift"); protoc("swift", d)
@@ -185,7 +206,7 @@ def check_swift(tmp):
     files = []
     for dirpath, _dirs, names in os.walk(d):
         for n in names:
-            if n.endswith(".swift") and "GrpcDc" not in n:
+            if n.endswith(".swift") and "GrpcDc" not in n and n != "StructDcBridgePure.swift":
                 files.append(os.path.join(dirpath, n))
     out = os.path.join(tmp, "swiftdriver")
     lib = cdylib_dir()
@@ -343,7 +364,7 @@ def check_rust_shared(tmp):
 CHECKS = {"go": check_go, "rust": check_rust, "rust-shared": check_rust_shared, "java": check_java,
           "kotlin": check_kotlin, "scala": check_scala, "swift": check_swift,
           "dart": check_dart, "csharp": check_csharp, "c": check_c, "js": check_js, "python": check_python,
-          "cpp": check_cpp, "zig": check_zig, "lua": check_lua, "php": check_php, "ruby": check_ruby, "dart-pure": check_dart_pure, "scala-pure": check_scala_pure, "kotlin-pure": check_kotlin_pure}
+          "cpp": check_cpp, "zig": check_zig, "lua": check_lua, "php": check_php, "ruby": check_ruby, "dart-pure": check_dart_pure, "scala-pure": check_scala_pure, "kotlin-pure": check_kotlin_pure, "swift-pure": check_swift_pure}
 
 
 def main():
