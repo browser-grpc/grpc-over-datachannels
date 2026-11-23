@@ -12,7 +12,7 @@ CORPUS = os.path.join(ROOT, "conformance", "struct")
 PROTO = os.path.join(CORPUS, "msgs.proto")
 GOLDEN = open(os.path.join(CORPUS, "golden.hex")).read().strip()
 
-ADMITTED = ["go", "rust", "rust-shared", "java", "kotlin", "scala", "swift", "dart", "csharp", "c", "cpp", "zig", "js", "python", "lua", "php", "ruby", "dart-pure"]
+ADMITTED = ["go", "rust", "rust-shared", "java", "kotlin", "scala", "swift", "dart", "csharp", "c", "cpp", "zig", "js", "python", "lua", "php", "ruby", "dart-pure", "scala-pure"]
 
 
 def run(*args, **kw):
@@ -131,6 +131,29 @@ def check_scala(tmp):
     import glob as _g
     run("scalac", "-d", jar, *sorted(_g.glob(os.path.join(ROOT, "scala", "grpcdc", "*.scala"))), *files)
     run("scala", "-cp", jar, "shapes.StructDriver", GOLDEN, env=jvm_env())
+
+
+def check_scala_pure(tmp):
+    # The Scala.js (no-JNI) StructDc: pure transcoder against the
+    # Go golden, compiled and run on the JVM.
+    d = os.path.join(tmp, "scala"); protoc("scala", d)
+    shutil.copy(os.path.join(CORPUS, "drivers", "scala-pure", "Main.scala"), d)
+    desc = os.path.join(tmp, "desc.bin")
+    run("protoc", "--descriptor_set_out=" + desc, "-I", CORPUS, PROTO)
+    desc_hex = open(desc, "rb").read().hex()
+    files = []
+    for dirpath, _dirs, names in os.walk(d):
+        for n in names:
+            if n.endswith(".scala") and "GrpcDc" not in n:
+                files.append(os.path.join(dirpath, n))
+    jar = os.path.join(tmp, "scala.jar")
+    import glob as _g
+    runtime = [f for f in sorted(_g.glob(os.path.join(ROOT, "scala", "grpcdc", "*.scala")))
+               if not f.endswith("StructDc.scala")]
+    run("scalac", "-d", jar, *runtime,
+        os.path.join(ROOT, "wasm", "scalajs", "StructDcStub.scala"),
+        *sorted(files))
+    run("scala", "-cp", jar, "shapes.StructDriverPure", GOLDEN, desc_hex, env=jvm_env())
 
 
 def check_swift(tmp):
@@ -298,7 +321,7 @@ def check_rust_shared(tmp):
 CHECKS = {"go": check_go, "rust": check_rust, "rust-shared": check_rust_shared, "java": check_java,
           "kotlin": check_kotlin, "scala": check_scala, "swift": check_swift,
           "dart": check_dart, "csharp": check_csharp, "c": check_c, "js": check_js, "python": check_python,
-          "cpp": check_cpp, "zig": check_zig, "lua": check_lua, "php": check_php, "ruby": check_ruby, "dart-pure": check_dart_pure}
+          "cpp": check_cpp, "zig": check_zig, "lua": check_lua, "php": check_php, "ruby": check_ruby, "dart-pure": check_dart_pure, "scala-pure": check_scala_pure}
 
 
 def main():
