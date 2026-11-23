@@ -1,10 +1,14 @@
 // Interop oracle: our generated JS client runs the canonical
 // grpc interop cases (grpc.testing.TestService, vendored in
 // oracle/interop) against the OFFICIAL TestServiceServers —
-// grpc-java and grpc-go — no bridge, direct HTTP/2
-// (src/http2.js). Case semantics mirror grpc's
-// AbstractInteropTest. Skips when an oracle is not built
-// (Dockerfile.ci builds both).
+// grpc-java and grpc-go over direct HTTP/2 (src/http2.js), and
+// grpc-dart (google's package:grpc) through the bridge
+// (oracle/bridge.mjs dc-to-http2; stdio = DataChannel). Case
+// semantics mirror grpc's AbstractInteropTest. The dart leg
+// runs the canonical case table only: the grpc-dart server
+// registers no ORCA service and does not grade the compression
+// rows. Skips when an oracle is not built (Dockerfile.ci
+// builds all three).
 //
 // Per-call cancellation: the generated client takes an
 // AbortSignal in call options ({signal}); aborting fails the
@@ -39,6 +43,7 @@ import {
 import { createTestServiceService } from "../examples/interop/test_grpc_dc.js";
 import { Channel, Server, memoryDataChannelPair } from "../index.js";
 import { openRcaHandlers, testServiceHandlers } from "./interop_service.js";
+import { StdioChannel } from "../../oracle/bridge.mjs";
 
 // GRPC_DC_REQUIRE_ORACLE (set in the CI image, whose Dockerfile
 // builds both oracles) turns an availability skip into a hard
@@ -120,6 +125,29 @@ async function startGoTestServiceServer(t, port) {
   }
 }
 
+async function startDartTestServiceServer(t, port) {
+  const binary = `${ROOT}oracle/dart-interop/interop-server`;
+  if (!existsSync(binary)) {
+    oracleSkip(t, "dart interop server not built (cd oracle/dart-interop && dart compile exe bin/interop_server.dart -o interop-server)");
+    return false;
+  }
+  // grpc-go spells the port flag -port, grpc-dart --port.
+  const proc = spawn(binary, ["--port", String(port)], { stdio: ["ignore", "pipe", "pipe"] });
+  t.after(() => proc.kill());
+  // Poll the TCP port until the server accepts connections.
+  const deadline = Date.now() + 30000;
+  for (;;) {
+    const open = await new Promise((resolve) => {
+      const sock = connect(port, "127.0.0.1");
+      sock.once("connect", () => { sock.end(); resolve(true); });
+      sock.once("error", () => resolve(false));
+    });
+    if (open) return true;
+    if (Date.now() > deadline) throw new Error("dart TestServiceServer did not start");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+}
+
 const zeros = (n) => new Uint8Array(n);
 
 test("interop: JS client -> grpc-java TestServiceServer (HTTP/2)", { timeout: 180000 }, async (t) => {
@@ -136,6 +164,19 @@ test("interop: JS client -> grpc-go TestServiceServer (HTTP/2)", { timeout: 1800
   const channel = http2Channel(`127.0.0.1:${port}`);
   t.after(() => channel.endpoint.dataChannel.close());
   await interopCases(t, new TestServiceClient(channel), channel);
+});
+
+test("interop: JS client -> grpc-dart TestServiceServer (bridge dc-to-http2)", { timeout: 180000 }, async (t) => {
+  const port = await freePort();
+  if (!(await startDartTestServiceServer(t, port))) return;
+  const bridge = spawn(
+    "node",
+    [`${ROOT}oracle/bridge.mjs`, "dc-to-http2", "--grpc", `127.0.0.1:${port}`],
+    { stdio: ["pipe", "pipe", "inherit"] },
+  );
+  t.after(() => bridge.kill());
+  const channel = new Channel(new StdioChannel(bridge.stdout, bridge.stdin));
+  await interopCases(t, new TestServiceClient(channel), channel, false);
 });
 
 test("interop: ORCA OOB stream (OpenRcaService)", { timeout: 180000 }, async (t) => {
@@ -184,7 +225,10 @@ test("interop: ORCA OOB stream (OpenRcaService)", { timeout: 180000 }, async (t)
   });
 });
 
-async function interopCases(t, client, channel) {
+// Runs the canonical case table; with full it also runs the
+// ORCA per-RPC and compression rows (graded only on the
+// grpc-go/grpc-java legs — see the grpc-dart test above).
+async function interopCases(t, client, channel, full = true) {
   await t.test("empty_unary", async () => {
     const resp = await client.emptyCall(new Empty());
     assert.ok(resp instanceof Empty);
@@ -249,6 +293,7 @@ async function interopCases(t, client, channel) {
     assert.equal(n, 0);
   });
 
+  if (full) {
   await t.test("orca_per_rpc", async () => {
     // Upstream orca_per_rpc: the per-request TestOrcaReport
     // comes back as the serialized OrcaLoadReport in the
@@ -327,6 +372,7 @@ async function interopCases(t, client, channel) {
     }
     assert.equal(i, sizes.length);
   });
+  }
 
   await t.test("custom_metadata", async () => {
     // Upstream custom_metadata: echo-initial returns as
@@ -428,7 +474,13 @@ async function interopCases(t, client, channel) {
     const ac = new AbortController();
     async function* reqs() {
       yield new StreamingOutputCallRequest({
-        responseParameters: [new ResponseParameters({ size: 31415 })],
+        // Second response is interval-delayed so the server is
+        // still mid-stream when the abort lands (mirrors the
+        // Go suite's deterministic cancel shape).
+        responseParameters: [
+          new ResponseParameters({ size: 31415 }),
+          new ResponseParameters({ size: 31415, intervalUs: 500000 }),
+        ],
         payload: new Payload({ body: zeros(27182) }),
       });
     }
