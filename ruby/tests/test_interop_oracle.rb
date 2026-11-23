@@ -1,9 +1,13 @@
 # Interop client grading: the generated Ruby TestService client
 # runs the canonical grpc interop cases (generated table:
-# interop_cases_generated.rb) against the official grpc-go
-# TestServiceServer, through the bridge (dc-to-http2, stdio =
-# DataChannel). Skips when the Go server binary is not built
-# (Dockerfile.ci builds it).
+# interop_cases_generated.rb) against the official
+# TestServiceServers (grpc-go and grpc-dart), through the bridge
+# (dc-to-http2, stdio = DataChannel). Each leg skips when its
+# server binary is not built (Dockerfile.ci builds both). The
+# grpc-dart server registers only TestService (no
+# OpenRcaService) and ignores the compressed flags, so its leg
+# runs the canonical case table only; compression and ORCA run
+# on the Go leg.
 
 require "base64"
 require "open3"
@@ -278,16 +282,9 @@ module TestInteropOracle
     puts "interop case ok: orca_oob"
   end
 
-  def self.run
-    require "interop/test_grpc_dc"
-    require "interop/orca_grpc_dc"
-    require "stdio"
-
-    root = TestUtil.root
-    server_bin = File.join(root, "oracle", "go-interop", "interop-server")
-    TestUtil.skip("go interop server not built") unless File.exist?(server_bin)
+  def self.run_leg(root, server_bin, port_flag, tag, include_extras)
     port = TestUtil.free_port
-    _in, _out, server_err, server_wait = Open3.popen3(server_bin, "-port", port.to_s)
+    _in, _out, server_err, server_wait = Open3.popen3(server_bin, port_flag, port.to_s)
     Thread.new { server_err.read rescue nil }
     ready = false
     300.times do
@@ -301,7 +298,8 @@ module TestInteropOracle
     end
     unless ready
       OracleCleanup.kill(server_wait)
-      TestUtil.skip("interop server did not start")
+      puts "TestInteropOracle SKIP (#{tag} interop server did not start)"
+      return false
     end
     stdin, stdout, _stderr, bridge_wait = Open3.popen3(
       "node", File.join(root, "oracle", "bridge.mjs"),
@@ -312,12 +310,37 @@ module TestInteropOracle
       client = TestGrpcDc::TestServiceClient.new(channel)
       unimpl = TestGrpcDc::UnimplementedServiceClient.new(channel)
       run_cases(channel, client, unimpl)
-      run_compression_cases(client)
-      run_orca_cases(channel, client)
+      if include_extras
+        run_compression_cases(client)
+        run_orca_cases(channel, client)
+      end
     ensure
       OracleCleanup.kill(bridge_wait)
       OracleCleanup.kill(server_wait)
     end
+    true
+  end
+
+  def self.run
+    require "interop/test_grpc_dc"
+    require "interop/orca_grpc_dc"
+    require "stdio"
+
+    root = TestUtil.root
+    ran = false
+    go_bin = File.join(root, "oracle", "go-interop", "interop-server")
+    if File.exist?(go_bin)
+      ran = run_leg(root, go_bin, "-port", "go", true) || ran
+    else
+      puts "TestInteropOracle SKIP (go interop server not built)"
+    end
+    dart_bin = File.join(root, "oracle", "dart-interop", "interop-server")
+    if File.exist?(dart_bin)
+      ran = run_leg(root, dart_bin, "--port", "dart", false) || ran
+    else
+      puts "TestInteropOracle DART SKIP (dart interop server not built)"
+    end
+    TestUtil.skip("no interop server built") unless ran
     puts "TestInteropOracle OK"
   end
 
