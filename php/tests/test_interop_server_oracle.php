@@ -1,12 +1,14 @@
 <?php
 // Interop oracle, Direction B: the OFFICIAL interop clients
-// (grpc-java TestServiceClient, grpc-go interop-client) run the
+// (grpc-java TestServiceClient, grpc-go interop-client, grpc-dart
+// interop-client) run the
 // canonical cases against the generated PHP TestService server
 // (examples/interop_server_stdio.php), reached over HTTP/2
 // through oracle/bridge.mjs http2-to-dc. Skips when an oracle
 // binary or Node is unavailable. Mirrors
-// java/tests/TestInteropServerOracle.java. The Java client is
-// graded on its "Test completed." marker; the Go client never
+// java/tests/TestInteropServerOracle.java. The Java and Dart
+// clients are graded on exit status and their "Test completed."
+// marker; the Go client never
 // prints failures except through its FATAL line, so absence of
 // FATAL is success there.
 
@@ -79,24 +81,31 @@ final class TestInteropServerOracle
         return $proc;
     }
 
-    private static function waitExit($proc, int $timeoutSec): bool
+    /** Wait for exit; returns the exit code, or null on timeout.
+     *  The code is captured from the terminating proc_get_status
+     *  poll: later polls (and proc_close after them) report -1. */
+    private static function waitExit($proc, int $timeoutSec): ?int
     {
         $deadline = microtime(true) + $timeoutSec;
         while (microtime(true) < $deadline) {
             $status = proc_get_status($proc);
             if (!$status["running"]) {
-                return true;
+                return $status["exitcode"];
             }
             usleep(50000);
         }
-        return false;
+        return null;
     }
 
     private static function runClient(string $dir, string $tag, string $cmd, ?string $marker): void
     {
         $proc = self::spawnToFiles($cmd, $dir . "/" . $tag . ".out", $dir . "/" . $tag . ".err");
-        T::check(self::waitExit($proc, 120), "client did not exit: " . $tag);
+        $exitCode = self::waitExit($proc, 120);
+        T::check($exitCode !== null, "client did not exit: " . $tag);
         proc_close($proc);
+        if ($marker !== null) {
+            T::check($exitCode === 0, "client exit " . $exitCode . ": " . $tag);
+        }
         $output = file_get_contents($dir . "/" . $tag . ".out")
             . file_get_contents($dir . "/" . $tag . ".err");
         if ($marker !== null) {
@@ -150,6 +159,17 @@ final class TestInteropServerOracle
                 }
             } else {
                 echo "TestInteropServerOracle GO SKIP (go client not built)\n";
+            }
+            $dartClient = $root . "/oracle/dart-interop/interop-client";
+            if (file_exists($dartClient)) {
+                foreach (self::CASES as $testCase) {
+                    $cmd = $dartClient . " -server_host 127.0.0.1 -server_port " . $port
+                        . " -test_case " . $testCase;
+                    self::runClient($dir, "dart_" . $testCase, $cmd, "Test completed.");
+                    echo "interop B case ok: " . $testCase . " (dart client)\n";
+                }
+            } else {
+                echo "TestInteropServerOracle DART SKIP (dart client not built)\n";
             }
         } finally {
             proc_terminate($bridge, 9);
