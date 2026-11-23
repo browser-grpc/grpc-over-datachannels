@@ -14,7 +14,21 @@ module Grpcdc
     def initialize(transport = nil, endpoint: nil)
       @endpoint = endpoint || Endpoint.new(transport, creator: true)
       @trace_context = nil
+      @struct_codec = false
       @endpoint.start
+    end
+
+    # Make every call on this channel request the struct codec
+    # (HEADERS marker dc-codec: struct-v1) and encode requests /
+    # decode responses with it. The server must enable it too
+    # (see Server#set_struct_codec); otherwise calls fail
+    # UNIMPLEMENTED. Mirrors the Go Channel.SetStructCodec.
+    def set_struct_codec(enabled)
+      @struct_codec = !!enabled
+    end
+
+    def struct_codec
+      @struct_codec
     end
 
     # Parent this channel's outbound spans to ctx (usually
@@ -24,6 +38,7 @@ module Grpcdc
       ch = Channel.allocate
       ch.instance_variable_set(:@endpoint, @endpoint)
       ch.instance_variable_set(:@trace_context, ctx)
+      ch.instance_variable_set(:@struct_codec, @struct_codec)
       ch
     end
 
@@ -102,8 +117,9 @@ module Grpcdc
     def open_call(path, metadata, timeout = nil)
       deadline = nil
       trace_ctx = nil
-      unless timeout.nil? && Grpcdc.tracer.nil?
+      unless timeout.nil? && Grpcdc.tracer.nil? && !@struct_codec
         metadata = (metadata || {}).dup
+        metadata[Codec::STRUCT_CODEC_HEADER] = Codec::STRUCT_CODEC_V1 if @struct_codec
         unless timeout.nil?
           deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + timeout
           metadata["grpc-timeout"] = Codec.encode_timeout(timeout)
@@ -125,6 +141,7 @@ module Grpcdc
         raise
       end
       stream = ClientStream.new(@endpoint, stream_id, stream_input)
+      stream.struct_codec = @struct_codec
       stream.deadline = deadline
       stream.trace_ctx = trace_ctx
       stream.trace_path = path
@@ -132,7 +149,7 @@ module Grpcdc
     end
 
     def send_message(stream, msg)
-      @endpoint.send_frame(Codec.encode_frame(FRAME_DATA, stream.stream_id, msg.marshal_dc))
+      @endpoint.send_frame(Codec.encode_frame(FRAME_DATA, stream.stream_id, Codec.marshal_for_codec(stream.struct_codec, msg)))
     end
     public :send_message
 
@@ -151,7 +168,7 @@ module Grpcdc
   class ClientStream
     attr_reader :stream_id, :headers, :trailers, :endpoint
 
-    attr_accessor :deadline, :trace_ctx, :trace_path
+    attr_accessor :deadline, :trace_ctx, :trace_path, :struct_codec
 
     def initialize(endpoint, stream_id, stream_input)
       @endpoint = endpoint
@@ -162,6 +179,7 @@ module Grpcdc
       @deadline = nil
       @trace_ctx = nil
       @trace_path = nil
+      @struct_codec = false
       @trace_ended = false
       @terminated = false
       # Abandoning the stream object without break/close (a dropped
@@ -235,7 +253,7 @@ module Grpcdc
         when EVENT_HEADERS
           @headers = event.headers
         when EVENT_DATA
-          return resp.unmarshal_dc(event.payload)
+          return Codec.unmarshal_for_codec(@struct_codec, event.payload, resp)
         when EVENT_TRAILERS
           mark_terminated
           @trailers = event.status.trailers
@@ -318,6 +336,10 @@ module Grpcdc
 
     def endpoint
       @channel.endpoint
+    end
+
+    def set_struct_codec(enabled)
+      @channel.set_struct_codec(enabled)
     end
 
     def unary(path, req, resp, metadata = nil, timeout: nil)

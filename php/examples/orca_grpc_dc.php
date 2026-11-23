@@ -88,7 +88,7 @@ class SendStream
 
     public function send(object $resp): void
     {
-        $this->sink->send($resp->marshalDc());
+        $this->sink->send($this->context->encodeMessage($resp));
     }
 }
 
@@ -137,7 +137,7 @@ class BidiStream
 
     public function send(object $resp): void
     {
-        $this->sink->send($resp->marshalDc());
+        $this->sink->send($this->context->encodeMessage($resp));
     }
 
     public function recv(): object

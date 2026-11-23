@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.45.0
+## 0.46.0
 
 - First pub.dev release: generated `grpcdc.kafka.v1`
-  Dart stubs from grpc-over-datachannels v0.45.0.
+  Dart stubs from grpc-over-datachannels v0.46.0.

@@ -94,7 +94,6 @@ public final class EchoRequest: Marshaler, Unmarshaler {
             }
         }
     }
-#if canImport(Foundation)
     public func MarshalStruct() throws -> [UInt8] { EchoRequestStruct.Marshal(self) }
     public func UnmarshalStruct(_ data: [UInt8]) throws {
         let _s = EchoRequestStruct.Unmarshal(data)
@@ -103,7 +102,6 @@ public final class EchoRequest: Marshaler, Unmarshaler {
         delayMs = _s.delayMs
         unknownFields = _s.unknownFields
     }
-#endif
 }
 public final class EchoResponse: Marshaler, Unmarshaler {
     public var message: String = ""
@@ -139,7 +137,6 @@ public final class EchoResponse: Marshaler, Unmarshaler {
             }
         }
     }
-#if canImport(Foundation)
     public func MarshalStruct() throws -> [UInt8] { EchoResponseStruct.Marshal(self) }
     public func UnmarshalStruct(_ data: [UInt8]) throws {
         let _s = EchoResponseStruct.Unmarshal(data)
@@ -147,5 +144,4 @@ public final class EchoResponse: Marshaler, Unmarshaler {
         index = _s.index
         unknownFields = _s.unknownFields
     }
-#endif
 }

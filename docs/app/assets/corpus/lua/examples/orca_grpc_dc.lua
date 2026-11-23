@@ -64,12 +64,12 @@ end
 local OpenRcaServiceStreamCoreMetricsServer = {}
 OpenRcaServiceStreamCoreMetricsServer.__index = OpenRcaServiceStreamCoreMetricsServer
 
-function OpenRcaServiceStreamCoreMetricsServer.new(sink)
-  return setmetatable({ sink = sink }, OpenRcaServiceStreamCoreMetricsServer)
+function OpenRcaServiceStreamCoreMetricsServer.new(ctx, sink)
+  return setmetatable({ ctx = ctx, sink = sink }, OpenRcaServiceStreamCoreMetricsServer)
 end
 
 function OpenRcaServiceStreamCoreMetricsServer:send(resp)
-  self.sink(resp:marshalDc())
+  self.sink(self.ctx.encodeMessage(resp))
 end
 
 --- Client for xds.service.orca.v3.OpenRcaService.
@@ -165,7 +165,7 @@ local function registerOpenRcaServiceServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = OrcaLoadReportRequest.new()
           reqs:recvInto(req)
-          impl:streamCoreMetrics(ctx, req, OpenRcaServiceStreamCoreMetricsServer.new(sink))
+          impl:streamCoreMetrics(ctx, req, OpenRcaServiceStreamCoreMetricsServer.new(ctx, sink))
         end,
       },
     },

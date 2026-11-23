@@ -87,7 +87,7 @@ class SendStream
 
     public function send(object $resp): void
     {
-        $this->sink->send($resp->marshalDc());
+        $this->sink->send($this->context->encodeMessage($resp));
     }
 }
 
@@ -136,7 +136,7 @@ class BidiStream
 
     public function send(object $resp): void
     {
-        $this->sink->send($resp->marshalDc());
+        $this->sink->send($this->context->encodeMessage($resp));
     }
 
     public function recv(): object
@@ -311,7 +311,7 @@ function registerEchoServer(\Grpcdc\Server $server, object $impl): void
     $unaryHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
         $req = $reqs->recvInto(new \EchoPb\EchoRequest());
         $resp = $impl->Unary($ctx, $req);
-        $sink->send($resp->marshalDc());
+        $sink->send($ctx->encodeMessage($resp));
     };
 
     $server_streamHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
@@ -325,7 +325,7 @@ function registerEchoServer(\Grpcdc\Server $server, object $impl): void
         if ($stream->resp === null) {
             throw new \Grpcdc\StatusError(\Grpcdc\Wire::CODE_INTERNAL, "client-streaming handler never called sendAndClose");
         }
-        $sink->send($stream->resp->marshalDc());
+        $sink->send($ctx->encodeMessage($stream->resp));
     };
 
     $bidiHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {

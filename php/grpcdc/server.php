@@ -14,11 +14,13 @@ class RequestStream
 {
     private Endpoint $endpoint;
     private StreamInput $input;
+    public bool $structCodec;
 
-    public function __construct(Endpoint $endpoint, StreamInput $streamInput)
+    public function __construct(Endpoint $endpoint, StreamInput $streamInput, bool $structCodec = false)
     {
         $this->endpoint = $endpoint;
         $this->input = $streamInput;
+        $this->structCodec = $structCodec;
     }
 
     /** Next request payload; CallClosed at half-close. Pumps reentrantly. */
@@ -51,7 +53,7 @@ class RequestStream
 
     public function recvInto(object $req): object
     {
-        return $req->unmarshalDc($this->recvRaw());
+        return Codec::unmarshalForCodec($this->structCodec, $this->recvRaw(), $req);
     }
 }
 
@@ -96,6 +98,17 @@ class Server
 
     /** @var array<string, Method> */
     private array $methods = [];
+    private bool $structCodec = false;
+
+    /** Enable the struct codec on this server: a call carrying
+     *  HEADERS dc-codec: struct-v1 is decoded with the struct
+     *  codec and answered in kind. A struct-v1 request to a server
+     *  without it enabled fails UNIMPLEMENTED, as does any other
+     *  dc-codec value. Mirrors the Go Server.SetStructCodec. */
+    public function setStructCodec(bool $enabled): void
+    {
+        $this->structCodec = $enabled;
+    }
 
     public function registerService(ServiceDesc $desc): void
     {
@@ -141,11 +154,22 @@ class Server
         if ($method === null) {
             return new StatusError(Wire::CODE_UNIMPLEMENTED, "unknown method " . $headers->path);
         }
+        // Struct codec negotiation: an explicit dc-codec marker
+        // must be struct-v1 and enabled here, else UNIMPLEMENTED.
+        $useStruct = false;
+        $marker = $headers->metadata[Codec::STRUCT_CODEC_HEADER] ?? null;
+        if ($marker !== null) {
+            if ($marker !== Codec::STRUCT_CODEC_V1 || !$this->structCodec) {
+                return new StatusError(Wire::CODE_UNIMPLEMENTED, "struct codec not enabled");
+            }
+            $useStruct = true;
+        }
+        $ctx->structCodec = $useStruct;
         $traceCtx = Status::traceStart("server", $headers->path, Status::parseTraceparent($headers->metadata["traceparent"] ?? null));
         $ctx->traceContext = $traceCtx;
         $result = null;
         try {
-            ($method->handler)($ctx, new RequestStream($endpoint, $input), $sink);
+            ($method->handler)($ctx, new RequestStream($endpoint, $input, $useStruct), $sink);
         } catch (\Throwable $e) {
             $result = Status::toStatus($e);
         }

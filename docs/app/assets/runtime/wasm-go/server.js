@@ -13,11 +13,17 @@ import {
   traceStart,
 } from "./codec.js";
 import { Endpoint } from "./endpoint.js";
+import {
+  STRUCT_CODEC_HEADER,
+  STRUCT_CODEC_V1,
+  marshalForCodec,
+  unmarshalForCodec,
+} from "./structdc.js";
 
-async function* typedRequests(input, ReqType) {
+async function* typedRequests(input, ReqType, structCodec = false) {
   for await (const event of input) {
     if (event.kind === "data") {
-      yield ReqType.decode(event.payload);
+      yield unmarshalForCodec(structCodec, ReqType, event.payload);
     } else if (event.kind === "half-close") {
       return;
     } else if (event.kind === "trailers" || event.kind === "rst") {
@@ -40,6 +46,18 @@ export class Server {
   #authVerifier = null;
   #authScopes = {};
   #interceptors = [];
+  #structCodec = false;
+
+  /**
+   * Enable the struct codec on this server: a call carrying
+   * HEADERS dc-codec: struct-v1 is decoded with the struct codec
+   * and answered in kind. A struct-v1 request to a server without
+   * it enabled fails UNIMPLEMENTED, as does any other dc-codec
+   * value. Mirrors the Go Server.SetStructCodec.
+   */
+  setStructCodec(enabled) {
+    this.#structCodec = !!enabled;
+  }
 
   addService(definition) {
     for (const [name, method] of Object.entries(definition.methods)) {
@@ -143,6 +161,16 @@ export class Server {
         claims = extra;
       }
     }
+    // Struct codec negotiation: an explicit dc-codec marker
+    // must be struct-v1 and enabled here, else UNIMPLEMENTED.
+    let useStruct = false;
+    const codecMarker = metadata[STRUCT_CODEC_HEADER];
+    if (codecMarker !== undefined) {
+      if (codecMarker !== STRUCT_CODEC_V1 || !this.#structCodec) {
+        throw StatusError.unimplemented("struct codec not enabled");
+      }
+      useStruct = true;
+    }
     const timeoutMs = parseTimeout(metadata["grpc-timeout"]);
     const deadline = timeoutMs === null ? null : Date.now() + timeoutMs;
     // Initial/trailing metadata the handler accumulates via
@@ -171,6 +199,8 @@ export class Server {
       path,
       metadata,
       claims,
+      structCodec: useStruct,
+      encodeMessage: (resp) => marshalForCodec(useStruct, method.responseType, resp),
       service: method.service,
       method: method.method,
       deadline,
@@ -200,8 +230,8 @@ export class Server {
   }
 
   async #dispatchTraced(path, method, ctx, input, sink) {
-    const requests = typedRequests(input, method.requestType);
-    const encode = (resp) => method.responseType.encode(resp);
+    const requests = typedRequests(input, method.requestType, ctx.structCodec);
+    const encode = (resp) => ctx.encodeMessage(resp);
     switch (method.kind) {
       case "unary": {
         const req = await firstRequest(requests);

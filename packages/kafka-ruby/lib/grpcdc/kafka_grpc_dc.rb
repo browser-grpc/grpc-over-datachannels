@@ -67,7 +67,7 @@ module KafkaGrpcDc
     end
 
     def send(resp)
-      @sink.send(resp.marshal_dc)
+      @sink.send(@context.encode_message(resp))
     end
   end
 
@@ -103,7 +103,7 @@ module KafkaGrpcDc
     end
 
     def send(resp)
-      @sink.send(resp.marshal_dc)
+      @sink.send(@context.encode_message(resp))
     end
 
     def recv
@@ -439,31 +439,31 @@ module KafkaGrpcDc
     metadata_handler = lambda do |ctx, reqs, sink|
       req = reqs.recv_into(KafkaPb::MetadataRequest.new)
       resp = impl.Metadata(ctx, req)
-      sink.send(resp.marshal_dc)
+      sink.send(ctx.encode_message(resp))
     end
 
     open_producer_handler = lambda do |ctx, reqs, sink|
       req = reqs.recv_into(KafkaPb::OpenProducerRequest.new)
       resp = impl.OpenProducer(ctx, req)
-      sink.send(resp.marshal_dc)
+      sink.send(ctx.encode_message(resp))
     end
 
     close_producer_handler = lambda do |ctx, reqs, sink|
       req = reqs.recv_into(KafkaPb::CloseProducerRequest.new)
       resp = impl.CloseProducer(ctx, req)
-      sink.send(resp.marshal_dc)
+      sink.send(ctx.encode_message(resp))
     end
 
     end_transaction_handler = lambda do |ctx, reqs, sink|
       req = reqs.recv_into(KafkaPb::EndTransactionRequest.new)
       resp = impl.EndTransaction(ctx, req)
-      sink.send(resp.marshal_dc)
+      sink.send(ctx.encode_message(resp))
     end
 
     produce_handler = lambda do |ctx, reqs, sink|
       req = reqs.recv_into(KafkaPb::ProduceRequest.new)
       resp = impl.Produce(ctx, req)
-      sink.send(resp.marshal_dc)
+      sink.send(ctx.encode_message(resp))
     end
 
     consume_handler = lambda do |ctx, reqs, sink|
@@ -479,139 +479,139 @@ module KafkaGrpcDc
     list_offsets_handler = lambda do |ctx, reqs, sink|
       req = reqs.recv_into(KafkaPb::ListOffsetsRequest.new)
       resp = impl.ListOffsets(ctx, req)
-      sink.send(resp.marshal_dc)
+      sink.send(ctx.encode_message(resp))
     end
 
     commit_offset_handler = lambda do |ctx, reqs, sink|
       req = reqs.recv_into(KafkaPb::CommitOffsetRequest.new)
       resp = impl.CommitOffset(ctx, req)
-      sink.send(resp.marshal_dc)
+      sink.send(ctx.encode_message(resp))
     end
 
     fetch_offset_handler = lambda do |ctx, reqs, sink|
       req = reqs.recv_into(KafkaPb::FetchOffsetRequest.new)
       resp = impl.FetchOffset(ctx, req)
-      sink.send(resp.marshal_dc)
+      sink.send(ctx.encode_message(resp))
     end
 
     create_topics_handler = lambda do |ctx, reqs, sink|
       req = reqs.recv_into(KafkaPb::CreateTopicsRequest.new)
       resp = impl.CreateTopics(ctx, req)
-      sink.send(resp.marshal_dc)
+      sink.send(ctx.encode_message(resp))
     end
 
     delete_topics_handler = lambda do |ctx, reqs, sink|
       req = reqs.recv_into(KafkaPb::DeleteTopicsRequest.new)
       resp = impl.DeleteTopics(ctx, req)
-      sink.send(resp.marshal_dc)
+      sink.send(ctx.encode_message(resp))
     end
 
     describe_configs_handler = lambda do |ctx, reqs, sink|
       req = reqs.recv_into(KafkaPb::DescribeConfigsRequest.new)
       resp = impl.DescribeConfigs(ctx, req)
-      sink.send(resp.marshal_dc)
+      sink.send(ctx.encode_message(resp))
     end
 
     alter_configs_handler = lambda do |ctx, reqs, sink|
       req = reqs.recv_into(KafkaPb::AlterConfigsRequest.new)
       resp = impl.AlterConfigs(ctx, req)
-      sink.send(resp.marshal_dc)
+      sink.send(ctx.encode_message(resp))
     end
 
     create_partitions_handler = lambda do |ctx, reqs, sink|
       req = reqs.recv_into(KafkaPb::CreatePartitionsRequest.new)
       resp = impl.CreatePartitions(ctx, req)
-      sink.send(resp.marshal_dc)
+      sink.send(ctx.encode_message(resp))
     end
 
     delete_records_handler = lambda do |ctx, reqs, sink|
       req = reqs.recv_into(KafkaPb::DeleteRecordsRequest.new)
       resp = impl.DeleteRecords(ctx, req)
-      sink.send(resp.marshal_dc)
+      sink.send(ctx.encode_message(resp))
     end
 
     list_groups_handler = lambda do |ctx, reqs, sink|
       req = reqs.recv_into(KafkaPb::ListGroupsRequest.new)
       resp = impl.ListGroups(ctx, req)
-      sink.send(resp.marshal_dc)
+      sink.send(ctx.encode_message(resp))
     end
 
     describe_groups_handler = lambda do |ctx, reqs, sink|
       req = reqs.recv_into(KafkaPb::DescribeGroupsRequest.new)
       resp = impl.DescribeGroups(ctx, req)
-      sink.send(resp.marshal_dc)
+      sink.send(ctx.encode_message(resp))
     end
 
     delete_groups_handler = lambda do |ctx, reqs, sink|
       req = reqs.recv_into(KafkaPb::DeleteGroupsRequest.new)
       resp = impl.DeleteGroups(ctx, req)
-      sink.send(resp.marshal_dc)
+      sink.send(ctx.encode_message(resp))
     end
 
     delete_group_offsets_handler = lambda do |ctx, reqs, sink|
       req = reqs.recv_into(KafkaPb::DeleteGroupOffsetsRequest.new)
       resp = impl.DeleteGroupOffsets(ctx, req)
-      sink.send(resp.marshal_dc)
+      sink.send(ctx.encode_message(resp))
     end
 
     describe_acls_handler = lambda do |ctx, reqs, sink|
       req = reqs.recv_into(KafkaPb::DescribeAclsRequest.new)
       resp = impl.DescribeAcls(ctx, req)
-      sink.send(resp.marshal_dc)
+      sink.send(ctx.encode_message(resp))
     end
 
     create_acls_handler = lambda do |ctx, reqs, sink|
       req = reqs.recv_into(KafkaPb::CreateAclsRequest.new)
       resp = impl.CreateAcls(ctx, req)
-      sink.send(resp.marshal_dc)
+      sink.send(ctx.encode_message(resp))
     end
 
     delete_acls_handler = lambda do |ctx, reqs, sink|
       req = reqs.recv_into(KafkaPb::DeleteAclsRequest.new)
       resp = impl.DeleteAcls(ctx, req)
-      sink.send(resp.marshal_dc)
+      sink.send(ctx.encode_message(resp))
     end
 
     list_transactions_handler = lambda do |ctx, reqs, sink|
       req = reqs.recv_into(KafkaPb::ListTransactionsRequest.new)
       resp = impl.ListTransactions(ctx, req)
-      sink.send(resp.marshal_dc)
+      sink.send(ctx.encode_message(resp))
     end
 
     describe_transactions_handler = lambda do |ctx, reqs, sink|
       req = reqs.recv_into(KafkaPb::DescribeTransactionsRequest.new)
       resp = impl.DescribeTransactions(ctx, req)
-      sink.send(resp.marshal_dc)
+      sink.send(ctx.encode_message(resp))
     end
 
     open_share_group_handler = lambda do |ctx, reqs, sink|
       req = reqs.recv_into(KafkaPb::OpenShareGroupRequest.new)
       resp = impl.OpenShareGroup(ctx, req)
-      sink.send(resp.marshal_dc)
+      sink.send(ctx.encode_message(resp))
     end
 
     share_poll_handler = lambda do |ctx, reqs, sink|
       req = reqs.recv_into(KafkaPb::SharePollRequest.new)
       resp = impl.SharePoll(ctx, req)
-      sink.send(resp.marshal_dc)
+      sink.send(ctx.encode_message(resp))
     end
 
     share_ack_handler = lambda do |ctx, reqs, sink|
       req = reqs.recv_into(KafkaPb::ShareAckRequest.new)
       resp = impl.ShareAck(ctx, req)
-      sink.send(resp.marshal_dc)
+      sink.send(ctx.encode_message(resp))
     end
 
     close_share_group_handler = lambda do |ctx, reqs, sink|
       req = reqs.recv_into(KafkaPb::CloseShareGroupRequest.new)
       resp = impl.CloseShareGroup(ctx, req)
-      sink.send(resp.marshal_dc)
+      sink.send(ctx.encode_message(resp))
     end
 
     describe_share_groups_handler = lambda do |ctx, reqs, sink|
       req = reqs.recv_into(KafkaPb::DescribeShareGroupsRequest.new)
       resp = impl.DescribeShareGroups(ctx, req)
-      sink.send(resp.marshal_dc)
+      sink.send(ctx.encode_message(resp))
     end
 
     server.register_service(Grpcdc::ServiceDesc.new(

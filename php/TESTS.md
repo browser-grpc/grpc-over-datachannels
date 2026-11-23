@@ -33,6 +33,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`test_oracle.php`](tests/test_oracle.php) — Official-implementation oracle, via the proxy
 - [`test_pb_messages.php`](tests/test_pb_messages.php) — Generated suite/example
 - [`test_sidecar.php`](tests/test_sidecar.php) — Sidecar transport
+- [`test_struct_codec.php`](tests/test_struct_codec.php) — Wire codec vectors
 - [`test_tracing.php`](tests/test_tracing.php) — Tracing: traceparent propagation, span observers, nested calls
 - [`test_util.php`](tests/test_util.php) — Generated suite/example
 

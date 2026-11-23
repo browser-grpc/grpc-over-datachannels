@@ -68,7 +68,7 @@ module OrcaGrpcDc
     end
 
     def send(resp)
-      @sink.send(resp.marshal_dc)
+      @sink.send(@context.encode_message(resp))
     end
   end
 
@@ -104,7 +104,7 @@ module OrcaGrpcDc
     end
 
     def send(resp)
-      @sink.send(resp.marshal_dc)
+      @sink.send(@context.encode_message(resp))
     end
 
     def recv

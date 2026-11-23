@@ -10,6 +10,15 @@ const std = @import("std");
 const grpcdc = @import("grpcdc");
 const stubs = @import("echo_stub");
 
+// Pure struct-codec ABI (grpcdc_struct_*) for Wasm struct calls.
+const _structdc_abi = @import("structdc_wasm");
+comptime {
+    _ = _structdc_abi.grpcdc_struct_encode;
+    _ = _structdc_abi.grpcdc_struct_decode;
+    _ = _structdc_abi.grpcdc_struct_free;
+    _ = _structdc_abi.grpcdc_struct_error_free;
+}
+
 extern "env" fn on_result(ptr: [*]const u8, len: usize) void;
 extern "env" fn on_error(ptr: [*]const u8, len: usize) void;
 

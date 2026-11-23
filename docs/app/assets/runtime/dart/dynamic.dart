@@ -45,6 +45,7 @@ class MessageModel {
   final String fullName;
   final fields = <int, FieldModel>{};
   final byName = <String, int>{};
+  bool mapEntry = false;
 
   MessageModel(this.fullName);
 }
@@ -253,9 +254,11 @@ int _wireType(int type) {
 
 void _encodeVarint(BytesBuilder out, int value) {
   var v = value;
+  // Unsigned shift: a signed (negative) value must still
+  // terminate, emitting the 10-byte two's-complement varint.
   while ((v & ~0x7f) != 0) {
     out.addByte((v & 0x7f) | 0x80);
-    v >>= 7;
+    v >>>= 7;
   }
   out.addByte(v & 0xff);
 }
@@ -466,10 +469,23 @@ FileModel parseDescriptorSet(List<int> data) {
   return file;
 }
 
+bool _parseMapEntry(Uint8List? options) {
+  if (options == null) return false;
+  final reader = _PbReader(options);
+  while (true) {
+    final f = reader.next();
+    if (f == null) break;
+    // MessageOptions.map_entry (field 7) marks map entries.
+    if (f.number == 7 && f.varint != 0) return true;
+  }
+  return false;
+}
+
 void _parseMessage(String prefix, Uint8List data, FileModel file) {
   var name = '';
   final rawFields = <Uint8List>[];
   final nested = <Uint8List>[];
+  Uint8List? options;
   final reader = _PbReader(data);
   while (true) {
     final f = reader.next();
@@ -484,10 +500,14 @@ void _parseMessage(String prefix, Uint8List data, FileModel file) {
       case 3:
         nested.add(f.bytes);
         break;
+      case 7:
+        options = f.bytes;
+        break;
     }
   }
   final fullName = prefix.isEmpty ? name : '$prefix.$name';
   final model = MessageModel(fullName);
+  model.mapEntry = _parseMapEntry(options);
   for (final fieldBytes in rawFields) {
     final field = _parseField(fieldBytes);
     model.byName[field.name] = field.number;

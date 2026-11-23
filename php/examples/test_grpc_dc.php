@@ -88,7 +88,7 @@ class SendStream
 
     public function send(object $resp): void
     {
-        $this->sink->send($resp->marshalDc());
+        $this->sink->send($this->context->encodeMessage($resp));
     }
 }
 
@@ -137,7 +137,7 @@ class BidiStream
 
     public function send(object $resp): void
     {
-        $this->sink->send($resp->marshalDc());
+        $this->sink->send($this->context->encodeMessage($resp));
     }
 
     public function recv(): object
@@ -354,19 +354,19 @@ function registerTestServiceServer(\Grpcdc\Server $server, object $impl): void
     $empty_callHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
         $req = $reqs->recvInto(new \EmptyPb\Empty_());
         $resp = $impl->EmptyCall($ctx, $req);
-        $sink->send($resp->marshalDc());
+        $sink->send($ctx->encodeMessage($resp));
     };
 
     $unary_callHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
         $req = $reqs->recvInto(new \MessagesPb\SimpleRequest());
         $resp = $impl->UnaryCall($ctx, $req);
-        $sink->send($resp->marshalDc());
+        $sink->send($ctx->encodeMessage($resp));
     };
 
     $cacheable_unary_callHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
         $req = $reqs->recvInto(new \MessagesPb\SimpleRequest());
         $resp = $impl->CacheableUnaryCall($ctx, $req);
-        $sink->send($resp->marshalDc());
+        $sink->send($ctx->encodeMessage($resp));
     };
 
     $streaming_output_callHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
@@ -380,7 +380,7 @@ function registerTestServiceServer(\Grpcdc\Server $server, object $impl): void
         if ($stream->resp === null) {
             throw new \Grpcdc\StatusError(\Grpcdc\Wire::CODE_INTERNAL, "client-streaming handler never called sendAndClose");
         }
-        $sink->send($stream->resp->marshalDc());
+        $sink->send($ctx->encodeMessage($stream->resp));
     };
 
     $full_duplex_callHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
@@ -394,7 +394,7 @@ function registerTestServiceServer(\Grpcdc\Server $server, object $impl): void
     $unimplemented_callHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
         $req = $reqs->recvInto(new \EmptyPb\Empty_());
         $resp = $impl->UnimplementedCall($ctx, $req);
-        $sink->send($resp->marshalDc());
+        $sink->send($ctx->encodeMessage($resp));
     };
 
     $server->registerService(new \Grpcdc\ServiceDesc(
@@ -449,7 +449,7 @@ function registerUnimplementedServiceServer(\Grpcdc\Server $server, object $impl
     $unimplemented_callHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
         $req = $reqs->recvInto(new \EmptyPb\Empty_());
         $resp = $impl->UnimplementedCall($ctx, $req);
-        $sink->send($resp->marshalDc());
+        $sink->send($ctx->encodeMessage($resp));
     };
 
     $server->registerService(new \Grpcdc\ServiceDesc(
@@ -507,13 +507,13 @@ function registerReconnectServiceServer(\Grpcdc\Server $server, object $impl): v
     $startHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
         $req = $reqs->recvInto(new \MessagesPb\ReconnectParams());
         $resp = $impl->Start($ctx, $req);
-        $sink->send($resp->marshalDc());
+        $sink->send($ctx->encodeMessage($resp));
     };
 
     $stopHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
         $req = $reqs->recvInto(new \EmptyPb\Empty_());
         $resp = $impl->Stop($ctx, $req);
-        $sink->send($resp->marshalDc());
+        $sink->send($ctx->encodeMessage($resp));
     };
 
     $server->registerService(new \Grpcdc\ServiceDesc(
@@ -572,13 +572,13 @@ function registerLoadBalancerStatsServiceServer(\Grpcdc\Server $server, object $
     $get_client_statsHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
         $req = $reqs->recvInto(new \MessagesPb\LoadBalancerStatsRequest());
         $resp = $impl->GetClientStats($ctx, $req);
-        $sink->send($resp->marshalDc());
+        $sink->send($ctx->encodeMessage($resp));
     };
 
     $get_client_accumulated_statsHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
         $req = $reqs->recvInto(new \MessagesPb\LoadBalancerAccumulatedStatsRequest());
         $resp = $impl->GetClientAccumulatedStats($ctx, $req);
-        $sink->send($resp->marshalDc());
+        $sink->send($ctx->encodeMessage($resp));
     };
 
     $server->registerService(new \Grpcdc\ServiceDesc(
@@ -637,13 +637,13 @@ function registerXdsUpdateHealthServiceServer(\Grpcdc\Server $server, object $im
     $set_servingHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
         $req = $reqs->recvInto(new \EmptyPb\Empty_());
         $resp = $impl->SetServing($ctx, $req);
-        $sink->send($resp->marshalDc());
+        $sink->send($ctx->encodeMessage($resp));
     };
 
     $set_not_servingHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
         $req = $reqs->recvInto(new \EmptyPb\Empty_());
         $resp = $impl->SetNotServing($ctx, $req);
-        $sink->send($resp->marshalDc());
+        $sink->send($ctx->encodeMessage($resp));
     };
 
     $server->registerService(new \Grpcdc\ServiceDesc(
@@ -692,7 +692,7 @@ function registerXdsUpdateClientConfigureServiceServer(\Grpcdc\Server $server, o
     $configureHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
         $req = $reqs->recvInto(new \MessagesPb\ClientConfigureRequest());
         $resp = $impl->Configure($ctx, $req);
-        $sink->send($resp->marshalDc());
+        $sink->send($ctx->encodeMessage($resp));
     };
 
     $server->registerService(new \Grpcdc\ServiceDesc(

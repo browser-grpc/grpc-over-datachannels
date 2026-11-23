@@ -9,7 +9,9 @@ if name == nil then
 end
 
 local ok, err = pcall(function()
-  if name == "TestCodec" then
+  if name == "TestStructCodec" then
+    require("test_struct_codec")()
+  elseif name == "TestCodec" then
     require("test_codec")()
   elseif name == "TestEcho" then
     require("test_echo")()

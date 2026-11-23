@@ -57,6 +57,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`Pb.swift`](examples/Pb.swift) — Generated suite/example
 - [`StdioTransport.swift`](examples/StdioTransport.swift) — Generated suite/example
 - [`StructDcBridge.swift`](examples/StructDcBridge.swift) — Generated suite/example
+- [`StructDcBridgePure.swift`](examples/StructDcBridgePure.swift) — Generated suite/example
 - [`EmptyGrpcDc.swift`](examples/interop/EmptyGrpcDc.swift) — Generated suite/example
 - [`EmptyMessages.swift`](examples/interop/EmptyMessages.swift) — Generated suite/example
 - [`InteropServiceImpl.swift`](examples/interop/InteropServiceImpl.swift) — Cross-language interop

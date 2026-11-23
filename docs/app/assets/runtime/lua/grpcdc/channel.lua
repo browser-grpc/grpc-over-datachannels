@@ -25,6 +25,7 @@ function ClientStream.new(endpoint, streamId, input)
     tracePath = nil,
     traceEnded = false,
     terminated = false,
+    structCodec = false,
   }, ClientStream)
 end
 
@@ -80,7 +81,7 @@ function ClientStream:recv(resp)
     if event.kind == "headers" then
       self.headers = event.headers
     elseif event.kind == "data" then
-      resp:unmarshalDc(event.payload)
+      Codec.unmarshalForCodec(self.structCodec, event.payload, resp)
       return
     elseif event.kind == "trailers" then
       self.terminated = true
@@ -139,13 +140,25 @@ function Channel:setTraceContext(ctx)
   self.traceContext = ctx
 end
 
+--- Make every call on this channel request the struct codec
+--- (HEADERS marker dc-codec: struct-v1) and encode requests /
+--- decode responses with it. The server must enable it too
+--- (see Server.setStructCodec); otherwise calls fail
+--- UNIMPLEMENTED. Mirrors the Go Channel.SetStructCodec.
+function Channel:setStructCodec(enabled)
+  self.structCodec = enabled and true or false
+end
+
 function Channel:open(path, metadata, timeout)
   local deadline = nil
   local traceCtx = nil
-  if timeout ~= nil or statusModule.tracer() ~= nil then
+  if timeout ~= nil or statusModule.tracer() ~= nil or self.structCodec then
     local merged = {}
     if metadata ~= nil then
       for k, v in pairs(metadata) do merged[k] = v end
+    end
+    if self.structCodec then
+      merged[Codec.STRUCT_CODEC_HEADER] = Codec.STRUCT_CODEC_V1
     end
     if timeout ~= nil then
       local now = Endpoint.nowSeconds()
@@ -172,6 +185,7 @@ function Channel:open(path, metadata, timeout)
     error(err, 0)
   end
   local stream = ClientStream.new(self.endpoint, id, input)
+  stream.structCodec = self.structCodec
   stream.deadline = deadline
   stream.traceCtx = traceCtx
   stream.tracePath = path
@@ -179,7 +193,7 @@ function Channel:open(path, metadata, timeout)
 end
 
 function Channel:sendMessage(stream, msg)
-  self.endpoint:sendFrame(Codec.encodeFrame(wire.FRAME_DATA, stream.streamId, msg:marshalDc()))
+  self.endpoint:sendFrame(Codec.encodeFrame(wire.FRAME_DATA, stream.streamId, Codec.marshalForCodec(stream.structCodec, msg)))
 end
 
 function Channel:halfClose(stream)

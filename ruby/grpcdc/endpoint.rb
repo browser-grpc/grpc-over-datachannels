@@ -145,6 +145,15 @@ module Grpcdc
     attr_reader :metadata, :deadline, :response_headers, :response_trailers
     # This call's server span context (nil when dormant).
     attr_accessor :trace_context
+    # Whether this call negotiated the struct codec
+    # (HEADERS dc-codec: struct-v1).
+    attr_accessor :struct_codec
+
+    # Marshal a response message with this call's negotiated
+    # codec (generated server code calls this).
+    def encode_message(msg)
+      Codec.marshal_for_codec(@struct_codec, msg)
+    end
 
     # Record response initial metadata (sent lazily, before
     # the first response message).
@@ -162,6 +171,7 @@ module Grpcdc
       @metadata = metadata || {}
       @response_headers = {}
       @response_trailers = {}
+      @struct_codec = false
       remaining = Codec.parse_timeout(@metadata["grpc-timeout"])
       @deadline = remaining.nil? ? nil : Process.clock_gettime(Process::CLOCK_MONOTONIC) + remaining
     end

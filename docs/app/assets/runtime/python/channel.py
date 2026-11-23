@@ -5,6 +5,8 @@
 import asyncio
 
 from .codec import (
+    STRUCT_CODEC_HEADER,
+    STRUCT_CODEC_V1,
     StatusError,
     encode_frame,
     encode_timeout,
@@ -13,9 +15,11 @@ from .codec import (
     headers_frame,
     _trace_parent,
     current_trace_context,
+    marshal_for_codec,
     parse_traceparent,
     status_name,
     trace_end,
+    unmarshal_for_codec,
     trace_start,
 )
 from .endpoint import (
@@ -45,7 +49,17 @@ class Channel:
         else:
             self.endpoint = Endpoint(transport, creator=True)
         self._trace_context = None
+        self._struct_codec = False
         self.endpoint.start()
+
+    def set_struct_codec(self, enabled):
+        """Make every call on this channel request the struct
+        codec (HEADERS marker dc-codec: struct-v1) and encode
+        requests / decode responses with it. The server must
+        enable it too (see Server.set_struct_codec); otherwise
+        calls fail UNIMPLEMENTED. Mirrors the Go
+        Channel.SetStructCodec."""
+        self._struct_codec = bool(enabled)
 
     def with_trace_context(self, ctx):
         """A Channel view sharing this endpoint, whose outbound
@@ -54,13 +68,16 @@ class Channel:
         ch = Channel.__new__(Channel)
         ch.endpoint = self.endpoint
         ch._trace_context = ctx
+        ch._struct_codec = self._struct_codec
         return ch
 
     def _open(self, path, metadata, timeout=None):
         deadline = None
         trace_ctx = None
-        if timeout is not None or get_tracer() is not None:
+        if timeout is not None or get_tracer() is not None or self._struct_codec:
             merged = dict(metadata) if metadata else {}
+            if self._struct_codec:
+                merged[STRUCT_CODEC_HEADER] = STRUCT_CODEC_V1
             if timeout is not None:
                 deadline = _monotonic() + timeout
                 merged["grpc-timeout"] = encode_timeout(timeout)
@@ -85,6 +102,7 @@ class Channel:
             trace_end("client", path, trace_ctx, "UNAVAILABLE")
             raise
         stream = ClientStream(self.endpoint, stream_id, stream_input)
+        stream.struct_codec = self._struct_codec
         stream.deadline = deadline
         stream.trace_ctx = trace_ctx
         stream.trace_path = path
@@ -92,7 +110,7 @@ class Channel:
 
     def _send_message(self, stream, msg):
         self.endpoint.send_frame(
-            encode_frame(FRAME_DATA, stream.stream_id, msg.marshal_dc())
+            encode_frame(FRAME_DATA, stream.stream_id, marshal_for_codec(stream.struct_codec, msg))
         )
 
     def _half_close(self, stream):
@@ -199,6 +217,7 @@ class ClientStream:
         self.trace_path = None
         self._trace_ended = False
         self._terminated = False
+        self.struct_codec = False
 
     def _end_trace(self, status):
         if not self._trace_ended:
@@ -239,7 +258,7 @@ class ClientStream:
             if event.kind == EVENT_HEADERS:
                 self.headers = event.headers
             elif event.kind == EVENT_DATA:
-                resp.unmarshal_dc(event.payload)
+                unmarshal_for_codec(self.struct_codec, event.payload, resp)
                 return resp
             elif event.kind == EVENT_TRAILERS:
                 self._terminated = True
@@ -310,6 +329,9 @@ class AsyncChannel:
     @property
     def channel(self):
         return self._channel
+
+    def set_struct_codec(self, enabled):
+        self._channel.set_struct_codec(enabled)
 
     @property
     def endpoint(self):

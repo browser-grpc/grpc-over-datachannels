@@ -55,7 +55,7 @@ class _SendStream:
         self._sink = sink
 
     def send(self, resp):
-        self._sink.send(resp.marshal_dc())
+        self._sink.send(self.context.encode_message(resp))
 
 
 class _ClientStreamImpl:
@@ -84,7 +84,7 @@ class _BidiStream:
         self._req_cls = req_cls
 
     def send(self, resp):
-        self._sink.send(resp.marshal_dc())
+        self._sink.send(self.context.encode_message(resp))
 
     def recv(self):
         return self._reqs.recv_into(self._req_cls())
@@ -161,7 +161,7 @@ def register_echo_server(server, impl):
     def _Unary_handler(ctx, reqs, sink):
         req = reqs.recv_into(echo_pb.EchoRequest())
         resp = impl.Unary(ctx, req)
-        sink.send(resp.marshal_dc())
+        sink.send(ctx.encode_message(resp))
 
     def _ServerStream_handler(ctx, reqs, sink):
         req = reqs.recv_into(echo_pb.EchoRequest())
@@ -172,7 +172,7 @@ def register_echo_server(server, impl):
         impl.ClientStream(stream)
         if stream.resp is None:
             raise grpcdc.StatusError(grpcdc.CODE_INTERNAL, "client-streaming handler never called SendAndClose")
-        sink.send(stream.resp.marshal_dc())
+        sink.send(ctx.encode_message(stream.resp))
 
     def _Bidi_handler(ctx, reqs, sink):
         impl.Bidi(_BidiStream(ctx, reqs, sink, echo_pb.EchoRequest))

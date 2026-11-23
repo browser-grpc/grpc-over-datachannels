@@ -12,6 +12,7 @@ import 'test_struct_codec.dart';
 import 'test_http2_oracle.dart';
 import 'test_interop.dart';
 import 'test_interop_server_oracle.dart';
+import 'test_dart_oracle.dart';
 import 'test_interop_oracle.dart';
 import 'test_oracle.dart';
 import 'test_pb_messages.dart';
@@ -58,6 +59,9 @@ Future<void> main(List<String> args) async {
         break;
       case 'TestInteropServerOracle':
         await testInteropServerOracle();
+        break;
+      case 'TestDartOracle':
+        await testDartOracle();
         break;
       case 'TestDynamic':
         await testDynamic();

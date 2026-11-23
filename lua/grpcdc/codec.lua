@@ -277,4 +277,36 @@ function Codec.parseStatus(payload)
   return Status.new(wire.CODE_UNKNOWN, "malformed trailers")
 end
 
+--- HEADERS metadata key/value a client sends to request the
+--- struct codec for a call (see SPEC.md struct codec).
+Codec.STRUCT_CODEC_HEADER = "dc-codec"
+Codec.STRUCT_CODEC_V1 = "struct-v1"
+
+--- Marshal msg with the codec selected for a call (struct
+--- layout when negotiated).
+function Codec.marshalForCodec(structCodec, msg)
+  if structCodec then
+    local fn = msg.marshalStruct
+    if fn == nil then
+      raise(Status.new(wire.CODE_INTERNAL, "message has no struct codec"))
+    end
+    return fn(msg)
+  end
+  return msg:marshalDc()
+end
+
+--- Decode data into msg with the codec selected for a call.
+function Codec.unmarshalForCodec(structCodec, data, msg)
+  if structCodec then
+    local fn = msg.unmarshalStruct
+    if fn == nil then
+      raise(Status.new(wire.CODE_INTERNAL, "message has no struct codec"))
+    end
+    fn(msg, data)
+  else
+    msg:unmarshalDc(data)
+  end
+  return msg
+end
+
 return Codec

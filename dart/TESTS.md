@@ -22,6 +22,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`test_bdd.dart`](tests/test_bdd.dart) — BDD scenario suite (generated)
 - [`test_bdd_schemas.dart`](tests/test_bdd_schemas.dart) — BDD scenario suite (generated)
 - [`test_codec.dart`](tests/test_codec.dart) — Wire codec vectors
+- [`test_dart_oracle.dart`](tests/test_dart_oracle.dart) — Official-implementation oracle, via the proxy
 - [`test_deadline.dart`](tests/test_deadline.dart) — Deadline propagation and enforcement
 - [`test_dynamic.dart`](tests/test_dynamic.dart) — Generated suite/example
 - [`test_echo.dart`](tests/test_echo.dart) — Echo: all four call shapes

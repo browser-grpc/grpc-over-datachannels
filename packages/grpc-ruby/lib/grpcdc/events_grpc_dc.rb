@@ -67,7 +67,7 @@ module EventsGrpcDc
     end
 
     def send(resp)
-      @sink.send(resp.marshal_dc)
+      @sink.send(@context.encode_message(resp))
     end
   end
 
@@ -103,7 +103,7 @@ module EventsGrpcDc
     end
 
     def send(resp)
-      @sink.send(resp.marshal_dc)
+      @sink.send(@context.encode_message(resp))
     end
 
     def recv
@@ -213,7 +213,7 @@ module EventsGrpcDc
     publish_handler = lambda do |ctx, reqs, sink|
       req = reqs.recv_into(EventsPb::PublishRequest.new)
       resp = impl.Publish(ctx, req)
-      sink.send(resp.marshal_dc)
+      sink.send(ctx.encode_message(resp))
     end
 
     subscribe_handler = lambda do |ctx, reqs, sink|

@@ -67,7 +67,7 @@ module EchoGrpcDc
     end
 
     def send(resp)
-      @sink.send(resp.marshal_dc)
+      @sink.send(@context.encode_message(resp))
     end
   end
 
@@ -103,7 +103,7 @@ module EchoGrpcDc
     end
 
     def send(resp)
-      @sink.send(resp.marshal_dc)
+      @sink.send(@context.encode_message(resp))
     end
 
     def recv
@@ -231,7 +231,7 @@ module EchoGrpcDc
     unary_handler = lambda do |ctx, reqs, sink|
       req = reqs.recv_into(EchoPb::EchoRequest.new)
       resp = impl.Unary(ctx, req)
-      sink.send(resp.marshal_dc)
+      sink.send(ctx.encode_message(resp))
     end
 
     server_stream_handler = lambda do |ctx, reqs, sink|
@@ -245,7 +245,7 @@ module EchoGrpcDc
       if stream.resp.nil?
         raise Grpcdc::StatusError.new(Grpcdc::CODE_INTERNAL, "client-streaming handler never called SendAndClose")
       end
-      sink.send(stream.resp.marshal_dc)
+      sink.send(ctx.encode_message(stream.resp))
     end
 
     bidi_handler = lambda do |ctx, reqs, sink|

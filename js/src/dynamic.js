@@ -282,7 +282,15 @@ function parseMessage(pkg, outer, data, fileModel) {
   const fields = [...new PbReader(data).fields()];
   const name = pbString(fields, 1);
   const full = (pkg ? pkg + "." : "") + (outer ? outer + "." : "") + name;
-  const model = { fullName: full, fields: new Map() };
+  const model = { fullName: full, fields: new Map(), mapEntry: false };
+  for (const [fnum, , fval] of fields) {
+    if (fnum === 7) {
+      // MessageOptions.map_entry (field 7) marks map entries.
+      for (const [onum, , oval] of new PbReader(fval).fields()) {
+        if (onum === 7 && oval !== 0n) model.mapEntry = true;
+      }
+    }
+  }
   fileModel.messages.set("." + full, model);
   for (const [fnum, , fval] of fields) {
     if (fnum === 2) {

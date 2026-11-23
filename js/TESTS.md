@@ -43,6 +43,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`registry.test.js`](test/registry.test.js) — Generated suite/example
 - [`rendezvous.test.js`](test/rendezvous.test.js) — Generated suite/example
 - [`signaling.test.js`](test/signaling.test.js) — Generated suite/example
+- [`struct_codec.test.js`](test/struct_codec.test.js) — Wire codec vectors
 - [`tracing.test.js`](test/tracing.test.js) — Tracing: traceparent propagation, span observers, nested calls
 - [`tracing_nested_demo.test.js`](test/tracing_nested_demo.test.js) — Tracing: traceparent propagation, span observers, nested calls
 - [`webrtc_direct.test.js`](test/webrtc_direct.test.js) — WebRTC-Direct example/test

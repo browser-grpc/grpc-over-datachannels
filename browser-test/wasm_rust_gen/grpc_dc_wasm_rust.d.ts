@@ -41,6 +41,10 @@ export interface InitOutput {
   readonly echo_server_tracing: (a: any) => void;
   readonly echo_tracing: () => any;
   readonly echo_tracing_spans: () => [number, number];
+  readonly grpcdc_struct_decode: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => number;
+  readonly grpcdc_struct_encode: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => number;
+  readonly grpcdc_struct_error_free: (a: number) => void;
+  readonly grpcdc_struct_free: (a: number, b: number) => void;
   readonly __wbindgen_exn_store: (a: number) => void;
   readonly __externref_table_alloc: () => number;
   readonly __wbindgen_export_2: WebAssembly.Table;
@@ -49,8 +53,8 @@ export interface InitOutput {
   readonly __wbindgen_malloc: (a: number, b: number) => number;
   readonly _dyn_core__ops__function__FnMut__A____Output___R_as_wasm_bindgen__closure__WasmClosure___describe__invoke__h701e37b81ed54114: (a: number, b: number, c: number, d: number) => void;
   readonly _dyn_core__ops__function__FnMut_____Output___R_as_wasm_bindgen__closure__WasmClosure___describe__invoke__h3b52059ee760b610: (a: number, b: number) => void;
-  readonly closure201_externref_shim: (a: number, b: number, c: any) => void;
-  readonly closure223_externref_shim: (a: number, b: number, c: any, d: any) => void;
+  readonly closure218_externref_shim: (a: number, b: number, c: any) => void;
+  readonly closure240_externref_shim: (a: number, b: number, c: any, d: any) => void;
   readonly __wbindgen_start: () => void;
 }
 

@@ -14,6 +14,20 @@
 const std = @import("std");
 const status_mod = @import("grpcdc_status");
 
+// Pull the pure struct-codec ABI (grpcdc_struct_*) into every
+// facade build so generated struct companions link in Wasm.
+const _structdc_abi = @import("structdc_wasm.zig");
+
+// Force the ABI exports into the module (unreferenced exports
+// in imported files are otherwise dead-stripped, leaving the
+// generated companions with env imports instead of definitions).
+comptime {
+    _ = _structdc_abi.grpcdc_struct_encode;
+    _ = _structdc_abi.grpcdc_struct_decode;
+    _ = _structdc_abi.grpcdc_struct_free;
+    _ = _structdc_abi.grpcdc_struct_error_free;
+}
+
 pub const Status = status_mod.Status;
 pub const CompleteFn = *const fn (ctx: *anyopaque, status: Status, payload: ?[]const u8) void;
 pub const MessageFn = *const fn (ctx: *anyopaque, payload: []const u8) void;

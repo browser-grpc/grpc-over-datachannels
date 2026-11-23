@@ -141,13 +141,18 @@ module Grpcdc
   end
 
   class MessageModel
-    attr_reader :full_name, :fields, :by_name
+    attr_reader :full_name, :fields, :by_name, :map_entry
 
-    def initialize(full_name, fields)
+    def initialize(full_name, fields, map_entry = false)
       @full_name = full_name
       @fields = fields # number -> FieldModel
+      @map_entry = map_entry
       @by_name = {}
       fields.each_value { |f| @by_name[f.name] = f }
+    end
+
+    def map_entry?
+      @map_entry
     end
 
     def refresh_by_name
@@ -426,22 +431,34 @@ module Grpcdc
       end
     end
 
+    # MessageOptions.map_entry (field 7) marks map entries.
+    def parse_map_entry(options)
+      return false if options.nil?
+
+      PbReader.new(options).each_field do |fnum, _w, fval|
+        return true if fnum == 7 && fval != 0
+      end
+      false
+    end
+
     def parse_message(package, data, file_model)
       name = ""
       raw_fields = []
       nested = []
+      options = nil
       PbReader.new(data).each_field do |fnum, _w, fval|
         case fnum
         when 1 then name = fval.dup.force_encoding(Encoding::UTF_8)
         when 2 then raw_fields << fval
         when 3 then nested << fval
+        when 7 then options = fval
         end
       end
       full_name = package.empty? ? name : "#{package}.#{name}"
       fields = {}
-      model = MessageModel.new(full_name, fields)
+      model = MessageModel.new(full_name, fields, parse_map_entry(options))
       file_model.messages["." + full_name] = model
-      nested.each { |bytes| parse_nested(package, name, bytes, file_model) }
+      nested.each { |bytes| parse_nested(full_name, bytes, file_model) }
       raw_fields.each do |field_bytes|
         field = parse_field(field_bytes)
         fields[field.number] = field
@@ -450,19 +467,24 @@ module Grpcdc
       model
     end
 
-    def parse_nested(package, outer, data, file_model)
+    def parse_nested(outer_full, data, file_model)
       name = ""
       raw_fields = []
+      nested = []
+      options = nil
       PbReader.new(data).each_field do |fnum, _w, fval|
         case fnum
         when 1 then name = fval.dup.force_encoding(Encoding::UTF_8)
         when 2 then raw_fields << fval
+        when 3 then nested << fval
+        when 7 then options = fval
         end
       end
-      full_name = package.empty? ? "#{outer}.#{name}" : "#{package}.#{outer}.#{name}"
+      full_name = "#{outer_full}.#{name}"
       fields = {}
-      model = MessageModel.new(full_name, fields)
+      model = MessageModel.new(full_name, fields, parse_map_entry(options))
       file_model.messages["." + full_name] = model
+      nested.each { |bytes| parse_nested(full_name, bytes, file_model) }
       raw_fields.each do |field_bytes|
         field = parse_field(field_bytes)
         fields[field.number] = field

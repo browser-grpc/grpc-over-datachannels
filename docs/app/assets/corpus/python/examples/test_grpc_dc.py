@@ -55,7 +55,7 @@ class _SendStream:
         self._sink = sink
 
     def send(self, resp):
-        self._sink.send(resp.marshal_dc())
+        self._sink.send(self.context.encode_message(resp))
 
 
 class _ClientStreamImpl:
@@ -84,7 +84,7 @@ class _BidiStream:
         self._req_cls = req_cls
 
     def send(self, resp):
-        self._sink.send(resp.marshal_dc())
+        self._sink.send(self.context.encode_message(resp))
 
     def recv(self):
         return self._reqs.recv_into(self._req_cls())
@@ -187,17 +187,17 @@ def register_test_service_server(server, impl):
     def _EmptyCall_handler(ctx, reqs, sink):
         req = reqs.recv_into(test_pb.Empty())
         resp = impl.EmptyCall(ctx, req)
-        sink.send(resp.marshal_dc())
+        sink.send(ctx.encode_message(resp))
 
     def _UnaryCall_handler(ctx, reqs, sink):
         req = reqs.recv_into(test_pb.SimpleRequest())
         resp = impl.UnaryCall(ctx, req)
-        sink.send(resp.marshal_dc())
+        sink.send(ctx.encode_message(resp))
 
     def _CacheableUnaryCall_handler(ctx, reqs, sink):
         req = reqs.recv_into(test_pb.SimpleRequest())
         resp = impl.CacheableUnaryCall(ctx, req)
-        sink.send(resp.marshal_dc())
+        sink.send(ctx.encode_message(resp))
 
     def _StreamingOutputCall_handler(ctx, reqs, sink):
         req = reqs.recv_into(test_pb.StreamingOutputCallRequest())
@@ -208,7 +208,7 @@ def register_test_service_server(server, impl):
         impl.StreamingInputCall(stream)
         if stream.resp is None:
             raise grpcdc.StatusError(grpcdc.CODE_INTERNAL, "client-streaming handler never called SendAndClose")
-        sink.send(stream.resp.marshal_dc())
+        sink.send(ctx.encode_message(stream.resp))
 
     def _FullDuplexCall_handler(ctx, reqs, sink):
         impl.FullDuplexCall(_BidiStream(ctx, reqs, sink, test_pb.StreamingOutputCallRequest))
@@ -219,7 +219,7 @@ def register_test_service_server(server, impl):
     def _UnimplementedCall_handler(ctx, reqs, sink):
         req = reqs.recv_into(test_pb.Empty())
         resp = impl.UnimplementedCall(ctx, req)
-        sink.send(resp.marshal_dc())
+        sink.send(ctx.encode_message(resp))
 
     server.register_service(grpcdc.ServiceDesc(
         "grpc.testing.TestService",
@@ -257,7 +257,7 @@ def register_unimplemented_service_server(server, impl):
     def _UnimplementedCall_handler(ctx, reqs, sink):
         req = reqs.recv_into(test_pb.Empty())
         resp = impl.UnimplementedCall(ctx, req)
-        sink.send(resp.marshal_dc())
+        sink.send(ctx.encode_message(resp))
 
     server.register_service(grpcdc.ServiceDesc(
         "grpc.testing.UnimplementedService",
@@ -294,12 +294,12 @@ def register_reconnect_service_server(server, impl):
     def _Start_handler(ctx, reqs, sink):
         req = reqs.recv_into(test_pb.ReconnectParams())
         resp = impl.Start(ctx, req)
-        sink.send(resp.marshal_dc())
+        sink.send(ctx.encode_message(resp))
 
     def _Stop_handler(ctx, reqs, sink):
         req = reqs.recv_into(test_pb.Empty())
         resp = impl.Stop(ctx, req)
-        sink.send(resp.marshal_dc())
+        sink.send(ctx.encode_message(resp))
 
     server.register_service(grpcdc.ServiceDesc(
         "grpc.testing.ReconnectService",
@@ -337,12 +337,12 @@ def register_load_balancer_stats_service_server(server, impl):
     def _GetClientStats_handler(ctx, reqs, sink):
         req = reqs.recv_into(test_pb.LoadBalancerStatsRequest())
         resp = impl.GetClientStats(ctx, req)
-        sink.send(resp.marshal_dc())
+        sink.send(ctx.encode_message(resp))
 
     def _GetClientAccumulatedStats_handler(ctx, reqs, sink):
         req = reqs.recv_into(test_pb.LoadBalancerAccumulatedStatsRequest())
         resp = impl.GetClientAccumulatedStats(ctx, req)
-        sink.send(resp.marshal_dc())
+        sink.send(ctx.encode_message(resp))
 
     server.register_service(grpcdc.ServiceDesc(
         "grpc.testing.LoadBalancerStatsService",
@@ -380,12 +380,12 @@ def register_xds_update_health_service_server(server, impl):
     def _SetServing_handler(ctx, reqs, sink):
         req = reqs.recv_into(test_pb.Empty())
         resp = impl.SetServing(ctx, req)
-        sink.send(resp.marshal_dc())
+        sink.send(ctx.encode_message(resp))
 
     def _SetNotServing_handler(ctx, reqs, sink):
         req = reqs.recv_into(test_pb.Empty())
         resp = impl.SetNotServing(ctx, req)
-        sink.send(resp.marshal_dc())
+        sink.send(ctx.encode_message(resp))
 
     server.register_service(grpcdc.ServiceDesc(
         "grpc.testing.XdsUpdateHealthService",
@@ -417,7 +417,7 @@ def register_xds_update_client_configure_service_server(server, impl):
     def _Configure_handler(ctx, reqs, sink):
         req = reqs.recv_into(test_pb.ClientConfigureRequest())
         resp = impl.Configure(ctx, req)
-        sink.send(resp.marshal_dc())
+        sink.send(ctx.encode_message(resp))
 
     server.register_service(grpcdc.ServiceDesc(
         "grpc.testing.XdsUpdateClientConfigureService",

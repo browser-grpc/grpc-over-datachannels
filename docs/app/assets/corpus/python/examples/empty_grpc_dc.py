@@ -55,7 +55,7 @@ class _SendStream:
         self._sink = sink
 
     def send(self, resp):
-        self._sink.send(resp.marshal_dc())
+        self._sink.send(self.context.encode_message(resp))
 
 
 class _ClientStreamImpl:
@@ -84,7 +84,7 @@ class _BidiStream:
         self._req_cls = req_cls
 
     def send(self, resp):
-        self._sink.send(resp.marshal_dc())
+        self._sink.send(self.context.encode_message(resp))
 
     def recv(self):
         return self._reqs.recv_into(self._req_cls())

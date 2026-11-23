@@ -14,6 +14,22 @@ class Channel
     public Endpoint $endpoint;
     /** Span context outbound calls are parented to (withTraceContext). */
     public ?array $traceContext = null;
+    private bool $structCodec = false;
+
+    /** Make every call on this channel request the struct codec
+     *  (HEADERS marker dc-codec: struct-v1) and encode requests /
+     *  decode responses with it. The server must enable it too
+     *  (see Server::setStructCodec); otherwise calls fail
+     *  UNIMPLEMENTED. Mirrors the Go Channel.SetStructCodec. */
+    public function setStructCodec(bool $enabled): void
+    {
+        $this->structCodec = $enabled;
+    }
+
+    public function structCodec(): bool
+    {
+        return $this->structCodec;
+    }
 
     /** A Channel view sharing this endpoint whose outbound spans
      *  are parented to ctx. Explicit call metadata still wins. */
@@ -21,6 +37,7 @@ class Channel
     {
         $ch = new Channel(null, $this->endpoint);
         $ch->traceContext = $ctx;
+        $ch->structCodec = $this->structCodec;
         return $ch;
     }
 
@@ -106,8 +123,11 @@ class Channel
     {
         $deadline = null;
         $traceCtx = null;
-        if ($timeout !== null || Status::tracer() !== null) {
+        if ($timeout !== null || Status::tracer() !== null || $this->structCodec) {
             $metadata = $metadata ?? [];
+            if ($this->structCodec) {
+                $metadata[Codec::STRUCT_CODEC_HEADER] = Codec::STRUCT_CODEC_V1;
+            }
             if ($timeout !== null) {
                 $deadline = Endpoint::nowSeconds() + $timeout;
                 $metadata["grpc-timeout"] = Codec::encodeTimeout($timeout);
@@ -130,6 +150,7 @@ class Channel
             throw $e;
         }
         $stream = new ClientStream($this->endpoint, $streamId, $streamInput);
+        $stream->structCodec = $this->structCodec;
         $stream->deadline = $deadline;
         $stream->traceCtx = $traceCtx;
         $stream->tracePath = $path;
@@ -138,7 +159,7 @@ class Channel
 
     public function sendMessage(ClientStream $stream, object $msg): void
     {
-        $this->endpoint->sendFrame(Codec::encodeFrame(Wire::FRAME_DATA, $stream->streamId, $msg->marshalDc()));
+        $this->endpoint->sendFrame(Codec::encodeFrame(Wire::FRAME_DATA, $stream->streamId, Codec::marshalForCodec($stream->structCodec, $msg)));
     }
 
     public function halfClose(ClientStream $stream): void
@@ -166,6 +187,7 @@ class ClientStream
     public ?float $deadline = null;
     public ?array $traceCtx = null;
     public ?string $tracePath = null;
+    public bool $structCodec = false;
     private bool $traceEnded = false;
     private bool $terminated = false;
     private StreamInput $input;
@@ -219,7 +241,7 @@ class ClientStream
                     $this->headers = $event->headers;
                     break;
                 case "data":
-                    return $resp->unmarshalDc($event->payload);
+                    return Codec::unmarshalForCodec($this->structCodec, $event->payload, $resp);
                 case "trailers":
                     $this->terminated = true;
                     $this->trailers = $event->status->trailers;
@@ -334,6 +356,11 @@ class FiberChannel
     public function endpoint(): Endpoint
     {
         return $this->channel->endpoint;
+    }
+
+    public function setStructCodec(bool $enabled): void
+    {
+        $this->channel->setStructCodec($enabled);
     }
 
     public function unary(string $path, object $req, object $resp, ?array $metadata = null, ?float $timeout = null): object

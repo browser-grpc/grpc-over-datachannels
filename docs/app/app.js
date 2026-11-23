@@ -42,9 +42,9 @@ const PLANNED_LANGS = [];
 
 // Runtime files bundled per language, relative to assets/runtime/.
 const RUNTIME_FILES = {
-  js: ["codec.js", "endpoint.js", "channel.js", "server.js", "loopback.js", "dynamic.js"],
+  js: ["codec.js", "endpoint.js", "channel.js", "server.js", "loopback.js", "dynamic.js", "structdc.js"],
   go: ["channel.go", "codec.go", "dynamic.go", "endpoint.go", "loopback.go", "server.go", "wire_gen.go", "webrtc_transport.go"],
-  python: ["__init__.py", "channel.py", "codec.py", "dynamic.py", "endpoint.py", "http2.py", "loopback.py", "server.py", "sidecar.py", "wire_gen.py"],
+  python: ["__init__.py", "channel.py", "codec.py", "dynamic.py", "endpoint.py", "http2.py", "loopback.py", "server.py", "sidecar.py", "structdc.py", "wire_gen.py"],
   rust: ["Cargo.toml", "src/channel.rs", "src/codec.rs", "src/dynamic.rs", "src/endpoint.rs", "src/lib.rs", "src/message.rs", "src/server.rs", "src/status.rs", "src/transport.rs", "src/webrtc_transport.rs", "src/wire_gen.rs"],
   java: ["Channel.java", "Codec.java", "Dynamic.java", "Endpoint.java", "Marshaler.java", "MemoryTransport.java", "Server.java", "StatusException.java", "Transport.java", "Unmarshaler.java", "Wire.java"],
   csharp: ["AsyncPump.cs", "Channel.cs", "Codec.cs", "Dynamic.cs", "Endpoint.cs", "Grpcdc.csproj", "MemoryTransport.cs", "Server.cs", "StatusException.cs", "Transport.cs", "Wire.cs"],
@@ -52,22 +52,22 @@ const RUNTIME_FILES = {
   swift: ["Channel.swift", "Codec.swift", "Dynamic.swift", "Endpoint.swift", "MemoryTransport.swift", "Server.swift", "Status.swift", "Transport.swift", "Wire.swift"],
   kotlin: ["AsyncPump.kt", "Channel.kt", "Codec.kt", "Dynamic.kt", "Endpoint.kt", "MemoryTransport.kt", "Server.kt", "Status.kt", "Transport.kt", "Wire.kt"],
   "kotlin-native": ["Channel.kt", "Codec.kt", "Endpoint.kt", "MemoryTransport.kt", "Server.kt", "Status.kt", "Transport.kt", "Wire.kt"],
-  dart: ["channel.dart", "codec.dart", "dynamic.dart", "endpoint.dart", "memory_transport.dart", "server.dart", "status.dart", "transport.dart", "wire.dart"],
+  dart: ["channel.dart", "codec.dart", "dynamic.dart", "endpoint.dart", "memory_transport.dart", "server.dart", "status.dart", "structdc.dart", "transport.dart", "wire.dart"],
   zig: ["build.zig", "grpcdc/channel.zig", "grpcdc/codec.zig", "grpcdc/dynamic.zig", "grpcdc/endpoint.zig", "grpcdc/grpcdc.zig", "grpcdc/memory_transport.zig", "grpcdc/server.zig", "grpcdc/status.zig", "grpcdc/transport.zig", "grpcdc/wire.zig"],
   c: ["grpcdc/grpcdc.h", "grpcdc/grpcdc.c", "grpcdc/memory_transport.h", "grpcdc/memory_transport.c"],
-  lua: ["grpcdc/channel.lua", "grpcdc/codec.lua", "grpcdc/dynamic.lua", "grpcdc/endpoint.lua", "grpcdc/memory_transport.lua", "grpcdc/server.lua", "grpcdc/status.lua", "grpcdc/transport.lua", "grpcdc/wire.lua"],
-  ruby: ["grpcdc.rb", "grpcdc/channel.rb", "grpcdc/codec.rb", "grpcdc/dynamic.rb", "grpcdc/endpoint.rb", "grpcdc/loopback.rb", "grpcdc/server.rb", "grpcdc/wire_gen.rb"],
-  php: ["grpcdc.php", "grpcdc/channel.php", "grpcdc/codec.php", "grpcdc/dynamic.php", "grpcdc/endpoint.php", "grpcdc/loopback.php", "grpcdc/server.php", "grpcdc/wire_gen.php"],
+  lua: ["grpcdc/channel.lua", "grpcdc/codec.lua", "grpcdc/dynamic.lua", "grpcdc/endpoint.lua", "grpcdc/memory_transport.lua", "grpcdc/server.lua", "grpcdc/status.lua", "grpcdc/structdc.lua", "grpcdc/transport.lua", "grpcdc/wire.lua"],
+  ruby: ["grpcdc.rb", "grpcdc/channel.rb", "grpcdc/codec.rb", "grpcdc/dynamic.rb", "grpcdc/endpoint.rb", "grpcdc/loopback.rb", "grpcdc/server.rb", "grpcdc/structdc.rb", "grpcdc/wire_gen.rb"],
+  php: ["grpcdc.php", "grpcdc/channel.php", "grpcdc/codec.php", "grpcdc/dynamic.php", "grpcdc/endpoint.php", "grpcdc/loopback.php", "grpcdc/server.php", "grpcdc/structdc.php", "grpcdc/wire_gen.php"],
   scala: ["Channel.scala", "Codec.scala", "Dynamic.scala", "Endpoint.scala", "Futures.scala", "MemoryTransport.scala", "Server.scala", "Status.scala", "Transport.scala", "WireGen.scala"],
   // Facades wrap the JS implementation: the "runtime" is the JS
   // runtime plus its bridge (the page that hosts the wasm module
   // wires the generated facade to these).
-  "wasm-go": ["wasm_bridge.js", "codec.js", "endpoint.js", "channel.js", "server.js", "loopback.js", "dynamic.js"],
-  "wasm-zig": ["wasm_bridge.js", "codec.js", "endpoint.js", "channel.js", "server.js", "loopback.js", "dynamic.js"],
-  "wasm-cpp": ["wasm_bridge.js", "codec.js", "endpoint.js", "channel.js", "server.js", "loopback.js", "dynamic.js"],
-  "wasm-swift": ["wasm_bridge.js", "codec.js", "endpoint.js", "channel.js", "server.js", "loopback.js", "dynamic.js"],
-  "wasm-kotlin": ["wasm_bridge.js", "codec.js", "endpoint.js", "channel.js", "server.js", "loopback.js", "dynamic.js"],
-  "wasm-scala": ["wasm_bridge.js", "codec.js", "endpoint.js", "channel.js", "server.js", "loopback.js", "dynamic.js"],
+  "wasm-go": ["wasm_bridge.js", "codec.js", "endpoint.js", "channel.js", "server.js", "loopback.js", "dynamic.js", "structdc.js"],
+  "wasm-zig": ["wasm_bridge.js", "codec.js", "endpoint.js", "channel.js", "server.js", "loopback.js", "dynamic.js", "structdc.js"],
+  "wasm-cpp": ["wasm_bridge.js", "codec.js", "endpoint.js", "channel.js", "server.js", "loopback.js", "dynamic.js", "structdc.js"],
+  "wasm-swift": ["wasm_bridge.js", "codec.js", "endpoint.js", "channel.js", "server.js", "loopback.js", "dynamic.js", "structdc.js"],
+  "wasm-kotlin": ["wasm_bridge.js", "codec.js", "endpoint.js", "channel.js", "server.js", "loopback.js", "dynamic.js", "structdc.js"],
+  "wasm-scala": ["wasm_bridge.js", "codec.js", "endpoint.js", "channel.js", "server.js", "loopback.js", "dynamic.js", "structdc.js"],
 };
 
 // Generated message-type file per language (native plugin naming),

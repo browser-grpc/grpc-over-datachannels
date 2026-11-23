@@ -164,24 +164,24 @@ end
 local KafkaConsumeServer = {}
 KafkaConsumeServer.__index = KafkaConsumeServer
 
-function KafkaConsumeServer.new(sink)
-  return setmetatable({ sink = sink }, KafkaConsumeServer)
+function KafkaConsumeServer.new(ctx, sink)
+  return setmetatable({ ctx = ctx, sink = sink }, KafkaConsumeServer)
 end
 
 function KafkaConsumeServer:send(resp)
-  self.sink(resp:marshalDc())
+  self.sink(self.ctx.encodeMessage(resp))
 end
 
 --- Server-streaming sink passed to service implementations.
 local KafkaSubscribeServer = {}
 KafkaSubscribeServer.__index = KafkaSubscribeServer
 
-function KafkaSubscribeServer.new(sink)
-  return setmetatable({ sink = sink }, KafkaSubscribeServer)
+function KafkaSubscribeServer.new(ctx, sink)
+  return setmetatable({ ctx = ctx, sink = sink }, KafkaSubscribeServer)
 end
 
 function KafkaSubscribeServer:send(resp)
-  self.sink(resp:marshalDc())
+  self.sink(self.ctx.encodeMessage(resp))
 end
 
 --- Client for grpcdc.kafka.v1.Kafka.
@@ -676,7 +676,7 @@ local function registerKafkaServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = MetadataRequest.new()
           reqs:recvInto(req)
-          sink(impl:metadata(ctx, req):marshalDc())
+          sink(ctx.encodeMessage(impl:metadata(ctx, req)))
         end,
       },
       {
@@ -686,7 +686,7 @@ local function registerKafkaServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = OpenProducerRequest.new()
           reqs:recvInto(req)
-          sink(impl:openProducer(ctx, req):marshalDc())
+          sink(ctx.encodeMessage(impl:openProducer(ctx, req)))
         end,
       },
       {
@@ -696,7 +696,7 @@ local function registerKafkaServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = CloseProducerRequest.new()
           reqs:recvInto(req)
-          sink(impl:closeProducer(ctx, req):marshalDc())
+          sink(ctx.encodeMessage(impl:closeProducer(ctx, req)))
         end,
       },
       {
@@ -706,7 +706,7 @@ local function registerKafkaServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = EndTransactionRequest.new()
           reqs:recvInto(req)
-          sink(impl:endTransaction(ctx, req):marshalDc())
+          sink(ctx.encodeMessage(impl:endTransaction(ctx, req)))
         end,
       },
       {
@@ -716,7 +716,7 @@ local function registerKafkaServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = ProduceRequest.new()
           reqs:recvInto(req)
-          sink(impl:produce(ctx, req):marshalDc())
+          sink(ctx.encodeMessage(impl:produce(ctx, req)))
         end,
       },
       {
@@ -726,7 +726,7 @@ local function registerKafkaServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = ConsumeRequest.new()
           reqs:recvInto(req)
-          impl:consume(ctx, req, KafkaConsumeServer.new(sink))
+          impl:consume(ctx, req, KafkaConsumeServer.new(ctx, sink))
         end,
       },
       {
@@ -736,7 +736,7 @@ local function registerKafkaServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = GroupSubscribeRequest.new()
           reqs:recvInto(req)
-          impl:subscribe(ctx, req, KafkaSubscribeServer.new(sink))
+          impl:subscribe(ctx, req, KafkaSubscribeServer.new(ctx, sink))
         end,
       },
       {
@@ -746,7 +746,7 @@ local function registerKafkaServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = ListOffsetsRequest.new()
           reqs:recvInto(req)
-          sink(impl:listOffsets(ctx, req):marshalDc())
+          sink(ctx.encodeMessage(impl:listOffsets(ctx, req)))
         end,
       },
       {
@@ -756,7 +756,7 @@ local function registerKafkaServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = CommitOffsetRequest.new()
           reqs:recvInto(req)
-          sink(impl:commitOffset(ctx, req):marshalDc())
+          sink(ctx.encodeMessage(impl:commitOffset(ctx, req)))
         end,
       },
       {
@@ -766,7 +766,7 @@ local function registerKafkaServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = FetchOffsetRequest.new()
           reqs:recvInto(req)
-          sink(impl:fetchOffset(ctx, req):marshalDc())
+          sink(ctx.encodeMessage(impl:fetchOffset(ctx, req)))
         end,
       },
       {
@@ -776,7 +776,7 @@ local function registerKafkaServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = CreateTopicsRequest.new()
           reqs:recvInto(req)
-          sink(impl:createTopics(ctx, req):marshalDc())
+          sink(ctx.encodeMessage(impl:createTopics(ctx, req)))
         end,
       },
       {
@@ -786,7 +786,7 @@ local function registerKafkaServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = DeleteTopicsRequest.new()
           reqs:recvInto(req)
-          sink(impl:deleteTopics(ctx, req):marshalDc())
+          sink(ctx.encodeMessage(impl:deleteTopics(ctx, req)))
         end,
       },
       {
@@ -796,7 +796,7 @@ local function registerKafkaServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = DescribeConfigsRequest.new()
           reqs:recvInto(req)
-          sink(impl:describeConfigs(ctx, req):marshalDc())
+          sink(ctx.encodeMessage(impl:describeConfigs(ctx, req)))
         end,
       },
       {
@@ -806,7 +806,7 @@ local function registerKafkaServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = AlterConfigsRequest.new()
           reqs:recvInto(req)
-          sink(impl:alterConfigs(ctx, req):marshalDc())
+          sink(ctx.encodeMessage(impl:alterConfigs(ctx, req)))
         end,
       },
       {
@@ -816,7 +816,7 @@ local function registerKafkaServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = CreatePartitionsRequest.new()
           reqs:recvInto(req)
-          sink(impl:createPartitions(ctx, req):marshalDc())
+          sink(ctx.encodeMessage(impl:createPartitions(ctx, req)))
         end,
       },
       {
@@ -826,7 +826,7 @@ local function registerKafkaServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = DeleteRecordsRequest.new()
           reqs:recvInto(req)
-          sink(impl:deleteRecords(ctx, req):marshalDc())
+          sink(ctx.encodeMessage(impl:deleteRecords(ctx, req)))
         end,
       },
       {
@@ -836,7 +836,7 @@ local function registerKafkaServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = ListGroupsRequest.new()
           reqs:recvInto(req)
-          sink(impl:listGroups(ctx, req):marshalDc())
+          sink(ctx.encodeMessage(impl:listGroups(ctx, req)))
         end,
       },
       {
@@ -846,7 +846,7 @@ local function registerKafkaServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = DescribeGroupsRequest.new()
           reqs:recvInto(req)
-          sink(impl:describeGroups(ctx, req):marshalDc())
+          sink(ctx.encodeMessage(impl:describeGroups(ctx, req)))
         end,
       },
       {
@@ -856,7 +856,7 @@ local function registerKafkaServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = DeleteGroupsRequest.new()
           reqs:recvInto(req)
-          sink(impl:deleteGroups(ctx, req):marshalDc())
+          sink(ctx.encodeMessage(impl:deleteGroups(ctx, req)))
         end,
       },
       {
@@ -866,7 +866,7 @@ local function registerKafkaServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = DeleteGroupOffsetsRequest.new()
           reqs:recvInto(req)
-          sink(impl:deleteGroupOffsets(ctx, req):marshalDc())
+          sink(ctx.encodeMessage(impl:deleteGroupOffsets(ctx, req)))
         end,
       },
       {
@@ -876,7 +876,7 @@ local function registerKafkaServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = DescribeAclsRequest.new()
           reqs:recvInto(req)
-          sink(impl:describeAcls(ctx, req):marshalDc())
+          sink(ctx.encodeMessage(impl:describeAcls(ctx, req)))
         end,
       },
       {
@@ -886,7 +886,7 @@ local function registerKafkaServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = CreateAclsRequest.new()
           reqs:recvInto(req)
-          sink(impl:createAcls(ctx, req):marshalDc())
+          sink(ctx.encodeMessage(impl:createAcls(ctx, req)))
         end,
       },
       {
@@ -896,7 +896,7 @@ local function registerKafkaServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = DeleteAclsRequest.new()
           reqs:recvInto(req)
-          sink(impl:deleteAcls(ctx, req):marshalDc())
+          sink(ctx.encodeMessage(impl:deleteAcls(ctx, req)))
         end,
       },
       {
@@ -906,7 +906,7 @@ local function registerKafkaServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = ListTransactionsRequest.new()
           reqs:recvInto(req)
-          sink(impl:listTransactions(ctx, req):marshalDc())
+          sink(ctx.encodeMessage(impl:listTransactions(ctx, req)))
         end,
       },
       {
@@ -916,7 +916,7 @@ local function registerKafkaServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = DescribeTransactionsRequest.new()
           reqs:recvInto(req)
-          sink(impl:describeTransactions(ctx, req):marshalDc())
+          sink(ctx.encodeMessage(impl:describeTransactions(ctx, req)))
         end,
       },
       {
@@ -926,7 +926,7 @@ local function registerKafkaServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = OpenShareGroupRequest.new()
           reqs:recvInto(req)
-          sink(impl:openShareGroup(ctx, req):marshalDc())
+          sink(ctx.encodeMessage(impl:openShareGroup(ctx, req)))
         end,
       },
       {
@@ -936,7 +936,7 @@ local function registerKafkaServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = SharePollRequest.new()
           reqs:recvInto(req)
-          sink(impl:sharePoll(ctx, req):marshalDc())
+          sink(ctx.encodeMessage(impl:sharePoll(ctx, req)))
         end,
       },
       {
@@ -946,7 +946,7 @@ local function registerKafkaServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = ShareAckRequest.new()
           reqs:recvInto(req)
-          sink(impl:shareAck(ctx, req):marshalDc())
+          sink(ctx.encodeMessage(impl:shareAck(ctx, req)))
         end,
       },
       {
@@ -956,7 +956,7 @@ local function registerKafkaServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = CloseShareGroupRequest.new()
           reqs:recvInto(req)
-          sink(impl:closeShareGroup(ctx, req):marshalDc())
+          sink(ctx.encodeMessage(impl:closeShareGroup(ctx, req)))
         end,
       },
       {
@@ -966,7 +966,7 @@ local function registerKafkaServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = DescribeShareGroupsRequest.new()
           reqs:recvInto(req)
-          sink(impl:describeShareGroups(ctx, req):marshalDc())
+          sink(ctx.encodeMessage(impl:describeShareGroups(ctx, req)))
         end,
       },
     },

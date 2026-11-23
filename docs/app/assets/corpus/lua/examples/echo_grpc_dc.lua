@@ -106,12 +106,12 @@ end
 local EchoServerStreamServer = {}
 EchoServerStreamServer.__index = EchoServerStreamServer
 
-function EchoServerStreamServer.new(sink)
-  return setmetatable({ sink = sink }, EchoServerStreamServer)
+function EchoServerStreamServer.new(ctx, sink)
+  return setmetatable({ ctx = ctx, sink = sink }, EchoServerStreamServer)
 end
 
 function EchoServerStreamServer:send(resp)
-  self.sink(resp:marshalDc())
+  self.sink(self.ctx.encodeMessage(resp))
 end
 
 --- Client-streaming stream passed to service implementations.
@@ -136,12 +136,12 @@ end
 local EchoBidiServer = {}
 EchoBidiServer.__index = EchoBidiServer
 
-function EchoBidiServer.new(reqs, sink)
-  return setmetatable({ reqs = reqs, sink = sink }, EchoBidiServer)
+function EchoBidiServer.new(ctx, reqs, sink)
+  return setmetatable({ ctx = ctx, reqs = reqs, sink = sink }, EchoBidiServer)
 end
 
 function EchoBidiServer:send(resp)
-  self.sink(resp:marshalDc())
+  self.sink(self.ctx.encodeMessage(resp))
 end
 
 function EchoBidiServer:recv()
@@ -328,7 +328,7 @@ local function registerEchoServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = EchoRequest.new()
           reqs:recvInto(req)
-          sink(impl:unary(ctx, req):marshalDc())
+          sink(ctx.encodeMessage(impl:unary(ctx, req)))
         end,
       },
       {
@@ -338,7 +338,7 @@ local function registerEchoServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = EchoRequest.new()
           reqs:recvInto(req)
-          impl:serverStream(ctx, req, EchoServerStreamServer.new(sink))
+          impl:serverStream(ctx, req, EchoServerStreamServer.new(ctx, sink))
         end,
       },
       {
@@ -353,7 +353,7 @@ local function registerEchoServer(server, impl)
             error(Status.new(wire.CODE_INTERNAL,
               "client-streaming handler never called sendAndClose"), 0)
           end
-          sink(resp:marshalDc())
+          sink(ctx.encodeMessage(resp))
         end,
       },
       {
@@ -361,7 +361,7 @@ local function registerEchoServer(server, impl)
         path = "/echo.Echo/Bidi",
         kind = Server.KIND_BIDI,
         handler = function(ctx, reqs, sink)
-          impl:bidi(ctx, EchoBidiServer.new(reqs, sink))
+          impl:bidi(ctx, EchoBidiServer.new(ctx, reqs, sink))
         end,
       },
     },

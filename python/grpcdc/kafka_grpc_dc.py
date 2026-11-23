@@ -55,7 +55,7 @@ class _SendStream:
         self._sink = sink
 
     def send(self, resp):
-        self._sink.send(resp.marshal_dc())
+        self._sink.send(self.context.encode_message(resp))
 
 
 class _ClientStreamImpl:
@@ -84,7 +84,7 @@ class _BidiStream:
         self._req_cls = req_cls
 
     def send(self, resp):
-        self._sink.send(resp.marshal_dc())
+        self._sink.send(self.context.encode_message(resp))
 
     def recv(self):
         return self._reqs.recv_into(self._req_cls())
@@ -317,27 +317,27 @@ def register_kafka_server(server, impl):
     def _Metadata_handler(ctx, reqs, sink):
         req = reqs.recv_into(kafka_pb.MetadataRequest())
         resp = impl.Metadata(ctx, req)
-        sink.send(resp.marshal_dc())
+        sink.send(ctx.encode_message(resp))
 
     def _OpenProducer_handler(ctx, reqs, sink):
         req = reqs.recv_into(kafka_pb.OpenProducerRequest())
         resp = impl.OpenProducer(ctx, req)
-        sink.send(resp.marshal_dc())
+        sink.send(ctx.encode_message(resp))
 
     def _CloseProducer_handler(ctx, reqs, sink):
         req = reqs.recv_into(kafka_pb.CloseProducerRequest())
         resp = impl.CloseProducer(ctx, req)
-        sink.send(resp.marshal_dc())
+        sink.send(ctx.encode_message(resp))
 
     def _EndTransaction_handler(ctx, reqs, sink):
         req = reqs.recv_into(kafka_pb.EndTransactionRequest())
         resp = impl.EndTransaction(ctx, req)
-        sink.send(resp.marshal_dc())
+        sink.send(ctx.encode_message(resp))
 
     def _Produce_handler(ctx, reqs, sink):
         req = reqs.recv_into(kafka_pb.ProduceRequest())
         resp = impl.Produce(ctx, req)
-        sink.send(resp.marshal_dc())
+        sink.send(ctx.encode_message(resp))
 
     def _Consume_handler(ctx, reqs, sink):
         req = reqs.recv_into(kafka_pb.ConsumeRequest())
@@ -350,117 +350,117 @@ def register_kafka_server(server, impl):
     def _ListOffsets_handler(ctx, reqs, sink):
         req = reqs.recv_into(kafka_pb.ListOffsetsRequest())
         resp = impl.ListOffsets(ctx, req)
-        sink.send(resp.marshal_dc())
+        sink.send(ctx.encode_message(resp))
 
     def _CommitOffset_handler(ctx, reqs, sink):
         req = reqs.recv_into(kafka_pb.CommitOffsetRequest())
         resp = impl.CommitOffset(ctx, req)
-        sink.send(resp.marshal_dc())
+        sink.send(ctx.encode_message(resp))
 
     def _FetchOffset_handler(ctx, reqs, sink):
         req = reqs.recv_into(kafka_pb.FetchOffsetRequest())
         resp = impl.FetchOffset(ctx, req)
-        sink.send(resp.marshal_dc())
+        sink.send(ctx.encode_message(resp))
 
     def _CreateTopics_handler(ctx, reqs, sink):
         req = reqs.recv_into(kafka_pb.CreateTopicsRequest())
         resp = impl.CreateTopics(ctx, req)
-        sink.send(resp.marshal_dc())
+        sink.send(ctx.encode_message(resp))
 
     def _DeleteTopics_handler(ctx, reqs, sink):
         req = reqs.recv_into(kafka_pb.DeleteTopicsRequest())
         resp = impl.DeleteTopics(ctx, req)
-        sink.send(resp.marshal_dc())
+        sink.send(ctx.encode_message(resp))
 
     def _DescribeConfigs_handler(ctx, reqs, sink):
         req = reqs.recv_into(kafka_pb.DescribeConfigsRequest())
         resp = impl.DescribeConfigs(ctx, req)
-        sink.send(resp.marshal_dc())
+        sink.send(ctx.encode_message(resp))
 
     def _AlterConfigs_handler(ctx, reqs, sink):
         req = reqs.recv_into(kafka_pb.AlterConfigsRequest())
         resp = impl.AlterConfigs(ctx, req)
-        sink.send(resp.marshal_dc())
+        sink.send(ctx.encode_message(resp))
 
     def _CreatePartitions_handler(ctx, reqs, sink):
         req = reqs.recv_into(kafka_pb.CreatePartitionsRequest())
         resp = impl.CreatePartitions(ctx, req)
-        sink.send(resp.marshal_dc())
+        sink.send(ctx.encode_message(resp))
 
     def _DeleteRecords_handler(ctx, reqs, sink):
         req = reqs.recv_into(kafka_pb.DeleteRecordsRequest())
         resp = impl.DeleteRecords(ctx, req)
-        sink.send(resp.marshal_dc())
+        sink.send(ctx.encode_message(resp))
 
     def _ListGroups_handler(ctx, reqs, sink):
         req = reqs.recv_into(kafka_pb.ListGroupsRequest())
         resp = impl.ListGroups(ctx, req)
-        sink.send(resp.marshal_dc())
+        sink.send(ctx.encode_message(resp))
 
     def _DescribeGroups_handler(ctx, reqs, sink):
         req = reqs.recv_into(kafka_pb.DescribeGroupsRequest())
         resp = impl.DescribeGroups(ctx, req)
-        sink.send(resp.marshal_dc())
+        sink.send(ctx.encode_message(resp))
 
     def _DeleteGroups_handler(ctx, reqs, sink):
         req = reqs.recv_into(kafka_pb.DeleteGroupsRequest())
         resp = impl.DeleteGroups(ctx, req)
-        sink.send(resp.marshal_dc())
+        sink.send(ctx.encode_message(resp))
 
     def _DeleteGroupOffsets_handler(ctx, reqs, sink):
         req = reqs.recv_into(kafka_pb.DeleteGroupOffsetsRequest())
         resp = impl.DeleteGroupOffsets(ctx, req)
-        sink.send(resp.marshal_dc())
+        sink.send(ctx.encode_message(resp))
 
     def _DescribeAcls_handler(ctx, reqs, sink):
         req = reqs.recv_into(kafka_pb.DescribeAclsRequest())
         resp = impl.DescribeAcls(ctx, req)
-        sink.send(resp.marshal_dc())
+        sink.send(ctx.encode_message(resp))
 
     def _CreateAcls_handler(ctx, reqs, sink):
         req = reqs.recv_into(kafka_pb.CreateAclsRequest())
         resp = impl.CreateAcls(ctx, req)
-        sink.send(resp.marshal_dc())
+        sink.send(ctx.encode_message(resp))
 
     def _DeleteAcls_handler(ctx, reqs, sink):
         req = reqs.recv_into(kafka_pb.DeleteAclsRequest())
         resp = impl.DeleteAcls(ctx, req)
-        sink.send(resp.marshal_dc())
+        sink.send(ctx.encode_message(resp))
 
     def _ListTransactions_handler(ctx, reqs, sink):
         req = reqs.recv_into(kafka_pb.ListTransactionsRequest())
         resp = impl.ListTransactions(ctx, req)
-        sink.send(resp.marshal_dc())
+        sink.send(ctx.encode_message(resp))
 
     def _DescribeTransactions_handler(ctx, reqs, sink):
         req = reqs.recv_into(kafka_pb.DescribeTransactionsRequest())
         resp = impl.DescribeTransactions(ctx, req)
-        sink.send(resp.marshal_dc())
+        sink.send(ctx.encode_message(resp))
 
     def _OpenShareGroup_handler(ctx, reqs, sink):
         req = reqs.recv_into(kafka_pb.OpenShareGroupRequest())
         resp = impl.OpenShareGroup(ctx, req)
-        sink.send(resp.marshal_dc())
+        sink.send(ctx.encode_message(resp))
 
     def _SharePoll_handler(ctx, reqs, sink):
         req = reqs.recv_into(kafka_pb.SharePollRequest())
         resp = impl.SharePoll(ctx, req)
-        sink.send(resp.marshal_dc())
+        sink.send(ctx.encode_message(resp))
 
     def _ShareAck_handler(ctx, reqs, sink):
         req = reqs.recv_into(kafka_pb.ShareAckRequest())
         resp = impl.ShareAck(ctx, req)
-        sink.send(resp.marshal_dc())
+        sink.send(ctx.encode_message(resp))
 
     def _CloseShareGroup_handler(ctx, reqs, sink):
         req = reqs.recv_into(kafka_pb.CloseShareGroupRequest())
         resp = impl.CloseShareGroup(ctx, req)
-        sink.send(resp.marshal_dc())
+        sink.send(ctx.encode_message(resp))
 
     def _DescribeShareGroups_handler(ctx, reqs, sink):
         req = reqs.recv_into(kafka_pb.DescribeShareGroupsRequest())
         resp = impl.DescribeShareGroups(ctx, req)
-        sink.send(resp.marshal_dc())
+        sink.send(ctx.encode_message(resp))
 
     server.register_service(grpcdc.ServiceDesc(
         "grpcdc.kafka.v1.Kafka",

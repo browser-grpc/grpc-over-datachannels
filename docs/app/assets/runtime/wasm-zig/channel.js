@@ -19,6 +19,12 @@ import {
   traceStart,
 } from "./codec.js";
 import { Endpoint } from "./endpoint.js";
+import {
+  STRUCT_CODEC_HEADER,
+  STRUCT_CODEC_V1,
+  marshalForCodec,
+  unmarshalForCodec,
+} from "./structdc.js";
 
 // AsyncIterable wrapper whose iterator keeps ONE read in
 // flight at a time (no read-ahead). for-await on an async
@@ -91,6 +97,23 @@ export class Channel {
   #traces = new Map();
   #traceContext = null;
   #metadataProvider = null;
+  #structCodec = false;
+
+  /**
+   * Make every call on this channel request the struct codec
+   * (HEADERS marker dc-codec: struct-v1) and encode requests /
+   * decode responses with it. The server must enable it too
+   * (see Server.setStructCodec); otherwise calls fail
+   * UNIMPLEMENTED. Mirrors the Go Channel.SetStructCodec.
+   */
+  setStructCodec(enabled) {
+    this.#structCodec = !!enabled;
+  }
+
+  /** Whether this channel requests the struct codec on every call. */
+  get structCodec() {
+    return this.#structCodec;
+  }
 
   // A Channel view sharing this endpoint whose outbound spans are
   // parented to traceContext (a server span context from
@@ -101,6 +124,7 @@ export class Channel {
     const ch = new Channel(this.#endpoint);
     ch.#traceContext = traceContext ?? null;
     ch.#metadataProvider = this.#metadataProvider;
+    ch.#structCodec = this.#structCodec;
     return ch;
   }
 
@@ -113,6 +137,7 @@ export class Channel {
     const ch = new Channel(this.#endpoint);
     ch.#traceContext = this.#traceContext;
     ch.#metadataProvider = provider ?? null;
+    ch.#structCodec = this.#structCodec;
     return ch;
   }
 
@@ -138,6 +163,9 @@ export class Channel {
     if (timeout !== undefined && timeout !== null) {
       deadline = Date.now() + timeout;
       metadata = { ...metadata, "grpc-timeout": encodeTimeout(timeout) };
+    }
+    if (this.#structCodec) {
+      metadata = { ...metadata, [STRUCT_CODEC_HEADER]: STRUCT_CODEC_V1 };
     }
     let traceCtx = null;
     if (getTracer() !== null) {
@@ -214,7 +242,9 @@ export class Channel {
   }
 
   async #sendMessage(id, ReqType, request) {
-    await this.#endpoint.sendFrame(encodeFrame(FrameType.DATA, id, ReqType.encode(request)));
+    await this.#endpoint.sendFrame(
+      encodeFrame(FrameType.DATA, id, marshalForCodec(this.#structCodec, ReqType, request)),
+    );
   }
 
   // hooks: optional {onHeaders, onTrailers} from call options,
@@ -235,7 +265,7 @@ export class Channel {
           if (response !== null) {
             throw StatusError.internal("unary call received more than one response");
           }
-          response = RespType.decode(event.payload);
+          response = unmarshalForCodec(this.#structCodec, RespType, event.payload);
         } else if (event.kind === "trailers") {
           hooks.onTrailers?.(event.trailers ?? {});
           this.#endTrace(id, StatusName[event.status.code] ?? `CODE_${event.status.code}`);
@@ -296,7 +326,7 @@ export class Channel {
         if (event.kind === "headers") {
           hooks.onHeaders?.(event.headers?.metadata ?? {});
         } else if (event.kind === "data") {
-          yield RespType.decode(event.payload);
+          yield unmarshalForCodec(this.#structCodec, RespType, event.payload);
         } else if (event.kind === "trailers") {
           completed = true;
           hooks.onTrailers?.(event.trailers ?? {});

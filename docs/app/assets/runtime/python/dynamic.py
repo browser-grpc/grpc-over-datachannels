@@ -130,10 +130,11 @@ class FieldModel:
 
 
 class MessageModel:
-    def __init__(self, full_name, fields):
+    def __init__(self, full_name, fields, map_entry=False):
         self.full_name = full_name
         self.fields = fields  # number -> FieldModel
         self.by_name = {f.name: f for f in fields.values()}
+        self.map_entry = map_entry
 
 
 class MethodModel:
@@ -351,10 +352,11 @@ def parse_descriptor_set(data):
     return file_model
 
 
-def _parse_message(package, data, file_model):
+def _parse_message(package, data, file_model, outer=None):
     name = ""
     raw_fields = []
     nested = []
+    map_entry = False
     for fnum, _w, fval in _PbReader(data).fields():
         if fnum == 1:
             name = fval.decode("utf-8")
@@ -362,31 +364,21 @@ def _parse_message(package, data, file_model):
             raw_fields.append(fval)
         elif fnum == 3:
             nested.append(fval)
-    full_name = f"{package}.{name}" if package else name
+        elif fnum == 7:
+            # MessageOptions.map_entry (field 7) marks map entries.
+            for onum, _ow, oval in _PbReader(fval).fields():
+                if onum == 7 and oval != 0:
+                    map_entry = True
+    if outer:
+        full_name = f"{package}.{outer}.{name}" if package else f"{outer}.{name}"
+    else:
+        full_name = f"{package}.{name}" if package else name
     fields = {}
-    model = MessageModel(full_name, fields)
+    model = MessageModel(full_name, fields, map_entry)
     file_model.messages["." + full_name] = model
     for nested_bytes in nested:
-        # Nested types register as package.Outer.Inner.
-        _parse_nested(package, name, nested_bytes, file_model)
-    for field_bytes in raw_fields:
-        field = _parse_field(field_bytes)
-        fields[field.number] = field
-    return model
-
-
-def _parse_nested(package, outer, data, file_model):
-    name = ""
-    raw_fields = []
-    for fnum, _w, fval in _PbReader(data).fields():
-        if fnum == 1:
-            name = fval.decode("utf-8")
-        elif fnum == 2:
-            raw_fields.append(fval)
-    full_name = f"{package}.{outer}.{name}" if package else f"{outer}.{name}"
-    fields = {}
-    model = MessageModel(full_name, fields)
-    file_model.messages["." + full_name] = model
+        # Nested types register recursively as package.Outer.Inner.
+        _parse_message(package, nested_bytes, file_model, outer=f"{outer}.{name}" if outer else name)
     for field_bytes in raw_fields:
         field = _parse_field(field_bytes)
         fields[field.number] = field

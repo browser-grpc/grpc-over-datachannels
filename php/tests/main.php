@@ -11,6 +11,10 @@ if ($name === null) {
 
 try {
     switch ($name) {
+        case "TestStructCodec":
+            require_once __DIR__ . "/test_struct_codec.php";
+            TestStructCodec::run();
+            break;
         case "TestCodec":
             require_once __DIR__ . "/test_codec.php";
             TestCodec::run();

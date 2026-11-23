@@ -19,6 +19,7 @@ Browser legs run via the `test-wasm*` and `test-*-wasm-browser` make targets (Ch
 - [`echo_server.cpp`](cpp/native/echo_server.cpp) — Echo: all four call shapes
 - [`echo_tracing.cpp`](cpp/native/echo_tracing.cpp) — Tracing: traceparent propagation, span observers, nested calls
 - [`pb.hpp`](cpp/pb.hpp) — Generated suite/example
+- [`structdc_wasm.cpp`](cpp/structdc_wasm.cpp) — Generated suite/example
 - [`echo_client.dart`](dart/echo_client.dart) — Echo: all four call shapes
 - [`echo_server.dart`](dart/echo_server.dart) — Echo: all four call shapes
 - [`echo_tracing.dart`](dart/echo_tracing.dart) — Tracing: traceparent propagation, span observers, nested calls
@@ -39,6 +40,7 @@ Browser legs run via the `test-wasm*` and `test-*-wasm-browser` make targets (Ch
 - [`MemoryTransport.kt`](kotlin/grpcdc/MemoryTransport.kt) — In-memory transport
 - [`Server.kt`](kotlin/grpcdc/Server.kt) — Generated suite/example
 - [`Status.kt`](kotlin/grpcdc/Status.kt) — Generated suite/example
+- [`StructDc.kt`](kotlin/grpcdc/StructDc.kt) — Generated suite/example
 - [`Transport.kt`](kotlin/grpcdc/Transport.kt) — Generated suite/example
 - [`Wire.kt`](kotlin/grpcdc/Wire.kt) — Generated suite/example
 - [`EchoGrpcDc.kt`](kotlin/native/EchoGrpcDc.kt) — Echo: all four call shapes
@@ -83,6 +85,7 @@ Browser legs run via the `test-wasm*` and `test-*-wasm-browser` make targets (Ch
 - [`echo_client.zig`](zig/native/echo_client.zig) — Echo: all four call shapes
 - [`echo_server.zig`](zig/native/echo_server.zig) — Echo: all four call shapes
 - [`echo_tracing.zig`](zig/native/echo_tracing.zig) — Tracing: traceparent propagation, span observers, nested calls
+- [`structdc_wasm.zig`](zig/structdc_wasm.zig) — Generated suite/example
 
 ## Examples and harnesses
 

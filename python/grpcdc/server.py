@@ -3,11 +3,16 @@
 """Server: dispatches inbound calls to registered methods."""
 
 from .codec import (
+    STRUCT_CODEC_HEADER,
+    STRUCT_CODEC_V1,
+    StatusError,
+    marshal_for_codec,
     parse_traceparent,
     status_name,
     to_status,
     trace_end,
     trace_start,
+    unmarshal_for_codec,
     with_trace_context,
 )
 from .endpoint import (
@@ -28,8 +33,9 @@ KIND_BIDI = "bidi"
 class RequestStream:
     """Reads request messages of one inbound call."""
 
-    def __init__(self, stream_input):
+    def __init__(self, stream_input, struct_codec=False):
         self._input = stream_input
+        self.struct_codec = struct_codec
 
     def recv_raw(self):
         """Next request payload; EOFError at half-close."""
@@ -47,7 +53,7 @@ class RequestStream:
                 raise event.status
 
     def recv_into(self, req):
-        req.unmarshal_dc(self.recv_raw())
+        unmarshal_for_codec(self.struct_codec, self.recv_raw(), req)
         return req
 
 
@@ -70,6 +76,16 @@ class Server:
 
     def __init__(self):
         self._methods = {}
+        self._struct_codec = False
+
+    def set_struct_codec(self, enabled):
+        """Enable the struct codec on this server: a call
+        carrying HEADERS dc-codec: struct-v1 is decoded with the
+        struct codec and answered in kind. A struct-v1 request
+        to a server without it enabled fails UNIMPLEMENTED, as
+        does any other dc-codec value. Mirrors the Go
+        Server.SetStructCodec."""
+        self._struct_codec = bool(enabled)
 
     def register_service(self, desc):
         for method in desc.methods:
@@ -88,18 +104,25 @@ class Server:
     def _dispatch(self, ctx, headers, stream_input, sink):
         method = self._methods.get(headers.path)
         if method is None:
-            from .codec import StatusError
-
             return StatusError(
                 CODE_UNIMPLEMENTED, f"unknown method {headers.path}"
             )
+        # Struct codec negotiation: an explicit dc-codec marker
+        # must be struct-v1 and enabled here, else UNIMPLEMENTED.
+        use_struct = False
+        marker = (headers.metadata or {}).get(STRUCT_CODEC_HEADER)
+        if marker is not None:
+            if marker != STRUCT_CODEC_V1 or not self._struct_codec:
+                return StatusError(CODE_UNIMPLEMENTED, "struct codec not enabled")
+            use_struct = True
+        ctx.struct_codec = use_struct
         parent = parse_traceparent((headers.metadata or {}).get("traceparent"))
         trace_ctx = trace_start("server", headers.path, parent)
         ctx.trace_context = trace_ctx
         result = None
         try:
             with with_trace_context(trace_ctx):
-                method.handler(ctx, RequestStream(stream_input), sink)
+                method.handler(ctx, RequestStream(stream_input, use_struct), sink)
         except Exception as e:  # StatusError passes through via to_status
             result = to_status(e)
         status = status_name(result.code) if result is not None else "OK"

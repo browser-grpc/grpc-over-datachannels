@@ -189,6 +189,38 @@ final class Codec
     public const HEADER_LEN = 9;
     public const MAX_DATA_PAYLOAD = 16 * 1024 * 1024;
 
+    // HEADERS metadata key/value a client sends to request the
+    // struct codec for a call (see SPEC.md struct codec).
+    public const STRUCT_CODEC_HEADER = "dc-codec";
+    public const STRUCT_CODEC_V1 = "struct-v1";
+
+    /** Marshal $msg with the codec selected for a call
+     *  (struct layout when negotiated). */
+    public static function marshalForCodec(bool $structCodec, object $msg): string
+    {
+        if (!$structCodec) {
+            return $msg->marshalDc();
+        }
+        if (!method_exists($msg, "marshalStruct")) {
+            throw new StatusError(Wire::CODE_INTERNAL, "message has no struct codec");
+        }
+        return $msg->marshalStruct();
+    }
+
+    /** Decode $data into $msg with the codec selected for a call. */
+    public static function unmarshalForCodec(bool $structCodec, string $data, object $msg): object
+    {
+        if ($structCodec) {
+            if (!method_exists($msg, "unmarshalStruct")) {
+                throw new StatusError(Wire::CODE_INTERNAL, "message has no struct codec");
+            }
+            $msg->unmarshalStruct($data);
+        } else {
+            $msg->unmarshalDc($data);
+        }
+        return $msg;
+    }
+
     /** Build one DataChannel message: header + payload. */
     public static function encodeFrame(int $frameType, int $streamId, string $payload): string
     {

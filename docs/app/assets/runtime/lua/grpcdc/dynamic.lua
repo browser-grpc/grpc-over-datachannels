@@ -214,7 +214,7 @@ local function encodeVarint(parts, value)
   parts[#parts + 1] = string.char(v & 0xff)
 end
 
-local function zigzagEncode(v) return (v << 1) ~ (v >> 63) end
+local function zigzagEncode(v) return (v << 1) ~ -(v >> 63) end
 local function zigzagDecode(v) return (v >> 1) ~ -(v & 1) end
 
 local function valueAsInt(value)
@@ -301,6 +301,33 @@ encodeValue = function(parts, field, value, file)
 end
 
 local decodeValue
+local function decodePackedWire(field, bytes)
+  local values = {}
+  local wire = wireTypeOf(field.type)
+  if wire == 0 then
+    local reader = PbReader.new(bytes)
+    while reader.pos <= #bytes do
+      values[#values + 1] = reader:varint()
+    end
+  elseif wire == 1 then
+    for i = 1, #bytes - 7, 8 do values[#values + 1] = bytes:sub(i, i + 7) end
+  else
+    for i = 1, #bytes - 3, 4 do values[#values + 1] = bytes:sub(i, i + 3) end
+  end
+  return values, wire
+end
+
+local function decodePacked(field, bytes, file, add)
+  local raws, wire = decodePackedWire(field, bytes)
+  for _, rawv in ipairs(raws) do
+    local raw
+    if wire == 0 then raw = { number = field.number, wire = 0, varint = rawv, bytes = "" }
+    elseif wire == 1 then raw = { number = field.number, wire = 1, varint = 0, bytes = rawv }
+    else raw = { number = field.number, wire = 5, varint = 0, bytes = rawv } end
+    add(decodeValue(field, raw, file))
+  end
+end
+
 local function decodeGeneric(model, data, file)
   local message = GenericMessage.new(model)
   local reader = PbReader.new(data)
@@ -311,12 +338,17 @@ local function decodeGeneric(model, data, file)
     if field == nil then
       -- Unknown field: retain the raw encoded chunk verbatim.
       message.unknown[#message.unknown + 1] = raw.chunk
+    elseif field.repeated and raw.wire == 2
+        and field.type ~= TYPE_STRING and field.type ~= TYPE_BYTES
+        and field.type ~= TYPE_MESSAGE and field.type ~= TYPE_GROUP then
+      decodePacked(field, raw.bytes, file, function(v) message:add(raw.number, v) end)
     else
       message:add(raw.number, decodeValue(field, raw, file))
     end
   end
   return message
 end
+
 
 decodeValue = function(field, raw, file)
   if raw.wire == 0 then
@@ -410,8 +442,26 @@ parseMessage = function(prefix, data, file)
       nested[#nested + 1] = f.bytes
     end
   end
+  local options = nil
+  do
+    local reader2 = PbReader.new(data)
+    while true do
+      local f = reader2:next()
+      if f == nil then break end
+      if f.number == 7 then options = f.bytes end
+    end
+  end
+  local mapEntry = false
+  if options ~= nil then
+    local or_ = PbReader.new(options)
+    while true do
+      local f = or_:next()
+      if f == nil then break end
+      if f.number == 7 and f.varint ~= 0 then mapEntry = true end
+    end
+  end
   local fullName = (prefix == "") and name or (prefix .. "." .. name)
-  local model = { fullName = fullName, fields = {}, byName = {} }
+  local model = { fullName = fullName, fields = {}, byName = {}, mapEntry = mapEntry }
   for _, fieldBytes in ipairs(rawFields) do
     local field = { number = 0, name = "", type = 0, repeated = false, typeName = "" }
     local fr = PbReader.new(fieldBytes)
