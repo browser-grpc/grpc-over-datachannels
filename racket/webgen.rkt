@@ -1165,7 +1165,7 @@ class _SendStream:
         self._sink = sink
 
     def send(self, resp):
-        self._sink.send(resp.marshal_dc())
+        self._sink.send(self.context.encode_message(resp))
 
 
 class _ClientStreamImpl:
@@ -1194,7 +1194,7 @@ class _BidiStream:
         self._req_cls = req_cls
 
     def send(self, resp):
-        self._sink.send(resp.marshal_dc())
+        self._sink.send(self.context.encode_message(resp))
 
     def recv(self):
         return self._reqs.recv_into(self._req_cls())
@@ -4815,7 +4815,7 @@ const RB_STREAM_HELPERS = `  # Client receiving stream: recv raises EOFError at 
     end
 
     def send(resp)
-      @sink.send(resp.marshal_dc)
+      @sink.send(@context.encode_message(resp))
     end
   end
 
@@ -4851,7 +4851,7 @@ const RB_STREAM_HELPERS = `  # Client receiving stream: recv raises EOFError at 
     end
 
     def send(resp)
-      @sink.send(resp.marshal_dc)
+      @sink.send(@context.encode_message(resp))
     end
 
     def recv
@@ -5205,7 +5205,7 @@ class SendStream
 
     public function send(object $resp): void
     {
-        $this->sink->send($resp->marshalDc());
+        $this->sink->send($this->context->encodeMessage($resp));
     }
 }
 
@@ -5254,7 +5254,7 @@ class BidiStream
 
     public function send(object $resp): void
     {
-        $this->sink->send($resp->marshalDc());
+        $this->sink->send($this->context->encodeMessage($resp));
     }
 
     public function recv(): object
