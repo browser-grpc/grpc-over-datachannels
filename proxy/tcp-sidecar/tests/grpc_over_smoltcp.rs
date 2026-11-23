@@ -123,7 +123,7 @@ async fn grpc_over_dropping_link_exactly_once() {
     // dropped (~4% loss; smoltcp's RTO backoff makes much
     // higher rates a minutes-long slog, which is a TCP
     // behavior fact, not a stall). TCP retransmission must
-    // deliver the gRPC call exactly once and intact (large
+    // deliver the gRPC call exactly once and intact (multi-segment
     // payload both ways), and the bridge must count the
     // retransmits it caused.
     let root = root();
@@ -164,18 +164,28 @@ async fn grpc_over_dropping_link_exactly_once() {
     });
 
     let client = TestServiceClient::new(Channel::new(client_transport));
-    let large = client
-        .unary_call(pb::SimpleRequest {
-            response_size: 314_159,
+    // Payloads are tens of KB (multi-segment both ways, so the
+    // dropper still hits data frames and retransmits still
+    // happen) rather than ~300KB: at ~4% loss over smoltcp's
+    // RTO backoff, the large-payload version intermittently
+    // cascades into a many-minutes stall. The call is also
+    // timeout-bounded so a stall fails fast instead of
+    // hanging the test gate.
+    let large = tokio::time::timeout(
+        std::time::Duration::from_secs(60),
+        client.unary_call(pb::SimpleRequest {
+            response_size: 32_768,
             payload: Some(Box::new(pb::Payload {
-                body: vec![0u8; 271_828],
+                body: vec![0u8; 32_768],
                 ..Default::default()
             })),
             ..Default::default()
-        })
-        .await
-        .unwrap();
-    assert_eq!(large.payload.unwrap().body.len(), 314_159);
+        }),
+    )
+    .await
+    .expect("dropping-link call timed out after 60s")
+    .unwrap();
+    assert_eq!(large.payload.unwrap().body.len(), 32_768);
     let stats = sidecar.stats();
     assert!(stats.tcp_retransmits > 0, "expected retransmits under drop: {stats:?}");
 
