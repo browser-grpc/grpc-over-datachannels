@@ -10723,8 +10723,7 @@
         (arg 0)
         (ref name))
        (fmt
-        "~a        if (@import(\"builtin\").target.os.tag == .freestanding) @panic(\"struct codec unavailable on freestanding targets\");\n~a        return _structdc.~aStruct.marshal(self, alloc) catch @panic(\"struct codec encode failed\");\n~a    }\n"
-        (arg 0)
+        "~a        return _structdc.~aStruct.marshal(self, alloc) catch @panic(\"struct codec encode failed\");\n~a    }\n"
         (arg 0)
         (ref name)
         (arg 0))
@@ -10733,8 +10732,7 @@
         (arg 0)
         (ref name))
        (fmt
-        "~a        if (@import(\"builtin\").target.os.tag == .freestanding) @panic(\"struct codec unavailable on freestanding targets\");\n~a        const s = _structdc.~aStruct.unmarshal(alloc, data) catch return;\n~a        self.* = s;\n~a    }\n"
-        (arg 0)
+        "~a        const s = _structdc.~aStruct.unmarshal(alloc, data) catch return;\n~a        self.* = s;\n~a    }\n"
         (arg 0)
         (ref name)
         (arg 0)

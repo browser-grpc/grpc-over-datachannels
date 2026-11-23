@@ -758,22 +758,25 @@ test-wasm:
 
 test-zig-wasm-native-browser:
 	$(ZIG) build-exe -target wasm32-freestanding -O ReleaseSmall -fno-entry -fPIC -rdynamic \
-		--dep grpcdc --dep echo_stub \
+		--dep grpcdc --dep echo_stub --dep grpcdc_structdc \
 		-Mroot=wasm/zig/native/echo_client.zig \
 		--dep grpcdc -Mecho_stub=zig/examples/echo_grpc_dc.zig \
 		-Mgrpcdc=zig/grpcdc/grpcdc.zig \
+		-Mgrpcdc_structdc=zig/grpcdc/structdc.zig \
 		-femit-bin=browser-test/echo_zig_native.wasm
 	$(ZIG) build-exe -target wasm32-freestanding -O ReleaseSmall -fno-entry -fPIC -rdynamic \
-		--dep grpcdc --dep echo_stub \
+		--dep grpcdc --dep echo_stub --dep grpcdc_structdc \
 		-Mroot=wasm/zig/native/echo_server.zig \
 		--dep grpcdc -Mecho_stub=zig/examples/echo_grpc_dc.zig \
 		-Mgrpcdc=zig/grpcdc/grpcdc.zig \
+		-Mgrpcdc_structdc=zig/grpcdc/structdc.zig \
 		-femit-bin=browser-test/echo_zig_native_server.wasm
 	$(ZIG) build-exe -target wasm32-freestanding -O ReleaseSmall -fno-entry -fPIC -rdynamic \
-		--dep grpcdc --dep echo_stub \
+		--dep grpcdc --dep echo_stub --dep grpcdc_structdc \
 		-Mroot=wasm/zig/native/echo_tracing.zig \
 		--dep grpcdc -Mecho_stub=zig/examples/echo_grpc_dc.zig \
 		-Mgrpcdc=zig/grpcdc/grpcdc.zig \
+		-Mgrpcdc_structdc=zig/grpcdc/structdc.zig \
 		-femit-bin=browser-test/echo_zig_native_tracing.wasm
 	cd browser-test && node wasm_zig_native.test.mjs all
 	cd browser-test && node wasm_zig_native_server.test.mjs all
@@ -781,21 +784,24 @@ test-zig-wasm-native-browser:
 
 test-zig-wasm-browser:
 	$(ZIG) build-exe -target wasm32-freestanding -O ReleaseSmall -fno-entry -fPIC -rdynamic \
-		--dep grpcdc_status --dep echo_messages \
+		--dep grpcdc_status --dep echo_messages --dep grpcdc_structdc \
 		-Mroot=wasm/zig/echo_client.zig -Mgrpcdc_status=zig/grpcdc/status.zig \
 		-Mecho_messages=zig/examples/echo_messages.zig \
+		-Mgrpcdc_structdc=zig/grpcdc/structdc.zig \
 		-femit-bin=browser-test/echo_zig.wasm
 	$(ZIG) build-exe -target wasm32-freestanding -O ReleaseSmall -fno-entry -fPIC -rdynamic \
-		--dep grpcdc_status --dep echo_messages \
+		--dep grpcdc_status --dep echo_messages --dep grpcdc_structdc \
 		-Mroot=wasm/zig/echo_server.zig -Mgrpcdc_status=zig/grpcdc/status.zig \
 		-Mecho_messages=zig/examples/echo_messages.zig \
+		-Mgrpcdc_structdc=zig/grpcdc/structdc.zig \
 		-femit-bin=browser-test/echo_zig_server.wasm
 	cd browser-test && node wasm_zig.test.mjs all
 	cd browser-test && node wasm_zig_facade_server.test.mjs all
 	$(ZIG) build-exe -target wasm32-freestanding -O ReleaseSmall -fno-entry -fPIC -rdynamic \
-		--dep grpcdc_status --dep echo_messages \
+		--dep grpcdc_status --dep echo_messages --dep grpcdc_structdc \
 		-Mroot=wasm/zig/echo_stream_server.zig -Mgrpcdc_status=zig/grpcdc/status.zig \
 		-Mecho_messages=zig/examples/echo_messages.zig \
+		-Mgrpcdc_structdc=zig/grpcdc/structdc.zig \
 		-femit-bin=browser-test/echo_zig_stream_server.wasm
 	cd browser-test && node wasm_zig_stream_server.test.mjs all
 

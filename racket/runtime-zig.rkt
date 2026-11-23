@@ -2863,6 +2863,7 @@ pub const memory_transport = @import("memory_transport.zig");
 pub const sidecar_transport = @import("sidecar_transport.zig");
 pub const http2_transport = @import("http2_transport.zig");
 pub const dynamic = @import("dynamic.zig");
+pub const structdc = @import("structdc.zig");
 GRPC_RUNTIME_EOF
 )
 
@@ -2908,4 +2909,838 @@ GRPC_RUNTIME_EOF
    (cons "grpcdc/memory_transport.zig" zig-memory-body)
    (cons "grpcdc/sidecar_transport.zig" zig-sidecar-body)
    (cons "grpcdc/dynamic.zig" zig-dynamic-body)
+   (cons "grpcdc/structdc.zig" zig-structdc-body)
    (cons "grpcdc/grpcdc.zig" zig-root-body)))
+
+(define zig-structdc-body
+#<<GRPC_RUNTIME_EOF
+// Descriptor-driven struct codec (layout v1, DCS1): the
+// packed struct format from SPEC.md, implemented in pure Zig
+// over a minimal internal dynamic model so Wasm builds (no
+// native cdylib) transcode protobuf <-> struct without the
+// FFI bridge. Byte-identical to the shared Rust
+// implementation (conformance/struct).
+
+const std = @import("std");
+
+pub const Error = error{ StructCodec, OutOfMemory };
+
+const t_double: i32 = 1;
+const t_float: i32 = 2;
+const t_int64: i32 = 3;
+const t_uint64: i32 = 4;
+const t_int32: i32 = 5;
+const t_fixed64: i32 = 6;
+const t_fixed32: i32 = 7;
+const t_bool: i32 = 8;
+const t_string: i32 = 9;
+const t_group: i32 = 10;
+const t_message: i32 = 11;
+const t_bytes: i32 = 12;
+const t_uint32: i32 = 13;
+const t_enum: i32 = 14;
+const t_sfixed32: i32 = 15;
+const t_sfixed64: i32 = 16;
+const t_sint32: i32 = 17;
+const t_sint64: i32 = 18;
+
+const FieldM = struct {
+    number: u32 = 0,
+    name: []const u8 = "",
+    ftype: i32 = 0,
+    repeated: bool = false,
+    type_name: []const u8 = "",
+};
+
+const MsgM = struct {
+    full_name: []const u8,
+    fields: std.AutoHashMap(u32, *FieldM),
+    map_entry: bool = false,
+};
+
+const FileM = struct {
+    messages: std.StringHashMap(*MsgM),
+};
+
+const Value = union(enum) {
+    int: i64,
+    float: f64,
+    boolean: bool,
+    string: []const u8,
+    bytes: []const u8,
+    message: *Generic,
+};
+
+const Generic = struct {
+    values: std.AutoHashMap(u32, std.ArrayList(Value)),
+    unknown: std.ArrayList([]u8) = .empty,
+
+    fn init(alloc: std.mem.Allocator) Generic {
+        return .{ .values = std.AutoHashMap(u32, std.ArrayList(Value)).init(alloc) };
+    }
+    fn add(self: *Generic, alloc: std.mem.Allocator, number: u32, value: Value) !void {
+        const gop = try self.values.getOrPut(number);
+        if (!gop.found_existing) gop.value_ptr.* = .empty;
+        try gop.value_ptr.append(alloc, value);
+    }
+    fn set(self: *Generic, alloc: std.mem.Allocator, number: u32, value: Value) !void {
+        var list: std.ArrayList(Value) = .empty;
+        try list.append(alloc, value);
+        try self.values.put(number, list);
+    }
+    fn get(self: *Generic, number: u32) ?Value {
+        const list = self.values.get(number) orelse return null;
+        if (list.items.len == 0) return null;
+        return list.items[0];
+    }
+    fn getAll(self: *Generic, number: u32) []const Value {
+        const list = self.values.get(number) orelse return &[_]Value{};
+        return list.items;
+    }
+};
+
+const Reader = struct {
+    buf: []const u8,
+    pos: usize = 0,
+
+    fn varint(self: *Reader) Error!u64 {
+        var result: u64 = 0;
+        var shift: u6 = 0;
+        while (true) {
+            if (self.pos >= self.buf.len) return error.StructCodec;
+            const b = self.buf[self.pos];
+            self.pos += 1;
+            result |= @as(u64, b & 0x7f) << shift;
+            if ((b & 0x80) == 0) return result;
+            shift += 7;
+            if (shift >= 70) return error.StructCodec;
+        }
+    }
+    fn take(self: *Reader, n: usize) Error![]const u8 {
+        if (self.pos + n > self.buf.len) return error.StructCodec;
+        defer self.pos += n;
+        return self.buf[self.pos..][0..n];
+    }
+    fn bytesField(self: *Reader) Error![]const u8 {
+        const n = try self.varint();
+        return self.take(@intCast(n));
+    }
+};
+
+fn parseField(alloc: std.mem.Allocator, data: []const u8) Error!*FieldM {
+    const f = try alloc.create(FieldM);
+    f.* = .{};
+    var r = Reader{ .buf = data };
+    while (r.pos < data.len) {
+        const tag = try r.varint();
+        const num: u32 = @intCast(tag >> 3);
+        switch (tag & 7) {
+            0 => {
+                const v = try r.varint();
+                switch (num) {
+                    3 => f.number = @intCast(v),
+                    4 => f.repeated = v == 3,
+                    5 => f.ftype = @intCast(v),
+                    else => {},
+                }
+            },
+            2 => {
+                const v = try r.bytesField();
+                switch (num) {
+                    1 => f.name = v,
+                    6 => f.type_name = v,
+                    else => {},
+                }
+            },
+            1 => _ = try r.take(8),
+            5 => _ = try r.take(4),
+            else => return error.StructCodec,
+        }
+    }
+    return f;
+}
+
+fn parseMessage(alloc: std.mem.Allocator, prefix: []const u8, data: []const u8, fm: *FileM) Error!void {
+    var name: []const u8 = "";
+    var options: ?[]const u8 = null;
+    var raw_fields: std.ArrayList([]const u8) = .empty;
+    var nested: std.ArrayList([]const u8) = .empty;
+    var r = Reader{ .buf = data };
+    while (r.pos < data.len) {
+        const tag = try r.varint();
+        const num: u32 = @intCast(tag >> 3);
+        switch (tag & 7) {
+            0 => _ = try r.varint(),
+            2 => {
+                const v = try r.bytesField();
+                switch (num) {
+                    1 => name = v,
+                    2 => try raw_fields.append(alloc, v),
+                    3 => try nested.append(alloc, v),
+                    7 => options = v,
+                    else => {},
+                }
+            },
+            1 => _ = try r.take(8),
+            5 => _ = try r.take(4),
+            else => return error.StructCodec,
+        }
+    }
+    const full_name = if (prefix.len == 0) name else try std.fmt.allocPrint(alloc, "{s}.{s}", .{ prefix, name });
+    const model = try alloc.create(MsgM);
+    model.* = .{ .full_name = full_name, .fields = std.AutoHashMap(u32, *FieldM).init(alloc) };
+    if (options) |opts| {
+        var ordr = Reader{ .buf = opts };
+        while (ordr.pos < opts.len) {
+            const tag = try ordr.varint();
+            const num: u32 = @intCast(tag >> 3);
+            switch (tag & 7) {
+                0 => {
+                    const v = try ordr.varint();
+                    if (num == 7 and v != 0) model.map_entry = true;
+                },
+                2 => _ = try ordr.bytesField(),
+                1 => _ = try ordr.take(8),
+                5 => _ = try ordr.take(4),
+                else => return error.StructCodec,
+            }
+        }
+    }
+    const key = try std.fmt.allocPrint(alloc, ".{s}", .{full_name});
+    try fm.messages.put(key, model);
+    for (raw_fields.items) |b| {
+        const f = try parseField(alloc, b);
+        try model.fields.put(f.number, f);
+    }
+    for (nested.items) |b| try parseMessage(alloc, full_name, b, fm);
+}
+
+fn parseDescriptorSet(alloc: std.mem.Allocator, data: []const u8) Error!*FileM {
+    const fm = try alloc.create(FileM);
+    fm.* = .{ .messages = std.StringHashMap(*MsgM).init(alloc) };
+    var r = Reader{ .buf = data };
+    while (r.pos < data.len) {
+        const tag = try r.varint();
+        const num: u32 = @intCast(tag >> 3);
+        switch (tag & 7) {
+            0 => _ = try r.varint(),
+            2 => {
+                const file_bytes = try r.bytesField();
+                if (num == 1) {
+                    var pkg: []const u8 = "";
+                    var msgs: std.ArrayList([]const u8) = .empty;
+                    var fr = Reader{ .buf = file_bytes };
+                    while (fr.pos < file_bytes.len) {
+                        const t2 = try fr.varint();
+                        const n2: u32 = @intCast(t2 >> 3);
+                        switch (t2 & 7) {
+                            0 => _ = try fr.varint(),
+                            2 => {
+                                const v = try fr.bytesField();
+                                if (n2 == 2) pkg = v else if (n2 == 4) try msgs.append(alloc, v);
+                            },
+                            1 => _ = try fr.take(8),
+                            5 => _ = try fr.take(4),
+                            else => return error.StructCodec,
+                        }
+                    }
+                    for (msgs.items) |m| try parseMessage(alloc, pkg, m, fm);
+                }
+            },
+            1 => _ = try r.take(8),
+            5 => _ = try r.take(4),
+            else => return error.StructCodec,
+        }
+    }
+    return fm;
+}
+
+fn zigzagDecode(v: u64) i64 {
+    return @as(i64, @bitCast(v >> 1)) ^ -@as(i64, @intCast(v & 1));
+}
+
+fn u32At(b: []const u8, off: usize) Error!u64 {
+    if (off + 4 > b.len) return error.StructCodec;
+    return @as(u64, b[off]) | (@as(u64, b[off + 1]) << 8) | (@as(u64, b[off + 2]) << 16) | (@as(u64, b[off + 3]) << 24);
+}
+
+fn u64At(b: []const u8, off: usize) Error!u64 {
+    if (off + 8 > b.len) return error.StructCodec;
+    var v: u64 = 0;
+    for (0..8) |i| v |= @as(u64, b[off + i]) << @intCast(8 * i);
+    return v;
+}
+
+fn asU64(v: Value) u64 {
+    return switch (v) {
+        .int => |x| @bitCast(x),
+        .boolean => |b| if (b) @as(u64, 1) else @as(u64, 0),
+        .float => |d| @bitCast(@as(i64, @intFromFloat(d))),
+        else => 0,
+    };
+}
+
+fn decodeValueS(alloc: std.mem.Allocator, f: *FieldM, wire: u32, raw: Value, fm: *FileM) Error!Value {
+    switch (wire) {
+        0 => {
+            const v: u64 = @bitCast(raw.int);
+            switch (f.ftype) {
+                t_bool => return Value{ .boolean = v != 0 },
+                t_sint32, t_sint64 => return Value{ .int = zigzagDecode(v) },
+                t_int32, t_enum => return Value{ .int = @as(i32, @bitCast(@as(u32, @truncate(v)))) },
+                t_uint32 => return Value{ .int = @bitCast(v & 0xffffffff) },
+                t_int64 => return Value{ .int = @bitCast(v) },
+                else => return Value{ .int = @bitCast(v) },
+            }
+        },
+        1 => {
+            const b = raw.bytes;
+            const u = try u64At(b, 0);
+            if (f.ftype == t_double) return Value{ .float = @bitCast(u) };
+            return Value{ .int = @bitCast(u) };
+        },
+        5 => {
+            const b = raw.bytes;
+            const u = try u32At(b, 0);
+            if (f.ftype == t_float) return Value{ .float = @as(f32, @bitCast(@as(u32, @truncate(u)))) };
+            if (f.ftype == t_sfixed32) return Value{ .int = @as(i32, @bitCast(@as(u32, @truncate(u)))) };
+            return Value{ .int = @bitCast(u) };
+        },
+        else => {
+            const b = raw.bytes;
+            switch (f.ftype) {
+                t_string => return Value{ .string = b },
+                t_message => {
+                    const nested = try alloc.create(Generic);
+                    nested.* = Generic.init(alloc);
+                    try decodeGenericS(alloc, fm.messages.get(f.type_name).?, b, fm, nested);
+                    return Value{ .message = nested };
+                },
+                else => return Value{ .bytes = b },
+            }
+        },
+    }
+}
+
+fn decodePacked(alloc: std.mem.Allocator, f: *FieldM, data: []const u8, fm: *FileM, out: *std.ArrayList(Value)) Error!void {
+    if (f.ftype == t_double or f.ftype == t_fixed64 or f.ftype == t_sfixed64) {
+        var i: usize = 0;
+        while (i + 8 <= data.len) : (i += 8) {
+            try out.append(alloc, try decodeValueS(alloc, f, 1, Value{ .bytes = data[i..][0..8] }, fm));
+        }
+    } else if (f.ftype == t_float or f.ftype == t_fixed32 or f.ftype == t_sfixed32) {
+        var i: usize = 0;
+        while (i + 4 <= data.len) : (i += 4) {
+            try out.append(alloc, try decodeValueS(alloc, f, 5, Value{ .bytes = data[i..][0..4] }, fm));
+        }
+    } else {
+        var r = Reader{ .buf = data };
+        while (r.pos < data.len) {
+            const v = try r.varint();
+            try out.append(alloc, try decodeValueS(alloc, f, 0, Value{ .int = @bitCast(v) }, fm));
+        }
+    }
+}
+
+fn decodeGenericS(alloc: std.mem.Allocator, model: *MsgM, data: []const u8, fm: *FileM, msg: *Generic) Error!void {
+    var r = Reader{ .buf = data };
+    while (r.pos < data.len) {
+        const start = r.pos;
+        const tag = try r.varint();
+        const num: u32 = @intCast(tag >> 3);
+        const wire: u32 = @intCast(tag & 7);
+        var raw: Value = Value{ .int = 0 };
+        switch (wire) {
+            0 => raw = Value{ .int = @bitCast(try r.varint()) },
+            2 => raw = Value{ .bytes = try r.bytesField() },
+            1 => raw = Value{ .bytes = try r.take(8) },
+            5 => raw = Value{ .bytes = try r.take(4) },
+            else => return error.StructCodec,
+        }
+        const chunk = data[start..r.pos];
+        const f = model.fields.get(num) orelse {
+            try msg.unknown.append(alloc, try alloc.dupe(u8, chunk));
+            continue;
+        };
+        if (f.repeated and wire == 2 and f.ftype != t_string and f.ftype != t_bytes and f.ftype != t_message and f.ftype != t_group) {
+            var vs: std.ArrayList(Value) = .empty;
+            try decodePacked(alloc, f, raw.bytes, fm, &vs);
+            for (vs.items) |v| try msg.add(alloc, num, v);
+            continue;
+        }
+        try msg.add(alloc, num, try decodeValueS(alloc, f, wire, raw, fm));
+    }
+}
+
+fn encodeVarint(out: *std.ArrayList(u8), alloc: std.mem.Allocator, value: u64) !void {
+    var v = value;
+    while ((v & ~@as(u64, 0x7f)) != 0) {
+        try out.append(alloc, @intCast((v & 0x7f) | 0x80));
+        v >>= 7;
+    }
+    try out.append(alloc, @intCast(v & 0xff));
+}
+
+fn wireType(t: i32) i32 {
+    return switch (t) {
+        t_int64, t_uint64, t_int32, t_bool, t_uint32, t_enum, t_sint32, t_sint64 => 0,
+        t_fixed64, t_sfixed64, t_double => 1,
+        t_string, t_message, t_bytes, t_group => 2,
+        else => 5,
+    };
+}
+
+fn append32(out: *std.ArrayList(u8), alloc: std.mem.Allocator, v: u64) !void {
+    for (0..4) |i| try out.append(alloc, @intCast((v >> @intCast(8 * i)) & 0xff));
+}
+fn append64(out: *std.ArrayList(u8), alloc: std.mem.Allocator, v: u64) !void {
+    for (0..8) |i| try out.append(alloc, @intCast((v >> @intCast(8 * i)) & 0xff));
+}
+
+fn encodeValue(alloc: std.mem.Allocator, out: *std.ArrayList(u8), f: *FieldM, v: Value, fm: *FileM) Error!void {
+    const wire = wireType(f.ftype);
+    try encodeVarint(out, alloc, @as(u64, @intCast(f.number << 3 | @as(u32, @intCast(wire)))));
+    switch (wire) {
+        0 => {
+            switch (f.ftype) {
+                t_sint32 => {
+                    const sv: i32 = @bitCast(@as(u32, @truncate(asU64(v))));
+                    try encodeVarint(out, alloc, @as(u32, @bitCast((sv << 1) ^ (sv >> 31))));
+                },
+                t_sint64 => {
+                    const sv: i64 = @bitCast(asU64(v));
+                    try encodeVarint(out, alloc, @bitCast((sv << 1) ^ (sv >> 63)));
+                },
+                t_bool => try encodeVarint(out, alloc, if (asU64(v) != 0) 1 else 0),
+                else => try encodeVarint(out, alloc, asU64(v)),
+            }
+        },
+        1 => {
+            if (f.ftype == t_double) {
+                try append64(out, alloc, @bitCast(v.float));
+            } else try append64(out, alloc, asU64(v));
+        },
+        5 => {
+            if (f.ftype == t_float) {
+                try append32(out, alloc, @as(u32, @bitCast(@as(f32, @floatCast(v.float)))));
+            } else try append32(out, alloc, asU64(v) & 0xffffffff);
+        },
+        else => {
+            var data: []const u8 = &[_]u8{};
+            var owned: ?[]u8 = null;
+            switch (f.ftype) {
+                t_string => data = v.string,
+                t_message => {
+                    owned = try encodeGeneric(alloc, fm.messages.get(f.type_name).?, v.message, fm);
+                    data = owned.?;
+                },
+                else => data = v.bytes,
+            }
+            try encodeVarint(out, alloc, data.len);
+            try out.appendSlice(alloc, data);
+        },
+    }
+}
+
+fn encodeGeneric(alloc: std.mem.Allocator, model: *MsgM, msg: *Generic, fm: *FileM) Error![]u8 {
+    var out: std.ArrayList(u8) = .empty;
+    var nums: std.ArrayList(u32) = .empty;
+    var kit = msg.values.keyIterator();
+    while (kit.next()) |k| try nums.append(alloc, k.*);
+    std.mem.sort(u32, nums.items, {}, std.sort.asc(u32));
+    for (nums.items) |num| {
+        const f = model.fields.get(num) orelse return error.StructCodec;
+        const values = msg.getAll(num);
+        if (f.repeated) {
+            for (values) |v| try encodeValue(alloc, &out, f, v, fm);
+        } else if (values.len > 0) {
+            try encodeValue(alloc, &out, f, values[0], fm);
+        }
+    }
+    for (msg.unknown.items) |c| try out.appendSlice(alloc, c);
+    return out.toOwnedSlice(alloc);
+}
+
+fn fingerprint(full_name: []const u8) u64 {
+    var h: u64 = 2166136261;
+    for (full_name) |b| h = ((h ^ b) * 16777619) & 0xffffffff;
+    return h;
+}
+
+fn isFixed32(f: *FieldM) bool {
+    return f.ftype == t_float or f.ftype == t_fixed32 or f.ftype == t_sfixed32;
+}
+fn slotSize(f: *FieldM) usize {
+    return if (isFixed32(f)) 4 else 8;
+}
+
+fn bytesOf(v: Value) Error![]const u8 {
+    return switch (v) {
+        .string => |s| s,
+        .bytes => |b| b,
+        else => error.StructCodec,
+    };
+}
+
+fn nonzero(f: *FieldM, v: Value) bool {
+    return switch (f.ftype) {
+        t_string => v.string.len > 0,
+        t_bytes => v.bytes.len > 0,
+        t_message => v == .message,
+        t_bool => asU64(v) != 0,
+        t_float, t_double => v.float != 0.0,
+        else => asU64(v) != 0,
+    };
+}
+
+fn sortedFields(alloc: std.mem.Allocator, model: *MsgM) ![]*FieldM {
+    var nums: std.ArrayList(u32) = .empty;
+    var kit = model.fields.keyIterator();
+    while (kit.next()) |k| try nums.append(alloc, k.*);
+    std.mem.sort(u32, nums.items, {}, std.sort.asc(u32));
+    var out: std.ArrayList(*FieldM) = .empty;
+    for (nums.items) |n| try out.append(alloc, model.fields.get(n).?);
+    return out.toOwnedSlice(alloc);
+}
+
+fn mapModel(f: *FieldM, fm: *FileM) ?*MsgM {
+    if (f.ftype != t_message or !f.repeated) return null;
+    const m = fm.messages.get(f.type_name) orelse return null;
+    return if (m.map_entry) m else null;
+}
+
+fn defaultValue(f: *FieldM, alloc: std.mem.Allocator) !Value {
+    return switch (f.ftype) {
+        t_string => Value{ .string = "" },
+        t_bytes => Value{ .bytes = &[_]u8{} },
+        t_bool => Value{ .boolean = false },
+        t_float, t_double => Value{ .float = 0.0 },
+        t_message => blk: {
+            const g = try alloc.create(Generic);
+            g.* = Generic.init(alloc);
+            break :blk Value{ .message = g };
+        },
+        else => Value{ .int = 0 },
+    };
+}
+
+fn keyCmp(kf: *FieldM, a: Value, b: Value) i32 {
+    if (kf.ftype == t_string) {
+        return switch (std.mem.order(u8, a.string, b.string)) {
+            .lt => -1,
+            .gt => 1,
+            .eq => 0,
+        };
+    }
+    if (kf.ftype == t_bool or kf.ftype == t_uint32 or kf.ftype == t_uint64 or kf.ftype == t_fixed32 or kf.ftype == t_fixed64) {
+        const av = asU64(a);
+        const bv = asU64(b);
+        return if (av < bv) -1 else if (av > bv) 1 else 0;
+    }
+    const av: i64 = @bitCast(asU64(a));
+    const bv: i64 = @bitCast(asU64(b));
+    return if (av < bv) -1 else if (av > bv) 1 else 0;
+}
+
+const Entry = struct { key: Value, val: Value };
+
+fn mapEntries(alloc: std.mem.Allocator, values: []const Value, em: *MsgM) Error![]Entry {
+    const kf = em.fields.get(1).?;
+    const vf = em.fields.get(2).?;
+    var out: std.ArrayList(Entry) = .empty;
+    for (values) |e| {
+        const entry = e.message;
+        const key = entry.get(1) orelse return error.StructCodec;
+        const v = entry.get(2) orelse try defaultValue(vf, alloc);
+        try out.append(alloc, .{ .key = key, .val = v });
+    }
+    std.mem.sort(Entry, out.items, kf, struct {
+        fn lt(k: *FieldM, x: Entry, y: Entry) bool {
+            return keyCmp(k, x.key, y.key) < 0;
+        }
+    }.lt);
+    return out.toOwnedSlice(alloc);
+}
+
+fn valueSize(alloc: std.mem.Allocator, f: *FieldM, v: Value, fm: *FileM) Error!usize {
+    switch (f.ftype) {
+        t_string, t_bytes => return (try bytesOf(v)).len,
+        t_message => {
+            const enc = try encodeStruct(alloc, fm.messages.get(f.type_name).?, v.message, fm);
+            return enc.len;
+        },
+        else => return if (isFixed32(f)) 4 else 8,
+    }
+}
+
+fn fieldPresent(f: *FieldM, msg: *Generic, fm: *FileM) bool {
+    const values = msg.getAll(f.number);
+    if (mapModel(f, fm) != null or f.repeated) return values.len > 0;
+    return values.len > 0 and nonzero(f, values[0]);
+}
+
+fn structSize(alloc: std.mem.Allocator, model: *MsgM, msg: *Generic, fm: *FileM) Error!usize {
+    const fields = try sortedFields(alloc, model);
+    const words = @max(1, (fields.len + 31) / 32);
+    var size: usize = 12 + 4 * words;
+    for (fields) |f| size += slotSize(f);
+    for (fields) |f| {
+        const values = msg.getAll(f.number);
+        if (mapModel(f, fm)) |em| {
+            const kf = em.fields.get(1).?;
+            const vf = em.fields.get(2).?;
+            for (try mapEntries(alloc, values, em)) |e| {
+                size += 8 + try valueSize(alloc, kf, e.key, fm) + try valueSize(alloc, vf, e.val, fm);
+            }
+        } else if (f.repeated) {
+            if (values.len > 0) {
+                if (f.ftype == t_string or f.ftype == t_bytes or f.ftype == t_message) size += 8 * values.len;
+                for (values) |v| size += try valueSize(alloc, f, v, fm);
+            }
+        } else if ((f.ftype == t_string or f.ftype == t_bytes or f.ftype == t_message) and fieldPresent(f, msg, fm)) {
+            size += try valueSize(alloc, f, values[0], fm);
+        }
+    }
+    for (msg.unknown.items) |c| size += c.len;
+    return size;
+}
+
+fn putU32(buf: []u8, off: usize, v: u64) void {
+    for (0..4) |i| buf[off + i] = @intCast((v >> @intCast(8 * i)) & 0xff);
+}
+fn putU64(buf: []u8, off: usize, v: u64) void {
+    for (0..8) |i| buf[off + i] = @intCast((v >> @intCast(8 * i)) & 0xff);
+}
+
+fn writeScalar(buf: []u8, off: usize, f: *FieldM, v: Value) void {
+    switch (f.ftype) {
+        t_float => putU32(buf, off, @as(u32, @bitCast(@as(f32, @floatCast(v.float))))),
+        t_fixed32 => putU32(buf, off, asU64(v)),
+        t_sfixed32 => putU32(buf, off, asU64(v) & 0xffffffff),
+        t_double => putU64(buf, off, @bitCast(v.float)),
+        t_fixed64, t_sfixed64 => putU64(buf, off, asU64(v)),
+        t_bool => buf[off] = if (asU64(v) != 0) 1 else 0,
+        else => putU64(buf, off, asU64(v)),
+    }
+}
+
+fn writeValue(alloc: std.mem.Allocator, buf: []u8, off: usize, f: *FieldM, v: Value, fm: *FileM) Error!void {
+    switch (f.ftype) {
+        t_string, t_bytes => {
+            const b = try bytesOf(v);
+            @memcpy(buf[off..][0..b.len], b);
+        },
+        t_message => {
+            const enc = try encodeStruct(alloc, fm.messages.get(f.type_name).?, v.message, fm);
+            @memcpy(buf[off..][0..enc.len], enc);
+        },
+        else => writeScalar(buf, off, f, v),
+    }
+}
+
+fn encodeStruct(alloc: std.mem.Allocator, model: *MsgM, msg: *Generic, fm: *FileM) Error![]u8 {
+    const fields = try sortedFields(alloc, model);
+    const words = @max(1, (fields.len + 31) / 32);
+    const header = 12 + 4 * words;
+    var offsets: std.ArrayList(usize) = .empty;
+    var cursor: usize = header;
+    for (fields) |f| {
+        try offsets.append(alloc, cursor);
+        cursor += slotSize(f);
+    }
+    const fixed_end = cursor;
+    const buf = try alloc.alloc(u8, try structSize(alloc, model, msg, fm));
+    @memset(buf, 0);
+    @memcpy(buf[0..4], "DCS1");
+    putU32(buf, 4, buf.len);
+    putU32(buf, 8, fingerprint(model.full_name));
+    for (fields, 0..) |f, i| {
+        if (fieldPresent(f, msg, fm)) {
+            const at = 12 + 4 * (i / 32);
+            putU32(buf, at, (try u32At(buf, at)) | (@as(u64, 1) << @intCast(i % 32)));
+        }
+    }
+    var vp = fixed_end;
+    for (fields, 0..) |f, i| {
+        const off = offsets.items[i];
+        const values = msg.getAll(f.number);
+        if (mapModel(f, fm)) |em| {
+            if (values.len > 0) {
+                const kf = em.fields.get(1).?;
+                const vf = em.fields.get(2).?;
+                putU32(buf, off, vp);
+                putU32(buf, off + 4, values.len);
+                for (try mapEntries(alloc, values, em)) |e| {
+                    const klen = try valueSize(alloc, kf, e.key, fm);
+                    const vlen = try valueSize(alloc, vf, e.val, fm);
+                    putU32(buf, vp, klen);
+                    putU32(buf, vp + 4, vlen);
+                    vp += 8;
+                    try writeValue(alloc, buf, vp, kf, e.key, fm);
+                    vp += klen;
+                    try writeValue(alloc, buf, vp, vf, e.val, fm);
+                    vp += vlen;
+                }
+            }
+        } else if (f.repeated) {
+            if (values.len > 0) {
+                putU32(buf, off, vp);
+                putU32(buf, off + 4, values.len);
+                if (f.ftype == t_string or f.ftype == t_bytes or f.ftype == t_message) {
+                    var doff = vp + 8 * values.len;
+                    for (values) |v| {
+                        putU32(buf, vp, doff);
+                        putU32(buf, vp + 4, try valueSize(alloc, f, v, fm));
+                        doff += try valueSize(alloc, f, v, fm);
+                        vp += 8;
+                    }
+                    for (values) |v| {
+                        try writeValue(alloc, buf, vp, f, v, fm);
+                        vp += try valueSize(alloc, f, v, fm);
+                    }
+                } else {
+                    for (values) |v| {
+                        writeScalar(buf, vp, f, v);
+                        vp += slotSize(f);
+                    }
+                }
+            }
+        } else if (f.ftype == t_string or f.ftype == t_bytes or f.ftype == t_message) {
+            if (fieldPresent(f, msg, fm)) {
+                putU32(buf, off, vp);
+                putU32(buf, off + 4, try valueSize(alloc, f, values[0], fm));
+                try writeValue(alloc, buf, vp, f, values[0], fm);
+                vp += try valueSize(alloc, f, values[0], fm);
+            }
+        } else if (fieldPresent(f, msg, fm)) {
+            writeScalar(buf, off, f, values[0]);
+        }
+    }
+    for (msg.unknown.items) |chunk| {
+        @memcpy(buf[vp..][0..chunk.len], chunk);
+        vp += chunk.len;
+    }
+    return buf;
+}
+
+fn readScalar(data: []const u8, off: usize, f: *FieldM) Error!Value {
+    switch (f.ftype) {
+        t_float => return Value{ .float = @as(f32, @bitCast(@as(u32, @truncate(try u32At(data, off))))) },
+        t_fixed32 => return Value{ .int = @bitCast(try u32At(data, off)) },
+        t_sfixed32 => return Value{ .int = @as(i32, @bitCast(@as(u32, @truncate(try u32At(data, off))))) },
+        t_double => return Value{ .float = @bitCast(try u64At(data, off)) },
+        t_fixed64, t_sfixed64 => return Value{ .int = @bitCast(try u64At(data, off)) },
+        t_bool => {
+            if (off >= data.len) return error.StructCodec;
+            return Value{ .boolean = data[off] != 0 };
+        },
+        t_enum, t_int32, t_sint32 => return Value{ .int = @as(i32, @bitCast(@as(u32, @truncate(try u64At(data, off))))) },
+        t_int64, t_sint64 => return Value{ .int = @bitCast(try u64At(data, off)) },
+        t_uint32 => return Value{ .int = @bitCast((try u64At(data, off)) & 0xffffffff) },
+        else => return Value{ .int = @bitCast(try u64At(data, off)) },
+    }
+}
+
+fn readValue(alloc: std.mem.Allocator, data: []const u8, off: usize, len: usize, f: *FieldM, fm: *FileM) Error!Value {
+    if (off + len > data.len) return error.StructCodec;
+    switch (f.ftype) {
+        t_string => return Value{ .string = data[off..][0..len] },
+        t_bytes => return Value{ .bytes = data[off..][0..len] },
+        t_message => {
+            if (len == 0) {
+                const g = try alloc.create(Generic);
+                g.* = Generic.init(alloc);
+                return Value{ .message = g };
+            }
+            const nested = try alloc.create(Generic);
+            nested.* = Generic.init(alloc);
+            try decodeStruct(alloc, fm.messages.get(f.type_name).?, data[off..][0..len], fm, nested);
+            return Value{ .message = nested };
+        },
+        else => return readScalar(data, off, f),
+    }
+}
+
+fn decodeStruct(alloc: std.mem.Allocator, model: *MsgM, data: []const u8, fm: *FileM, msg: *Generic) Error!void {
+    const fields = try sortedFields(alloc, model);
+    const words = @max(1, (fields.len + 31) / 32);
+    const header = 12 + 4 * words;
+    if (data.len < header or !std.mem.eql(u8, data[0..4], "DCS1")) return error.StructCodec;
+    if ((try u32At(data, 8)) != fingerprint(model.full_name)) return error.StructCodec;
+    if ((try u32At(data, 4)) != data.len) return error.StructCodec;
+    var offsets: std.ArrayList(usize) = .empty;
+    var cursor: usize = header;
+    for (fields) |f| {
+        try offsets.append(alloc, cursor);
+        cursor += slotSize(f);
+    }
+    var vend = cursor;
+    for (fields, 0..) |f, i| {
+        if (((try u32At(data, 12 + 4 * (i / 32))) & (@as(u64, 1) << @intCast(i % 32))) == 0) continue;
+        const off = offsets.items[i];
+        if (mapModel(f, fm)) |em| {
+            const kf = em.fields.get(1).?;
+            const vf = em.fields.get(2).?;
+            const base: usize = @intCast(try u32At(data, off));
+            const n: usize = @intCast(try u32At(data, off + 4));
+            var p = base;
+            for (0..n) |_| {
+                const kl: usize = @intCast(try u32At(data, p));
+                const vl: usize = @intCast(try u32At(data, p + 4));
+                p += 8;
+                const key = try readValue(alloc, data, p, kl, kf, fm);
+                const v = try readValue(alloc, data, p + kl, vl, vf, fm);
+                const entry = try alloc.create(Generic);
+                entry.* = Generic.init(alloc);
+                try entry.set(alloc, 1, key);
+                try entry.set(alloc, 2, v);
+                try msg.add(alloc, f.number, Value{ .message = entry });
+                p += kl + vl;
+            }
+            vend = @max(vend, p);
+        } else if (f.repeated) {
+            const base: usize = @intCast(try u32At(data, off));
+            const n: usize = @intCast(try u32At(data, off + 4));
+            if (f.ftype == t_string or f.ftype == t_bytes or f.ftype == t_message) {
+                for (0..n) |j| {
+                    const eo: usize = @intCast(try u32At(data, base + 8 * j));
+                    const el: usize = @intCast(try u32At(data, base + 8 * j + 4));
+                    if (el > 0 or f.ftype != t_message) {
+                        try msg.add(alloc, f.number, try readValue(alloc, data, eo, el, f, fm));
+                    }
+                    vend = @max(vend, eo + el);
+                }
+            } else {
+                for (0..n) |j| {
+                    try msg.add(alloc, f.number, try readScalar(data, base + j * slotSize(f), f));
+                }
+                vend = @max(vend, base + n * slotSize(f));
+            }
+        } else if (f.ftype == t_string or f.ftype == t_bytes or f.ftype == t_message) {
+            const base: usize = @intCast(try u32At(data, off));
+            const len: usize = @intCast(try u32At(data, off + 4));
+            try msg.add(alloc, f.number, try readValue(alloc, data, base, len, f, fm));
+            vend = @max(vend, base + len);
+        } else {
+            try msg.add(alloc, f.number, try readScalar(data, off, f));
+        }
+    }
+    if (vend < data.len) try msg.unknown.append(alloc, try alloc.dupe(u8, data[vend..]));
+}
+
+/// Transcode protobuf <-> struct bytes for `type_name` under
+/// the FileDescriptorSet bytes `descriptor`.
+pub fn transcode(alloc: std.mem.Allocator, descriptor: []const u8, type_name: []const u8, data: []const u8, encode: bool) Error![]u8 {
+    const fm = try parseDescriptorSet(alloc, descriptor);
+    const model = fm.messages.get(type_name) orelse fm.messages.get(try std.fmt.allocPrint(alloc, ".{s}", .{type_name})) orelse return error.StructCodec;
+    if (encode) {
+        var msg = Generic.init(alloc);
+        try decodeGenericS(alloc, model, data, fm, &msg);
+        return encodeStruct(alloc, model, &msg, fm);
+    }
+    var msg = Generic.init(alloc);
+    try decodeStruct(alloc, model, data, fm, &msg);
+    return encodeGeneric(alloc, model, &msg, fm);
+}
+GRPC_RUNTIME_EOF
+)

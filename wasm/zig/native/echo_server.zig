@@ -14,6 +14,15 @@ const grpcdc = @import("grpcdc");
 const stubs = @import("echo_stub");
 const dc_transport = @import("./dc_transport.zig");
 
+// Pure struct-codec ABI (grpcdc_struct_*) for Wasm struct calls.
+const _structdc_abi = @import("../structdc_wasm.zig");
+comptime {
+    _ = _structdc_abi.grpcdc_struct_encode;
+    _ = _structdc_abi.grpcdc_struct_decode;
+    _ = _structdc_abi.grpcdc_struct_free;
+    _ = _structdc_abi.grpcdc_struct_error_free;
+}
+
 extern "env" fn js_now_ms() f64;
 extern "env" fn on_result(ptr: [*]const u8, len: usize) void;
 

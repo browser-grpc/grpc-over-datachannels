@@ -19,6 +19,7 @@ Browser legs run via the `test-wasm*` and `test-*-wasm-browser` make targets (Ch
 - [`echo_server.cpp`](cpp/native/echo_server.cpp) — Echo: all four call shapes
 - [`echo_tracing.cpp`](cpp/native/echo_tracing.cpp) — Tracing: traceparent propagation, span observers, nested calls
 - [`pb.hpp`](cpp/pb.hpp) — Generated suite/example
+- [`structdc_wasm.cpp`](cpp/structdc_wasm.cpp) — Generated suite/example
 - [`echo_client.dart`](dart/echo_client.dart) — Echo: all four call shapes
 - [`echo_server.dart`](dart/echo_server.dart) — Echo: all four call shapes
 - [`echo_tracing.dart`](dart/echo_tracing.dart) — Tracing: traceparent propagation, span observers, nested calls

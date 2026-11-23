@@ -10723,8 +10723,7 @@
         (arg 0)
         (ref name))
        (fmt
-        "~a        if (@import(\"builtin\").target.os.tag == .freestanding) @panic(\"struct codec unavailable on freestanding targets\");\n~a        return _structdc.~aStruct.marshal(self, alloc) catch @panic(\"struct codec encode failed\");\n~a    }\n"
-        (arg 0)
+        "~a        return _structdc.~aStruct.marshal(self, alloc) catch @panic(\"struct codec encode failed\");\n~a    }\n"
         (arg 0)
         (ref name)
         (arg 0))
@@ -10733,8 +10732,7 @@
         (arg 0)
         (ref name))
        (fmt
-        "~a        if (@import(\"builtin\").target.os.tag == .freestanding) @panic(\"struct codec unavailable on freestanding targets\");\n~a        const s = _structdc.~aStruct.unmarshal(alloc, data) catch return;\n~a        self.* = s;\n~a    }\n"
-        (arg 0)
+        "~a        const s = _structdc.~aStruct.unmarshal(alloc, data) catch return;\n~a        self.* = s;\n~a    }\n"
         (arg 0)
         (ref name)
         (arg 0)
@@ -18039,10 +18037,10 @@
                   (hash-ref m 'enums))))
               all))
             "\n"
-            "extern \"c\" fn grpcdc_struct_encode(desc: [*]const u8, desc_len: usize, type_name: [*]const u8, type_len: usize, input: [*]const u8, input_len: usize, out: *?[*]u8, out_len: *usize, err_out: *?[*]u8) i32;\n"
-            "extern \"c\" fn grpcdc_struct_decode(desc: [*]const u8, desc_len: usize, type_name: [*]const u8, type_len: usize, input: [*]const u8, input_len: usize, out: *?[*]u8, out_len: *usize, err_out: *?[*]u8) i32;\n"
-            "extern \"c\" fn grpcdc_struct_free(ptr: [*]u8, len: usize) void;\n"
-            "extern \"c\" fn grpcdc_struct_error_free(ptr: [*]u8) void;\n\n"
+            "extern fn grpcdc_struct_encode(desc: [*]const u8, desc_len: usize, type_name: [*]const u8, type_len: usize, input: [*]const u8, input_len: usize, out: *?[*]u8, out_len: *usize, err_out: *?[*]u8) i32;\n"
+            "extern fn grpcdc_struct_decode(desc: [*]const u8, desc_len: usize, type_name: [*]const u8, type_len: usize, input: [*]const u8, input_len: usize, out: *?[*]u8, out_len: *usize, err_out: *?[*]u8) i32;\n"
+            "extern fn grpcdc_struct_free(ptr: [*]u8, len: usize) void;\n"
+            "extern fn grpcdc_struct_error_free(ptr: [*]u8) void;\n\n"
             "const structdc_detail = struct {\n"
             (format
              "    const descriptor = [_]u8{~a};\n"

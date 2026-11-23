@@ -642,10 +642,10 @@
                                       (hash-ref m 'enums))))
                         all))
             "\n"
-            "extern \"c\" fn grpcdc_struct_encode(desc: [*]const u8, desc_len: usize, type_name: [*]const u8, type_len: usize, input: [*]const u8, input_len: usize, out: *?[*]u8, out_len: *usize, err_out: *?[*]u8) i32;\n"
-            "extern \"c\" fn grpcdc_struct_decode(desc: [*]const u8, desc_len: usize, type_name: [*]const u8, type_len: usize, input: [*]const u8, input_len: usize, out: *?[*]u8, out_len: *usize, err_out: *?[*]u8) i32;\n"
-            "extern \"c\" fn grpcdc_struct_free(ptr: [*]u8, len: usize) void;\n"
-            "extern \"c\" fn grpcdc_struct_error_free(ptr: [*]u8) void;\n\n"
+            "extern fn grpcdc_struct_encode(desc: [*]const u8, desc_len: usize, type_name: [*]const u8, type_len: usize, input: [*]const u8, input_len: usize, out: *?[*]u8, out_len: *usize, err_out: *?[*]u8) i32;\n"
+            "extern fn grpcdc_struct_decode(desc: [*]const u8, desc_len: usize, type_name: [*]const u8, type_len: usize, input: [*]const u8, input_len: usize, out: *?[*]u8, out_len: *usize, err_out: *?[*]u8) i32;\n"
+            "extern fn grpcdc_struct_free(ptr: [*]u8, len: usize) void;\n"
+            "extern fn grpcdc_struct_error_free(ptr: [*]u8) void;\n\n"
             "const structdc_detail = struct {\n"
             (format "    const descriptor = [_]u8{~a};\n"
                     (string-join (for/list ([b (in-bytes (hash-ref file-model 'descriptor-set #""))]) (format "0x~x" b)) ","))
