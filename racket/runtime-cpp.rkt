@@ -3108,4 +3108,1012 @@ GRPC_RUNTIME_EOF
    (cons "grpcdc/server.hpp" cpp-server-body)
    (cons "grpcdc/memory_transport.hpp" cpp-loopback-body)
    (cons "grpcdc/sidecar_transport.hpp" cpp-sidecar-body)
-   (cons "grpcdc/dynamic.hpp" cpp-dynamic-body)))
+   (cons "grpcdc/dynamic.hpp" cpp-dynamic-body)
+   (cons "grpcdc/structdc.hpp" cpp-structdc-body)))
+
+(define cpp-structdc-body
+#<<GRPC_RUNTIME_EOF
+#pragma once
+
+// Descriptor-driven struct codec (layout v1, DCS1): the
+// packed struct format from SPEC.md, implemented in pure C++
+// over a minimal internal dynamic model so Wasm builds (no
+// native cdylib) transcode protobuf <-> struct without the
+// FFI bridge. Byte-identical to the shared Rust
+// implementation (conformance/struct). Exception-free (the
+// Wasm build uses -fno-exceptions): failures return false
+// with an error string.
+
+#include <algorithm>
+#include <cstdint>
+#include <cstring>
+#include <map>
+#include <memory>
+#include <string>
+#include <utility>
+#include <variant>
+#include <vector>
+
+namespace grpcdc {
+namespace structdc {
+
+using Bytes = std::vector<std::uint8_t>;
+
+namespace detail {
+
+constexpr int kDouble = 1;
+constexpr int kFloat = 2;
+constexpr int kInt64 = 3;
+constexpr int kUint64 = 4;
+constexpr int kInt32 = 5;
+constexpr int kFixed64 = 6;
+constexpr int kFixed32 = 7;
+constexpr int kBool = 8;
+constexpr int kString = 9;
+constexpr int kGroup = 10;
+constexpr int kMessage = 11;
+constexpr int kBytes = 12;
+constexpr int kUint32 = 13;
+constexpr int kEnum = 14;
+constexpr int kSfixed32 = 15;
+constexpr int kSfixed64 = 16;
+constexpr int kSint32 = 17;
+constexpr int kSint64 = 18;
+
+struct FieldM {
+  int number = 0;
+  std::string name;
+  int type = 0;
+  bool repeated = false;
+  std::string type_name;
+};
+
+struct MsgM {
+  std::string full_name;
+  std::map<int, FieldM> fields;
+  bool map_entry = false;
+};
+
+struct FileM {
+  std::map<std::string, std::shared_ptr<MsgM>> messages;
+};
+
+struct Generic;
+using Value = std::variant<std::int64_t, std::uint64_t, bool, double,
+                           std::string, Bytes, std::shared_ptr<Generic>>;
+
+struct Generic {
+  std::map<int, std::vector<Value>> values;
+  std::vector<Bytes> unknown;
+  void Add(int number, Value v) { values[number].push_back(std::move(v)); }
+  void Set(int number, Value v) { values[number] = {std::move(v)}; }
+  const Value* Get(int number) const {
+    auto it = values.find(number);
+    if (it == values.end() || it->second.empty()) return nullptr;
+    return &it->second.front();
+  }
+  std::vector<Value> GetAll(int number) const {
+    auto it = values.find(number);
+    return it == values.end() ? std::vector<Value>() : it->second;
+  }
+};
+
+struct Reader {
+  const Bytes& buf;
+  size_t pos = 0;
+  std::string err;
+  explicit Reader(const Bytes& b) : buf(b) {}
+  bool Fail(const std::string& m) { err = m; return false; }
+  bool Varint(std::uint64_t& out) {
+    std::uint64_t result = 0;
+    int shift = 0;
+    while (true) {
+      if (pos >= buf.size()) return Fail("truncated varint");
+      std::uint8_t b = buf[pos++];
+      result |= (std::uint64_t)(b & 0x7f) << shift;
+      if ((b & 0x80) == 0) { out = result; return true; }
+      shift += 7;
+      if (shift >= 70) return Fail("varint too long");
+    }
+  }
+  bool Take(size_t n, Bytes& out) {
+    if (pos + n > buf.size()) return Fail("truncated field");
+    out.assign(buf.begin() + (long)pos, buf.begin() + (long)(pos + n));
+    pos += n;
+    return true;
+  }
+  bool BytesField(Bytes& out) {
+    std::uint64_t n;
+    if (!Varint(n)) return false;
+    return Take((size_t)n, out);
+  }
+};
+
+inline std::string Str(const Bytes& b) { return std::string(b.begin(), b.end()); }
+inline Bytes Bts(const std::string& s) { return Bytes(s.begin(), s.end()); }
+
+inline bool ParseField(const Bytes& data, FieldM& f, std::string& err) {
+  Reader r(data);
+  while (r.pos < data.size()) {
+    std::uint64_t tag;
+    if (!r.Varint(tag)) { err = r.err; return false; }
+    int num = (int)(tag >> 3);
+    switch ((int)(tag & 7)) {
+      case 0: {
+        std::uint64_t v;
+        if (!r.Varint(v)) { err = r.err; return false; }
+        if (num == 3) f.number = (int)v;
+        else if (num == 4) f.repeated = v == 3;
+        else if (num == 5) f.type = (int)v;
+        break;
+      }
+      case 2: {
+        Bytes v;
+        if (!r.BytesField(v)) { err = r.err; return false; }
+        if (num == 1) f.name = Str(v);
+        else if (num == 6) f.type_name = Str(v);
+        break;
+      }
+      case 1: { Bytes t; if (!r.Take(8, t)) { err = r.err; return false; } break; }
+      case 5: { Bytes t; if (!r.Take(4, t)) { err = r.err; return false; } break; }
+      default: err = "unsupported wire type"; return false;
+    }
+  }
+  return true;
+}
+
+inline bool ParseMessage(const std::string& prefix, const Bytes& data,
+                         FileM& fm, std::string& err);
+
+inline bool ParseDescriptorSet(const Bytes& data, FileM& fm, std::string& err) {
+  Reader r(data);
+  while (r.pos < data.size()) {
+    std::uint64_t tag;
+    if (!r.Varint(tag)) { err = r.err; return false; }
+    int num = (int)(tag >> 3);
+    switch ((int)(tag & 7)) {
+      case 0: { std::uint64_t v; if (!r.Varint(v)) { err = r.err; return false; } break; }
+      case 2: {
+        Bytes fileBytes;
+        if (!r.BytesField(fileBytes)) { err = r.err; return false; }
+        if (num == 1) {
+          std::string pkg;
+          std::vector<Bytes> msgs;
+          Reader fr(fileBytes);
+          while (fr.pos < fileBytes.size()) {
+            std::uint64_t t2;
+            if (!fr.Varint(t2)) { err = fr.err; return false; }
+            int n2 = (int)(t2 >> 3);
+            switch ((int)(t2 & 7)) {
+              case 0: { std::uint64_t v; if (!fr.Varint(v)) { err = fr.err; return false; } break; }
+              case 2: {
+                Bytes v;
+                if (!fr.BytesField(v)) { err = fr.err; return false; }
+                if (n2 == 2) pkg = Str(v);
+                else if (n2 == 4) msgs.push_back(v);
+                break;
+              }
+              case 1: { Bytes t; if (!fr.Take(8, t)) { err = fr.err; return false; } break; }
+              case 5: { Bytes t; if (!fr.Take(4, t)) { err = fr.err; return false; } break; }
+              default: err = "unsupported wire type"; return false;
+            }
+          }
+          for (auto& m : msgs) if (!ParseMessage(pkg, m, fm, err)) return false;
+        }
+        break;
+      }
+      case 1: { Bytes t; if (!r.Take(8, t)) { err = r.err; return false; } break; }
+      case 5: { Bytes t; if (!r.Take(4, t)) { err = r.err; return false; } break; }
+      default: err = "unsupported wire type"; return false;
+    }
+  }
+  return true;
+}
+
+inline bool ParseMessage(const std::string& prefix, const Bytes& data,
+                         FileM& fm, std::string& err) {
+  std::string name;
+  bool haveOptions = false;
+  Bytes options;
+  std::vector<Bytes> rawFields, nested;
+  Reader r(data);
+  while (r.pos < data.size()) {
+    std::uint64_t tag;
+    if (!r.Varint(tag)) { err = r.err; return false; }
+    int num = (int)(tag >> 3);
+    switch ((int)(tag & 7)) {
+      case 0: { std::uint64_t v; if (!r.Varint(v)) { err = r.err; return false; } break; }
+      case 2: {
+        Bytes v;
+        if (!r.BytesField(v)) { err = r.err; return false; }
+        if (num == 1) name = Str(v);
+        else if (num == 2) rawFields.push_back(v);
+        else if (num == 3) nested.push_back(v);
+        else if (num == 7) { options = v; haveOptions = true; }
+        break;
+      }
+      case 1: { Bytes t; if (!r.Take(8, t)) { err = r.err; return false; } break; }
+      case 5: { Bytes t; if (!r.Take(4, t)) { err = r.err; return false; } break; }
+      default: err = "unsupported wire type"; return false;
+    }
+  }
+  std::string fullName = prefix.empty() ? name : prefix + "." + name;
+  auto model = std::make_shared<MsgM>();
+  model->full_name = fullName;
+  if (haveOptions) {
+    Reader ordr(options);
+    while (ordr.pos < options.size()) {
+      std::uint64_t tag;
+      if (!ordr.Varint(tag)) { err = ordr.err; return false; }
+      int num = (int)(tag >> 3);
+      switch ((int)(tag & 7)) {
+        case 0: {
+          std::uint64_t v;
+          if (!ordr.Varint(v)) { err = ordr.err; return false; }
+          if (num == 7 && v != 0) model->map_entry = true;
+          break;
+        }
+        case 2: { Bytes t; if (!ordr.BytesField(t)) { err = ordr.err; return false; } break; }
+        case 1: { Bytes t; if (!ordr.Take(8, t)) { err = ordr.err; return false; } break; }
+        case 5: { Bytes t; if (!ordr.Take(4, t)) { err = ordr.err; return false; } break; }
+        default: err = "unsupported wire type"; return false;
+      }
+    }
+  }
+  fm.messages["." + fullName] = model;
+  for (auto& b : rawFields) {
+    FieldM f;
+    if (!ParseField(b, f, err)) return false;
+    model->fields[f.number] = f;
+  }
+  for (auto& b : nested) if (!ParseMessage(fullName, b, fm, err)) return false;
+  return true;
+}
+
+inline std::int64_t ZigzagDecode(std::uint64_t v) {
+  return (std::int64_t)(v >> 1) ^ -(std::int64_t)(v & 1);
+}
+
+inline bool U32(const Bytes& b, size_t off, std::uint64_t& out, std::string& err) {
+  if (off + 4 > b.size()) { err = "struct codec: out of bounds"; return false; }
+  out = (std::uint64_t)b[off] | ((std::uint64_t)b[off + 1] << 8) |
+        ((std::uint64_t)b[off + 2] << 16) | ((std::uint64_t)b[off + 3] << 24);
+  return true;
+}
+
+inline bool U64(const Bytes& b, size_t off, std::uint64_t& out, std::string& err) {
+  if (off + 8 > b.size()) { err = "struct codec: out of bounds"; return false; }
+  std::uint64_t v = 0;
+  for (int i = 0; i < 8; i++) v |= (std::uint64_t)b[off + i] << (8 * i);
+  out = v;
+  return true;
+}
+
+inline std::uint64_t AsU64(const Value& v) {
+  if (auto p = std::get_if<std::int64_t>(&v)) return (std::uint64_t)*p;
+  if (auto p = std::get_if<std::uint64_t>(&v)) return *p;
+  if (auto p = std::get_if<bool>(&v)) return *p ? 1 : 0;
+  if (auto p = std::get_if<double>(&v)) return (std::uint64_t)(std::int64_t)*p;
+  return 0;
+}
+
+inline bool DecodeValueS(const FieldM& f, int wire, const Value& raw,
+                         FileM& fm, Value& out, std::string& err);
+inline bool DecodeGenericS(const MsgM& model, const Bytes& data, FileM& fm,
+                           Generic& msg, std::string& err);
+inline bool EncodeStruct(const MsgM& model, const Generic& msg, FileM& fm,
+                         Bytes& out, std::string& err);
+inline bool DecodeStruct(const MsgM& model, const Bytes& data, FileM& fm,
+                         Generic& msg, std::string& err);
+inline bool EncodeGeneric(const MsgM& model, const Generic& msg, FileM& fm,
+                          Bytes& out, std::string& err);
+
+inline bool DecodePacked(const FieldM& f, const Bytes& data, FileM& fm,
+                         std::vector<Value>& out, std::string& err) {
+  if (f.type == kDouble || f.type == kFixed64 || f.type == kSfixed64) {
+    for (size_t i = 0; i + 8 <= data.size(); i += 8) {
+      Value v;
+      if (!DecodeValueS(f, 1, Value(Bytes(data.begin() + (long)i, data.begin() + (long)(i + 8))), fm, v, err)) return false;
+      out.push_back(v);
+    }
+  } else if (f.type == kFloat || f.type == kFixed32 || f.type == kSfixed32) {
+    for (size_t i = 0; i + 4 <= data.size(); i += 4) {
+      Value v;
+      if (!DecodeValueS(f, 5, Value(Bytes(data.begin() + (long)i, data.begin() + (long)(i + 4))), fm, v, err)) return false;
+      out.push_back(v);
+    }
+  } else {
+    Reader r(data);
+    while (r.pos < data.size()) {
+      std::uint64_t raw;
+      if (!r.Varint(raw)) { err = r.err; return false; }
+      Value v;
+      if (!DecodeValueS(f, 0, Value(raw), fm, v, err)) return false;
+      out.push_back(v);
+    }
+  }
+  return true;
+}
+
+inline bool DecodeValueS(const FieldM& f, int wire, const Value& raw,
+                         FileM& fm, Value& out, std::string& err) {
+  if (wire == 0) {
+    std::uint64_t v = AsU64(raw);
+    switch (f.type) {
+      case kBool: out = Value(v != 0); return true;
+      case kSint32: case kSint64: out = Value(ZigzagDecode(v)); return true;
+      case kInt32: case kEnum: out = Value((std::int64_t)(std::int32_t)(std::uint32_t)v); return true;
+      case kUint32: out = Value(v & 0xffffffffULL); return true;
+      case kInt64: out = Value((std::int64_t)v); return true;
+      default: out = Value(v); return true;
+    }
+  }
+  if (wire == 1) {
+    const Bytes& b = std::get<Bytes>(raw);
+    std::uint64_t u;
+    if (!U64(b, 0, u, err)) return false;
+    if (f.type == kDouble) { double d; std::memcpy(&d, &u, 8); out = Value(d); }
+    else if (f.type == kSfixed64) out = Value((std::int64_t)u);
+    else out = Value(u);
+    return true;
+  }
+  if (wire == 5) {
+    const Bytes& b = std::get<Bytes>(raw);
+    std::uint64_t u;
+    if (!U32(b, 0, u, err)) return false;
+    if (f.type == kFloat) { std::uint32_t u32v = (std::uint32_t)u; float fl; std::memcpy(&fl, &u32v, 4); out = Value((double)fl); }
+    else if (f.type == kSfixed32) out = Value((std::int64_t)(std::int32_t)(std::uint32_t)u);
+    else out = Value(u);
+    return true;
+  }
+  const Bytes& b = std::get<Bytes>(raw);
+  switch (f.type) {
+    case kString: out = Value(Str(b)); return true;
+    case kMessage: {
+      auto nested = std::make_shared<Generic>();
+      auto it = fm.messages.find(f.type_name);
+      if (it == fm.messages.end()) { err = "unknown message type " + f.type_name; return false; }
+      if (!DecodeGenericS(*it->second, b, fm, *nested, err)) return false;
+      out = Value(nested);
+      return true;
+    }
+    default: out = Value(b); return true;
+  }
+}
+
+inline bool DecodeGenericS(const MsgM& model, const Bytes& data, FileM& fm,
+                           Generic& msg, std::string& err) {
+  Reader r(data);
+  while (r.pos < data.size()) {
+    size_t start = r.pos;
+    std::uint64_t tag;
+    if (!r.Varint(tag)) { err = r.err; return false; }
+    int num = (int)(tag >> 3);
+    int wire = (int)(tag & 7);
+    Value raw;
+    switch (wire) {
+      case 0: { std::uint64_t v; if (!r.Varint(v)) { err = r.err; return false; } raw = Value(v); break; }
+      case 2: { Bytes v; if (!r.BytesField(v)) { err = r.err; return false; } raw = Value(v); break; }
+      case 1: { Bytes v; if (!r.Take(8, v)) { err = r.err; return false; } raw = Value(v); break; }
+      case 5: { Bytes v; if (!r.Take(4, v)) { err = r.err; return false; } raw = Value(v); break; }
+      default: err = "unsupported wire type " + std::to_string(wire); return false;
+    }
+    Bytes chunk(data.begin() + (long)start, data.begin() + (long)r.pos);
+    auto fit = model.fields.find(num);
+    if (fit == model.fields.end()) { msg.unknown.push_back(chunk); continue; }
+    const FieldM& f = fit->second;
+    if (f.repeated && wire == 2 && f.type != kString && f.type != kBytes &&
+        f.type != kMessage && f.type != kGroup) {
+      std::vector<Value> vs;
+      if (!DecodePacked(f, std::get<Bytes>(raw), fm, vs, err)) return false;
+      for (auto& v : vs) msg.Add(num, v);
+      continue;
+    }
+    Value v;
+    if (!DecodeValueS(f, wire, raw, fm, v, err)) return false;
+    msg.Add(num, v);
+  }
+  return true;
+}
+
+inline void EncodeVarint(Bytes& out, std::uint64_t value) {
+  std::uint64_t v = value;
+  while ((v & ~0x7fULL) != 0) {
+    out.push_back((std::uint8_t)((v & 0x7f) | 0x80));
+    v >>= 7;
+  }
+  out.push_back((std::uint8_t)(v & 0xff));
+}
+
+inline int WireType(int t) {
+  switch (t) {
+    case kInt64: case kUint64: case kInt32: case kBool:
+    case kUint32: case kEnum: case kSint32: case kSint64: return 0;
+    case kFixed64: case kSfixed64: case kDouble: return 1;
+    case kString: case kMessage: case kBytes: case kGroup: return 2;
+    default: return 5;
+  }
+}
+
+inline void Append32(Bytes& out, std::uint64_t v) {
+  for (int i = 0; i < 4; i++) out.push_back((std::uint8_t)((v >> (8 * i)) & 0xff));
+}
+inline void Append64(Bytes& out, std::uint64_t v) {
+  for (int i = 0; i < 8; i++) out.push_back((std::uint8_t)((v >> (8 * i)) & 0xff));
+}
+
+inline bool EncodeValue(Bytes& out, const FieldM& f, const Value& v,
+                        FileM& fm, std::string& err) {
+  int wire = WireType(f.type);
+  EncodeVarint(out, (std::uint64_t)((f.number << 3) | wire));
+  switch (wire) {
+    case 0:
+      if (f.type == kSint32) {
+        std::int32_t sv = (std::int32_t)AsU64(v);
+        EncodeVarint(out, (std::uint32_t)((sv << 1) ^ (sv >> 31)));
+      } else if (f.type == kSint64) {
+        std::int64_t sv = (std::int64_t)AsU64(v);
+        EncodeVarint(out, (std::uint64_t)((sv << 1) ^ (sv >> 63)));
+      } else if (f.type == kBool) {
+        EncodeVarint(out, AsU64(v) != 0 ? 1 : 0);
+      } else {
+        EncodeVarint(out, AsU64(v));
+      }
+      return true;
+    case 1:
+      if (f.type == kDouble) {
+        auto p = std::get_if<double>(&v);
+        double d = p ? *p : 0.0;
+        std::uint64_t u; std::memcpy(&u, &d, 8);
+        Append64(out, u);
+      } else Append64(out, AsU64(v));
+      return true;
+    case 5:
+      if (f.type == kFloat) {
+        auto p = std::get_if<double>(&v);
+        float fl = p ? (float)*p : 0.0f;
+        std::uint32_t u; std::memcpy(&u, &fl, 4);
+        Append32(out, u);
+      } else Append32(out, AsU64(v) & 0xffffffffULL);
+      return true;
+    default: {
+      Bytes data;
+      if (f.type == kString) {
+        auto p = std::get_if<std::string>(&v);
+        data = p ? Bts(*p) : Bytes();
+      } else if (f.type == kMessage) {
+        auto p = std::get_if<std::shared_ptr<Generic>>(&v);
+        auto it = fm.messages.find(f.type_name);
+        if (it == fm.messages.end()) { err = "unknown message type " + f.type_name; return false; }
+        if (!EncodeGeneric(*it->second, **p, fm, data, err)) return false;
+      } else {
+        auto p = std::get_if<Bytes>(&v);
+        data = p ? *p : Bytes();
+      }
+      EncodeVarint(out, data.size());
+      out.insert(out.end(), data.begin(), data.end());
+      return true;
+    }
+  }
+}
+
+inline bool EncodeGeneric(const MsgM& model, const Generic& msg, FileM& fm,
+                          Bytes& out, std::string& err) {
+  for (auto& kv : msg.values) {
+    auto fit = model.fields.find(kv.first);
+    if (fit == model.fields.end()) {
+      err = "unknown field " + std::to_string(kv.first) + " for " + model.full_name;
+      return false;
+    }
+    const FieldM& f = fit->second;
+    if (f.repeated) {
+      for (auto& v : kv.second) if (!EncodeValue(out, f, v, fm, err)) return false;
+    } else if (!kv.second.empty()) {
+      if (!EncodeValue(out, f, kv.second.front(), fm, err)) return false;
+    }
+  }
+  for (auto& c : msg.unknown) out.insert(out.end(), c.begin(), c.end());
+  return true;
+}
+
+inline std::uint64_t Fingerprint(const std::string& fullName) {
+  std::uint64_t h = 2166136261ULL;
+  for (std::uint8_t b : Bts(fullName)) h = ((h ^ b) * 16777619ULL) & 0xffffffffULL;
+  return h;
+}
+
+inline bool IsFixed32(const FieldM& f) {
+  return f.type == kFloat || f.type == kFixed32 || f.type == kSfixed32;
+}
+inline int SlotSize(const FieldM& f) { return IsFixed32(f) ? 4 : 8; }
+
+inline bool BytesOf(const FieldM& f, const Value& v, Bytes& out, std::string& err) {
+  if (auto p = std::get_if<std::string>(&v)) { out = Bts(*p); return true; }
+  if (auto p = std::get_if<Bytes>(&v)) { out = *p; return true; }
+  err = "value does not match field " + f.name;
+  return false;
+}
+
+inline bool Nonzero(const FieldM& f, const Value& v) {
+  switch (f.type) {
+    case kString: { auto p = std::get_if<std::string>(&v); return p && !p->empty(); }
+    case kBytes: { auto p = std::get_if<Bytes>(&v); return p && !p->empty(); }
+    case kMessage: return std::holds_alternative<std::shared_ptr<Generic>>(v);
+    case kBool: return AsU64(v) != 0;
+    case kFloat: case kDouble: { auto p = std::get_if<double>(&v); return p && *p != 0.0; }
+    default: return AsU64(v) != 0;
+  }
+}
+
+inline std::vector<const FieldM*> SortedFields(const MsgM& model) {
+  std::vector<const FieldM*> out;
+  for (auto& kv : model.fields) out.push_back(&kv.second);
+  return out;
+}
+
+inline const MsgM* MapModel(const FieldM& f, FileM& fm) {
+  if (f.type != kMessage || !f.repeated) return nullptr;
+  auto it = fm.messages.find(f.type_name);
+  if (it == fm.messages.end()) return nullptr;
+  return it->second->map_entry ? it->second.get() : nullptr;
+}
+
+inline Value DefaultValue(const FieldM& f) {
+  switch (f.type) {
+    case kString: return Value(std::string(""));
+    case kBytes: return Value(Bytes());
+    case kBool: return Value(false);
+    case kFloat: case kDouble: return Value(0.0);
+    case kMessage: return Value(std::make_shared<Generic>());
+    default: return Value((std::uint64_t)0);
+  }
+}
+
+inline int KeyCmp(const FieldM& kf, const Value& a, const Value& b) {
+  if (kf.type == kString) {
+    auto x = std::get_if<std::string>(&a);
+    auto y = std::get_if<std::string>(&b);
+    std::string xs = x ? *x : "", ys = y ? *y : "";
+    return xs < ys ? -1 : (xs > ys ? 1 : 0);
+  }
+  if (kf.type == kBool || kf.type == kUint32 || kf.type == kUint64 ||
+      kf.type == kFixed32 || kf.type == kFixed64) {
+    std::uint64_t av = AsU64(a), bv = AsU64(b);
+    return av < bv ? -1 : (av > bv ? 1 : 0);
+  }
+  std::int64_t av = (std::int64_t)AsU64(a), bv = (std::int64_t)AsU64(b);
+  return av < bv ? -1 : (av > bv ? 1 : 0);
+}
+
+inline bool MapEntries(const FieldM& f, const std::vector<Value>& values,
+                       const MsgM& em, std::vector<std::pair<Value, Value>>& out,
+                       std::string& err) {
+  const FieldM& kf = em.fields.at(1);
+  const FieldM& vf = em.fields.at(2);
+  for (auto& e : values) {
+    auto p = std::get_if<std::shared_ptr<Generic>>(&e);
+    if (!p) { err = "map field " + f.name + " entry not a message"; return false; }
+    const Value* key = (*p)->Get(1);
+    if (!key) { err = "map field " + f.name + " entry missing key"; return false; }
+    const Value* v = (*p)->Get(2);
+    out.push_back({*key, v ? *v : DefaultValue(vf)});
+  }
+  std::sort(out.begin(), out.end(),
+            [&](const std::pair<Value, Value>& x, const std::pair<Value, Value>& y) {
+              return KeyCmp(kf, x.first, y.first) < 0;
+            });
+  return true;
+}
+
+inline bool ValueSize(const FieldM& f, const Value& v, FileM& fm,
+                      size_t& out, std::string& err) {
+  switch (f.type) {
+    case kString: case kBytes: {
+      Bytes b;
+      if (!BytesOf(f, v, b, err)) return false;
+      out = b.size();
+      return true;
+    }
+    case kMessage: {
+      auto p = std::get_if<std::shared_ptr<Generic>>(&v);
+      if (!p) { err = "value does not match field " + f.name; return false; }
+      auto it = fm.messages.find(f.type_name);
+      if (it == fm.messages.end()) { err = "unknown message type " + f.type_name; return false; }
+      Bytes enc;
+      if (!EncodeStruct(*it->second, **p, fm, enc, err)) return false;
+      out = enc.size();
+      return true;
+    }
+    default: out = IsFixed32(f) ? 4 : 8; return true;
+  }
+}
+
+inline bool FieldPresent(const FieldM& f, const Generic& msg, FileM& fm) {
+  auto values = msg.GetAll(f.number);
+  if (MapModel(f, fm) != nullptr || f.repeated) return !values.empty();
+  return !values.empty() && Nonzero(f, values.front());
+}
+
+inline bool StructSize(const MsgM& model, const Generic& msg, FileM& fm,
+                       size_t& outSize, std::string& err) {
+  auto fields = SortedFields(model);
+  int words = std::max(1, ((int)fields.size() + 31) / 32);
+  size_t size = 12 + 4 * (size_t)words;
+  for (auto f : fields) size += (size_t)SlotSize(*f);
+  for (auto f : fields) {
+    auto values = msg.GetAll(f->number);
+    const MsgM* em = MapModel(*f, fm);
+    if (em != nullptr) {
+      std::vector<std::pair<Value, Value>> entries;
+      if (!MapEntries(*f, values, *em, entries, err)) return false;
+      const FieldM& kf = em->fields.at(1);
+      const FieldM& vf = em->fields.at(2);
+      for (auto& kv : entries) {
+        size_t kl, vl;
+        if (!ValueSize(kf, kv.first, fm, kl, err)) return false;
+        if (!ValueSize(vf, kv.second, fm, vl, err)) return false;
+        size += 8 + kl + vl;
+      }
+    } else if (f->repeated) {
+      if (!values.empty()) {
+        if (f->type == kString || f->type == kBytes || f->type == kMessage)
+          size += 8 * values.size();
+        for (auto& v : values) {
+          size_t vs;
+          if (!ValueSize(*f, v, fm, vs, err)) return false;
+          size += vs;
+        }
+      }
+    } else if ((f->type == kString || f->type == kBytes || f->type == kMessage) &&
+               FieldPresent(*f, msg, fm)) {
+      size_t vs;
+      if (!ValueSize(*f, values.front(), fm, vs, err)) return false;
+      size += vs;
+    }
+  }
+  for (auto& c : msg.unknown) size += c.size();
+  outSize = size;
+  return true;
+}
+
+inline void PutU32(Bytes& buf, size_t off, std::uint64_t v) {
+  for (int i = 0; i < 4; i++) buf[off + i] = (std::uint8_t)((v >> (8 * i)) & 0xff);
+}
+inline void PutU64(Bytes& buf, size_t off, std::uint64_t v) {
+  for (int i = 0; i < 8; i++) buf[off + i] = (std::uint8_t)((v >> (8 * i)) & 0xff);
+}
+
+inline void WriteScalar(Bytes& buf, size_t off, const FieldM& f, const Value& v) {
+  switch (f.type) {
+    case kFloat: {
+      auto p = std::get_if<double>(&v);
+      float fl = p ? (float)*p : 0.0f;
+      std::uint32_t u; std::memcpy(&u, &fl, 4);
+      PutU32(buf, off, u);
+      break;
+    }
+    case kFixed32: PutU32(buf, off, AsU64(v)); break;
+    case kSfixed32: PutU32(buf, off, AsU64(v) & 0xffffffffULL); break;
+    case kDouble: {
+      auto p = std::get_if<double>(&v);
+      double d = p ? *p : 0.0;
+      std::uint64_t u; std::memcpy(&u, &d, 8);
+      PutU64(buf, off, u);
+      break;
+    }
+    case kFixed64: case kSfixed64: PutU64(buf, off, AsU64(v)); break;
+    case kBool: buf[off] = AsU64(v) != 0 ? 1 : 0; break;
+    default: PutU64(buf, off, AsU64(v)); break;
+  }
+}
+
+inline bool WriteValue(Bytes& buf, size_t off, const FieldM& f, const Value& v,
+                       FileM& fm, std::string& err) {
+  switch (f.type) {
+    case kString: case kBytes: {
+      Bytes b;
+      if (!BytesOf(f, v, b, err)) return false;
+      std::copy(b.begin(), b.end(), buf.begin() + (long)off);
+      return true;
+    }
+    case kMessage: {
+      auto p = std::get_if<std::shared_ptr<Generic>>(&v);
+      if (!p) { err = "value does not match field " + f.name; return false; }
+      auto it = fm.messages.find(f.type_name);
+      if (it == fm.messages.end()) { err = "unknown message type " + f.type_name; return false; }
+      Bytes enc;
+      if (!EncodeStruct(*it->second, **p, fm, enc, err)) return false;
+      std::copy(enc.begin(), enc.end(), buf.begin() + (long)off);
+      return true;
+    }
+    default: WriteScalar(buf, off, f, v); return true;
+  }
+}
+
+inline bool EncodeStruct(const MsgM& model, const Generic& msg, FileM& fm,
+                         Bytes& out, std::string& err) {
+  auto fields = SortedFields(model);
+  int words = std::max(1, ((int)fields.size() + 31) / 32);
+  size_t header = 12 + 4 * (size_t)words;
+  std::vector<size_t> offsets;
+  size_t cursor = header;
+  for (auto f : fields) { offsets.push_back(cursor); cursor += (size_t)SlotSize(*f); }
+  size_t fixedEnd = cursor;
+  size_t total;
+  if (!StructSize(model, msg, fm, total, err)) return false;
+  Bytes buf(total, 0);
+  Bytes magic = Bts("DCS1");
+  std::copy(magic.begin(), magic.end(), buf.begin());
+  PutU32(buf, 4, buf.size());
+  PutU32(buf, 8, Fingerprint(model.full_name));
+  for (size_t i = 0; i < fields.size(); i++) {
+    if (FieldPresent(*fields[i], msg, fm)) {
+      size_t at = 12 + 4 * (i / 32);
+      std::uint64_t cur;
+      if (!U32(buf, at, cur, err)) return false;
+      PutU32(buf, at, cur | (1ULL << (i % 32)));
+    }
+  }
+  size_t vp = fixedEnd;
+  for (size_t i = 0; i < fields.size(); i++) {
+    const FieldM& f = *fields[i];
+    size_t off = offsets[i];
+    auto values = msg.GetAll(f.number);
+    const MsgM* em = MapModel(f, fm);
+    if (em != nullptr) {
+      if (!values.empty()) {
+        const FieldM& kf = em->fields.at(1);
+        const FieldM& vf = em->fields.at(2);
+        std::vector<std::pair<Value, Value>> entries;
+        if (!MapEntries(f, values, *em, entries, err)) return false;
+        PutU32(buf, off, vp);
+        PutU32(buf, off + 4, values.size());
+        for (auto& kv : entries) {
+          size_t klen, vlen;
+          if (!ValueSize(kf, kv.first, fm, klen, err)) return false;
+          if (!ValueSize(vf, kv.second, fm, vlen, err)) return false;
+          PutU32(buf, vp, klen); PutU32(buf, vp + 4, vlen); vp += 8;
+          if (!WriteValue(buf, vp, kf, kv.first, fm, err)) return false;
+          vp += klen;
+          if (!WriteValue(buf, vp, vf, kv.second, fm, err)) return false;
+          vp += vlen;
+        }
+      }
+    } else if (f.repeated) {
+      if (!values.empty()) {
+        PutU32(buf, off, vp);
+        PutU32(buf, off + 4, values.size());
+        if (f.type == kString || f.type == kBytes || f.type == kMessage) {
+          size_t doff = vp + 8 * values.size();
+          for (auto& v : values) {
+            size_t vs;
+            if (!ValueSize(f, v, fm, vs, err)) return false;
+            PutU32(buf, vp, doff); PutU32(buf, vp + 4, vs);
+            doff += vs; vp += 8;
+          }
+          for (auto& v : values) {
+            size_t vs;
+            if (!ValueSize(f, v, fm, vs, err)) return false;
+            if (!WriteValue(buf, vp, f, v, fm, err)) return false;
+            vp += vs;
+          }
+        } else {
+          for (auto& v : values) { WriteScalar(buf, vp, f, v); vp += (size_t)SlotSize(f); }
+        }
+      }
+    } else if (f.type == kString || f.type == kBytes || f.type == kMessage) {
+      if (FieldPresent(f, msg, fm)) {
+        size_t vs;
+        if (!ValueSize(f, values.front(), fm, vs, err)) return false;
+        PutU32(buf, off, vp);
+        PutU32(buf, off + 4, vs);
+        if (!WriteValue(buf, vp, f, values.front(), fm, err)) return false;
+        vp += vs;
+      }
+    } else if (FieldPresent(f, msg, fm)) {
+      WriteScalar(buf, off, f, values.front());
+    }
+  }
+  for (auto& chunk : msg.unknown) {
+    std::copy(chunk.begin(), chunk.end(), buf.begin() + (long)vp);
+    vp += chunk.size();
+  }
+  out = buf;
+  return true;
+}
+
+inline bool ReadScalar(const Bytes& data, size_t off, const FieldM& f,
+                       Value& out, std::string& err) {
+  std::uint64_t u;
+  switch (f.type) {
+    case kFloat: {
+      if (!U32(data, off, u, err)) return false;
+      std::uint32_t u32v = (std::uint32_t)u;
+      float fl; std::memcpy(&fl, &u32v, 4);
+      out = Value((double)fl);
+      return true;
+    }
+    case kFixed32:
+      if (!U32(data, off, u, err)) return false;
+      out = Value(u);
+      return true;
+    case kSfixed32:
+      if (!U32(data, off, u, err)) return false;
+      out = Value((std::int64_t)(std::int32_t)(std::uint32_t)u);
+      return true;
+    case kDouble: {
+      if (!U64(data, off, u, err)) return false;
+      double d; std::memcpy(&d, &u, 8);
+      out = Value(d);
+      return true;
+    }
+    case kFixed64: case kSfixed64:
+      if (!U64(data, off, u, err)) return false;
+      out = Value((std::int64_t)u);
+      return true;
+    case kBool:
+      if (off >= data.size()) { err = "struct codec: out of bounds"; return false; }
+      out = Value(data[off] != 0);
+      return true;
+    case kEnum: case kInt32: case kSint32:
+      if (!U64(data, off, u, err)) return false;
+      out = Value((std::int64_t)(std::int32_t)(std::uint32_t)u);
+      return true;
+    case kInt64: case kSint64:
+      if (!U64(data, off, u, err)) return false;
+      out = Value((std::int64_t)u);
+      return true;
+    case kUint32:
+      if (!U64(data, off, u, err)) return false;
+      out = Value(u & 0xffffffffULL);
+      return true;
+    default:
+      if (!U64(data, off, u, err)) return false;
+      out = Value(u);
+      return true;
+  }
+}
+
+inline bool ReadValue(const Bytes& data, size_t off, size_t len, const FieldM& f,
+                      FileM& fm, Value& out, std::string& err) {
+  if (off + len > data.size()) { err = "struct codec: out of bounds"; return false; }
+  Bytes raw(data.begin() + (long)off, data.begin() + (long)(off + len));
+  switch (f.type) {
+    case kString: out = Value(Str(raw)); return true;
+    case kBytes: out = Value(raw); return true;
+    case kMessage: {
+      if (len == 0) { out = Value(std::make_shared<Generic>()); return true; }
+      auto it = fm.messages.find(f.type_name);
+      if (it == fm.messages.end()) { err = "unknown message type " + f.type_name; return false; }
+      auto nested = std::make_shared<Generic>();
+      if (!DecodeStruct(*it->second, raw, fm, *nested, err)) return false;
+      out = Value(nested);
+      return true;
+    }
+    default: return ReadScalar(data, off, f, out, err);
+  }
+}
+
+inline bool DecodeStruct(const MsgM& model, const Bytes& data, FileM& fm,
+                         Generic& msg, std::string& err) {
+  auto fields = SortedFields(model);
+  int words = std::max(1, ((int)fields.size() + 31) / 32);
+  size_t header = 12 + 4 * (size_t)words;
+  if (data.size() < header || Bytes(data.begin(), data.begin() + 4) != Bts("DCS1")) {
+    err = "struct codec: bad header";
+    return false;
+  }
+  std::uint64_t fp, lenField;
+  if (!U32(data, 8, fp, err)) return false;
+  if (fp != Fingerprint(model.full_name)) { err = "struct codec: schema fingerprint mismatch"; return false; }
+  if (!U32(data, 4, lenField, err)) return false;
+  if (lenField != data.size()) { err = "struct codec: length mismatch"; return false; }
+  std::vector<size_t> offsets;
+  size_t cursor = header;
+  for (auto f : fields) { offsets.push_back(cursor); cursor += (size_t)SlotSize(*f); }
+  size_t vend = cursor;
+  for (size_t i = 0; i < fields.size(); i++) {
+    std::uint64_t bits;
+    if (!U32(data, 12 + 4 * (i / 32), bits, err)) return false;
+    if ((bits & (1ULL << (i % 32))) == 0) continue;
+    const FieldM& f = *fields[i];
+    size_t off = offsets[i];
+    const MsgM* em = MapModel(f, fm);
+    if (em != nullptr) {
+      const FieldM& kf = em->fields.at(1);
+      const FieldM& vf = em->fields.at(2);
+      std::uint64_t baseU, nU;
+      if (!U32(data, off, baseU, err)) return false;
+      if (!U32(data, off + 4, nU, err)) return false;
+      size_t p = (size_t)baseU;
+      for (std::uint64_t j = 0; j < nU; j++) {
+        std::uint64_t kl, vl;
+        if (!U32(data, p, kl, err)) return false;
+        if (!U32(data, p + 4, vl, err)) return false;
+        p += 8;
+        Value key, v;
+        if (!ReadValue(data, p, (size_t)kl, kf, fm, key, err)) return false;
+        if (!ReadValue(data, p + (size_t)kl, (size_t)vl, vf, fm, v, err)) return false;
+        auto entry = std::make_shared<Generic>();
+        entry->Set(1, key);
+        entry->Set(2, v);
+        msg.Add(f.number, Value(entry));
+        p += (size_t)(kl + vl);
+      }
+      vend = std::max(vend, p);
+    } else if (f.repeated) {
+      std::uint64_t baseU, nU;
+      if (!U32(data, off, baseU, err)) return false;
+      if (!U32(data, off + 4, nU, err)) return false;
+      size_t base = (size_t)baseU;
+      if (f.type == kString || f.type == kBytes || f.type == kMessage) {
+        for (std::uint64_t j = 0; j < nU; j++) {
+          std::uint64_t eo, el;
+          if (!U32(data, base + 8 * (size_t)j, eo, err)) return false;
+          if (!U32(data, base + 8 * (size_t)j + 4, el, err)) return false;
+          if (el > 0 || f.type != kMessage) {
+            Value v;
+            if (!ReadValue(data, (size_t)eo, (size_t)el, f, fm, v, err)) return false;
+            msg.Add(f.number, v);
+          }
+          vend = std::max(vend, (size_t)(eo + el));
+        }
+      } else {
+        for (std::uint64_t j = 0; j < nU; j++) {
+          Value v;
+          if (!ReadScalar(data, base + (size_t)j * (size_t)SlotSize(f), f, v, err)) return false;
+          msg.Add(f.number, v);
+        }
+        vend = std::max(vend, base + (size_t)nU * (size_t)SlotSize(f));
+      }
+    } else if (f.type == kString || f.type == kBytes || f.type == kMessage) {
+      std::uint64_t baseU, lenU;
+      if (!U32(data, off, baseU, err)) return false;
+      if (!U32(data, off + 4, lenU, err)) return false;
+      Value v;
+      if (!ReadValue(data, (size_t)baseU, (size_t)lenU, f, fm, v, err)) return false;
+      msg.Add(f.number, v);
+      vend = std::max(vend, (size_t)(baseU + lenU));
+    } else {
+      Value v;
+      if (!ReadScalar(data, off, f, v, err)) return false;
+      msg.Add(f.number, v);
+    }
+  }
+  if (vend < data.size()) {
+    msg.unknown.push_back(Bytes(data.begin() + (long)vend, data.end()));
+  }
+  return true;
+}
+
+}  // namespace detail
+
+/// Transcode protobuf <-> struct bytes for `type_name` under
+/// the FileDescriptorSet bytes `descriptor`. Returns false
+/// with `err` set on failure.
+inline bool Transcode(const Bytes& descriptor, const std::string& type_name,
+                      const Bytes& input, bool encode, Bytes& out,
+                      std::string& err) {
+  detail::FileM fm;
+  if (!detail::ParseDescriptorSet(descriptor, fm, err)) return false;
+  auto it = fm.messages.find(type_name);
+  if (it == fm.messages.end()) it = fm.messages.find("." + type_name);
+  if (it == fm.messages.end()) {
+    err = "unknown message type " + type_name;
+    return false;
+  }
+  detail::MsgM& model = *it->second;
+  if (encode) {
+    detail::Generic msg;
+    if (!detail::DecodeGenericS(model, input, fm, msg, err)) return false;
+    return detail::EncodeStruct(model, msg, fm, out, err);
+  }
+  detail::Generic msg;
+  if (!detail::DecodeStruct(model, input, fm, msg, err)) return false;
+  return detail::EncodeGeneric(model, msg, fm, out, err);
+}
+
+}  // namespace structdc
+}  // namespace grpcdc
+GRPC_RUNTIME_EOF
+)

@@ -12,7 +12,7 @@ CORPUS = os.path.join(ROOT, "conformance", "struct")
 PROTO = os.path.join(CORPUS, "msgs.proto")
 GOLDEN = open(os.path.join(CORPUS, "golden.hex")).read().strip()
 
-ADMITTED = ["go", "rust", "rust-shared", "java", "kotlin", "scala", "swift", "dart", "csharp", "c", "cpp", "zig", "js", "python", "lua", "php", "ruby", "dart-pure", "scala-pure", "kotlin-pure", "swift-pure"]
+ADMITTED = ["go", "rust", "rust-shared", "java", "kotlin", "scala", "swift", "dart", "csharp", "c", "cpp", "zig", "js", "python", "lua", "php", "ruby", "dart-pure", "scala-pure", "kotlin-pure", "swift-pure", "cpp-pure"]
 
 
 def run(*args, **kw):
@@ -331,6 +331,21 @@ def check_c(tmp):
     run(out, GOLDEN)
 
 
+def check_cpp_pure(tmp):
+    # The C++/Wasm (no-cdylib) structdc: pure transcoder
+    # against the Go golden.
+    d = os.path.join(tmp, "cpp"); protoc("cpp", d)
+    shutil.copy(os.path.join(CORPUS, "drivers", "cpp-pure", "main.cpp"), d)
+    desc = os.path.join(tmp, "desc.bin")
+    run("protoc", "--descriptor_set_out=" + desc, "-I", CORPUS, PROTO)
+    desc_hex = open(desc, "rb").read().hex()
+    out = os.path.join(tmp, "cppdriver")
+    run("c++", "-std=c++17", "-I", os.path.join(ROOT, "cpp"), "-I", d,
+        os.path.join(d, "main.cpp"),
+        os.path.join(ROOT, "wasm", "cpp", "structdc_wasm.cpp"), "-o", out)
+    run(out, GOLDEN, desc_hex)
+
+
 def check_cpp(tmp):
     d = os.path.join(tmp, "cpp"); protoc("cpp", d)
     shutil.copy(os.path.join(CORPUS, "drivers", "cpp", "main.cpp"), d)
@@ -364,7 +379,7 @@ def check_rust_shared(tmp):
 CHECKS = {"go": check_go, "rust": check_rust, "rust-shared": check_rust_shared, "java": check_java,
           "kotlin": check_kotlin, "scala": check_scala, "swift": check_swift,
           "dart": check_dart, "csharp": check_csharp, "c": check_c, "js": check_js, "python": check_python,
-          "cpp": check_cpp, "zig": check_zig, "lua": check_lua, "php": check_php, "ruby": check_ruby, "dart-pure": check_dart_pure, "scala-pure": check_scala_pure, "kotlin-pure": check_kotlin_pure, "swift-pure": check_swift_pure}
+          "cpp": check_cpp, "zig": check_zig, "lua": check_lua, "php": check_php, "ruby": check_ruby, "dart-pure": check_dart_pure, "scala-pure": check_scala_pure, "kotlin-pure": check_kotlin_pure, "swift-pure": check_swift_pure, "cpp-pure": check_cpp_pure}
 
 
 def main():

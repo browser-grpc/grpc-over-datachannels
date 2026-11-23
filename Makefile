@@ -826,7 +826,7 @@ test-cpp-wasm-browser:
 		-Wl,--export=wasm_alloc -Wl,--export=wasm_free \
 		-Wl,--export=on_bridge_message -Wl,--export=on_bridge_done \
 		-Wl,--export=on_bridge_error \
-		wasm/cpp/bridge.cpp wasm/cpp/echo_client.cpp \
+		wasm/cpp/bridge.cpp wasm/cpp/echo_client.cpp wasm/cpp/structdc_wasm.cpp \
 		-o browser-test/echo_cpp.wasm
 	$(ZIG) c++ -target wasm32-wasi -std=c++17 -O1 -mexec-model=reactor \
 		-fno-exceptions -fno-rtti -Iwasm/cpp \
