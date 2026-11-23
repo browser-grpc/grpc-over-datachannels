@@ -835,7 +835,7 @@ test-dart-wasm-browser:
 # libc++ has no exception runtime; see wasm/cpp/bridge.hpp).
 test-cpp-wasm-browser:
 	$(ZIG) c++ -target wasm32-wasi -std=c++17 -O1 -mexec-model=reactor \
-		-fno-exceptions -fno-rtti -Iwasm/cpp \
+		-fno-exceptions -fno-rtti -Iwasm/cpp -Icpp \
 		-Wl,--export=_initialize -Wl,--export=run_echo_client \
 		-Wl,--export=wasm_alloc -Wl,--export=wasm_free \
 		-Wl,--export=on_bridge_message -Wl,--export=on_bridge_done \
