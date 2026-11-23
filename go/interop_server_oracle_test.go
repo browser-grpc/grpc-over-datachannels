@@ -350,6 +350,28 @@ func TestInteropOfficialClientsCallGoServer(t *testing.T) {
 		}
 	})
 
+	t.Run("grpc-dart client", func(t *testing.T) {
+		binary := filepath.Join("..", "oracle", "dart-interop", "interop-client")
+		if _, err := os.Stat(binary); err != nil {
+			skipOracle(t, "dart interop client not built")
+		}
+		for _, testCase := range interopCasesB {
+			t.Run(testCase, func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+				defer cancel()
+				out, err := exec.CommandContext(ctx, binary,
+					"-server_host", "127.0.0.1", "-server_port", fmt.Sprint(port),
+					"-test_case", testCase).CombinedOutput()
+				if err != nil {
+					t.Fatalf("case %s: %v\n%s", testCase, err, out)
+				}
+				if !strings.Contains(string(out), "Test completed.") {
+					t.Fatalf("case %s: unexpected output\n%s", testCase, out)
+				}
+			})
+		}
+	})
+
 	t.Run("grpc-java client", func(t *testing.T) {
 		cp := javaClasspath(t)
 		for _, testCase := range append(append([]string{}, interopCasesB...), "cacheable_unary",
