@@ -92,6 +92,11 @@ fn wait_port(port: u16, what: &str) {
 
 struct KillOnDrop(Child);
 
+/// free_port()+bridge spawn is racy between parallel tests in
+/// this binary (two tests can claim the same ephemeral port);
+/// serialize the bridge-owning tests.
+static BRIDGE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 impl Drop for KillOnDrop {
     fn drop(&mut self) {
         let _ = self.0.kill();
@@ -109,6 +114,7 @@ fn go_server_clients() -> Option<(KillOnDrop, KillOnDrop, TestServiceClient, orc
         return None;
     }
     let port = free_port();
+    let _bridge_lock = BRIDGE_LOCK.lock().unwrap();
     let server = Command::new(&binary)
         .args(["-port", &port.to_string()])
         .stdout(Stdio::null())
@@ -298,6 +304,7 @@ async fn official_clients_call_rust_server() {
         return;
     }
     let port = free_port();
+    let _bridge_lock = BRIDGE_LOCK.lock().unwrap();
     let mut bridge = Command::new("node")
         .args([
             &format!("{root}/oracle/bridge.mjs"),
@@ -314,6 +321,7 @@ async fn official_clients_call_rust_server() {
         .expect("spawn bridge");
     let _bridge = KillOnDrop(bridge);
     wait_port(port, "bridge http2-to-dc");
+    drop(_bridge_lock);
 
     if let Some(cp) = java_classpath() {
         let port_arg = format!("--server_port={port}");
