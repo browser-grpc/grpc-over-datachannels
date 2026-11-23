@@ -28,6 +28,7 @@ pub const ClientStream = struct {
     trace_path: []const u8 = "",
     trace_ended: bool = false,
     terminated: bool = false,
+    struct_codec: bool = false,
 
     pub fn endTrace(self: *ClientStream, status: []const u8) void {
         if (!self.trace_ended) {
@@ -39,7 +40,7 @@ pub const ClientStream = struct {
     /// Send one request message on an open stream (no half-close).
     pub fn send(self: *ClientStream, msg: anytype) Status {
         const alloc = self.endpoint.alloc;
-        const payload = msg.marshalDc(alloc);
+        const payload = codec_mod.marshalForCodec(alloc, self.struct_codec, msg);
         defer alloc.free(payload);
         const frame = switch (Codec.encodeFrame(alloc, wire.frameData, self.stream_id, payload)) {
             .bytes => |b| b,
@@ -132,7 +133,7 @@ pub const ClientStream = struct {
         switch (self.recvRaw()) {
             .message => |payload| {
                 defer self.endpoint.alloc.free(payload);
-                resp.unmarshalDc(self.endpoint.alloc, payload);
+                codec_mod.unmarshalForCodec(self.struct_codec, self.endpoint.alloc, payload, resp);
                 return .message;
             },
             .end => return .end,
@@ -165,6 +166,16 @@ pub const Channel = struct {
     endpoint: *Endpoint,
     owns_endpoint: bool,
     trace_context: ?status_mod.TraceContext = null,
+    struct_codec: bool = false,
+
+    /// Make every call on this channel request the struct codec
+    /// (HEADERS marker dc-codec: struct-v1) and encode requests /
+    /// decode responses with it. The server must enable it too
+    /// (see Server.setStructCodec); otherwise calls fail
+    /// Unimplemented. Mirrors the Go Channel.SetStructCodec.
+    pub fn setStructCodec(self: *Channel, enabled: bool) void {
+        self.struct_codec = enabled;
+    }
 
     /// Parent this channel's outbound spans to ctx (usually
     /// CallContext.trace_context of the call being served, or a
@@ -206,13 +217,16 @@ pub const Channel = struct {
         var md = metadata;
         var trace_ctx: ?status_mod.TraceContext = null;
         var tp_buf: [55]u8 = undefined;
-        if (timeout_ms != null or status_mod.tracingEnabled()) {
+        if (timeout_ms != null or status_mod.tracingEnabled() or self.struct_codec) {
             merged = Metadata.init(alloc);
             if (metadata) |source| {
                 var it = source.iterator();
                 while (it.next()) |entry| {
                     merged.?.put(entry.key_ptr.*, entry.value_ptr.*) catch @panic("out of memory");
                 }
+            }
+            if (self.struct_codec) {
+                merged.?.put(Codec.struct_codec_header, Codec.struct_codec_v1) catch @panic("out of memory");
             }
             if (timeout_ms) |ms| {
                 if (endpoint_mod.nowMs()) |now| {
@@ -244,7 +258,7 @@ pub const Channel = struct {
         };
         defer alloc.free(frame);
         self.endpoint.sendFrame(frame);
-        return .{ .ok = .{ .stream_id = opened.id, .input = opened.input, .endpoint = self.endpoint, .deadline_ms = deadline_ms, .trace_ctx = trace_ctx, .trace_path = path } };
+        return .{ .ok = .{ .stream_id = opened.id, .input = opened.input, .endpoint = self.endpoint, .deadline_ms = deadline_ms, .trace_ctx = trace_ctx, .trace_path = path, .struct_codec = self.struct_codec } };
     }
 
     fn sendMessage(self: *Channel, stream: *ClientStream, payload: []const u8) Status {
@@ -271,7 +285,7 @@ pub const Channel = struct {
     fn sendAll(self: *Channel, stream: *ClientStream, reqs: anytype) Status {
         const alloc = self.endpoint.alloc;
         for (reqs) |*req| {
-            const payload = req.marshalDc(alloc);
+            const payload = codec_mod.marshalForCodec(alloc, stream.struct_codec, req);
             defer alloc.free(payload);
             const st = self.sendMessage(stream, payload);
             if (!st.isOk()) return st;
@@ -308,7 +322,7 @@ pub const Channel = struct {
         };
         defer stream.deinit();
         const alloc = self.endpoint.alloc;
-        const payload = req.marshalDc(alloc);
+        const payload = codec_mod.marshalForCodec(alloc, stream.struct_codec, req);
         defer alloc.free(payload);
         const st = self.sendMessage(&stream, payload);
         if (!st.isOk()) return st;
@@ -323,7 +337,7 @@ pub const Channel = struct {
             .status => |st| return .{ .status = st },
         };
         const alloc = self.endpoint.alloc;
-        const payload = req.marshalDc(alloc);
+        const payload = codec_mod.marshalForCodec(alloc, stream.struct_codec, req);
         defer alloc.free(payload);
         const st = self.sendMessage(&stream, payload);
         if (!st.isOk()) {

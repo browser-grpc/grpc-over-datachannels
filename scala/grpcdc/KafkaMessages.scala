@@ -172,30 +172,30 @@ class Header(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    w.stringField(1, key)
+    val pbW = new KafkaPb.Writer()
+    pbW.stringField(1, key)
     if (value.nonEmpty) {
-      w.bytesField(2, value)
+      pbW.bytesField(2, value)
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     key = ""
     value = Array.empty[Byte]
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          key = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          value = field.bytesValue
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          value = pbField.bytesValue
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -209,26 +209,26 @@ class Record(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
+    val pbW = new KafkaPb.Writer()
     if (key.nonEmpty) {
-      w.bytesField(1, key)
+      pbW.bytesField(1, key)
     }
     if (value.nonEmpty) {
-      w.bytesField(2, value)
+      pbW.bytesField(2, value)
     }
-    for (x <- headers) {
-      w.bytesField(3, x.marshalDc())
+    for (pbX <- headers) {
+      pbW.bytesField(3, pbX.marshalDc())
     }
     if (timestampMs != 0) {
-      w.tag(4, 0)
-      w.varint(timestampMs.toLong)
+      pbW.tag(4, 0)
+      pbW.varint(timestampMs.toLong)
     }
     if (nullKey) {
-      w.tag(5, 0)
-      w.varint((if (nullKey) 1L else 0L))
+      pbW.tag(5, 0)
+      pbW.varint((if (nullKey) 1L else 0L))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -238,25 +238,25 @@ class Record(
     headers = List.empty
     timestampMs = 0L
     nullKey = false
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          key = field.bytesValue
+          key = pbField.bytesValue
         case 2 =>
-          value = field.bytesValue
+          value = pbField.bytesValue
         case 3 =>
-          val item = new Header()
-          item.unmarshalDc(field.bytesValue)
-          headers = headers :+ item
+          val pbItem = new Header()
+          pbItem.unmarshalDc(pbField.bytesValue)
+          headers = headers :+ pbItem
         case 4 =>
-          timestampMs = field.varintValue
+          timestampMs = pbField.varintValue
         case 5 =>
-          nullKey = (field.varintValue != 0L)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          nullKey = (pbField.varintValue != 0L)
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -271,30 +271,30 @@ class FetchedRecord(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
+    val pbW = new KafkaPb.Writer()
     if (offset != 0) {
-      w.tag(1, 0)
-      w.varint(offset.toLong)
+      pbW.tag(1, 0)
+      pbW.varint(offset.toLong)
     }
     if (timestampMs != 0) {
-      w.tag(2, 0)
-      w.varint(timestampMs.toLong)
+      pbW.tag(2, 0)
+      pbW.varint(timestampMs.toLong)
     }
     if (key.nonEmpty) {
-      w.bytesField(3, key)
+      pbW.bytesField(3, key)
     }
     if (value.nonEmpty) {
-      w.bytesField(4, value)
+      pbW.bytesField(4, value)
     }
-    for (x <- headers) {
-      w.bytesField(5, x.marshalDc())
+    for (pbX <- headers) {
+      pbW.bytesField(5, pbX.marshalDc())
     }
     if (keyNull) {
-      w.tag(6, 0)
-      w.varint((if (keyNull) 1L else 0L))
+      pbW.tag(6, 0)
+      pbW.varint((if (keyNull) 1L else 0L))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -305,27 +305,27 @@ class FetchedRecord(
     value = Array.empty[Byte]
     headers = List.empty
     keyNull = false
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          offset = field.varintValue
+          offset = pbField.varintValue
         case 2 =>
-          timestampMs = field.varintValue
+          timestampMs = pbField.varintValue
         case 3 =>
-          key = field.bytesValue
+          key = pbField.bytesValue
         case 4 =>
-          value = field.bytesValue
+          value = pbField.bytesValue
         case 5 =>
-          val item = new Header()
-          item.unmarshalDc(field.bytesValue)
-          headers = headers :+ item
+          val pbItem = new Header()
+          pbItem.unmarshalDc(pbField.bytesValue)
+          headers = headers :+ pbItem
         case 6 =>
-          keyNull = (field.varintValue != 0L)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          keyNull = (pbField.varintValue != 0L)
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -336,31 +336,31 @@ class TopicPartition(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    w.stringField(1, topic)
+    val pbW = new KafkaPb.Writer()
+    pbW.stringField(1, topic)
     if (partition != 0) {
-      w.tag(2, 0)
-      w.varint((partition.toLong))
+      pbW.tag(2, 0)
+      pbW.varint((partition.toLong))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     topic = ""
     partition = 0
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          topic = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          topic = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          partition = field.varintValue.toInt
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          partition = pbField.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -371,33 +371,33 @@ class MetadataRequest(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    for (x <- topics) {
-      w.bytesField(1, x.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+    val pbW = new KafkaPb.Writer()
+    for (pbX <- topics) {
+      pbW.bytesField(1, pbX.getBytes(java.nio.charset.StandardCharsets.UTF_8))
     }
     if (allowAutoTopicCreation) {
-      w.tag(2, 0)
-      w.varint((if (allowAutoTopicCreation) 1L else 0L))
+      pbW.tag(2, 0)
+      pbW.varint((if (allowAutoTopicCreation) 1L else 0L))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     topics = List.empty
     allowAutoTopicCreation = false
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          topics = topics :+ new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          topics = topics :+ new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          allowAutoTopicCreation = (field.varintValue != 0L)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          allowAutoTopicCreation = (pbField.varintValue != 0L)
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -410,19 +410,19 @@ class BrokerMetadata(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
+    val pbW = new KafkaPb.Writer()
     if (nodeId != 0) {
-      w.tag(1, 0)
-      w.varint((nodeId.toLong))
+      pbW.tag(1, 0)
+      pbW.varint((nodeId.toLong))
     }
-    w.stringField(2, host)
+    pbW.stringField(2, host)
     if (port != 0) {
-      w.tag(3, 0)
-      w.varint((port.toLong))
+      pbW.tag(3, 0)
+      pbW.varint((port.toLong))
     }
-    w.stringField(4, rack)
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.stringField(4, rack)
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -431,21 +431,21 @@ class BrokerMetadata(
     host = ""
     port = 0
     rack = ""
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          nodeId = field.varintValue.toInt
+          nodeId = pbField.varintValue.toInt
         case 2 =>
-          host = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          host = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 3 =>
-          port = field.varintValue.toInt
+          port = pbField.varintValue.toInt
         case 4 =>
-          rack = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          rack = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -460,39 +460,39 @@ class PartitionMetadata(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
+    val pbW = new KafkaPb.Writer()
     if (id != 0) {
-      w.tag(1, 0)
-      w.varint((id.toLong))
+      pbW.tag(1, 0)
+      pbW.varint((id.toLong))
     }
     if (leaderId != 0) {
-      w.tag(2, 0)
-      w.varint((leaderId.toLong))
+      pbW.tag(2, 0)
+      pbW.varint((leaderId.toLong))
     }
     if (leaderEpoch != 0) {
-      w.tag(3, 0)
-      w.varint((leaderEpoch.toLong))
+      pbW.tag(3, 0)
+      pbW.varint((leaderEpoch.toLong))
     }
     if (replicas.nonEmpty) {
-      val payload = new java.io.ByteArrayOutputStream()
-      for (x <- replicas) {
-        payload.write(KafkaPb.varintBytes((x.toLong)))
+      val pbPayload = new java.io.ByteArrayOutputStream()
+      for (pbX <- replicas) {
+        pbPayload.write(KafkaPb.varintBytes((pbX.toLong)))
       }
-      w.bytesField(4, payload.toByteArray)
+      pbW.bytesField(4, pbPayload.toByteArray)
     }
     if (isr.nonEmpty) {
-      val payload = new java.io.ByteArrayOutputStream()
-      for (x <- isr) {
-        payload.write(KafkaPb.varintBytes((x.toLong)))
+      val pbPayload = new java.io.ByteArrayOutputStream()
+      for (pbX <- isr) {
+        pbPayload.write(KafkaPb.varintBytes((pbX.toLong)))
       }
-      w.bytesField(5, payload.toByteArray)
+      pbW.bytesField(5, pbPayload.toByteArray)
     }
     if (errorCode != 0) {
-      w.tag(6, 0)
-      w.varint((errorCode.toLong))
+      pbW.tag(6, 0)
+      pbW.varint((errorCode.toLong))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -503,41 +503,41 @@ class PartitionMetadata(
     replicas = List.empty
     isr = List.empty
     errorCode = 0
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          id = field.varintValue.toInt
+          id = pbField.varintValue.toInt
         case 2 =>
-          leaderId = field.varintValue.toInt
+          leaderId = pbField.varintValue.toInt
         case 3 =>
-          leaderEpoch = field.varintValue.toInt
+          leaderEpoch = pbField.varintValue.toInt
         case 4 =>
-          if (field.wire == 2) {
-            val sub = new KafkaPb.Reader(field.bytesValue)
-            while (!sub.done) {
-              val raw = sub.varint()
+          if (pbField.wire == 2) {
+            val pbSub = new KafkaPb.Reader(pbField.bytesValue)
+            while (!pbSub.done) {
+              val raw = pbSub.varint()
               replicas = replicas :+ raw.toInt
             }
           } else {
-            replicas = replicas :+ field.varintValue.toInt
+            replicas = replicas :+ pbField.varintValue.toInt
           }
         case 5 =>
-          if (field.wire == 2) {
-            val sub = new KafkaPb.Reader(field.bytesValue)
-            while (!sub.done) {
-              val raw = sub.varint()
+          if (pbField.wire == 2) {
+            val pbSub = new KafkaPb.Reader(pbField.bytesValue)
+            while (!pbSub.done) {
+              val raw = pbSub.varint()
               isr = isr :+ raw.toInt
             }
           } else {
-            isr = isr :+ field.varintValue.toInt
+            isr = isr :+ pbField.varintValue.toInt
           }
         case 6 =>
-          errorCode = field.varintValue.toInt
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          errorCode = pbField.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -550,21 +550,21 @@ class TopicMetadata(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    w.stringField(1, name)
+    val pbW = new KafkaPb.Writer()
+    pbW.stringField(1, name)
     if (isInternal) {
-      w.tag(2, 0)
-      w.varint((if (isInternal) 1L else 0L))
+      pbW.tag(2, 0)
+      pbW.varint((if (isInternal) 1L else 0L))
     }
     if (errorCode != 0) {
-      w.tag(3, 0)
-      w.varint((errorCode.toLong))
+      pbW.tag(3, 0)
+      pbW.varint((errorCode.toLong))
     }
-    for (x <- partitions) {
-      w.bytesField(4, x.marshalDc())
+    for (pbX <- partitions) {
+      pbW.bytesField(4, pbX.marshalDc())
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -573,23 +573,23 @@ class TopicMetadata(
     isInternal = false
     errorCode = 0
     partitions = List.empty
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          name = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          name = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          isInternal = (field.varintValue != 0L)
+          isInternal = (pbField.varintValue != 0L)
         case 3 =>
-          errorCode = field.varintValue.toInt
+          errorCode = pbField.varintValue.toInt
         case 4 =>
-          val item = new PartitionMetadata()
-          item.unmarshalDc(field.bytesValue)
-          partitions = partitions :+ item
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          val pbItem = new PartitionMetadata()
+          pbItem.unmarshalDc(pbField.bytesValue)
+          partitions = partitions :+ pbItem
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -603,24 +603,24 @@ class MetadataResponse(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
+    val pbW = new KafkaPb.Writer()
     if (throttleTimeMs != 0) {
-      w.tag(1, 0)
-      w.varint((throttleTimeMs.toLong))
+      pbW.tag(1, 0)
+      pbW.varint((throttleTimeMs.toLong))
     }
-    for (x <- brokers) {
-      w.bytesField(2, x.marshalDc())
+    for (pbX <- brokers) {
+      pbW.bytesField(2, pbX.marshalDc())
     }
-    w.stringField(3, clusterId)
+    pbW.stringField(3, clusterId)
     if (controllerId != 0) {
-      w.tag(4, 0)
-      w.varint((controllerId.toLong))
+      pbW.tag(4, 0)
+      pbW.varint((controllerId.toLong))
     }
-    for (x <- topics) {
-      w.bytesField(5, x.marshalDc())
+    for (pbX <- topics) {
+      pbW.bytesField(5, pbX.marshalDc())
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -630,27 +630,27 @@ class MetadataResponse(
     clusterId = ""
     controllerId = 0
     topics = List.empty
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          throttleTimeMs = field.varintValue.toInt
+          throttleTimeMs = pbField.varintValue.toInt
         case 2 =>
-          val item = new BrokerMetadata()
-          item.unmarshalDc(field.bytesValue)
-          brokers = brokers :+ item
+          val pbItem = new BrokerMetadata()
+          pbItem.unmarshalDc(pbField.bytesValue)
+          brokers = brokers :+ pbItem
         case 3 =>
-          clusterId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          clusterId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 4 =>
-          controllerId = field.varintValue.toInt
+          controllerId = pbField.varintValue.toInt
         case 5 =>
-          val item = new TopicMetadata()
-          item.unmarshalDc(field.bytesValue)
-          topics = topics :+ item
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          val pbItem = new TopicMetadata()
+          pbItem.unmarshalDc(pbField.bytesValue)
+          topics = topics :+ pbItem
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -661,31 +661,31 @@ class OpenProducerRequest(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    w.stringField(1, transactionalId)
+    val pbW = new KafkaPb.Writer()
+    pbW.stringField(1, transactionalId)
     if (transactionTimeoutMs != 0) {
-      w.tag(2, 0)
-      w.varint((transactionTimeoutMs.toLong))
+      pbW.tag(2, 0)
+      pbW.varint((transactionTimeoutMs.toLong))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     transactionalId = ""
     transactionTimeoutMs = 0
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          transactionalId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          transactionalId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          transactionTimeoutMs = field.varintValue.toInt
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          transactionTimeoutMs = pbField.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -698,22 +698,22 @@ class OpenProducerResponse(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    w.stringField(1, sessionId)
+    val pbW = new KafkaPb.Writer()
+    pbW.stringField(1, sessionId)
     if (producerId != 0) {
-      w.tag(2, 0)
-      w.varint(producerId.toLong)
+      pbW.tag(2, 0)
+      pbW.varint(producerId.toLong)
     }
     if (producerEpoch != 0) {
-      w.tag(3, 0)
-      w.varint((producerEpoch.toLong))
+      pbW.tag(3, 0)
+      pbW.varint((producerEpoch.toLong))
     }
     if (errorCode != 0) {
-      w.tag(4, 0)
-      w.varint((errorCode.toLong))
+      pbW.tag(4, 0)
+      pbW.varint((errorCode.toLong))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -722,21 +722,21 @@ class OpenProducerResponse(
     producerId = 0L
     producerEpoch = 0
     errorCode = 0
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          sessionId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          sessionId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          producerId = field.varintValue
+          producerId = pbField.varintValue
         case 3 =>
-          producerEpoch = field.varintValue.toInt
+          producerEpoch = pbField.varintValue.toInt
         case 4 =>
-          errorCode = field.varintValue.toInt
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          errorCode = pbField.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -746,24 +746,24 @@ class CloseProducerRequest(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    w.stringField(1, sessionId)
-    w.raw(unknownFields)
-    w.toBytes
+    val pbW = new KafkaPb.Writer()
+    pbW.stringField(1, sessionId)
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     sessionId = ""
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          sessionId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          sessionId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -773,27 +773,27 @@ class CloseProducerResponse(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
+    val pbW = new KafkaPb.Writer()
     if (errorCode != 0) {
-      w.tag(1, 0)
-      w.varint((errorCode.toLong))
+      pbW.tag(1, 0)
+      pbW.varint((errorCode.toLong))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     errorCode = 0
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          errorCode = field.varintValue.toInt
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          errorCode = pbField.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -804,31 +804,31 @@ class EndTransactionRequest(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    w.stringField(1, sessionId)
+    val pbW = new KafkaPb.Writer()
+    pbW.stringField(1, sessionId)
     if (commit) {
-      w.tag(2, 0)
-      w.varint((if (commit) 1L else 0L))
+      pbW.tag(2, 0)
+      pbW.varint((if (commit) 1L else 0L))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     sessionId = ""
     commit = false
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          sessionId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          sessionId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          commit = (field.varintValue != 0L)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          commit = (pbField.varintValue != 0L)
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -838,27 +838,27 @@ class EndTransactionResponse(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
+    val pbW = new KafkaPb.Writer()
     if (errorCode != 0) {
-      w.tag(1, 0)
-      w.varint((errorCode.toLong))
+      pbW.tag(1, 0)
+      pbW.varint((errorCode.toLong))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     errorCode = 0
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          errorCode = field.varintValue.toInt
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          errorCode = pbField.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -875,31 +875,31 @@ class ProduceRequest(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    w.stringField(1, topic)
+    val pbW = new KafkaPb.Writer()
+    pbW.stringField(1, topic)
     if (partition != 0) {
-      w.tag(2, 0)
-      w.varint((partition.toLong))
+      pbW.tag(2, 0)
+      pbW.varint((partition.toLong))
     }
-    for (x <- records) {
-      w.bytesField(3, x.marshalDc())
+    for (pbX <- records) {
+      pbW.bytesField(3, pbX.marshalDc())
     }
     if (acks != 0) {
-      w.tag(4, 0)
-      w.varint((acks.toLong))
+      pbW.tag(4, 0)
+      pbW.varint((acks.toLong))
     }
     if (timeoutMs != 0) {
-      w.tag(5, 0)
-      w.varint((timeoutMs.toLong))
+      pbW.tag(5, 0)
+      pbW.varint((timeoutMs.toLong))
     }
     if (compression != 0) {
-      w.tag(6, 0)
-      w.varint((compression.toLong))
+      pbW.tag(6, 0)
+      pbW.varint((compression.toLong))
     }
-    w.stringField(7, sessionId)
-    w.stringField(8, transactionalId)
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.stringField(7, sessionId)
+    pbW.stringField(8, transactionalId)
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -912,31 +912,31 @@ class ProduceRequest(
     compression = 0
     sessionId = ""
     transactionalId = ""
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          topic = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          topic = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          partition = field.varintValue.toInt
+          partition = pbField.varintValue.toInt
         case 3 =>
-          val item = new Record()
-          item.unmarshalDc(field.bytesValue)
-          records = records :+ item
+          val pbItem = new Record()
+          pbItem.unmarshalDc(pbField.bytesValue)
+          records = records :+ pbItem
         case 4 =>
-          acks = field.varintValue.toInt
+          acks = pbField.varintValue.toInt
         case 5 =>
-          timeoutMs = field.varintValue.toInt
+          timeoutMs = pbField.varintValue.toInt
         case 6 =>
-          compression = field.varintValue.toInt
+          compression = pbField.varintValue.toInt
         case 7 =>
-          sessionId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          sessionId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 8 =>
-          transactionalId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          transactionalId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -949,25 +949,25 @@ class ProduceResponse(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
+    val pbW = new KafkaPb.Writer()
     if (partition != 0) {
-      w.tag(1, 0)
-      w.varint((partition.toLong))
+      pbW.tag(1, 0)
+      pbW.varint((partition.toLong))
     }
     if (baseOffset != 0) {
-      w.tag(2, 0)
-      w.varint(baseOffset.toLong)
+      pbW.tag(2, 0)
+      pbW.varint(baseOffset.toLong)
     }
     if (logAppendTimeMs != 0) {
-      w.tag(3, 0)
-      w.varint(logAppendTimeMs.toLong)
+      pbW.tag(3, 0)
+      pbW.varint(logAppendTimeMs.toLong)
     }
     if (errorCode != 0) {
-      w.tag(4, 0)
-      w.varint((errorCode.toLong))
+      pbW.tag(4, 0)
+      pbW.varint((errorCode.toLong))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -976,21 +976,21 @@ class ProduceResponse(
     baseOffset = 0L
     logAppendTimeMs = 0L
     errorCode = 0
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          partition = field.varintValue.toInt
+          partition = pbField.varintValue.toInt
         case 2 =>
-          baseOffset = field.varintValue
+          baseOffset = pbField.varintValue
         case 3 =>
-          logAppendTimeMs = field.varintValue
+          logAppendTimeMs = pbField.varintValue
         case 4 =>
-          errorCode = field.varintValue.toInt
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          errorCode = pbField.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -1006,34 +1006,34 @@ class ConsumeRequest(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    w.stringField(1, topic)
+    val pbW = new KafkaPb.Writer()
+    pbW.stringField(1, topic)
     if (partition != 0) {
-      w.tag(2, 0)
-      w.varint((partition.toLong))
+      pbW.tag(2, 0)
+      pbW.varint((partition.toLong))
     }
     if (offset != 0) {
-      w.tag(3, 0)
-      w.varint(offset.toLong)
+      pbW.tag(3, 0)
+      pbW.varint(offset.toLong)
     }
     if (maxRecords != 0) {
-      w.tag(4, 0)
-      w.varint((maxRecords.toLong))
+      pbW.tag(4, 0)
+      pbW.varint((maxRecords.toLong))
     }
     if (maxWaitMs != 0) {
-      w.tag(5, 0)
-      w.varint((maxWaitMs.toLong))
+      pbW.tag(5, 0)
+      pbW.varint((maxWaitMs.toLong))
     }
     if (minBytes != 0) {
-      w.tag(6, 0)
-      w.varint((minBytes.toLong))
+      pbW.tag(6, 0)
+      pbW.varint((minBytes.toLong))
     }
     if (readCommitted) {
-      w.tag(7, 0)
-      w.varint((if (readCommitted) 1L else 0L))
+      pbW.tag(7, 0)
+      pbW.varint((if (readCommitted) 1L else 0L))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -1045,27 +1045,27 @@ class ConsumeRequest(
     maxWaitMs = 0
     minBytes = 0
     readCommitted = false
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          topic = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          topic = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          partition = field.varintValue.toInt
+          partition = pbField.varintValue.toInt
         case 3 =>
-          offset = field.varintValue
+          offset = pbField.varintValue
         case 4 =>
-          maxRecords = field.varintValue.toInt
+          maxRecords = pbField.varintValue.toInt
         case 5 =>
-          maxWaitMs = field.varintValue.toInt
+          maxWaitMs = pbField.varintValue.toInt
         case 6 =>
-          minBytes = field.varintValue.toInt
+          minBytes = pbField.varintValue.toInt
         case 7 =>
-          readCommitted = (field.varintValue != 0L)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          readCommitted = (pbField.varintValue != 0L)
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -1079,25 +1079,25 @@ class ConsumeResponse(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    w.stringField(1, topic)
+    val pbW = new KafkaPb.Writer()
+    pbW.stringField(1, topic)
     if (partition != 0) {
-      w.tag(2, 0)
-      w.varint((partition.toLong))
+      pbW.tag(2, 0)
+      pbW.varint((partition.toLong))
     }
     if (highWatermark != 0) {
-      w.tag(3, 0)
-      w.varint(highWatermark.toLong)
+      pbW.tag(3, 0)
+      pbW.varint(highWatermark.toLong)
     }
     if (errorCode != 0) {
-      w.tag(4, 0)
-      w.varint((errorCode.toLong))
+      pbW.tag(4, 0)
+      pbW.varint((errorCode.toLong))
     }
-    for (x <- records) {
-      w.bytesField(5, x.marshalDc())
+    for (pbX <- records) {
+      pbW.bytesField(5, pbX.marshalDc())
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -1107,25 +1107,25 @@ class ConsumeResponse(
     highWatermark = 0L
     errorCode = 0
     records = List.empty
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          topic = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          topic = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          partition = field.varintValue.toInt
+          partition = pbField.varintValue.toInt
         case 3 =>
-          highWatermark = field.varintValue
+          highWatermark = pbField.varintValue
         case 4 =>
-          errorCode = field.varintValue.toInt
+          errorCode = pbField.varintValue.toInt
         case 5 =>
-          val item = new FetchedRecord()
-          item.unmarshalDc(field.bytesValue)
-          records = records :+ item
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          val pbItem = new FetchedRecord()
+          pbItem.unmarshalDc(pbField.bytesValue)
+          records = records :+ pbItem
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -1142,28 +1142,28 @@ class GroupSubscribeRequest(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    w.stringField(1, groupId)
-    for (x <- topics) {
-      w.bytesField(2, x.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+    val pbW = new KafkaPb.Writer()
+    pbW.stringField(1, groupId)
+    for (pbX <- topics) {
+      pbW.bytesField(2, pbX.getBytes(java.nio.charset.StandardCharsets.UTF_8))
     }
-    w.stringField(3, groupInstanceId)
+    pbW.stringField(3, groupInstanceId)
     if (sessionTimeoutMs != 0) {
-      w.tag(4, 0)
-      w.varint((sessionTimeoutMs.toLong))
+      pbW.tag(4, 0)
+      pbW.varint((sessionTimeoutMs.toLong))
     }
     if (maxPollRecords != 0) {
-      w.tag(5, 0)
-      w.varint((maxPollRecords.toLong))
+      pbW.tag(5, 0)
+      pbW.varint((maxPollRecords.toLong))
     }
-    w.stringField(6, autoOffsetReset)
+    pbW.stringField(6, autoOffsetReset)
     if (readCommitted) {
-      w.tag(7, 0)
-      w.varint((if (readCommitted) 1L else 0L))
+      pbW.tag(7, 0)
+      pbW.varint((if (readCommitted) 1L else 0L))
     }
-    w.stringField(8, groupProtocol)
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.stringField(8, groupProtocol)
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -1176,29 +1176,29 @@ class GroupSubscribeRequest(
     autoOffsetReset = ""
     readCommitted = false
     groupProtocol = ""
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          groupId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          groupId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          topics = topics :+ new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          topics = topics :+ new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 3 =>
-          groupInstanceId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          groupInstanceId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 4 =>
-          sessionTimeoutMs = field.varintValue.toInt
+          sessionTimeoutMs = pbField.varintValue.toInt
         case 5 =>
-          maxPollRecords = field.varintValue.toInt
+          maxPollRecords = pbField.varintValue.toInt
         case 6 =>
-          autoOffsetReset = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          autoOffsetReset = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 7 =>
-          readCommitted = (field.varintValue != 0L)
+          readCommitted = (pbField.varintValue != 0L)
         case 8 =>
-          groupProtocol = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          groupProtocol = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -1210,22 +1210,22 @@ class GroupSubscribeResponse(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
+    val pbW = new KafkaPb.Writer()
     if (!(batch != null || groupError != null)) {
     if (assignment != null) {
-      w.bytesField(1, assignment.marshalDc())
+      pbW.bytesField(1, assignment.marshalDc())
     }
     }
     if (!(groupError != null)) {
     if (batch != null) {
-      w.bytesField(2, batch.marshalDc())
+      pbW.bytesField(2, batch.marshalDc())
     }
     }
     if (groupError != null) {
-      w.bytesField(3, groupError.marshalDc())
+      pbW.bytesField(3, groupError.marshalDc())
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -1233,28 +1233,28 @@ class GroupSubscribeResponse(
     assignment = null
     batch = null
     groupError = null
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
           batch = null
           groupError = null
           assignment = new Assignment()
-          assignment.unmarshalDc(field.bytesValue)
+          assignment.unmarshalDc(pbField.bytesValue)
         case 2 =>
           assignment = null
           groupError = null
           batch = new RecordBatch()
-          batch.unmarshalDc(field.bytesValue)
+          batch.unmarshalDc(pbField.bytesValue)
         case 3 =>
           assignment = null
           batch = null
           groupError = new GroupError()
-          groupError.unmarshalDc(field.bytesValue)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          groupError.unmarshalDc(pbField.bytesValue)
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -1266,17 +1266,17 @@ class Assignment(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
+    val pbW = new KafkaPb.Writer()
     if (generationId != 0) {
-      w.tag(1, 0)
-      w.varint((generationId.toLong))
+      pbW.tag(1, 0)
+      pbW.varint((generationId.toLong))
     }
-    w.stringField(2, memberId)
-    for (x <- partitions) {
-      w.bytesField(3, x.marshalDc())
+    pbW.stringField(2, memberId)
+    for (pbX <- partitions) {
+      pbW.bytesField(3, pbX.marshalDc())
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -1284,21 +1284,21 @@ class Assignment(
     generationId = 0
     memberId = ""
     partitions = List.empty
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          generationId = field.varintValue.toInt
+          generationId = pbField.varintValue.toInt
         case 2 =>
-          memberId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          memberId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 3 =>
-          val item = new TopicPartition()
-          item.unmarshalDc(field.bytesValue)
-          partitions = partitions :+ item
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          val pbItem = new TopicPartition()
+          pbItem.unmarshalDc(pbField.bytesValue)
+          partitions = partitions :+ pbItem
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -1311,21 +1311,21 @@ class RecordBatch(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    w.stringField(1, topic)
+    val pbW = new KafkaPb.Writer()
+    pbW.stringField(1, topic)
     if (partition != 0) {
-      w.tag(2, 0)
-      w.varint((partition.toLong))
+      pbW.tag(2, 0)
+      pbW.varint((partition.toLong))
     }
     if (highWatermark != 0) {
-      w.tag(3, 0)
-      w.varint(highWatermark.toLong)
+      pbW.tag(3, 0)
+      pbW.varint(highWatermark.toLong)
     }
-    for (x <- records) {
-      w.bytesField(4, x.marshalDc())
+    for (pbX <- records) {
+      pbW.bytesField(4, pbX.marshalDc())
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -1334,23 +1334,23 @@ class RecordBatch(
     partition = 0
     highWatermark = 0L
     records = List.empty
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          topic = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          topic = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          partition = field.varintValue.toInt
+          partition = pbField.varintValue.toInt
         case 3 =>
-          highWatermark = field.varintValue
+          highWatermark = pbField.varintValue
         case 4 =>
-          val item = new FetchedRecord()
-          item.unmarshalDc(field.bytesValue)
-          records = records :+ item
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          val pbItem = new FetchedRecord()
+          pbItem.unmarshalDc(pbField.bytesValue)
+          records = records :+ pbItem
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -1361,31 +1361,31 @@ class GroupError(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
+    val pbW = new KafkaPb.Writer()
     if (errorCode != 0) {
-      w.tag(1, 0)
-      w.varint((errorCode.toLong))
+      pbW.tag(1, 0)
+      pbW.varint((errorCode.toLong))
     }
-    w.stringField(2, message)
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.stringField(2, message)
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     errorCode = 0
     message = ""
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          errorCode = field.varintValue.toInt
+          errorCode = pbField.varintValue.toInt
         case 2 =>
-          message = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          message = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -1398,22 +1398,22 @@ class ListOffsetsRequest(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    w.stringField(1, topic)
+    val pbW = new KafkaPb.Writer()
+    pbW.stringField(1, topic)
     if (partition != 0) {
-      w.tag(2, 0)
-      w.varint((partition.toLong))
+      pbW.tag(2, 0)
+      pbW.varint((partition.toLong))
     }
     if (timestamp != 0) {
-      w.tag(3, 0)
-      w.varint(timestamp.toLong)
+      pbW.tag(3, 0)
+      pbW.varint(timestamp.toLong)
     }
     if (readCommitted) {
-      w.tag(4, 0)
-      w.varint((if (readCommitted) 1L else 0L))
+      pbW.tag(4, 0)
+      pbW.varint((if (readCommitted) 1L else 0L))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -1422,21 +1422,21 @@ class ListOffsetsRequest(
     partition = 0
     timestamp = 0L
     readCommitted = false
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          topic = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          topic = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          partition = field.varintValue.toInt
+          partition = pbField.varintValue.toInt
         case 3 =>
-          timestamp = field.varintValue
+          timestamp = pbField.varintValue
         case 4 =>
-          readCommitted = (field.varintValue != 0L)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          readCommitted = (pbField.varintValue != 0L)
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -1448,21 +1448,21 @@ class ListOffsetsResponse(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
+    val pbW = new KafkaPb.Writer()
     if (offset != 0) {
-      w.tag(1, 0)
-      w.varint(offset.toLong)
+      pbW.tag(1, 0)
+      pbW.varint(offset.toLong)
     }
     if (timestampMs != 0) {
-      w.tag(2, 0)
-      w.varint(timestampMs.toLong)
+      pbW.tag(2, 0)
+      pbW.varint(timestampMs.toLong)
     }
     if (errorCode != 0) {
-      w.tag(3, 0)
-      w.varint((errorCode.toLong))
+      pbW.tag(3, 0)
+      pbW.varint((errorCode.toLong))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -1470,19 +1470,19 @@ class ListOffsetsResponse(
     offset = 0L
     timestampMs = 0L
     errorCode = 0
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          offset = field.varintValue
+          offset = pbField.varintValue
         case 2 =>
-          timestampMs = field.varintValue
+          timestampMs = pbField.varintValue
         case 3 =>
-          errorCode = field.varintValue.toInt
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          errorCode = pbField.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -1497,21 +1497,21 @@ class CommitOffsetRequest(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    w.stringField(1, groupId)
-    w.stringField(2, topic)
+    val pbW = new KafkaPb.Writer()
+    pbW.stringField(1, groupId)
+    pbW.stringField(2, topic)
     if (partition != 0) {
-      w.tag(3, 0)
-      w.varint((partition.toLong))
+      pbW.tag(3, 0)
+      pbW.varint((partition.toLong))
     }
     if (committedOffset != 0) {
-      w.tag(4, 0)
-      w.varint(committedOffset.toLong)
+      pbW.tag(4, 0)
+      pbW.varint(committedOffset.toLong)
     }
-    w.stringField(5, metadata)
-    w.stringField(6, sessionId)
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.stringField(5, metadata)
+    pbW.stringField(6, sessionId)
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -1522,25 +1522,25 @@ class CommitOffsetRequest(
     committedOffset = 0L
     metadata = ""
     sessionId = ""
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          groupId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          groupId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          topic = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          topic = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 3 =>
-          partition = field.varintValue.toInt
+          partition = pbField.varintValue.toInt
         case 4 =>
-          committedOffset = field.varintValue
+          committedOffset = pbField.varintValue
         case 5 =>
-          metadata = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          metadata = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 6 =>
-          sessionId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          sessionId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -1550,27 +1550,27 @@ class CommitOffsetResponse(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
+    val pbW = new KafkaPb.Writer()
     if (errorCode != 0) {
-      w.tag(1, 0)
-      w.varint((errorCode.toLong))
+      pbW.tag(1, 0)
+      pbW.varint((errorCode.toLong))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     errorCode = 0
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          errorCode = field.varintValue.toInt
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          errorCode = pbField.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -1582,15 +1582,15 @@ class FetchOffsetRequest(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    w.stringField(1, groupId)
-    w.stringField(2, topic)
+    val pbW = new KafkaPb.Writer()
+    pbW.stringField(1, groupId)
+    pbW.stringField(2, topic)
     if (partition != 0) {
-      w.tag(3, 0)
-      w.varint((partition.toLong))
+      pbW.tag(3, 0)
+      pbW.varint((partition.toLong))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -1598,19 +1598,19 @@ class FetchOffsetRequest(
     groupId = ""
     topic = ""
     partition = 0
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          groupId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          groupId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          topic = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          topic = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 3 =>
-          partition = field.varintValue.toInt
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          partition = pbField.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -1622,18 +1622,18 @@ class FetchOffsetResponse(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
+    val pbW = new KafkaPb.Writer()
     if (committedOffset != 0) {
-      w.tag(1, 0)
-      w.varint(committedOffset.toLong)
+      pbW.tag(1, 0)
+      pbW.varint(committedOffset.toLong)
     }
-    w.stringField(2, metadata)
+    pbW.stringField(2, metadata)
     if (errorCode != 0) {
-      w.tag(3, 0)
-      w.varint((errorCode.toLong))
+      pbW.tag(3, 0)
+      pbW.varint((errorCode.toLong))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -1641,19 +1641,19 @@ class FetchOffsetResponse(
     committedOffset = 0L
     metadata = ""
     errorCode = 0
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          committedOffset = field.varintValue
+          committedOffset = pbField.varintValue
         case 2 =>
-          metadata = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          metadata = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 3 =>
-          errorCode = field.varintValue.toInt
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          errorCode = pbField.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -1665,18 +1665,18 @@ class NewTopic(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    w.stringField(1, name)
+    val pbW = new KafkaPb.Writer()
+    pbW.stringField(1, name)
     if (numPartitions != 0) {
-      w.tag(2, 0)
-      w.varint((numPartitions.toLong))
+      pbW.tag(2, 0)
+      pbW.varint((numPartitions.toLong))
     }
     if (replicationFactor != 0) {
-      w.tag(3, 0)
-      w.varint((replicationFactor.toLong))
+      pbW.tag(3, 0)
+      pbW.varint((replicationFactor.toLong))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -1684,19 +1684,19 @@ class NewTopic(
     name = ""
     numPartitions = 0
     replicationFactor = 0
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          name = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          name = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          numPartitions = field.varintValue.toInt
+          numPartitions = pbField.varintValue.toInt
         case 3 =>
-          replicationFactor = field.varintValue.toInt
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          replicationFactor = pbField.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -1708,20 +1708,20 @@ class CreateTopicsRequest(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    for (x <- topics) {
-      w.bytesField(1, x.marshalDc())
+    val pbW = new KafkaPb.Writer()
+    for (pbX <- topics) {
+      pbW.bytesField(1, pbX.marshalDc())
     }
     if (timeoutMs != 0) {
-      w.tag(2, 0)
-      w.varint((timeoutMs.toLong))
+      pbW.tag(2, 0)
+      pbW.varint((timeoutMs.toLong))
     }
     if (validateOnly) {
-      w.tag(3, 0)
-      w.varint((if (validateOnly) 1L else 0L))
+      pbW.tag(3, 0)
+      pbW.varint((if (validateOnly) 1L else 0L))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -1729,21 +1729,21 @@ class CreateTopicsRequest(
     topics = List.empty
     timeoutMs = 0
     validateOnly = false
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          val item = new NewTopic()
-          item.unmarshalDc(field.bytesValue)
-          topics = topics :+ item
+          val pbItem = new NewTopic()
+          pbItem.unmarshalDc(pbField.bytesValue)
+          topics = topics :+ pbItem
         case 2 =>
-          timeoutMs = field.varintValue.toInt
+          timeoutMs = pbField.varintValue.toInt
         case 3 =>
-          validateOnly = (field.varintValue != 0L)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          validateOnly = (pbField.varintValue != 0L)
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -1754,31 +1754,31 @@ class TopicError(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    w.stringField(1, name)
+    val pbW = new KafkaPb.Writer()
+    pbW.stringField(1, name)
     if (errorCode != 0) {
-      w.tag(2, 0)
-      w.varint((errorCode.toLong))
+      pbW.tag(2, 0)
+      pbW.varint((errorCode.toLong))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     name = ""
     errorCode = 0
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          name = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          name = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          errorCode = field.varintValue.toInt
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          errorCode = pbField.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -1788,28 +1788,28 @@ class CreateTopicsResponse(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    for (x <- results) {
-      w.bytesField(1, x.marshalDc())
+    val pbW = new KafkaPb.Writer()
+    for (pbX <- results) {
+      pbW.bytesField(1, pbX.marshalDc())
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     results = List.empty
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          val item = new TopicError()
-          item.unmarshalDc(field.bytesValue)
-          results = results :+ item
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          val pbItem = new TopicError()
+          pbItem.unmarshalDc(pbField.bytesValue)
+          results = results :+ pbItem
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -1820,33 +1820,33 @@ class DeleteTopicsRequest(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    for (x <- topics) {
-      w.bytesField(1, x.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+    val pbW = new KafkaPb.Writer()
+    for (pbX <- topics) {
+      pbW.bytesField(1, pbX.getBytes(java.nio.charset.StandardCharsets.UTF_8))
     }
     if (timeoutMs != 0) {
-      w.tag(2, 0)
-      w.varint((timeoutMs.toLong))
+      pbW.tag(2, 0)
+      pbW.varint((timeoutMs.toLong))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     topics = List.empty
     timeoutMs = 0
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          topics = topics :+ new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          topics = topics :+ new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          timeoutMs = field.varintValue.toInt
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          timeoutMs = pbField.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -1856,28 +1856,28 @@ class DeleteTopicsResponse(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    for (x <- results) {
-      w.bytesField(1, x.marshalDc())
+    val pbW = new KafkaPb.Writer()
+    for (pbX <- results) {
+      pbW.bytesField(1, pbX.marshalDc())
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     results = List.empty
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          val item = new TopicError()
-          item.unmarshalDc(field.bytesValue)
-          results = results :+ item
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          val pbItem = new TopicError()
+          pbItem.unmarshalDc(pbField.bytesValue)
+          results = results :+ pbItem
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -1888,28 +1888,28 @@ class ConfigEntry(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    w.stringField(1, name)
-    w.stringField(2, value)
-    w.raw(unknownFields)
-    w.toBytes
+    val pbW = new KafkaPb.Writer()
+    pbW.stringField(1, name)
+    pbW.stringField(2, value)
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     name = ""
     value = ""
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          name = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          name = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          value = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          value = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -1921,15 +1921,15 @@ class AlterConfigEntry(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    w.stringField(1, name)
-    w.stringField(2, value)
+    val pbW = new KafkaPb.Writer()
+    pbW.stringField(1, name)
+    pbW.stringField(2, value)
     if (op != 0) {
-      w.tag(3, 0)
-      w.varint((op.toLong))
+      pbW.tag(3, 0)
+      pbW.varint((op.toLong))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -1937,19 +1937,19 @@ class AlterConfigEntry(
     name = ""
     value = ""
     op = 0
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          name = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          name = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          value = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          value = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 3 =>
-          op = field.varintValue.toInt
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          op = pbField.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -1962,21 +1962,21 @@ class DescribeConfigsRequest(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
+    val pbW = new KafkaPb.Writer()
     if (resourceType != 0) {
-      w.tag(1, 0)
-      w.varint((resourceType.toLong))
+      pbW.tag(1, 0)
+      pbW.varint((resourceType.toLong))
     }
-    w.stringField(2, resourceName)
-    for (x <- configKeys) {
-      w.bytesField(3, x.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+    pbW.stringField(2, resourceName)
+    for (pbX <- configKeys) {
+      pbW.bytesField(3, pbX.getBytes(java.nio.charset.StandardCharsets.UTF_8))
     }
     if (includeSynonyms) {
-      w.tag(4, 0)
-      w.varint((if (includeSynonyms) 1L else 0L))
+      pbW.tag(4, 0)
+      pbW.varint((if (includeSynonyms) 1L else 0L))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -1985,21 +1985,21 @@ class DescribeConfigsRequest(
     resourceName = ""
     configKeys = List.empty
     includeSynonyms = false
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          resourceType = field.varintValue.toInt
+          resourceType = pbField.varintValue.toInt
         case 2 =>
-          resourceName = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          resourceName = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 3 =>
-          configKeys = configKeys :+ new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          configKeys = configKeys :+ new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 4 =>
-          includeSynonyms = (field.varintValue != 0L)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          includeSynonyms = (pbField.varintValue != 0L)
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -2013,23 +2013,23 @@ class ConfigValue(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    w.stringField(1, name)
-    w.stringField(2, value)
+    val pbW = new KafkaPb.Writer()
+    pbW.stringField(1, name)
+    pbW.stringField(2, value)
     if (readOnly) {
-      w.tag(3, 0)
-      w.varint((if (readOnly) 1L else 0L))
+      pbW.tag(3, 0)
+      pbW.varint((if (readOnly) 1L else 0L))
     }
     if (source != 0) {
-      w.tag(4, 0)
-      w.varint((source.toLong))
+      pbW.tag(4, 0)
+      pbW.varint((source.toLong))
     }
     if (isSensitive) {
-      w.tag(5, 0)
-      w.varint((if (isSensitive) 1L else 0L))
+      pbW.tag(5, 0)
+      pbW.varint((if (isSensitive) 1L else 0L))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -2039,23 +2039,23 @@ class ConfigValue(
     readOnly = false
     source = 0
     isSensitive = false
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          name = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          name = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          value = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          value = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 3 =>
-          readOnly = (field.varintValue != 0L)
+          readOnly = (pbField.varintValue != 0L)
         case 4 =>
-          source = field.varintValue.toInt
+          source = pbField.varintValue.toInt
         case 5 =>
-          isSensitive = (field.varintValue != 0L)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          isSensitive = (pbField.varintValue != 0L)
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -2066,35 +2066,35 @@ class DescribeConfigsResponse(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
+    val pbW = new KafkaPb.Writer()
     if (errorCode != 0) {
-      w.tag(1, 0)
-      w.varint((errorCode.toLong))
+      pbW.tag(1, 0)
+      pbW.varint((errorCode.toLong))
     }
-    for (x <- values) {
-      w.bytesField(2, x.marshalDc())
+    for (pbX <- values) {
+      pbW.bytesField(2, pbX.marshalDc())
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     errorCode = 0
     values = List.empty
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          errorCode = field.varintValue.toInt
+          errorCode = pbField.varintValue.toInt
         case 2 =>
-          val item = new ConfigValue()
-          item.unmarshalDc(field.bytesValue)
-          values = values :+ item
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          val pbItem = new ConfigValue()
+          pbItem.unmarshalDc(pbField.bytesValue)
+          values = values :+ pbItem
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -2107,21 +2107,21 @@ class AlterConfigsRequest(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
+    val pbW = new KafkaPb.Writer()
     if (resourceType != 0) {
-      w.tag(1, 0)
-      w.varint((resourceType.toLong))
+      pbW.tag(1, 0)
+      pbW.varint((resourceType.toLong))
     }
-    w.stringField(2, resourceName)
-    for (x <- entries) {
-      w.bytesField(3, x.marshalDc())
+    pbW.stringField(2, resourceName)
+    for (pbX <- entries) {
+      pbW.bytesField(3, pbX.marshalDc())
     }
     if (validateOnly) {
-      w.tag(4, 0)
-      w.varint((if (validateOnly) 1L else 0L))
+      pbW.tag(4, 0)
+      pbW.varint((if (validateOnly) 1L else 0L))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -2130,23 +2130,23 @@ class AlterConfigsRequest(
     resourceName = ""
     entries = List.empty
     validateOnly = false
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          resourceType = field.varintValue.toInt
+          resourceType = pbField.varintValue.toInt
         case 2 =>
-          resourceName = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          resourceName = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 3 =>
-          val item = new AlterConfigEntry()
-          item.unmarshalDc(field.bytesValue)
-          entries = entries :+ item
+          val pbItem = new AlterConfigEntry()
+          pbItem.unmarshalDc(pbField.bytesValue)
+          entries = entries :+ pbItem
         case 4 =>
-          validateOnly = (field.varintValue != 0L)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          validateOnly = (pbField.varintValue != 0L)
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -2156,27 +2156,27 @@ class AlterConfigsResponse(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
+    val pbW = new KafkaPb.Writer()
     if (errorCode != 0) {
-      w.tag(1, 0)
-      w.varint((errorCode.toLong))
+      pbW.tag(1, 0)
+      pbW.varint((errorCode.toLong))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     errorCode = 0
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          errorCode = field.varintValue.toInt
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          errorCode = pbField.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -2189,22 +2189,22 @@ class CreatePartitionsRequest(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    w.stringField(1, topic)
+    val pbW = new KafkaPb.Writer()
+    pbW.stringField(1, topic)
     if (totalCount != 0) {
-      w.tag(2, 0)
-      w.varint((totalCount.toLong))
+      pbW.tag(2, 0)
+      pbW.varint((totalCount.toLong))
     }
     if (validateOnly) {
-      w.tag(3, 0)
-      w.varint((if (validateOnly) 1L else 0L))
+      pbW.tag(3, 0)
+      pbW.varint((if (validateOnly) 1L else 0L))
     }
     if (timeoutMs != 0) {
-      w.tag(4, 0)
-      w.varint((timeoutMs.toLong))
+      pbW.tag(4, 0)
+      pbW.varint((timeoutMs.toLong))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -2213,21 +2213,21 @@ class CreatePartitionsRequest(
     totalCount = 0
     validateOnly = false
     timeoutMs = 0
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          topic = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          topic = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          totalCount = field.varintValue.toInt
+          totalCount = pbField.varintValue.toInt
         case 3 =>
-          validateOnly = (field.varintValue != 0L)
+          validateOnly = (pbField.varintValue != 0L)
         case 4 =>
-          timeoutMs = field.varintValue.toInt
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          timeoutMs = pbField.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -2237,27 +2237,27 @@ class CreatePartitionsResponse(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
+    val pbW = new KafkaPb.Writer()
     if (errorCode != 0) {
-      w.tag(1, 0)
-      w.varint((errorCode.toLong))
+      pbW.tag(1, 0)
+      pbW.varint((errorCode.toLong))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     errorCode = 0
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          errorCode = field.varintValue.toInt
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          errorCode = pbField.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -2269,18 +2269,18 @@ class DeleteRecordsRequest(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    w.stringField(1, topic)
+    val pbW = new KafkaPb.Writer()
+    pbW.stringField(1, topic)
     if (partition != 0) {
-      w.tag(2, 0)
-      w.varint((partition.toLong))
+      pbW.tag(2, 0)
+      pbW.varint((partition.toLong))
     }
     if (beforeOffset != 0) {
-      w.tag(3, 0)
-      w.varint(beforeOffset.toLong)
+      pbW.tag(3, 0)
+      pbW.varint(beforeOffset.toLong)
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -2288,19 +2288,19 @@ class DeleteRecordsRequest(
     topic = ""
     partition = 0
     beforeOffset = 0L
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          topic = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          topic = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          partition = field.varintValue.toInt
+          partition = pbField.varintValue.toInt
         case 3 =>
-          beforeOffset = field.varintValue
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          beforeOffset = pbField.varintValue
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -2311,34 +2311,34 @@ class DeleteRecordsResponse(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
+    val pbW = new KafkaPb.Writer()
     if (lowWatermark != 0) {
-      w.tag(1, 0)
-      w.varint(lowWatermark.toLong)
+      pbW.tag(1, 0)
+      pbW.varint(lowWatermark.toLong)
     }
     if (errorCode != 0) {
-      w.tag(2, 0)
-      w.varint((errorCode.toLong))
+      pbW.tag(2, 0)
+      pbW.varint((errorCode.toLong))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     lowWatermark = 0L
     errorCode = 0
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          lowWatermark = field.varintValue
+          lowWatermark = pbField.varintValue
         case 2 =>
-          errorCode = field.varintValue.toInt
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          errorCode = pbField.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -2347,20 +2347,20 @@ class ListGroupsRequest(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    w.raw(unknownFields)
-    w.toBytes
+    val pbW = new KafkaPb.Writer()
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
-        case _ => unknownFields = unknownFields ++ field.rawValue
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -2372,12 +2372,12 @@ class GroupListing(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    w.stringField(1, groupId)
-    w.stringField(2, protocolType)
-    w.stringField(3, groupState)
-    w.raw(unknownFields)
-    w.toBytes
+    val pbW = new KafkaPb.Writer()
+    pbW.stringField(1, groupId)
+    pbW.stringField(2, protocolType)
+    pbW.stringField(3, groupState)
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -2385,19 +2385,19 @@ class GroupListing(
     groupId = ""
     protocolType = ""
     groupState = ""
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          groupId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          groupId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          protocolType = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          protocolType = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 3 =>
-          groupState = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          groupState = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -2408,35 +2408,35 @@ class ListGroupsResponse(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
+    val pbW = new KafkaPb.Writer()
     if (errorCode != 0) {
-      w.tag(1, 0)
-      w.varint((errorCode.toLong))
+      pbW.tag(1, 0)
+      pbW.varint((errorCode.toLong))
     }
-    for (x <- groups) {
-      w.bytesField(2, x.marshalDc())
+    for (pbX <- groups) {
+      pbW.bytesField(2, pbX.marshalDc())
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     errorCode = 0
     groups = List.empty
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          errorCode = field.varintValue.toInt
+          errorCode = pbField.varintValue.toInt
         case 2 =>
-          val item = new GroupListing()
-          item.unmarshalDc(field.bytesValue)
-          groups = groups :+ item
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          val pbItem = new GroupListing()
+          pbItem.unmarshalDc(pbField.bytesValue)
+          groups = groups :+ pbItem
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -2446,26 +2446,26 @@ class DescribeGroupsRequest(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    for (x <- groupIds) {
-      w.bytesField(1, x.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+    val pbW = new KafkaPb.Writer()
+    for (pbX <- groupIds) {
+      pbW.bytesField(1, pbX.getBytes(java.nio.charset.StandardCharsets.UTF_8))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     groupIds = List.empty
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          groupIds = groupIds :+ new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          groupIds = groupIds :+ new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -2478,15 +2478,15 @@ class GroupMember(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    w.stringField(1, memberId)
-    w.stringField(2, clientId)
-    w.stringField(3, clientHost)
-    for (x <- assignment) {
-      w.bytesField(4, x.marshalDc())
+    val pbW = new KafkaPb.Writer()
+    pbW.stringField(1, memberId)
+    pbW.stringField(2, clientId)
+    pbW.stringField(3, clientHost)
+    for (pbX <- assignment) {
+      pbW.bytesField(4, pbX.marshalDc())
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -2495,23 +2495,23 @@ class GroupMember(
     clientId = ""
     clientHost = ""
     assignment = List.empty
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          memberId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          memberId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          clientId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          clientId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 3 =>
-          clientHost = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          clientHost = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 4 =>
-          val item = new TopicPartition()
-          item.unmarshalDc(field.bytesValue)
-          assignment = assignment :+ item
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          val pbItem = new TopicPartition()
+          pbItem.unmarshalDc(pbField.bytesValue)
+          assignment = assignment :+ pbItem
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -2526,20 +2526,20 @@ class DescribedGroup(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    w.stringField(1, groupId)
+    val pbW = new KafkaPb.Writer()
+    pbW.stringField(1, groupId)
     if (errorCode != 0) {
-      w.tag(2, 0)
-      w.varint((errorCode.toLong))
+      pbW.tag(2, 0)
+      pbW.varint((errorCode.toLong))
     }
-    w.stringField(3, groupState)
-    w.stringField(4, protocolType)
-    w.stringField(5, protocol)
-    for (x <- members) {
-      w.bytesField(6, x.marshalDc())
+    pbW.stringField(3, groupState)
+    pbW.stringField(4, protocolType)
+    pbW.stringField(5, protocol)
+    for (pbX <- members) {
+      pbW.bytesField(6, pbX.marshalDc())
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -2550,27 +2550,27 @@ class DescribedGroup(
     protocolType = ""
     protocol = ""
     members = List.empty
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          groupId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          groupId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          errorCode = field.varintValue.toInt
+          errorCode = pbField.varintValue.toInt
         case 3 =>
-          groupState = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          groupState = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 4 =>
-          protocolType = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          protocolType = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 5 =>
-          protocol = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          protocol = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 6 =>
-          val item = new GroupMember()
-          item.unmarshalDc(field.bytesValue)
-          members = members :+ item
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          val pbItem = new GroupMember()
+          pbItem.unmarshalDc(pbField.bytesValue)
+          members = members :+ pbItem
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -2580,28 +2580,28 @@ class DescribeGroupsResponse(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    for (x <- groups) {
-      w.bytesField(1, x.marshalDc())
+    val pbW = new KafkaPb.Writer()
+    for (pbX <- groups) {
+      pbW.bytesField(1, pbX.marshalDc())
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     groups = List.empty
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          val item = new DescribedGroup()
-          item.unmarshalDc(field.bytesValue)
-          groups = groups :+ item
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          val pbItem = new DescribedGroup()
+          pbItem.unmarshalDc(pbField.bytesValue)
+          groups = groups :+ pbItem
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -2611,26 +2611,26 @@ class DeleteGroupsRequest(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    for (x <- groupIds) {
-      w.bytesField(1, x.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+    val pbW = new KafkaPb.Writer()
+    for (pbX <- groupIds) {
+      pbW.bytesField(1, pbX.getBytes(java.nio.charset.StandardCharsets.UTF_8))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     groupIds = List.empty
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          groupIds = groupIds :+ new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          groupIds = groupIds :+ new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -2641,31 +2641,31 @@ class GroupErrorResult(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    w.stringField(1, groupId)
+    val pbW = new KafkaPb.Writer()
+    pbW.stringField(1, groupId)
     if (errorCode != 0) {
-      w.tag(2, 0)
-      w.varint((errorCode.toLong))
+      pbW.tag(2, 0)
+      pbW.varint((errorCode.toLong))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     groupId = ""
     errorCode = 0
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          groupId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          groupId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          errorCode = field.varintValue.toInt
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          errorCode = pbField.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -2675,28 +2675,28 @@ class DeleteGroupsResponse(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    for (x <- results) {
-      w.bytesField(1, x.marshalDc())
+    val pbW = new KafkaPb.Writer()
+    for (pbX <- results) {
+      pbW.bytesField(1, pbX.marshalDc())
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     results = List.empty
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          val item = new GroupErrorResult()
-          item.unmarshalDc(field.bytesValue)
-          results = results :+ item
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          val pbItem = new GroupErrorResult()
+          pbItem.unmarshalDc(pbField.bytesValue)
+          results = results :+ pbItem
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -2708,18 +2708,18 @@ class DeleteGroupOffsetsRequest(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    w.stringField(1, groupId)
-    w.stringField(2, topic)
+    val pbW = new KafkaPb.Writer()
+    pbW.stringField(1, groupId)
+    pbW.stringField(2, topic)
     if (partitions.nonEmpty) {
-      val payload = new java.io.ByteArrayOutputStream()
-      for (x <- partitions) {
-        payload.write(KafkaPb.varintBytes((x.toLong)))
+      val pbPayload = new java.io.ByteArrayOutputStream()
+      for (pbX <- partitions) {
+        pbPayload.write(KafkaPb.varintBytes((pbX.toLong)))
       }
-      w.bytesField(3, payload.toByteArray)
+      pbW.bytesField(3, pbPayload.toByteArray)
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -2727,27 +2727,27 @@ class DeleteGroupOffsetsRequest(
     groupId = ""
     topic = ""
     partitions = List.empty
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          groupId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          groupId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          topic = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          topic = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 3 =>
-          if (field.wire == 2) {
-            val sub = new KafkaPb.Reader(field.bytesValue)
-            while (!sub.done) {
-              val raw = sub.varint()
+          if (pbField.wire == 2) {
+            val pbSub = new KafkaPb.Reader(pbField.bytesValue)
+            while (!pbSub.done) {
+              val raw = pbSub.varint()
               partitions = partitions :+ raw.toInt
             }
           } else {
-            partitions = partitions :+ field.varintValue.toInt
+            partitions = partitions :+ pbField.varintValue.toInt
           }
-        case _ => unknownFields = unknownFields ++ field.rawValue
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -2757,27 +2757,27 @@ class DeleteGroupOffsetsResponse(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
+    val pbW = new KafkaPb.Writer()
     if (errorCode != 0) {
-      w.tag(1, 0)
-      w.varint((errorCode.toLong))
+      pbW.tag(1, 0)
+      pbW.varint((errorCode.toLong))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     errorCode = 0
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          errorCode = field.varintValue.toInt
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          errorCode = pbField.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -2793,28 +2793,28 @@ class Acl(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
+    val pbW = new KafkaPb.Writer()
     if (resourceType != 0) {
-      w.tag(1, 0)
-      w.varint((resourceType.toLong))
+      pbW.tag(1, 0)
+      pbW.varint((resourceType.toLong))
     }
-    w.stringField(2, resourceName)
+    pbW.stringField(2, resourceName)
     if (patternType != 0) {
-      w.tag(3, 0)
-      w.varint((patternType.toLong))
+      pbW.tag(3, 0)
+      pbW.varint((patternType.toLong))
     }
-    w.stringField(4, principal)
-    w.stringField(5, host)
+    pbW.stringField(4, principal)
+    pbW.stringField(5, host)
     if (operation != 0) {
-      w.tag(6, 0)
-      w.varint((operation.toLong))
+      pbW.tag(6, 0)
+      pbW.varint((operation.toLong))
     }
     if (permissionType != 0) {
-      w.tag(7, 0)
-      w.varint((permissionType.toLong))
+      pbW.tag(7, 0)
+      pbW.varint((permissionType.toLong))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -2826,27 +2826,27 @@ class Acl(
     host = ""
     operation = 0
     permissionType = 0
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          resourceType = field.varintValue.toInt
+          resourceType = pbField.varintValue.toInt
         case 2 =>
-          resourceName = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          resourceName = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 3 =>
-          patternType = field.varintValue.toInt
+          patternType = pbField.varintValue.toInt
         case 4 =>
-          principal = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          principal = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 5 =>
-          host = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          host = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 6 =>
-          operation = field.varintValue.toInt
+          operation = pbField.varintValue.toInt
         case 7 =>
-          permissionType = field.varintValue.toInt
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          permissionType = pbField.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -2856,27 +2856,27 @@ class DescribeAclsRequest(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
+    val pbW = new KafkaPb.Writer()
     if (filter != null) {
-      w.bytesField(1, filter.marshalDc())
+      pbW.bytesField(1, filter.marshalDc())
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     filter = null
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
           filter = new Acl()
-          filter.unmarshalDc(field.bytesValue)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          filter.unmarshalDc(pbField.bytesValue)
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -2887,35 +2887,35 @@ class DescribeAclsResponse(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
+    val pbW = new KafkaPb.Writer()
     if (errorCode != 0) {
-      w.tag(1, 0)
-      w.varint((errorCode.toLong))
+      pbW.tag(1, 0)
+      pbW.varint((errorCode.toLong))
     }
-    for (x <- acls) {
-      w.bytesField(2, x.marshalDc())
+    for (pbX <- acls) {
+      pbW.bytesField(2, pbX.marshalDc())
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     errorCode = 0
     acls = List.empty
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          errorCode = field.varintValue.toInt
+          errorCode = pbField.varintValue.toInt
         case 2 =>
-          val item = new Acl()
-          item.unmarshalDc(field.bytesValue)
-          acls = acls :+ item
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          val pbItem = new Acl()
+          pbItem.unmarshalDc(pbField.bytesValue)
+          acls = acls :+ pbItem
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -2925,28 +2925,28 @@ class CreateAclsRequest(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    for (x <- acls) {
-      w.bytesField(1, x.marshalDc())
+    val pbW = new KafkaPb.Writer()
+    for (pbX <- acls) {
+      pbW.bytesField(1, pbX.marshalDc())
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     acls = List.empty
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          val item = new Acl()
-          item.unmarshalDc(field.bytesValue)
-          acls = acls :+ item
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          val pbItem = new Acl()
+          pbItem.unmarshalDc(pbField.bytesValue)
+          acls = acls :+ pbItem
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -2956,38 +2956,38 @@ class CreateAclsResponse(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
+    val pbW = new KafkaPb.Writer()
     if (errorCodes.nonEmpty) {
-      val payload = new java.io.ByteArrayOutputStream()
-      for (x <- errorCodes) {
-        payload.write(KafkaPb.varintBytes((x.toLong)))
+      val pbPayload = new java.io.ByteArrayOutputStream()
+      for (pbX <- errorCodes) {
+        pbPayload.write(KafkaPb.varintBytes((pbX.toLong)))
       }
-      w.bytesField(1, payload.toByteArray)
+      pbW.bytesField(1, pbPayload.toByteArray)
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     errorCodes = List.empty
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          if (field.wire == 2) {
-            val sub = new KafkaPb.Reader(field.bytesValue)
-            while (!sub.done) {
-              val raw = sub.varint()
+          if (pbField.wire == 2) {
+            val pbSub = new KafkaPb.Reader(pbField.bytesValue)
+            while (!pbSub.done) {
+              val raw = pbSub.varint()
               errorCodes = errorCodes :+ raw.toInt
             }
           } else {
-            errorCodes = errorCodes :+ field.varintValue.toInt
+            errorCodes = errorCodes :+ pbField.varintValue.toInt
           }
-        case _ => unknownFields = unknownFields ++ field.rawValue
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -2997,28 +2997,28 @@ class DeleteAclsRequest(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    for (x <- filters) {
-      w.bytesField(1, x.marshalDc())
+    val pbW = new KafkaPb.Writer()
+    for (pbX <- filters) {
+      pbW.bytesField(1, pbX.marshalDc())
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     filters = List.empty
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          val item = new Acl()
-          item.unmarshalDc(field.bytesValue)
-          filters = filters :+ item
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          val pbItem = new Acl()
+          pbItem.unmarshalDc(pbField.bytesValue)
+          filters = filters :+ pbItem
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -3028,38 +3028,38 @@ class DeleteAclsResponse(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
+    val pbW = new KafkaPb.Writer()
     if (errorCodes.nonEmpty) {
-      val payload = new java.io.ByteArrayOutputStream()
-      for (x <- errorCodes) {
-        payload.write(KafkaPb.varintBytes((x.toLong)))
+      val pbPayload = new java.io.ByteArrayOutputStream()
+      for (pbX <- errorCodes) {
+        pbPayload.write(KafkaPb.varintBytes((pbX.toLong)))
       }
-      w.bytesField(1, payload.toByteArray)
+      pbW.bytesField(1, pbPayload.toByteArray)
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     errorCodes = List.empty
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          if (field.wire == 2) {
-            val sub = new KafkaPb.Reader(field.bytesValue)
-            while (!sub.done) {
-              val raw = sub.varint()
+          if (pbField.wire == 2) {
+            val pbSub = new KafkaPb.Reader(pbField.bytesValue)
+            while (!pbSub.done) {
+              val raw = pbSub.varint()
               errorCodes = errorCodes :+ raw.toInt
             }
           } else {
-            errorCodes = errorCodes :+ field.varintValue.toInt
+            errorCodes = errorCodes :+ pbField.varintValue.toInt
           }
-        case _ => unknownFields = unknownFields ++ field.rawValue
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -3068,20 +3068,20 @@ class ListTransactionsRequest(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    w.raw(unknownFields)
-    w.toBytes
+    val pbW = new KafkaPb.Writer()
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
-        case _ => unknownFields = unknownFields ++ field.rawValue
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -3093,15 +3093,15 @@ class TransactionListing(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    w.stringField(1, transactionalId)
+    val pbW = new KafkaPb.Writer()
+    pbW.stringField(1, transactionalId)
     if (producerId != 0) {
-      w.tag(2, 0)
-      w.varint(producerId.toLong)
+      pbW.tag(2, 0)
+      pbW.varint(producerId.toLong)
     }
-    w.stringField(3, transactionState)
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.stringField(3, transactionState)
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -3109,19 +3109,19 @@ class TransactionListing(
     transactionalId = ""
     producerId = 0L
     transactionState = ""
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          transactionalId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          transactionalId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          producerId = field.varintValue
+          producerId = pbField.varintValue
         case 3 =>
-          transactionState = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          transactionState = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -3132,35 +3132,35 @@ class ListTransactionsResponse(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
+    val pbW = new KafkaPb.Writer()
     if (errorCode != 0) {
-      w.tag(1, 0)
-      w.varint((errorCode.toLong))
+      pbW.tag(1, 0)
+      pbW.varint((errorCode.toLong))
     }
-    for (x <- transactions) {
-      w.bytesField(2, x.marshalDc())
+    for (pbX <- transactions) {
+      pbW.bytesField(2, pbX.marshalDc())
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     errorCode = 0
     transactions = List.empty
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          errorCode = field.varintValue.toInt
+          errorCode = pbField.varintValue.toInt
         case 2 =>
-          val item = new TransactionListing()
-          item.unmarshalDc(field.bytesValue)
-          transactions = transactions :+ item
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          val pbItem = new TransactionListing()
+          pbItem.unmarshalDc(pbField.bytesValue)
+          transactions = transactions :+ pbItem
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -3170,26 +3170,26 @@ class DescribeTransactionsRequest(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    for (x <- transactionalIds) {
-      w.bytesField(1, x.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+    val pbW = new KafkaPb.Writer()
+    for (pbX <- transactionalIds) {
+      pbW.bytesField(1, pbX.getBytes(java.nio.charset.StandardCharsets.UTF_8))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     transactionalIds = List.empty
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          transactionalIds = transactionalIds :+ new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          transactionalIds = transactionalIds :+ new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -3204,27 +3204,27 @@ class DescribedTransaction(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    w.stringField(1, transactionalId)
+    val pbW = new KafkaPb.Writer()
+    pbW.stringField(1, transactionalId)
     if (errorCode != 0) {
-      w.tag(2, 0)
-      w.varint((errorCode.toLong))
+      pbW.tag(2, 0)
+      pbW.varint((errorCode.toLong))
     }
     if (producerId != 0) {
-      w.tag(3, 0)
-      w.varint(producerId.toLong)
+      pbW.tag(3, 0)
+      pbW.varint(producerId.toLong)
     }
     if (producerEpoch != 0) {
-      w.tag(4, 0)
-      w.varint((producerEpoch.toLong))
+      pbW.tag(4, 0)
+      pbW.varint((producerEpoch.toLong))
     }
-    w.stringField(5, transactionState)
+    pbW.stringField(5, transactionState)
     if (lastUpdateTimestampMs != 0) {
-      w.tag(6, 0)
-      w.varint(lastUpdateTimestampMs.toLong)
+      pbW.tag(6, 0)
+      pbW.varint(lastUpdateTimestampMs.toLong)
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -3235,25 +3235,25 @@ class DescribedTransaction(
     producerEpoch = 0
     transactionState = ""
     lastUpdateTimestampMs = 0L
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          transactionalId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          transactionalId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          errorCode = field.varintValue.toInt
+          errorCode = pbField.varintValue.toInt
         case 3 =>
-          producerId = field.varintValue
+          producerId = pbField.varintValue
         case 4 =>
-          producerEpoch = field.varintValue.toInt
+          producerEpoch = pbField.varintValue.toInt
         case 5 =>
-          transactionState = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          transactionState = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 6 =>
-          lastUpdateTimestampMs = field.varintValue
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          lastUpdateTimestampMs = pbField.varintValue
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -3263,28 +3263,28 @@ class DescribeTransactionsResponse(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    for (x <- transactions) {
-      w.bytesField(1, x.marshalDc())
+    val pbW = new KafkaPb.Writer()
+    for (pbX <- transactions) {
+      pbW.bytesField(1, pbX.marshalDc())
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     transactions = List.empty
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          val item = new DescribedTransaction()
-          item.unmarshalDc(field.bytesValue)
-          transactions = transactions :+ item
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          val pbItem = new DescribedTransaction()
+          pbItem.unmarshalDc(pbField.bytesValue)
+          transactions = transactions :+ pbItem
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -3297,18 +3297,18 @@ class OpenShareGroupRequest(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    w.stringField(1, groupId)
-    for (x <- topics) {
-      w.bytesField(2, x.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+    val pbW = new KafkaPb.Writer()
+    pbW.stringField(1, groupId)
+    for (pbX <- topics) {
+      pbW.bytesField(2, pbX.getBytes(java.nio.charset.StandardCharsets.UTF_8))
     }
-    w.stringField(3, groupInstanceId)
+    pbW.stringField(3, groupInstanceId)
     if (sessionTimeoutMs != 0) {
-      w.tag(4, 0)
-      w.varint((sessionTimeoutMs.toLong))
+      pbW.tag(4, 0)
+      pbW.varint((sessionTimeoutMs.toLong))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -3317,21 +3317,21 @@ class OpenShareGroupRequest(
     topics = List.empty
     groupInstanceId = ""
     sessionTimeoutMs = 0
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          groupId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          groupId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          topics = topics :+ new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          topics = topics :+ new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 3 =>
-          groupInstanceId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          groupInstanceId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 4 =>
-          sessionTimeoutMs = field.varintValue.toInt
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          sessionTimeoutMs = pbField.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -3343,17 +3343,17 @@ class OpenShareGroupResponse(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    w.stringField(1, sessionId)
+    val pbW = new KafkaPb.Writer()
+    pbW.stringField(1, sessionId)
     if (errorCode != 0) {
-      w.tag(2, 0)
-      w.varint((errorCode.toLong))
+      pbW.tag(2, 0)
+      pbW.varint((errorCode.toLong))
     }
     if (assignment != null) {
-      w.bytesField(3, assignment.marshalDc())
+      pbW.bytesField(3, assignment.marshalDc())
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -3361,20 +3361,20 @@ class OpenShareGroupResponse(
     sessionId = ""
     errorCode = 0
     assignment = null
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          sessionId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          sessionId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          errorCode = field.varintValue.toInt
+          errorCode = pbField.varintValue.toInt
         case 3 =>
           assignment = new Assignment()
-          assignment.unmarshalDc(field.bytesValue)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          assignment.unmarshalDc(pbField.bytesValue)
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -3386,18 +3386,18 @@ class SharePollRequest(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    w.stringField(1, sessionId)
+    val pbW = new KafkaPb.Writer()
+    pbW.stringField(1, sessionId)
     if (maxRecords != 0) {
-      w.tag(2, 0)
-      w.varint((maxRecords.toLong))
+      pbW.tag(2, 0)
+      pbW.varint((maxRecords.toLong))
     }
     if (maxWaitMs != 0) {
-      w.tag(3, 0)
-      w.varint((maxWaitMs.toLong))
+      pbW.tag(3, 0)
+      pbW.varint((maxWaitMs.toLong))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -3405,19 +3405,19 @@ class SharePollRequest(
     sessionId = ""
     maxRecords = 0
     maxWaitMs = 0
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          sessionId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          sessionId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          maxRecords = field.varintValue.toInt
+          maxRecords = pbField.varintValue.toInt
         case 3 =>
-          maxWaitMs = field.varintValue.toInt
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          maxWaitMs = pbField.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -3435,39 +3435,39 @@ class SharePollRecord(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    w.stringField(1, topic)
+    val pbW = new KafkaPb.Writer()
+    pbW.stringField(1, topic)
     if (partition != 0) {
-      w.tag(2, 0)
-      w.varint((partition.toLong))
+      pbW.tag(2, 0)
+      pbW.varint((partition.toLong))
     }
     if (offset != 0) {
-      w.tag(3, 0)
-      w.varint(offset.toLong)
+      pbW.tag(3, 0)
+      pbW.varint(offset.toLong)
     }
     if (key.nonEmpty) {
-      w.bytesField(4, key)
+      pbW.bytesField(4, key)
     }
     if (value.nonEmpty) {
-      w.bytesField(5, value)
+      pbW.bytesField(5, value)
     }
-    for (x <- headers) {
-      w.bytesField(6, x.marshalDc())
+    for (pbX <- headers) {
+      pbW.bytesField(6, pbX.marshalDc())
     }
     if (timestampMs != 0) {
-      w.tag(7, 0)
-      w.varint(timestampMs.toLong)
+      pbW.tag(7, 0)
+      pbW.varint(timestampMs.toLong)
     }
     if (deliveryCount != 0) {
-      w.tag(8, 0)
-      w.varint((deliveryCount.toLong))
+      pbW.tag(8, 0)
+      pbW.varint((deliveryCount.toLong))
     }
     if (nullKey) {
-      w.tag(9, 0)
-      w.varint((if (nullKey) 1L else 0L))
+      pbW.tag(9, 0)
+      pbW.varint((if (nullKey) 1L else 0L))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -3481,33 +3481,33 @@ class SharePollRecord(
     timestampMs = 0L
     deliveryCount = 0
     nullKey = false
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          topic = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          topic = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          partition = field.varintValue.toInt
+          partition = pbField.varintValue.toInt
         case 3 =>
-          offset = field.varintValue
+          offset = pbField.varintValue
         case 4 =>
-          key = field.bytesValue
+          key = pbField.bytesValue
         case 5 =>
-          value = field.bytesValue
+          value = pbField.bytesValue
         case 6 =>
-          val item = new Header()
-          item.unmarshalDc(field.bytesValue)
-          headers = headers :+ item
+          val pbItem = new Header()
+          pbItem.unmarshalDc(pbField.bytesValue)
+          headers = headers :+ pbItem
         case 7 =>
-          timestampMs = field.varintValue
+          timestampMs = pbField.varintValue
         case 8 =>
-          deliveryCount = field.varintValue.toInt
+          deliveryCount = pbField.varintValue.toInt
         case 9 =>
-          nullKey = (field.varintValue != 0L)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          nullKey = (pbField.varintValue != 0L)
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -3518,35 +3518,35 @@ class SharePollResponse(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    for (x <- records) {
-      w.bytesField(1, x.marshalDc())
+    val pbW = new KafkaPb.Writer()
+    for (pbX <- records) {
+      pbW.bytesField(1, pbX.marshalDc())
     }
     if (errorCode != 0) {
-      w.tag(2, 0)
-      w.varint((errorCode.toLong))
+      pbW.tag(2, 0)
+      pbW.varint((errorCode.toLong))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     records = List.empty
     errorCode = 0
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          val item = new SharePollRecord()
-          item.unmarshalDc(field.bytesValue)
-          records = records :+ item
+          val pbItem = new SharePollRecord()
+          pbItem.unmarshalDc(pbField.bytesValue)
+          records = records :+ pbItem
         case 2 =>
-          errorCode = field.varintValue.toInt
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          errorCode = pbField.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -3559,22 +3559,22 @@ class ShareAckEntry(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    w.stringField(1, topic)
+    val pbW = new KafkaPb.Writer()
+    pbW.stringField(1, topic)
     if (partition != 0) {
-      w.tag(2, 0)
-      w.varint((partition.toLong))
+      pbW.tag(2, 0)
+      pbW.varint((partition.toLong))
     }
     if (offset != 0) {
-      w.tag(3, 0)
-      w.varint(offset.toLong)
+      pbW.tag(3, 0)
+      pbW.varint(offset.toLong)
     }
     if (ackType != 0) {
-      w.tag(4, 0)
-      w.varint((ackType.toLong))
+      pbW.tag(4, 0)
+      pbW.varint((ackType.toLong))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -3583,21 +3583,21 @@ class ShareAckEntry(
     partition = 0
     offset = 0L
     ackType = 0
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          topic = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          topic = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          partition = field.varintValue.toInt
+          partition = pbField.varintValue.toInt
         case 3 =>
-          offset = field.varintValue
+          offset = pbField.varintValue
         case 4 =>
-          ackType = field.varintValue.toInt
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          ackType = pbField.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -3608,32 +3608,32 @@ class ShareAckRequest(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    w.stringField(1, sessionId)
-    for (x <- entries) {
-      w.bytesField(2, x.marshalDc())
+    val pbW = new KafkaPb.Writer()
+    pbW.stringField(1, sessionId)
+    for (pbX <- entries) {
+      pbW.bytesField(2, pbX.marshalDc())
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     sessionId = ""
     entries = List.empty
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          sessionId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          sessionId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          val item = new ShareAckEntry()
-          item.unmarshalDc(field.bytesValue)
-          entries = entries :+ item
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          val pbItem = new ShareAckEntry()
+          pbItem.unmarshalDc(pbField.bytesValue)
+          entries = entries :+ pbItem
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -3643,27 +3643,27 @@ class ShareAckResponse(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
+    val pbW = new KafkaPb.Writer()
     if (errorCode != 0) {
-      w.tag(1, 0)
-      w.varint((errorCode.toLong))
+      pbW.tag(1, 0)
+      pbW.varint((errorCode.toLong))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     errorCode = 0
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          errorCode = field.varintValue.toInt
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          errorCode = pbField.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -3673,24 +3673,24 @@ class CloseShareGroupRequest(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    w.stringField(1, sessionId)
-    w.raw(unknownFields)
-    w.toBytes
+    val pbW = new KafkaPb.Writer()
+    pbW.stringField(1, sessionId)
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     sessionId = ""
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          sessionId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          sessionId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -3700,27 +3700,27 @@ class CloseShareGroupResponse(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
+    val pbW = new KafkaPb.Writer()
     if (errorCode != 0) {
-      w.tag(1, 0)
-      w.varint((errorCode.toLong))
+      pbW.tag(1, 0)
+      pbW.varint((errorCode.toLong))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     errorCode = 0
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          errorCode = field.varintValue.toInt
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          errorCode = pbField.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -3735,22 +3735,22 @@ class ShareGroupMember(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    w.stringField(1, memberId)
+    val pbW = new KafkaPb.Writer()
+    pbW.stringField(1, memberId)
     if (memberEpoch != 0) {
-      w.tag(2, 0)
-      w.varint((memberEpoch.toLong))
+      pbW.tag(2, 0)
+      pbW.varint((memberEpoch.toLong))
     }
-    w.stringField(3, clientId)
-    w.stringField(4, clientHost)
-    for (x <- subscribedTopics) {
-      w.bytesField(5, x.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+    pbW.stringField(3, clientId)
+    pbW.stringField(4, clientHost)
+    for (pbX <- subscribedTopics) {
+      pbW.bytesField(5, pbX.getBytes(java.nio.charset.StandardCharsets.UTF_8))
     }
-    for (x <- assignment) {
-      w.bytesField(6, x.marshalDc())
+    for (pbX <- assignment) {
+      pbW.bytesField(6, pbX.marshalDc())
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -3761,27 +3761,27 @@ class ShareGroupMember(
     clientHost = ""
     subscribedTopics = List.empty
     assignment = List.empty
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          memberId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          memberId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          memberEpoch = field.varintValue.toInt
+          memberEpoch = pbField.varintValue.toInt
         case 3 =>
-          clientId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          clientId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 4 =>
-          clientHost = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          clientHost = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 5 =>
-          subscribedTopics = subscribedTopics :+ new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          subscribedTopics = subscribedTopics :+ new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 6 =>
-          val item = new TopicPartition()
-          item.unmarshalDc(field.bytesValue)
-          assignment = assignment :+ item
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          val pbItem = new TopicPartition()
+          pbItem.unmarshalDc(pbField.bytesValue)
+          assignment = assignment :+ pbItem
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -3796,26 +3796,26 @@ class ShareGroupDescription(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    w.stringField(1, groupId)
+    val pbW = new KafkaPb.Writer()
+    pbW.stringField(1, groupId)
     if (errorCode != 0) {
-      w.tag(2, 0)
-      w.varint((errorCode.toLong))
+      pbW.tag(2, 0)
+      pbW.varint((errorCode.toLong))
     }
-    w.stringField(3, state)
+    pbW.stringField(3, state)
     if (groupEpoch != 0) {
-      w.tag(4, 0)
-      w.varint((groupEpoch.toLong))
+      pbW.tag(4, 0)
+      pbW.varint((groupEpoch.toLong))
     }
     if (assignmentEpoch != 0) {
-      w.tag(5, 0)
-      w.varint((assignmentEpoch.toLong))
+      pbW.tag(5, 0)
+      pbW.varint((assignmentEpoch.toLong))
     }
-    for (x <- members) {
-      w.bytesField(6, x.marshalDc())
+    for (pbX <- members) {
+      pbW.bytesField(6, pbX.marshalDc())
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -3826,27 +3826,27 @@ class ShareGroupDescription(
     groupEpoch = 0
     assignmentEpoch = 0
     members = List.empty
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          groupId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          groupId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          errorCode = field.varintValue.toInt
+          errorCode = pbField.varintValue.toInt
         case 3 =>
-          state = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          state = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 4 =>
-          groupEpoch = field.varintValue.toInt
+          groupEpoch = pbField.varintValue.toInt
         case 5 =>
-          assignmentEpoch = field.varintValue.toInt
+          assignmentEpoch = pbField.varintValue.toInt
         case 6 =>
-          val item = new ShareGroupMember()
-          item.unmarshalDc(field.bytesValue)
-          members = members :+ item
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          val pbItem = new ShareGroupMember()
+          pbItem.unmarshalDc(pbField.bytesValue)
+          members = members :+ pbItem
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -3856,26 +3856,26 @@ class DescribeShareGroupsRequest(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    for (x <- groupIds) {
-      w.bytesField(1, x.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+    val pbW = new KafkaPb.Writer()
+    for (pbX <- groupIds) {
+      pbW.bytesField(1, pbX.getBytes(java.nio.charset.StandardCharsets.UTF_8))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     groupIds = List.empty
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          groupIds = groupIds :+ new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          groupIds = groupIds :+ new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -3886,35 +3886,35 @@ class DescribeShareGroupsResponse(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new KafkaPb.Writer()
-    for (x <- groups) {
-      w.bytesField(1, x.marshalDc())
+    val pbW = new KafkaPb.Writer()
+    for (pbX <- groups) {
+      pbW.bytesField(1, pbX.marshalDc())
     }
     if (errorCode != 0) {
-      w.tag(2, 0)
-      w.varint((errorCode.toLong))
+      pbW.tag(2, 0)
+      pbW.varint((errorCode.toLong))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     groups = List.empty
     errorCode = 0
-    val r = new KafkaPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new KafkaPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          val item = new ShareGroupDescription()
-          item.unmarshalDc(field.bytesValue)
-          groups = groups :+ item
+          val pbItem = new ShareGroupDescription()
+          pbItem.unmarshalDc(pbField.bytesValue)
+          groups = groups :+ pbItem
         case 2 =>
-          errorCode = field.varintValue.toInt
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          errorCode = pbField.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }

@@ -307,7 +307,7 @@ func startGoServerBehindProxy(t *testing.T) int {
 	proxy.Stdout = os.Stderr
 	proxy.Stderr = os.Stderr
 	if err := proxy.Start(); err != nil {
-		t.Skipf("node ingress proxy unavailable: %v", err)
+		skipOraclef(t, "node ingress proxy unavailable: %v", err)
 	}
 	t.Cleanup(func() { _ = proxy.Process.Kill() })
 	deadline := time.Now().Add(60 * time.Second)
@@ -330,7 +330,7 @@ func TestInteropOfficialClientsCallGoServer(t *testing.T) {
 	t.Run("grpc-go client", func(t *testing.T) {
 		binary := filepath.Join("..", "oracle", "go-interop", "interop-client")
 		if _, err := os.Stat(binary); err != nil {
-			t.Skip("go interop client not built")
+			skipOracle(t, "go interop client not built")
 		}
 		for _, testCase := range append(append([]string{}, interopCasesB...), orcaCasesB...) {
 			t.Run(testCase, func(t *testing.T) {

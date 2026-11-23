@@ -12,35 +12,35 @@ public final class CreateAclsResponse implements grpcdc.Marshaler, grpcdc.Unmars
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
         if (errorCodes != null && !errorCodes.isEmpty()) {
-            KafkaPb.Writer payload = new KafkaPb.Writer();
-            for (Integer x : errorCodes) payload.varint(x);
-            w.bytesField(1, payload.toBytes());
+            KafkaPb.Writer pbPayload = new KafkaPb.Writer();
+            for (Integer pbX : errorCodes) pbPayload.varint(pbX);
+            pbW.bytesField(1, pbPayload.toBytes());
         }
-        w.raw(unknownFields);
-        return w.toBytes();
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
     public void unmarshalDc(byte[] data) {
         unknownFields = new byte[0];
         errorCodes = new java.util.ArrayList<>();
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    if (field.wire == 2) {
-                        KafkaPb.Reader sub = new KafkaPb.Reader(field.bytesValue);
-                        while (!sub.done()) {
-                            errorCodes.add((int) sub.varint());
+                    if (pbField.wire == 2) {
+                        KafkaPb.Reader pbSub = new KafkaPb.Reader(pbField.bytesValue);
+                        while (!pbSub.done()) {
+                            errorCodes.add((int) pbSub.varint());
                         }
                     } else {
-                        errorCodes.add((int) field.varintValue);
+                        errorCodes.add((int) pbField.varintValue);
                     }
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

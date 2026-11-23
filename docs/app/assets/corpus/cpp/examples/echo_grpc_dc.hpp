@@ -290,7 +290,7 @@ struct EchoGrpcDc {
     EchoServerStreamServerImpl(grpcdc::Endpoint::CallContext& ctx,
                                grpcdc::Server::ServerSink& sink)
         : ctx_(ctx), sink_(sink) {}
-    void Send(EchoResponse& resp) override { sink_(resp.MarshalDc()); }
+    void Send(EchoResponse& resp) override { sink_(ctx_.EncodeMessage(resp)); }
     grpcdc::Endpoint::CallContext& Context() override { return ctx_; }
 
    private:
@@ -313,7 +313,7 @@ struct EchoGrpcDc {
       has_resp_ = true;
     }
     grpcdc::Endpoint::CallContext& Context() override { return ctx_; }
-    EchoResponse Resp() const { return resp_; }
+    EchoResponse CollectedResp() const { return resp_; }
     bool HasResp() const { return has_resp_; }
 
    private:
@@ -329,7 +329,7 @@ struct EchoGrpcDc {
                        grpcdc::Server::RequestStream& reqs,
                        grpcdc::Server::ServerSink& sink)
         : ctx_(ctx), reqs_(reqs), sink_(sink) {}
-    void Send(EchoResponse& resp) override { sink_(resp.MarshalDc()); }
+    void Send(EchoResponse& resp) override { sink_(ctx_.EncodeMessage(resp)); }
     EchoRequest Recv() override {
       EchoRequest req;
       reqs_.RecvInto(req);
@@ -377,7 +377,7 @@ struct EchoGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                EchoResponse resp = impl.Unary(mutable_ctx, req);
-               sink(resp.MarshalDc());
+               sink(ctx.EncodeMessage(resp));
              }},
             {"ServerStream", "/echo.Echo/ServerStream",
              grpcdc::Server::kKindServerStreaming,
@@ -403,8 +403,8 @@ struct EchoGrpcDc {
                      grpcdc::wire::kCodeInternal,
                      "client-streaming handler never called SendAndClose");
                }
-               EchoResponse resp = stream.Resp();
-               sink(resp.MarshalDc());
+               EchoResponse resp = stream.CollectedResp();
+               sink(ctx.EncodeMessage(resp));
              }},
             {"Bidi", "/echo.Echo/Bidi", grpcdc::Server::kKindBidi,
              [&impl](const grpcdc::Endpoint::CallContext& ctx,

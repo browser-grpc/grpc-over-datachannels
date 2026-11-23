@@ -255,6 +255,61 @@ type Unmarshaler interface {
 	UnmarshalDC([]byte) error
 }
 
+// StructMarshaler is implemented by message types generated
+// with the struct_codec plugin option (Cap'n-Proto-style layout
+// for low-latency internal paths; protobuf stays the interop
+// format).
+type StructMarshaler interface {
+	MarshalStructDC() []byte
+}
+
+// StructUnmarshaler is the decoding side of StructMarshaler.
+type StructUnmarshaler interface {
+	UnmarshalStructDC([]byte) error
+}
+
+// StructCodecHeader is the HEADERS metadata key/value a client
+// sends to request the struct codec for a call.
+const StructCodecHeader = "dc-codec"
+const StructCodecV1 = "struct-v1"
+
+type structCodecCtxKey struct{}
+
+// StructCodecFromContext reports whether the call negotiated
+// the struct codec (server-side, from the HEADERS marker).
+func StructCodecFromContext(ctx context.Context) bool {
+	v, _ := ctx.Value(structCodecCtxKey{}).(bool)
+	return v
+}
+
+func marshalForCodec(structCodec bool, msg Marshaler) ([]byte, error) {
+	if structCodec {
+		sm, ok := msg.(StructMarshaler)
+		if !ok {
+			return nil, NewStatus(CodeInternal, "message has no struct codec")
+		}
+		return sm.MarshalStructDC(), nil
+	}
+	return msg.MarshalDC(), nil
+}
+
+func unmarshalForCodec(structCodec bool, data []byte, msg Unmarshaler) error {
+	if structCodec {
+		su, ok := msg.(StructUnmarshaler)
+		if !ok {
+			return NewStatus(CodeInternal, "message has no struct codec")
+		}
+		return su.UnmarshalStructDC(data)
+	}
+	return msg.UnmarshalDC(data)
+}
+
+// EncodeMessageForCall marshals resp with the codec negotiated
+// on ctx (generated server code calls this).
+func EncodeMessageForCall(ctx context.Context, msg Marshaler) ([]byte, error) {
+	return marshalForCodec(StructCodecFromContext(ctx), msg)
+}
+
 // EncodeFrame builds one DataChannel message: header + payload.
 func EncodeFrame(frameType FrameType, streamID uint32, payload []byte) ([]byte, error) {
 	if !frameType.Valid() {

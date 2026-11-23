@@ -58,20 +58,20 @@ class OrcaLoadReportRequest implements Marshaler, Unmarshaler {
   OrcaLoadReportRequest();
   @override
   Uint8List marshalDc() {
-    final w = OrcaPbWriter();
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = OrcaPbWriter();
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
-    final r = OrcaPbReader(Uint8List.fromList(data));
+    final pbR = OrcaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }

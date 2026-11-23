@@ -141,20 +141,20 @@ class Empty(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new EmptyPb.Writer()
-    w.raw(unknownFields)
-    w.toBytes
+    val pbW = new EmptyPb.Writer()
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
-    val r = new EmptyPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
-        case _ => unknownFields = unknownFields ++ field.rawValue
+    val pbR = new EmptyPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }

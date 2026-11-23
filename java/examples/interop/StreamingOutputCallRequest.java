@@ -20,14 +20,14 @@ public final class StreamingOutputCallRequest implements grpcdc.Marshaler, grpcd
 
     @Override
     public byte[] marshalDc() {
-        MessagesPb.Writer w = new MessagesPb.Writer();
-        if (responseType != null && responseType.number != 0) { w.tag(1, 0); w.varint(responseType.number); }
-        if (responseParameters != null) for (ResponseParameters x : responseParameters) w.bytesField(2, x.marshalDc());
-        if (payload != null) w.bytesField(3, payload.marshalDc());
-        if (responseStatus != null) w.bytesField(7, responseStatus.marshalDc());
-        if (orcaOobReport != null) w.bytesField(8, orcaOobReport.marshalDc());
-        w.raw(unknownFields);
-        return w.toBytes();
+        MessagesPb.Writer pbW = new MessagesPb.Writer();
+        if (responseType != null && responseType.number != 0) { pbW.tag(1, 0); pbW.varint(responseType.number); }
+        if (responseParameters != null) for (ResponseParameters pbX : responseParameters) pbW.bytesField(2, pbX.marshalDc());
+        if (payload != null) pbW.bytesField(3, payload.marshalDc());
+        if (responseStatus != null) pbW.bytesField(7, responseStatus.marshalDc());
+        if (orcaOobReport != null) pbW.bytesField(8, orcaOobReport.marshalDc());
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -38,31 +38,31 @@ public final class StreamingOutputCallRequest implements grpcdc.Marshaler, grpcd
         payload = null;
         responseStatus = null;
         orcaOobReport = null;
-        MessagesPb.Reader r = new MessagesPb.Reader(data);
-        MessagesPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        MessagesPb.Reader pbR = new MessagesPb.Reader(data);
+        MessagesPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    responseType = PayloadType.fromNumber((int) field.varintValue);
+                    responseType = PayloadType.fromNumber((int) pbField.varintValue);
                 }
                 case 2 -> {
-                    ResponseParameters item = new ResponseParameters();
-                    item.unmarshalDc(field.bytesValue);
-                    responseParameters.add(item);
+                    ResponseParameters pbItem = new ResponseParameters();
+                    pbItem.unmarshalDc(pbField.bytesValue);
+                    responseParameters.add(pbItem);
                 }
                 case 3 -> {
                     payload = new Payload();
-                    payload.unmarshalDc(field.bytesValue);
+                    payload.unmarshalDc(pbField.bytesValue);
                 }
                 case 7 -> {
                     responseStatus = new EchoStatus();
-                    responseStatus.unmarshalDc(field.bytesValue);
+                    responseStatus.unmarshalDc(pbField.bytesValue);
                 }
                 case 8 -> {
                     orcaOobReport = new TestOrcaReport();
-                    orcaOobReport.unmarshalDc(field.bytesValue);
+                    orcaOobReport.unmarshalDc(pbField.bytesValue);
                 }
-                default -> { unknownFields = MessagesPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = MessagesPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

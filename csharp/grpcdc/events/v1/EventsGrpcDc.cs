@@ -110,7 +110,7 @@ public static class EventsGrpcDc
 
         public Endpoint.CallContext Context { get; }
 
-        public void Send(Event resp) => _sink(resp.MarshalDc());
+        public void Send(Event resp) => _sink(Context.EncodeMessage(resp));
     }
 
     /// <summary>Async service implementation interface for grpcdc.events.v1.EventBus.</summary>
@@ -152,7 +152,7 @@ public static class EventsGrpcDc
                 {
                     var req = new PublishRequest();
                     reqs.RecvInto(req);
-                    sink(impl.Publish(ctx, req).MarshalDc());
+                    sink(ctx.EncodeMessage(impl.Publish(ctx, req)));
                 }),
                 new Server.Method("Subscribe", "/grpcdc.events.v1.EventBus/Subscribe", Server.KindServerStreaming, (ctx, reqs, sink) =>
                 {

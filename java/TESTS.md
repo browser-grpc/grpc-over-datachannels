@@ -33,6 +33,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`TestOracle.java`](tests/TestOracle.java) — Official-implementation oracle, via the proxy
 - [`TestPbMessages.java`](tests/TestPbMessages.java) — Generated suite/example
 - [`TestSidecar.java`](tests/TestSidecar.java) — Sidecar transport
+- [`TestStructCodec.java`](tests/TestStructCodec.java) — Wire codec vectors
 - [`TestTracing.java`](tests/TestTracing.java) — Tracing: traceparent propagation, span observers, nested calls
 
 ## Examples
@@ -44,7 +45,9 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`EchoGrpcDc.java`](examples/EchoGrpcDc.java) — Echo: all four call shapes
 - [`EchoPb.java`](examples/EchoPb.java) — Echo: all four call shapes
 - [`EchoRequest.java`](examples/EchoRequest.java) — Echo: all four call shapes
+- [`EchoRequestStruct.java`](examples/EchoRequestStruct.java) — Echo: all four call shapes
 - [`EchoResponse.java`](examples/EchoResponse.java) — Echo: all four call shapes
+- [`EchoResponseStruct.java`](examples/EchoResponseStruct.java) — Echo: all four call shapes
 - [`EchoServerStdio.java`](examples/EchoServerStdio.java) — Echo: all four call shapes
 - [`EchoServiceImpl.java`](examples/EchoServiceImpl.java) — Echo: all four call shapes
 - [`EventBusDemo.java`](examples/EventBusDemo.java) — Event bus end-to-end

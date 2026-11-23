@@ -76,6 +76,10 @@ class EchoRequest : public grpcdc::Marshaler, public grpcdc::Unmarshaler {
   EchoRequest() = default;
   grpcdc::Bytes MarshalDc() const override;
   void UnmarshalDc(const grpcdc::Bytes& data) override;
+#if !defined(__wasm__)
+  grpcdc::Bytes MarshalStruct() const override;
+  void UnmarshalStruct(const grpcdc::Bytes& data) override;
+#endif
 };
 class EchoResponse : public grpcdc::Marshaler, public grpcdc::Unmarshaler {
  public:
@@ -85,69 +89,74 @@ class EchoResponse : public grpcdc::Marshaler, public grpcdc::Unmarshaler {
   EchoResponse() = default;
   grpcdc::Bytes MarshalDc() const override;
   void UnmarshalDc(const grpcdc::Bytes& data) override;
+#if !defined(__wasm__)
+  grpcdc::Bytes MarshalStruct() const override;
+  void UnmarshalStruct(const grpcdc::Bytes& data) override;
+#endif
 };
 inline grpcdc::Bytes EchoRequest::MarshalDc() const {
-    pb_echo::Writer w;
-    w.StringField(1, message);
-    if (count != 0) { w.Tag(2, 0); w.Varint(static_cast<std::int64_t>(count)); }
-    if (delay_ms != 0) { w.Tag(3, 0); w.Varint(static_cast<std::int64_t>(delay_ms)); }
-    w.Raw(unknown_fields);
-    return w.ToBytes();
+    pb_echo::Writer pb_w;
+    pb_w.StringField(1, message);
+    if (count != 0) { pb_w.Tag(2, 0); pb_w.Varint(static_cast<std::int64_t>(count)); }
+    if (delay_ms != 0) { pb_w.Tag(3, 0); pb_w.Varint(static_cast<std::int64_t>(delay_ms)); }
+    pb_w.Raw(unknown_fields);
+    return pb_w.ToBytes();
 }
 
-inline void EchoRequest::UnmarshalDc(const grpcdc::Bytes& data) {
+inline void EchoRequest::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
     unknown_fields.clear();
     message = "";
     count = 0;
     delay_ms = 0;
-    pb_echo::Reader r(data);
-    pb_echo::Field field;
-    while (r.Next(field)) {
-      switch (field.number) {
+    pb_echo::Reader pb_r(pb_data_);
+    pb_echo::Field pb_field;
+    while (pb_r.Next(pb_field)) {
+      switch (pb_field.number) {
         case 1: {
-            message = std::string(field.bytes.begin(), field.bytes.end());
+            message = std::string(pb_field.bytes.begin(), pb_field.bytes.end());
             break;
         }
         case 2: {
-            count = static_cast<std::int32_t>(field.varint);
+            count = static_cast<std::int32_t>(pb_field.varint);
             break;
         }
         case 3: {
-            delay_ms = static_cast<std::int32_t>(field.varint);
+            delay_ms = static_cast<std::int32_t>(pb_field.varint);
             break;
         }
-        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
+        default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;
       }
     }
 }
 
 inline grpcdc::Bytes EchoResponse::MarshalDc() const {
-    pb_echo::Writer w;
-    w.StringField(1, message);
-    if (index != 0) { w.Tag(2, 0); w.Varint(static_cast<std::int64_t>(index)); }
-    w.Raw(unknown_fields);
-    return w.ToBytes();
+    pb_echo::Writer pb_w;
+    pb_w.StringField(1, message);
+    if (index != 0) { pb_w.Tag(2, 0); pb_w.Varint(static_cast<std::int64_t>(index)); }
+    pb_w.Raw(unknown_fields);
+    return pb_w.ToBytes();
 }
 
-inline void EchoResponse::UnmarshalDc(const grpcdc::Bytes& data) {
+inline void EchoResponse::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
     unknown_fields.clear();
     message = "";
     index = 0;
-    pb_echo::Reader r(data);
-    pb_echo::Field field;
-    while (r.Next(field)) {
-      switch (field.number) {
+    pb_echo::Reader pb_r(pb_data_);
+    pb_echo::Field pb_field;
+    while (pb_r.Next(pb_field)) {
+      switch (pb_field.number) {
         case 1: {
-            message = std::string(field.bytes.begin(), field.bytes.end());
+            message = std::string(pb_field.bytes.begin(), pb_field.bytes.end());
             break;
         }
         case 2: {
-            index = static_cast<std::int32_t>(field.varint);
+            index = static_cast<std::int32_t>(pb_field.varint);
             break;
         }
-        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
+        default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;
       }
     }
 }
 
 }  // namespace echo
+#include "echo_struct.hpp"

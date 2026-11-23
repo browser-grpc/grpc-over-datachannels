@@ -14,11 +14,11 @@ public final class DescribeAclsResponse implements grpcdc.Marshaler, grpcdc.Unma
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
-        if (errorCode != 0) { w.tag(1, 0); w.varint(errorCode); }
-        if (acls != null) for (Acl x : acls) w.bytesField(2, x.marshalDc());
-        w.raw(unknownFields);
-        return w.toBytes();
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
+        if (errorCode != 0) { pbW.tag(1, 0); pbW.varint(errorCode); }
+        if (acls != null) for (Acl pbX : acls) pbW.bytesField(2, pbX.marshalDc());
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -26,19 +26,19 @@ public final class DescribeAclsResponse implements grpcdc.Marshaler, grpcdc.Unma
         unknownFields = new byte[0];
         errorCode = 0;
         acls = new java.util.ArrayList<>();
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    errorCode = (int) field.varintValue;
+                    errorCode = (int) pbField.varintValue;
                 }
                 case 2 -> {
-                    Acl item = new Acl();
-                    item.unmarshalDc(field.bytesValue);
-                    acls.add(item);
+                    Acl pbItem = new Acl();
+                    pbItem.unmarshalDc(pbField.bytesValue);
+                    acls.add(pbItem);
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

@@ -203,9 +203,10 @@ pub const TestServiceHalfDuplexCallClient = struct {
 pub const TestServiceStreamingOutputCallServer = struct {
     sink: server_mod.Sink,
     alloc: std.mem.Allocator,
+    struct_codec: bool = false,
 
     pub fn send(self: *TestServiceStreamingOutputCallServer, resp: *const StreamingOutputCallResponse) Status {
-        const payload = resp.marshalDc(self.alloc);
+        const payload = grpcdc.codec.marshalForCodec(self.alloc, self.struct_codec, resp);
         defer self.alloc.free(payload);
         return self.sink.send(payload);
     }
@@ -236,6 +237,7 @@ pub const TestServiceFullDuplexCallServer = struct {
     reqs: *server_mod.RequestStream,
     sink: server_mod.Sink,
     alloc: std.mem.Allocator,
+    struct_codec: bool = false,
 
     pub fn recv(self: *TestServiceFullDuplexCallServer) status_mod.RecvResult(StreamingOutputCallRequest) {
         var req = StreamingOutputCallRequest{};
@@ -247,7 +249,7 @@ pub const TestServiceFullDuplexCallServer = struct {
     }
 
     pub fn send(self: *TestServiceFullDuplexCallServer, resp: *const StreamingOutputCallResponse) Status {
-        const payload = resp.marshalDc(self.alloc);
+        const payload = grpcdc.codec.marshalForCodec(self.alloc, self.struct_codec, resp);
         defer self.alloc.free(payload);
         return self.sink.send(payload);
     }
@@ -258,6 +260,7 @@ pub const TestServiceHalfDuplexCallServer = struct {
     reqs: *server_mod.RequestStream,
     sink: server_mod.Sink,
     alloc: std.mem.Allocator,
+    struct_codec: bool = false,
 
     pub fn recv(self: *TestServiceHalfDuplexCallServer) status_mod.RecvResult(StreamingOutputCallRequest) {
         var req = StreamingOutputCallRequest{};
@@ -269,7 +272,7 @@ pub const TestServiceHalfDuplexCallServer = struct {
     }
 
     pub fn send(self: *TestServiceHalfDuplexCallServer, resp: *const StreamingOutputCallResponse) Status {
-        const payload = resp.marshalDc(self.alloc);
+        const payload = grpcdc.codec.marshalForCodec(self.alloc, self.struct_codec, resp);
         defer self.alloc.free(payload);
         return self.sink.send(payload);
     }
@@ -302,7 +305,7 @@ fn testServiceEmptyCallAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *s
     var resp = Empty{};
     const st = impl.empty_call_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
     if (!st.isOk()) return st;
-    const payload = resp.marshalDc(reqs.alloc);
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
     defer reqs.alloc.free(payload);
     return sink.send(payload);
 }
@@ -320,7 +323,7 @@ fn testServiceUnaryCallAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *s
     var resp = SimpleResponse{};
     const st = impl.unary_call_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
     if (!st.isOk()) return st;
-    const payload = resp.marshalDc(reqs.alloc);
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
     defer reqs.alloc.free(payload);
     return sink.send(payload);
 }
@@ -338,7 +341,7 @@ fn testServiceCacheableUnaryCallAdapter(ctx: *anyopaque, call_ctx: *CallContext,
     var resp = SimpleResponse{};
     const st = impl.cacheable_unary_call_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
     if (!st.isOk()) return st;
-    const payload = resp.marshalDc(reqs.alloc);
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
     defer reqs.alloc.free(payload);
     return sink.send(payload);
 }
@@ -351,7 +354,7 @@ fn testServiceStreamingOutputCallAdapter(ctx: *anyopaque, call_ctx: *CallContext
         .end => return Status.init(wire.codeInternal, "server-streaming call closed with no request"),
         .status => |st| return st,
     }
-    var stream = TestServiceStreamingOutputCallServer{ .sink = sink, .alloc = reqs.alloc };
+    var stream = TestServiceStreamingOutputCallServer{ .sink = sink, .alloc = reqs.alloc, .struct_codec = call_ctx.struct_codec };
     return impl.streaming_output_call_fn(impl.ctx, call_ctx, &req, &stream);
 }
 
@@ -364,20 +367,20 @@ fn testServiceStreamingInputCallAdapter(ctx: *anyopaque, call_ctx: *CallContext,
     if (!st.isOk()) return st;
     const resp = stream.resp orelse
         return Status.init(wire.codeInternal, "client-streaming handler never called sendAndClose");
-    const payload = resp.marshalDc(reqs.alloc);
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
     defer reqs.alloc.free(payload);
     return sink.send(payload);
 }
 
 fn testServiceFullDuplexCallAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {
     const impl: *TestServiceServer = @ptrCast(@alignCast(ctx));
-    var stream = TestServiceFullDuplexCallServer{ .reqs = reqs, .sink = sink, .alloc = reqs.alloc };
+    var stream = TestServiceFullDuplexCallServer{ .reqs = reqs, .sink = sink, .alloc = reqs.alloc, .struct_codec = call_ctx.struct_codec };
     return impl.full_duplex_call_fn(impl.ctx, call_ctx, &stream);
 }
 
 fn testServiceHalfDuplexCallAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {
     const impl: *TestServiceServer = @ptrCast(@alignCast(ctx));
-    var stream = TestServiceHalfDuplexCallServer{ .reqs = reqs, .sink = sink, .alloc = reqs.alloc };
+    var stream = TestServiceHalfDuplexCallServer{ .reqs = reqs, .sink = sink, .alloc = reqs.alloc, .struct_codec = call_ctx.struct_codec };
     return impl.half_duplex_call_fn(impl.ctx, call_ctx, &stream);
 }
 
@@ -394,7 +397,7 @@ fn testServiceUnimplementedCallAdapter(ctx: *anyopaque, call_ctx: *CallContext, 
     var resp = Empty{};
     const st = impl.unimplemented_call_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
     if (!st.isOk()) return st;
-    const payload = resp.marshalDc(reqs.alloc);
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
     defer reqs.alloc.free(payload);
     return sink.send(payload);
 }
@@ -436,7 +439,7 @@ fn unimplementedServiceUnimplementedCallAdapter(ctx: *anyopaque, call_ctx: *Call
     var resp = Empty{};
     const st = impl.unimplemented_call_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
     if (!st.isOk()) return st;
-    const payload = resp.marshalDc(reqs.alloc);
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
     defer reqs.alloc.free(payload);
     return sink.send(payload);
 }
@@ -486,7 +489,7 @@ fn reconnectServiceStartAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *
     var resp = Empty{};
     const st = impl.start_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
     if (!st.isOk()) return st;
-    const payload = resp.marshalDc(reqs.alloc);
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
     defer reqs.alloc.free(payload);
     return sink.send(payload);
 }
@@ -504,7 +507,7 @@ fn reconnectServiceStopAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *s
     var resp = ReconnectInfo{};
     const st = impl.stop_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
     if (!st.isOk()) return st;
-    const payload = resp.marshalDc(reqs.alloc);
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
     defer reqs.alloc.free(payload);
     return sink.send(payload);
 }
@@ -554,7 +557,7 @@ fn loadBalancerStatsServiceGetClientStatsAdapter(ctx: *anyopaque, call_ctx: *Cal
     var resp = LoadBalancerStatsResponse{};
     const st = impl.get_client_stats_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
     if (!st.isOk()) return st;
-    const payload = resp.marshalDc(reqs.alloc);
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
     defer reqs.alloc.free(payload);
     return sink.send(payload);
 }
@@ -572,7 +575,7 @@ fn loadBalancerStatsServiceGetClientAccumulatedStatsAdapter(ctx: *anyopaque, cal
     var resp = LoadBalancerAccumulatedStatsResponse{};
     const st = impl.get_client_accumulated_stats_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
     if (!st.isOk()) return st;
-    const payload = resp.marshalDc(reqs.alloc);
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
     defer reqs.alloc.free(payload);
     return sink.send(payload);
 }
@@ -622,7 +625,7 @@ fn xdsUpdateHealthServiceSetServingAdapter(ctx: *anyopaque, call_ctx: *CallConte
     var resp = Empty{};
     const st = impl.set_serving_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
     if (!st.isOk()) return st;
-    const payload = resp.marshalDc(reqs.alloc);
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
     defer reqs.alloc.free(payload);
     return sink.send(payload);
 }
@@ -640,7 +643,7 @@ fn xdsUpdateHealthServiceSetNotServingAdapter(ctx: *anyopaque, call_ctx: *CallCo
     var resp = Empty{};
     const st = impl.set_not_serving_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
     if (!st.isOk()) return st;
-    const payload = resp.marshalDc(reqs.alloc);
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
     defer reqs.alloc.free(payload);
     return sink.send(payload);
 }
@@ -682,7 +685,7 @@ fn xdsUpdateClientConfigureServiceConfigureAdapter(ctx: *anyopaque, call_ctx: *C
     var resp = ClientConfigureResponse{};
     const st = impl.configure_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
     if (!st.isOk()) return st;
-    const payload = resp.marshalDc(reqs.alloc);
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
     defer reqs.alloc.free(payload);
     return sink.send(payload);
 }

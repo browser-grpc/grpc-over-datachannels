@@ -14,11 +14,11 @@ public final class EndTransactionRequest implements grpcdc.Marshaler, grpcdc.Unm
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
-        w.stringField(1, sessionId);
-        if (commit) { w.tag(2, 0); w.varint((commit ? 1 : 0)); }
-        w.raw(unknownFields);
-        return w.toBytes();
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
+        pbW.stringField(1, sessionId);
+        if (commit) { pbW.tag(2, 0); pbW.varint((commit ? 1 : 0)); }
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -26,17 +26,17 @@ public final class EndTransactionRequest implements grpcdc.Marshaler, grpcdc.Unm
         unknownFields = new byte[0];
         sessionId = "";
         commit = false;
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    sessionId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    sessionId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 2 -> {
-                    commit = field.varintValue != 0;
+                    commit = pbField.varintValue != 0;
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

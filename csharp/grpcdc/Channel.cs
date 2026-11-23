@@ -7,6 +7,19 @@ public class Channel
 {
     private readonly Endpoint _endpoint;
     private Tracing.TraceContext _traceContext;
+    private bool _structCodec;
+
+    /// <summary>
+    /// Make every call on this channel request the struct codec
+    /// (HEADERS marker dc-codec: struct-v1) and encode requests /
+    /// decode responses with it. The server must enable it too
+    /// (see Server.SetStructCodec); otherwise calls fail
+    /// Unimplemented. Mirrors the Go Channel.SetStructCodec.
+    /// </summary>
+    public void SetStructCodec(bool enabled) => _structCodec = enabled;
+
+    /// <summary>Whether this channel requests the struct codec on every call.</summary>
+    public bool StructCodec => _structCodec;
 
     /// <summary>A Channel view sharing this endpoint whose outbound
     /// spans are parented to ctx. Explicit call metadata still wins.</summary>
@@ -14,6 +27,7 @@ public class Channel
     {
         var ch = new Channel(_endpoint);
         ch._traceContext = ctx;
+        ch._structCodec = _structCodec;
         return ch;
     }
 
@@ -48,6 +62,7 @@ public class Channel
         /// <summary>Trailing metadata of the terminal status (null until it arrives).</summary>
         public Dictionary<string, string> Trailers { get; private set; }
         internal long DeadlineTimestamp = -1;
+        internal bool StructCodec;
         internal Tracing.TraceContext TraceCtx;
         internal string TracePath;
         private bool _traceEnded;
@@ -73,7 +88,7 @@ public class Channel
         /// <summary>Send one request message on an open stream (no half-close).</summary>
         public void Send(IMarshaler msg)
         {
-            _endpoint.SendFrame(Codec.EncodeFrame(Wire.FrameData, StreamId, msg.MarshalDc()));
+            _endpoint.SendFrame(Codec.EncodeFrame(Wire.FrameData, StreamId, Codec.MarshalForCodec(StructCodec, msg)));
         }
 
         /// <summary>Half-close an open stream (no more requests).</summary>
@@ -149,7 +164,7 @@ public class Channel
                         Headers = evt.Headers;
                         break;
                     case Endpoint.EventKind.Data:
-                        resp.UnmarshalDc(evt.Payload);
+                        Codec.UnmarshalForCodec(StructCodec, evt.Payload, resp);
                         return;
                     case Endpoint.EventKind.Trailers:
                         _terminated = true;
@@ -176,11 +191,15 @@ public class Channel
     {
         long deadline = -1;
         Tracing.TraceContext traceCtx = null;
-        if (timeout != null || Tracing.Enabled)
+        if (timeout != null || Tracing.Enabled || _structCodec)
         {
             var merged = metadata == null
                 ? new Dictionary<string, string>()
                 : new Dictionary<string, string>(metadata);
+            if (_structCodec)
+            {
+                merged[Codec.StructCodecHeader] = Codec.StructCodecV1;
+            }
             if (timeout != null)
             {
                 deadline = System.Diagnostics.Stopwatch.GetTimestamp()
@@ -212,6 +231,7 @@ public class Channel
         }
         return new ClientStream(_endpoint, id, input)
         {
+            StructCodec = _structCodec,
             DeadlineTimestamp = deadline,
             TraceCtx = traceCtx,
             TracePath = path,
@@ -220,7 +240,7 @@ public class Channel
 
     private void SendMessage(ClientStream stream, IMarshaler msg)
     {
-        _endpoint.SendFrame(Codec.EncodeFrame(Wire.FrameData, stream.StreamId, msg.MarshalDc()));
+        _endpoint.SendFrame(Codec.EncodeFrame(Wire.FrameData, stream.StreamId, Codec.MarshalForCodec(stream.StructCodec, msg)));
     }
 
     private void HalfClose(ClientStream stream)

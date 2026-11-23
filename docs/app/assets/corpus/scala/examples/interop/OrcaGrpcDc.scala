@@ -131,7 +131,7 @@ object OrcaGrpcDc {
                 val req = new OrcaLoadReportRequest()
                 reqs.recvInto(req)
                 impl.StreamCoreMetrics(req, new OpenRcaServiceServerStreamServer {
-                    def send(resp: xds.data.orca.v3.OrcaLoadReport): Unit = sink.send(resp.marshalDc())
+                    def send(resp: xds.data.orca.v3.OrcaLoadReport): Unit = sink.send(ctx.encodeMessage(resp))
                     val context: grpcdc.Endpoint#CallContext = ctx
                 })
             }),

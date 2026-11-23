@@ -12,6 +12,19 @@ import java.nio.charset.StandardCharsets
  */
 object Codec {
   val HEADER_LEN: Int = 9
+
+  /** HEADERS metadata key a client sends to request the struct codec for a call. */
+  val STRUCT_CODEC_HEADER: String = "dc-codec"
+  val STRUCT_CODEC_V1: String = "struct-v1"
+
+  /** Marshal msg with the codec selected for a call (struct layout when negotiated). */
+  def marshalForCodec(structCodec: Boolean, msg: Marshaler): Array[Byte] =
+    if (structCodec) msg.marshalStruct() else msg.marshalDc()
+
+  /** Decode data into msg with the codec selected for a call. */
+  def unmarshalForCodec(structCodec: Boolean, data: Array[Byte], msg: Unmarshaler): Unit = {
+    if (structCodec) msg.unmarshalStruct(data) else msg.unmarshalDc(data)
+  }
   val MAX_DATA_PAYLOAD: Int = 16 * 1024 * 1024
 
   /** One parsed frame. */

@@ -53,23 +53,23 @@ public enum MessagesPb {
     }
 
     public static func LoadBalancerStatsResponseRpcsByPeerEntryEncode(_ key: String, _ value: Int32) -> [UInt8] {
-        let w = Writer()
-        w.StringField(1, key)
-        if value != 0 { w.Tag(2, 0); w.Varint(Int64(value)) }
-        return w.ToBytes()
+        let pbW = Writer()
+        pbW.StringField(1, key)
+        if value != 0 { pbW.Tag(2, 0); pbW.Varint(Int64(value)) }
+        return pbW.ToBytes()
     }
 
     public static func LoadBalancerStatsResponseRpcsByPeerEntryDecode(_ bytes: [UInt8]) -> (String, Int32) {
         var key: String = ""
         var value: Int32 = 0
-        let r = Reader(bytes)
+        let pbR = Reader(bytes)
         while true {
             let next: Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
-            case 1: key = String(decoding: field.bytesValue, as: UTF8.self)
-            case 2: value = Int32(truncatingIfNeeded: field.varintValue)
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
+            case 1: key = String(decoding: pbField.bytesValue, as: UTF8.self)
+            case 2: value = Int32(truncatingIfNeeded: pbField.varintValue)
             default: break
             }
         }
@@ -77,23 +77,23 @@ public enum MessagesPb {
     }
 
     public static func LoadBalancerStatsResponseRpcsByMethodEntryEncode(_ key: String, _ value: LoadBalancerStatsResponse.RpcsByPeer) -> [UInt8] {
-        let w = Writer()
-        w.StringField(1, key)
-        w.BytesField(2, value.MarshalDc())
-        return w.ToBytes()
+        let pbW = Writer()
+        pbW.StringField(1, key)
+        pbW.BytesField(2, value.MarshalDc())
+        return pbW.ToBytes()
     }
 
     public static func LoadBalancerStatsResponseRpcsByMethodEntryDecode(_ bytes: [UInt8]) -> (String, LoadBalancerStatsResponse.RpcsByPeer) {
         var key: String = ""
         var value: LoadBalancerStatsResponse.RpcsByPeer = LoadBalancerStatsResponse.RpcsByPeer()
-        let r = Reader(bytes)
+        let pbR = Reader(bytes)
         while true {
             let next: Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
-            case 1: key = String(decoding: field.bytesValue, as: UTF8.self)
-            case 2: value.UnmarshalDc(field.bytesValue)
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
+            case 1: key = String(decoding: pbField.bytesValue, as: UTF8.self)
+            case 2: value.UnmarshalDc(pbField.bytesValue)
             default: break
             }
         }
@@ -101,23 +101,23 @@ public enum MessagesPb {
     }
 
     public static func LoadBalancerStatsResponseRpcsByPeerRpcsByPeerEntryEncode(_ key: String, _ value: Int32) -> [UInt8] {
-        let w = Writer()
-        w.StringField(1, key)
-        if value != 0 { w.Tag(2, 0); w.Varint(Int64(value)) }
-        return w.ToBytes()
+        let pbW = Writer()
+        pbW.StringField(1, key)
+        if value != 0 { pbW.Tag(2, 0); pbW.Varint(Int64(value)) }
+        return pbW.ToBytes()
     }
 
     public static func LoadBalancerStatsResponseRpcsByPeerRpcsByPeerEntryDecode(_ bytes: [UInt8]) -> (String, Int32) {
         var key: String = ""
         var value: Int32 = 0
-        let r = Reader(bytes)
+        let pbR = Reader(bytes)
         while true {
             let next: Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
-            case 1: key = String(decoding: field.bytesValue, as: UTF8.self)
-            case 2: value = Int32(truncatingIfNeeded: field.varintValue)
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
+            case 1: key = String(decoding: pbField.bytesValue, as: UTF8.self)
+            case 2: value = Int32(truncatingIfNeeded: pbField.varintValue)
             default: break
             }
         }
@@ -125,23 +125,23 @@ public enum MessagesPb {
     }
 
     public static func LoadBalancerAccumulatedStatsResponseNumRpcsStartedByMethodEntryEncode(_ key: String, _ value: Int32) -> [UInt8] {
-        let w = Writer()
-        w.StringField(1, key)
-        if value != 0 { w.Tag(2, 0); w.Varint(Int64(value)) }
-        return w.ToBytes()
+        let pbW = Writer()
+        pbW.StringField(1, key)
+        if value != 0 { pbW.Tag(2, 0); pbW.Varint(Int64(value)) }
+        return pbW.ToBytes()
     }
 
     public static func LoadBalancerAccumulatedStatsResponseNumRpcsStartedByMethodEntryDecode(_ bytes: [UInt8]) -> (String, Int32) {
         var key: String = ""
         var value: Int32 = 0
-        let r = Reader(bytes)
+        let pbR = Reader(bytes)
         while true {
             let next: Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
-            case 1: key = String(decoding: field.bytesValue, as: UTF8.self)
-            case 2: value = Int32(truncatingIfNeeded: field.varintValue)
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
+            case 1: key = String(decoding: pbField.bytesValue, as: UTF8.self)
+            case 2: value = Int32(truncatingIfNeeded: pbField.varintValue)
             default: break
             }
         }
@@ -149,23 +149,23 @@ public enum MessagesPb {
     }
 
     public static func LoadBalancerAccumulatedStatsResponseNumRpcsSucceededByMethodEntryEncode(_ key: String, _ value: Int32) -> [UInt8] {
-        let w = Writer()
-        w.StringField(1, key)
-        if value != 0 { w.Tag(2, 0); w.Varint(Int64(value)) }
-        return w.ToBytes()
+        let pbW = Writer()
+        pbW.StringField(1, key)
+        if value != 0 { pbW.Tag(2, 0); pbW.Varint(Int64(value)) }
+        return pbW.ToBytes()
     }
 
     public static func LoadBalancerAccumulatedStatsResponseNumRpcsSucceededByMethodEntryDecode(_ bytes: [UInt8]) -> (String, Int32) {
         var key: String = ""
         var value: Int32 = 0
-        let r = Reader(bytes)
+        let pbR = Reader(bytes)
         while true {
             let next: Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
-            case 1: key = String(decoding: field.bytesValue, as: UTF8.self)
-            case 2: value = Int32(truncatingIfNeeded: field.varintValue)
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
+            case 1: key = String(decoding: pbField.bytesValue, as: UTF8.self)
+            case 2: value = Int32(truncatingIfNeeded: pbField.varintValue)
             default: break
             }
         }
@@ -173,23 +173,23 @@ public enum MessagesPb {
     }
 
     public static func LoadBalancerAccumulatedStatsResponseNumRpcsFailedByMethodEntryEncode(_ key: String, _ value: Int32) -> [UInt8] {
-        let w = Writer()
-        w.StringField(1, key)
-        if value != 0 { w.Tag(2, 0); w.Varint(Int64(value)) }
-        return w.ToBytes()
+        let pbW = Writer()
+        pbW.StringField(1, key)
+        if value != 0 { pbW.Tag(2, 0); pbW.Varint(Int64(value)) }
+        return pbW.ToBytes()
     }
 
     public static func LoadBalancerAccumulatedStatsResponseNumRpcsFailedByMethodEntryDecode(_ bytes: [UInt8]) -> (String, Int32) {
         var key: String = ""
         var value: Int32 = 0
-        let r = Reader(bytes)
+        let pbR = Reader(bytes)
         while true {
             let next: Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
-            case 1: key = String(decoding: field.bytesValue, as: UTF8.self)
-            case 2: value = Int32(truncatingIfNeeded: field.varintValue)
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
+            case 1: key = String(decoding: pbField.bytesValue, as: UTF8.self)
+            case 2: value = Int32(truncatingIfNeeded: pbField.varintValue)
             default: break
             }
         }
@@ -197,23 +197,23 @@ public enum MessagesPb {
     }
 
     public static func LoadBalancerAccumulatedStatsResponseStatsPerMethodEntryEncode(_ key: String, _ value: LoadBalancerAccumulatedStatsResponse.MethodStats) -> [UInt8] {
-        let w = Writer()
-        w.StringField(1, key)
-        w.BytesField(2, value.MarshalDc())
-        return w.ToBytes()
+        let pbW = Writer()
+        pbW.StringField(1, key)
+        pbW.BytesField(2, value.MarshalDc())
+        return pbW.ToBytes()
     }
 
     public static func LoadBalancerAccumulatedStatsResponseStatsPerMethodEntryDecode(_ bytes: [UInt8]) -> (String, LoadBalancerAccumulatedStatsResponse.MethodStats) {
         var key: String = ""
         var value: LoadBalancerAccumulatedStatsResponse.MethodStats = LoadBalancerAccumulatedStatsResponse.MethodStats()
-        let r = Reader(bytes)
+        let pbR = Reader(bytes)
         while true {
             let next: Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
-            case 1: key = String(decoding: field.bytesValue, as: UTF8.self)
-            case 2: value.UnmarshalDc(field.bytesValue)
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
+            case 1: key = String(decoding: pbField.bytesValue, as: UTF8.self)
+            case 2: value.UnmarshalDc(pbField.bytesValue)
             default: break
             }
         }
@@ -221,23 +221,23 @@ public enum MessagesPb {
     }
 
     public static func LoadBalancerAccumulatedStatsResponseMethodStatsResultEntryEncode(_ key: Int32, _ value: Int32) -> [UInt8] {
-        let w = Writer()
-        if key != 0 { w.Tag(1, 0); w.Varint(Int64(key)) }
-        if value != 0 { w.Tag(2, 0); w.Varint(Int64(value)) }
-        return w.ToBytes()
+        let pbW = Writer()
+        if key != 0 { pbW.Tag(1, 0); pbW.Varint(Int64(key)) }
+        if value != 0 { pbW.Tag(2, 0); pbW.Varint(Int64(value)) }
+        return pbW.ToBytes()
     }
 
     public static func LoadBalancerAccumulatedStatsResponseMethodStatsResultEntryDecode(_ bytes: [UInt8]) -> (Int32, Int32) {
         var key: Int32 = 0
         var value: Int32 = 0
-        let r = Reader(bytes)
+        let pbR = Reader(bytes)
         while true {
             let next: Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
-            case 1: key = Int32(truncatingIfNeeded: field.varintValue)
-            case 2: value = Int32(truncatingIfNeeded: field.varintValue)
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
+            case 1: key = Int32(truncatingIfNeeded: pbField.varintValue)
+            case 2: value = Int32(truncatingIfNeeded: pbField.varintValue)
             default: break
             }
         }
@@ -245,23 +245,23 @@ public enum MessagesPb {
     }
 
     public static func TestOrcaReportRequestCostEntryEncode(_ key: String, _ value: Double) -> [UInt8] {
-        let w = Writer()
-        w.StringField(1, key)
-        if value != 0 { w.Tag(2, 1); w.FixedDouble(value) }
-        return w.ToBytes()
+        let pbW = Writer()
+        pbW.StringField(1, key)
+        if value != 0 { pbW.Tag(2, 1); pbW.FixedDouble(value) }
+        return pbW.ToBytes()
     }
 
     public static func TestOrcaReportRequestCostEntryDecode(_ bytes: [UInt8]) -> (String, Double) {
         var key: String = ""
         var value: Double = 0
-        let r = Reader(bytes)
+        let pbR = Reader(bytes)
         while true {
             let next: Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
-            case 1: key = String(decoding: field.bytesValue, as: UTF8.self)
-            case 2: value = MessagesPb.BitsToDouble(field.fixedValue)
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
+            case 1: key = String(decoding: pbField.bytesValue, as: UTF8.self)
+            case 2: value = MessagesPb.BitsToDouble(pbField.fixedValue)
             default: break
             }
         }
@@ -269,23 +269,23 @@ public enum MessagesPb {
     }
 
     public static func TestOrcaReportUtilizationEntryEncode(_ key: String, _ value: Double) -> [UInt8] {
-        let w = Writer()
-        w.StringField(1, key)
-        if value != 0 { w.Tag(2, 1); w.FixedDouble(value) }
-        return w.ToBytes()
+        let pbW = Writer()
+        pbW.StringField(1, key)
+        if value != 0 { pbW.Tag(2, 1); pbW.FixedDouble(value) }
+        return pbW.ToBytes()
     }
 
     public static func TestOrcaReportUtilizationEntryDecode(_ bytes: [UInt8]) -> (String, Double) {
         var key: String = ""
         var value: Double = 0
-        let r = Reader(bytes)
+        let pbR = Reader(bytes)
         while true {
             let next: Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
-            case 1: key = String(decoding: field.bytesValue, as: UTF8.self)
-            case 2: value = MessagesPb.BitsToDouble(field.fixedValue)
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
+            case 1: key = String(decoding: pbField.bytesValue, as: UTF8.self)
+            case 2: value = MessagesPb.BitsToDouble(pbField.fixedValue)
             default: break
             }
         }
@@ -312,23 +312,23 @@ public final class BoolValue: Marshaler, Unmarshaler {
         self.value = value
     }
     public func MarshalDc() -> [UInt8] {
-        let w = MessagesPb.Writer()
-        if value { w.Tag(1, 0); w.Varint((value ? Int64(1) : Int64(0))) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = MessagesPb.Writer()
+        if value { pbW.Tag(1, 0); pbW.Varint((value ? Int64(1) : Int64(0))) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         value = false
-        let r = MessagesPb.Reader(data)
+        let pbR = MessagesPb.Reader(data)
         while true {
             let next: MessagesPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                value = field.varintValue != 0
-            default: unknownFields += field.rawValue
+                value = pbField.varintValue != 0
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -343,27 +343,27 @@ public final class Payload: Marshaler, Unmarshaler {
         self.body = body
     }
     public func MarshalDc() -> [UInt8] {
-        let w = MessagesPb.Writer()
-        if type.rawValue != 0 { w.Tag(1, 0); w.Varint(Int64(type.rawValue)) }
-        if !body.isEmpty { w.BytesField(2, body) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = MessagesPb.Writer()
+        if type.rawValue != 0 { pbW.Tag(1, 0); pbW.Varint(Int64(type.rawValue)) }
+        if !body.isEmpty { pbW.BytesField(2, body) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         type = PayloadType.COMPRESSABLE
         body = []
-        let r = MessagesPb.Reader(data)
+        let pbR = MessagesPb.Reader(data)
         while true {
             let next: MessagesPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                type = PayloadType(rawValue: Int32(truncatingIfNeeded: field.varintValue)) ?? PayloadType.COMPRESSABLE
+                type = PayloadType(rawValue: Int32(truncatingIfNeeded: pbField.varintValue)) ?? PayloadType.COMPRESSABLE
             case 2:
-                body = field.bytesValue
-            default: unknownFields += field.rawValue
+                body = pbField.bytesValue
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -378,27 +378,27 @@ public final class EchoStatus: Marshaler, Unmarshaler {
         self.message = message
     }
     public func MarshalDc() -> [UInt8] {
-        let w = MessagesPb.Writer()
-        if code != 0 { w.Tag(1, 0); w.Varint(Int64(code)) }
-        w.StringField(2, message)
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = MessagesPb.Writer()
+        if code != 0 { pbW.Tag(1, 0); pbW.Varint(Int64(code)) }
+        pbW.StringField(2, message)
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         code = 0
         message = ""
-        let r = MessagesPb.Reader(data)
+        let pbR = MessagesPb.Reader(data)
         while true {
             let next: MessagesPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                code = Int32(truncatingIfNeeded: field.varintValue)
+                code = Int32(truncatingIfNeeded: pbField.varintValue)
             case 2:
-                message = String(decoding: field.bytesValue, as: UTF8.self)
-            default: unknownFields += field.rawValue
+                message = String(decoding: pbField.bytesValue, as: UTF8.self)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -431,20 +431,20 @@ public final class SimpleRequest: Marshaler, Unmarshaler {
         self.orcaPerQueryReport = orcaPerQueryReport
     }
     public func MarshalDc() -> [UInt8] {
-        let w = MessagesPb.Writer()
-        if responseType.rawValue != 0 { w.Tag(1, 0); w.Varint(Int64(responseType.rawValue)) }
-        if responseSize != 0 { w.Tag(2, 0); w.Varint(Int64(responseSize)) }
-        if let v = payload { w.BytesField(3, v.MarshalDc()) }
-        if fillUsername { w.Tag(4, 0); w.Varint((fillUsername ? Int64(1) : Int64(0))) }
-        if fillOauthScope { w.Tag(5, 0); w.Varint((fillOauthScope ? Int64(1) : Int64(0))) }
-        if let v = responseCompressed { w.BytesField(6, v.MarshalDc()) }
-        if let v = responseStatus { w.BytesField(7, v.MarshalDc()) }
-        if let v = expectCompressed { w.BytesField(8, v.MarshalDc()) }
-        if fillServerId { w.Tag(9, 0); w.Varint((fillServerId ? Int64(1) : Int64(0))) }
-        if fillGrpclbRouteType { w.Tag(10, 0); w.Varint((fillGrpclbRouteType ? Int64(1) : Int64(0))) }
-        if let v = orcaPerQueryReport { w.BytesField(11, v.MarshalDc()) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = MessagesPb.Writer()
+        if responseType.rawValue != 0 { pbW.Tag(1, 0); pbW.Varint(Int64(responseType.rawValue)) }
+        if responseSize != 0 { pbW.Tag(2, 0); pbW.Varint(Int64(responseSize)) }
+        if let v = payload { pbW.BytesField(3, v.MarshalDc()) }
+        if fillUsername { pbW.Tag(4, 0); pbW.Varint((fillUsername ? Int64(1) : Int64(0))) }
+        if fillOauthScope { pbW.Tag(5, 0); pbW.Varint((fillOauthScope ? Int64(1) : Int64(0))) }
+        if let v = responseCompressed { pbW.BytesField(6, v.MarshalDc()) }
+        if let v = responseStatus { pbW.BytesField(7, v.MarshalDc()) }
+        if let v = expectCompressed { pbW.BytesField(8, v.MarshalDc()) }
+        if fillServerId { pbW.Tag(9, 0); pbW.Varint((fillServerId ? Int64(1) : Int64(0))) }
+        if fillGrpclbRouteType { pbW.Tag(10, 0); pbW.Varint((fillGrpclbRouteType ? Int64(1) : Int64(0))) }
+        if let v = orcaPerQueryReport { pbW.BytesField(11, v.MarshalDc()) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
@@ -459,40 +459,40 @@ public final class SimpleRequest: Marshaler, Unmarshaler {
         fillServerId = false
         fillGrpclbRouteType = false
         orcaPerQueryReport = nil
-        let r = MessagesPb.Reader(data)
+        let pbR = MessagesPb.Reader(data)
         while true {
             let next: MessagesPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                responseType = PayloadType(rawValue: Int32(truncatingIfNeeded: field.varintValue)) ?? PayloadType.COMPRESSABLE
+                responseType = PayloadType(rawValue: Int32(truncatingIfNeeded: pbField.varintValue)) ?? PayloadType.COMPRESSABLE
             case 2:
-                responseSize = Int32(truncatingIfNeeded: field.varintValue)
+                responseSize = Int32(truncatingIfNeeded: pbField.varintValue)
             case 3:
                 payload = Payload()
-                payload!.UnmarshalDc(field.bytesValue)
+                payload!.UnmarshalDc(pbField.bytesValue)
             case 4:
-                fillUsername = field.varintValue != 0
+                fillUsername = pbField.varintValue != 0
             case 5:
-                fillOauthScope = field.varintValue != 0
+                fillOauthScope = pbField.varintValue != 0
             case 6:
                 responseCompressed = BoolValue()
-                responseCompressed!.UnmarshalDc(field.bytesValue)
+                responseCompressed!.UnmarshalDc(pbField.bytesValue)
             case 7:
                 responseStatus = EchoStatus()
-                responseStatus!.UnmarshalDc(field.bytesValue)
+                responseStatus!.UnmarshalDc(pbField.bytesValue)
             case 8:
                 expectCompressed = BoolValue()
-                expectCompressed!.UnmarshalDc(field.bytesValue)
+                expectCompressed!.UnmarshalDc(pbField.bytesValue)
             case 9:
-                fillServerId = field.varintValue != 0
+                fillServerId = pbField.varintValue != 0
             case 10:
-                fillGrpclbRouteType = field.varintValue != 0
+                fillGrpclbRouteType = pbField.varintValue != 0
             case 11:
                 orcaPerQueryReport = TestOrcaReport()
-                orcaPerQueryReport!.UnmarshalDc(field.bytesValue)
-            default: unknownFields += field.rawValue
+                orcaPerQueryReport!.UnmarshalDc(pbField.bytesValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -515,15 +515,15 @@ public final class SimpleResponse: Marshaler, Unmarshaler {
         self.hostname = hostname
     }
     public func MarshalDc() -> [UInt8] {
-        let w = MessagesPb.Writer()
-        if let v = payload { w.BytesField(1, v.MarshalDc()) }
-        w.StringField(2, username)
-        w.StringField(3, oauthScope)
-        w.StringField(4, serverId)
-        if grpclbRouteType.rawValue != 0 { w.Tag(5, 0); w.Varint(Int64(grpclbRouteType.rawValue)) }
-        w.StringField(6, hostname)
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = MessagesPb.Writer()
+        if let v = payload { pbW.BytesField(1, v.MarshalDc()) }
+        pbW.StringField(2, username)
+        pbW.StringField(3, oauthScope)
+        pbW.StringField(4, serverId)
+        if grpclbRouteType.rawValue != 0 { pbW.Tag(5, 0); pbW.Varint(Int64(grpclbRouteType.rawValue)) }
+        pbW.StringField(6, hostname)
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
@@ -533,26 +533,26 @@ public final class SimpleResponse: Marshaler, Unmarshaler {
         serverId = ""
         grpclbRouteType = GrpclbRouteType.GRPCLB_ROUTE_TYPE_UNKNOWN
         hostname = ""
-        let r = MessagesPb.Reader(data)
+        let pbR = MessagesPb.Reader(data)
         while true {
             let next: MessagesPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
                 payload = Payload()
-                payload!.UnmarshalDc(field.bytesValue)
+                payload!.UnmarshalDc(pbField.bytesValue)
             case 2:
-                username = String(decoding: field.bytesValue, as: UTF8.self)
+                username = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 3:
-                oauthScope = String(decoding: field.bytesValue, as: UTF8.self)
+                oauthScope = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 4:
-                serverId = String(decoding: field.bytesValue, as: UTF8.self)
+                serverId = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 5:
-                grpclbRouteType = GrpclbRouteType(rawValue: Int32(truncatingIfNeeded: field.varintValue)) ?? GrpclbRouteType.GRPCLB_ROUTE_TYPE_UNKNOWN
+                grpclbRouteType = GrpclbRouteType(rawValue: Int32(truncatingIfNeeded: pbField.varintValue)) ?? GrpclbRouteType.GRPCLB_ROUTE_TYPE_UNKNOWN
             case 6:
-                hostname = String(decoding: field.bytesValue, as: UTF8.self)
-            default: unknownFields += field.rawValue
+                hostname = String(decoding: pbField.bytesValue, as: UTF8.self)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -567,29 +567,29 @@ public final class StreamingInputCallRequest: Marshaler, Unmarshaler {
         self.expectCompressed = expectCompressed
     }
     public func MarshalDc() -> [UInt8] {
-        let w = MessagesPb.Writer()
-        if let v = payload { w.BytesField(1, v.MarshalDc()) }
-        if let v = expectCompressed { w.BytesField(2, v.MarshalDc()) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = MessagesPb.Writer()
+        if let v = payload { pbW.BytesField(1, v.MarshalDc()) }
+        if let v = expectCompressed { pbW.BytesField(2, v.MarshalDc()) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         payload = nil
         expectCompressed = nil
-        let r = MessagesPb.Reader(data)
+        let pbR = MessagesPb.Reader(data)
         while true {
             let next: MessagesPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
                 payload = Payload()
-                payload!.UnmarshalDc(field.bytesValue)
+                payload!.UnmarshalDc(pbField.bytesValue)
             case 2:
                 expectCompressed = BoolValue()
-                expectCompressed!.UnmarshalDc(field.bytesValue)
-            default: unknownFields += field.rawValue
+                expectCompressed!.UnmarshalDc(pbField.bytesValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -602,23 +602,23 @@ public final class StreamingInputCallResponse: Marshaler, Unmarshaler {
         self.aggregatedPayloadSize = aggregatedPayloadSize
     }
     public func MarshalDc() -> [UInt8] {
-        let w = MessagesPb.Writer()
-        if aggregatedPayloadSize != 0 { w.Tag(1, 0); w.Varint(Int64(aggregatedPayloadSize)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = MessagesPb.Writer()
+        if aggregatedPayloadSize != 0 { pbW.Tag(1, 0); pbW.Varint(Int64(aggregatedPayloadSize)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         aggregatedPayloadSize = 0
-        let r = MessagesPb.Reader(data)
+        let pbR = MessagesPb.Reader(data)
         while true {
             let next: MessagesPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                aggregatedPayloadSize = Int32(truncatingIfNeeded: field.varintValue)
-            default: unknownFields += field.rawValue
+                aggregatedPayloadSize = Int32(truncatingIfNeeded: pbField.varintValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -635,32 +635,32 @@ public final class ResponseParameters: Marshaler, Unmarshaler {
         self.compressed = compressed
     }
     public func MarshalDc() -> [UInt8] {
-        let w = MessagesPb.Writer()
-        if size != 0 { w.Tag(1, 0); w.Varint(Int64(size)) }
-        if intervalUs != 0 { w.Tag(2, 0); w.Varint(Int64(intervalUs)) }
-        if let v = compressed { w.BytesField(3, v.MarshalDc()) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = MessagesPb.Writer()
+        if size != 0 { pbW.Tag(1, 0); pbW.Varint(Int64(size)) }
+        if intervalUs != 0 { pbW.Tag(2, 0); pbW.Varint(Int64(intervalUs)) }
+        if let v = compressed { pbW.BytesField(3, v.MarshalDc()) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         size = 0
         intervalUs = 0
         compressed = nil
-        let r = MessagesPb.Reader(data)
+        let pbR = MessagesPb.Reader(data)
         while true {
             let next: MessagesPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                size = Int32(truncatingIfNeeded: field.varintValue)
+                size = Int32(truncatingIfNeeded: pbField.varintValue)
             case 2:
-                intervalUs = Int32(truncatingIfNeeded: field.varintValue)
+                intervalUs = Int32(truncatingIfNeeded: pbField.varintValue)
             case 3:
                 compressed = BoolValue()
-                compressed!.UnmarshalDc(field.bytesValue)
-            default: unknownFields += field.rawValue
+                compressed!.UnmarshalDc(pbField.bytesValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -681,14 +681,14 @@ public final class StreamingOutputCallRequest: Marshaler, Unmarshaler {
         self.orcaOobReport = orcaOobReport
     }
     public func MarshalDc() -> [UInt8] {
-        let w = MessagesPb.Writer()
-        if responseType.rawValue != 0 { w.Tag(1, 0); w.Varint(Int64(responseType.rawValue)) }
-        for x in responseParameters { w.BytesField(2, x.MarshalDc()) }
-        if let v = payload { w.BytesField(3, v.MarshalDc()) }
-        if let v = responseStatus { w.BytesField(7, v.MarshalDc()) }
-        if let v = orcaOobReport { w.BytesField(8, v.MarshalDc()) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = MessagesPb.Writer()
+        if responseType.rawValue != 0 { pbW.Tag(1, 0); pbW.Varint(Int64(responseType.rawValue)) }
+        for pbX in responseParameters { pbW.BytesField(2, pbX.MarshalDc()) }
+        if let v = payload { pbW.BytesField(3, v.MarshalDc()) }
+        if let v = responseStatus { pbW.BytesField(7, v.MarshalDc()) }
+        if let v = orcaOobReport { pbW.BytesField(8, v.MarshalDc()) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
@@ -697,28 +697,28 @@ public final class StreamingOutputCallRequest: Marshaler, Unmarshaler {
         payload = nil
         responseStatus = nil
         orcaOobReport = nil
-        let r = MessagesPb.Reader(data)
+        let pbR = MessagesPb.Reader(data)
         while true {
             let next: MessagesPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                responseType = PayloadType(rawValue: Int32(truncatingIfNeeded: field.varintValue)) ?? PayloadType.COMPRESSABLE
+                responseType = PayloadType(rawValue: Int32(truncatingIfNeeded: pbField.varintValue)) ?? PayloadType.COMPRESSABLE
             case 2:
-                let item = ResponseParameters()
-                item.UnmarshalDc(field.bytesValue)
-                responseParameters.append(item)
+                let pbItem = ResponseParameters()
+                pbItem.UnmarshalDc(pbField.bytesValue)
+                responseParameters.append(pbItem)
             case 3:
                 payload = Payload()
-                payload!.UnmarshalDc(field.bytesValue)
+                payload!.UnmarshalDc(pbField.bytesValue)
             case 7:
                 responseStatus = EchoStatus()
-                responseStatus!.UnmarshalDc(field.bytesValue)
+                responseStatus!.UnmarshalDc(pbField.bytesValue)
             case 8:
                 orcaOobReport = TestOrcaReport()
-                orcaOobReport!.UnmarshalDc(field.bytesValue)
-            default: unknownFields += field.rawValue
+                orcaOobReport!.UnmarshalDc(pbField.bytesValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -731,24 +731,24 @@ public final class StreamingOutputCallResponse: Marshaler, Unmarshaler {
         self.payload = payload
     }
     public func MarshalDc() -> [UInt8] {
-        let w = MessagesPb.Writer()
-        if let v = payload { w.BytesField(1, v.MarshalDc()) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = MessagesPb.Writer()
+        if let v = payload { pbW.BytesField(1, v.MarshalDc()) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         payload = nil
-        let r = MessagesPb.Reader(data)
+        let pbR = MessagesPb.Reader(data)
         while true {
             let next: MessagesPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
                 payload = Payload()
-                payload!.UnmarshalDc(field.bytesValue)
-            default: unknownFields += field.rawValue
+                payload!.UnmarshalDc(pbField.bytesValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -761,23 +761,23 @@ public final class ReconnectParams: Marshaler, Unmarshaler {
         self.maxReconnectBackoffMs = maxReconnectBackoffMs
     }
     public func MarshalDc() -> [UInt8] {
-        let w = MessagesPb.Writer()
-        if maxReconnectBackoffMs != 0 { w.Tag(1, 0); w.Varint(Int64(maxReconnectBackoffMs)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = MessagesPb.Writer()
+        if maxReconnectBackoffMs != 0 { pbW.Tag(1, 0); pbW.Varint(Int64(maxReconnectBackoffMs)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         maxReconnectBackoffMs = 0
-        let r = MessagesPb.Reader(data)
+        let pbR = MessagesPb.Reader(data)
         while true {
             let next: MessagesPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                maxReconnectBackoffMs = Int32(truncatingIfNeeded: field.varintValue)
-            default: unknownFields += field.rawValue
+                maxReconnectBackoffMs = Int32(truncatingIfNeeded: pbField.varintValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -792,38 +792,38 @@ public final class ReconnectInfo: Marshaler, Unmarshaler {
         self.backoffMs = backoffMs
     }
     public func MarshalDc() -> [UInt8] {
-        let w = MessagesPb.Writer()
-        if passed { w.Tag(1, 0); w.Varint((passed ? Int64(1) : Int64(0))) }
+        let pbW = MessagesPb.Writer()
+        if passed { pbW.Tag(1, 0); pbW.Varint((passed ? Int64(1) : Int64(0))) }
         if !backoffMs.isEmpty {
-            let payload = MessagesPb.Writer()
-            for x in backoffMs { payload.Varint(Int64(x)) }
-            w.BytesField(2, payload.ToBytes())
+            let pbPayload = MessagesPb.Writer()
+            for pbX in backoffMs { pbPayload.Varint(Int64(pbX)) }
+            pbW.BytesField(2, pbPayload.ToBytes())
         }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         passed = false
         backoffMs = []
-        let r = MessagesPb.Reader(data)
+        let pbR = MessagesPb.Reader(data)
         while true {
             let next: MessagesPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                passed = field.varintValue != 0
+                passed = pbField.varintValue != 0
             case 2:
-                if field.wire == 2 {
-                    let sub = MessagesPb.Reader(field.bytesValue)
-                    while !sub.Done() {
-                        backoffMs.append(Int32(truncatingIfNeeded: sub.Varint()))
+                if pbField.wire == 2 {
+                    let pbSub = MessagesPb.Reader(pbField.bytesValue)
+                    while !pbSub.Done() {
+                        backoffMs.append(Int32(truncatingIfNeeded: pbSub.Varint()))
                     }
                 } else {
-                    backoffMs.append(Int32(truncatingIfNeeded: field.varintValue))
+                    backoffMs.append(Int32(truncatingIfNeeded: pbField.varintValue))
                 }
-            default: unknownFields += field.rawValue
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -838,27 +838,27 @@ public final class LoadBalancerStatsRequest: Marshaler, Unmarshaler {
         self.timeoutSec = timeoutSec
     }
     public func MarshalDc() -> [UInt8] {
-        let w = MessagesPb.Writer()
-        if numRpcs != 0 { w.Tag(1, 0); w.Varint(Int64(numRpcs)) }
-        if timeoutSec != 0 { w.Tag(2, 0); w.Varint(Int64(timeoutSec)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = MessagesPb.Writer()
+        if numRpcs != 0 { pbW.Tag(1, 0); pbW.Varint(Int64(numRpcs)) }
+        if timeoutSec != 0 { pbW.Tag(2, 0); pbW.Varint(Int64(timeoutSec)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         numRpcs = 0
         timeoutSec = 0
-        let r = MessagesPb.Reader(data)
+        let pbR = MessagesPb.Reader(data)
         while true {
             let next: MessagesPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                numRpcs = Int32(truncatingIfNeeded: field.varintValue)
+                numRpcs = Int32(truncatingIfNeeded: pbField.varintValue)
             case 2:
-                timeoutSec = Int32(truncatingIfNeeded: field.varintValue)
-            default: unknownFields += field.rawValue
+                timeoutSec = Int32(truncatingIfNeeded: pbField.varintValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -875,33 +875,33 @@ public final class LoadBalancerStatsResponse: Marshaler, Unmarshaler {
         self.rpcsByMethod = rpcsByMethod
     }
     public func MarshalDc() -> [UInt8] {
-        let w = MessagesPb.Writer()
-        for (k, val) in rpcsByPeer.sorted(by: { $0.key < $1.key }) { w.BytesField(1, MessagesPb.LoadBalancerStatsResponseRpcsByPeerEntryEncode(k, val)) }
-        if numFailures != 0 { w.Tag(2, 0); w.Varint(Int64(numFailures)) }
-        for (k, val) in rpcsByMethod.sorted(by: { $0.key < $1.key }) { w.BytesField(3, MessagesPb.LoadBalancerStatsResponseRpcsByMethodEntryEncode(k, val)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = MessagesPb.Writer()
+        for (k, val) in rpcsByPeer.sorted(by: { $0.key < $1.key }) { pbW.BytesField(1, MessagesPb.LoadBalancerStatsResponseRpcsByPeerEntryEncode(k, val)) }
+        if numFailures != 0 { pbW.Tag(2, 0); pbW.Varint(Int64(numFailures)) }
+        for (k, val) in rpcsByMethod.sorted(by: { $0.key < $1.key }) { pbW.BytesField(3, MessagesPb.LoadBalancerStatsResponseRpcsByMethodEntryEncode(k, val)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         rpcsByPeer = [:]
         numFailures = 0
         rpcsByMethod = [:]
-        let r = MessagesPb.Reader(data)
+        let pbR = MessagesPb.Reader(data)
         while true {
             let next: MessagesPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                let kv = MessagesPb.LoadBalancerStatsResponseRpcsByPeerEntryDecode(field.bytesValue)
-                rpcsByPeer[kv.0] = kv.1
+                let pbKv = MessagesPb.LoadBalancerStatsResponseRpcsByPeerEntryDecode(pbField.bytesValue)
+                rpcsByPeer[pbKv.0] = pbKv.1
             case 2:
-                numFailures = Int32(truncatingIfNeeded: field.varintValue)
+                numFailures = Int32(truncatingIfNeeded: pbField.varintValue)
             case 3:
-                let kv = MessagesPb.LoadBalancerStatsResponseRpcsByMethodEntryDecode(field.bytesValue)
-                rpcsByMethod[kv.0] = kv.1
-            default: unknownFields += field.rawValue
+                let pbKv = MessagesPb.LoadBalancerStatsResponseRpcsByMethodEntryDecode(pbField.bytesValue)
+                rpcsByMethod[pbKv.0] = pbKv.1
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -913,24 +913,24 @@ public final class LoadBalancerStatsResponse: Marshaler, Unmarshaler {
             self.rpcsByPeer = rpcsByPeer
         }
         public func MarshalDc() -> [UInt8] {
-            let w = MessagesPb.Writer()
-        for (k, val) in rpcsByPeer.sorted(by: { $0.key < $1.key }) { w.BytesField(1, MessagesPb.LoadBalancerStatsResponseRpcsByPeerRpcsByPeerEntryEncode(k, val)) }
-            w.Raw(unknownFields)
-            return w.ToBytes()
+            let pbW = MessagesPb.Writer()
+        for (k, val) in rpcsByPeer.sorted(by: { $0.key < $1.key }) { pbW.BytesField(1, MessagesPb.LoadBalancerStatsResponseRpcsByPeerRpcsByPeerEntryEncode(k, val)) }
+            pbW.Raw(unknownFields)
+            return pbW.ToBytes()
         }
         public func UnmarshalDc(_ data: [UInt8]) {
             unknownFields = []
             rpcsByPeer = [:]
-            let r = MessagesPb.Reader(data)
+            let pbR = MessagesPb.Reader(data)
             while true {
                 let next: MessagesPb.Field?
-                do { next = try r.Next() } catch { break }
-                guard let field = next else { break }
-                switch field.number {
+                do { next = try pbR.Next() } catch { break }
+                guard let pbField = next else { break }
+                switch pbField.number {
             case 1:
-                let kv = MessagesPb.LoadBalancerStatsResponseRpcsByPeerRpcsByPeerEntryDecode(field.bytesValue)
-                rpcsByPeer[kv.0] = kv.1
-                default: unknownFields += field.rawValue
+                let pbKv = MessagesPb.LoadBalancerStatsResponseRpcsByPeerRpcsByPeerEntryDecode(pbField.bytesValue)
+                rpcsByPeer[pbKv.0] = pbKv.1
+                default: unknownFields += pbField.rawValue
                 }
             }
         }
@@ -944,27 +944,27 @@ public final class LoadBalancerStatsResponse: Marshaler, Unmarshaler {
                 self.value = value
             }
             public func MarshalDc() -> [UInt8] {
-                let w = MessagesPb.Writer()
-        w.StringField(1, key)
-        if value != 0 { w.Tag(2, 0); w.Varint(Int64(value)) }
-                w.Raw(unknownFields)
-                return w.ToBytes()
+                let pbW = MessagesPb.Writer()
+        pbW.StringField(1, key)
+        if value != 0 { pbW.Tag(2, 0); pbW.Varint(Int64(value)) }
+                pbW.Raw(unknownFields)
+                return pbW.ToBytes()
             }
             public func UnmarshalDc(_ data: [UInt8]) {
                 unknownFields = []
                 key = ""
                 value = 0
-                let r = MessagesPb.Reader(data)
+                let pbR = MessagesPb.Reader(data)
                 while true {
                     let next: MessagesPb.Field?
-                    do { next = try r.Next() } catch { break }
-                    guard let field = next else { break }
-                    switch field.number {
+                    do { next = try pbR.Next() } catch { break }
+                    guard let pbField = next else { break }
+                    switch pbField.number {
             case 1:
-                key = String(decoding: field.bytesValue, as: UTF8.self)
+                key = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                value = Int32(truncatingIfNeeded: field.varintValue)
-                    default: unknownFields += field.rawValue
+                value = Int32(truncatingIfNeeded: pbField.varintValue)
+                    default: unknownFields += pbField.rawValue
                     }
                 }
             }
@@ -980,27 +980,27 @@ public final class LoadBalancerStatsResponse: Marshaler, Unmarshaler {
             self.value = value
         }
         public func MarshalDc() -> [UInt8] {
-            let w = MessagesPb.Writer()
-        w.StringField(1, key)
-        if value != 0 { w.Tag(2, 0); w.Varint(Int64(value)) }
-            w.Raw(unknownFields)
-            return w.ToBytes()
+            let pbW = MessagesPb.Writer()
+        pbW.StringField(1, key)
+        if value != 0 { pbW.Tag(2, 0); pbW.Varint(Int64(value)) }
+            pbW.Raw(unknownFields)
+            return pbW.ToBytes()
         }
         public func UnmarshalDc(_ data: [UInt8]) {
             unknownFields = []
             key = ""
             value = 0
-            let r = MessagesPb.Reader(data)
+            let pbR = MessagesPb.Reader(data)
             while true {
                 let next: MessagesPb.Field?
-                do { next = try r.Next() } catch { break }
-                guard let field = next else { break }
-                switch field.number {
+                do { next = try pbR.Next() } catch { break }
+                guard let pbField = next else { break }
+                switch pbField.number {
             case 1:
-                key = String(decoding: field.bytesValue, as: UTF8.self)
+                key = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                value = Int32(truncatingIfNeeded: field.varintValue)
-                default: unknownFields += field.rawValue
+                value = Int32(truncatingIfNeeded: pbField.varintValue)
+                default: unknownFields += pbField.rawValue
                 }
             }
         }
@@ -1015,28 +1015,28 @@ public final class LoadBalancerStatsResponse: Marshaler, Unmarshaler {
             self.value = value
         }
         public func MarshalDc() -> [UInt8] {
-            let w = MessagesPb.Writer()
-        w.StringField(1, key)
-        if let v = value { w.BytesField(2, v.MarshalDc()) }
-            w.Raw(unknownFields)
-            return w.ToBytes()
+            let pbW = MessagesPb.Writer()
+        pbW.StringField(1, key)
+        if let v = value { pbW.BytesField(2, v.MarshalDc()) }
+            pbW.Raw(unknownFields)
+            return pbW.ToBytes()
         }
         public func UnmarshalDc(_ data: [UInt8]) {
             unknownFields = []
             key = ""
             value = nil
-            let r = MessagesPb.Reader(data)
+            let pbR = MessagesPb.Reader(data)
             while true {
                 let next: MessagesPb.Field?
-                do { next = try r.Next() } catch { break }
-                guard let field = next else { break }
-                switch field.number {
+                do { next = try pbR.Next() } catch { break }
+                guard let pbField = next else { break }
+                switch pbField.number {
             case 1:
-                key = String(decoding: field.bytesValue, as: UTF8.self)
+                key = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
                 value = LoadBalancerStatsResponse.RpcsByPeer()
-                value!.UnmarshalDc(field.bytesValue)
-                default: unknownFields += field.rawValue
+                value!.UnmarshalDc(pbField.bytesValue)
+                default: unknownFields += pbField.rawValue
                 }
             }
         }
@@ -1046,19 +1046,19 @@ public final class LoadBalancerAccumulatedStatsRequest: Marshaler, Unmarshaler {
     public var unknownFields: [UInt8] = []
     public init() {}
     public func MarshalDc() -> [UInt8] {
-        let w = MessagesPb.Writer()
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = MessagesPb.Writer()
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
-        let r = MessagesPb.Reader(data)
+        let pbR = MessagesPb.Reader(data)
         while true {
             let next: MessagesPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
-            default: unknownFields += field.rawValue
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -1077,13 +1077,13 @@ public final class LoadBalancerAccumulatedStatsResponse: Marshaler, Unmarshaler 
         self.statsPerMethod = statsPerMethod
     }
     public func MarshalDc() -> [UInt8] {
-        let w = MessagesPb.Writer()
-        for (k, val) in numRpcsStartedByMethod.sorted(by: { $0.key < $1.key }) { w.BytesField(1, MessagesPb.LoadBalancerAccumulatedStatsResponseNumRpcsStartedByMethodEntryEncode(k, val)) }
-        for (k, val) in numRpcsSucceededByMethod.sorted(by: { $0.key < $1.key }) { w.BytesField(2, MessagesPb.LoadBalancerAccumulatedStatsResponseNumRpcsSucceededByMethodEntryEncode(k, val)) }
-        for (k, val) in numRpcsFailedByMethod.sorted(by: { $0.key < $1.key }) { w.BytesField(3, MessagesPb.LoadBalancerAccumulatedStatsResponseNumRpcsFailedByMethodEntryEncode(k, val)) }
-        for (k, val) in statsPerMethod.sorted(by: { $0.key < $1.key }) { w.BytesField(4, MessagesPb.LoadBalancerAccumulatedStatsResponseStatsPerMethodEntryEncode(k, val)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = MessagesPb.Writer()
+        for (k, val) in numRpcsStartedByMethod.sorted(by: { $0.key < $1.key }) { pbW.BytesField(1, MessagesPb.LoadBalancerAccumulatedStatsResponseNumRpcsStartedByMethodEntryEncode(k, val)) }
+        for (k, val) in numRpcsSucceededByMethod.sorted(by: { $0.key < $1.key }) { pbW.BytesField(2, MessagesPb.LoadBalancerAccumulatedStatsResponseNumRpcsSucceededByMethodEntryEncode(k, val)) }
+        for (k, val) in numRpcsFailedByMethod.sorted(by: { $0.key < $1.key }) { pbW.BytesField(3, MessagesPb.LoadBalancerAccumulatedStatsResponseNumRpcsFailedByMethodEntryEncode(k, val)) }
+        for (k, val) in statsPerMethod.sorted(by: { $0.key < $1.key }) { pbW.BytesField(4, MessagesPb.LoadBalancerAccumulatedStatsResponseStatsPerMethodEntryEncode(k, val)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
@@ -1091,25 +1091,25 @@ public final class LoadBalancerAccumulatedStatsResponse: Marshaler, Unmarshaler 
         numRpcsSucceededByMethod = [:]
         numRpcsFailedByMethod = [:]
         statsPerMethod = [:]
-        let r = MessagesPb.Reader(data)
+        let pbR = MessagesPb.Reader(data)
         while true {
             let next: MessagesPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                let kv = MessagesPb.LoadBalancerAccumulatedStatsResponseNumRpcsStartedByMethodEntryDecode(field.bytesValue)
-                numRpcsStartedByMethod[kv.0] = kv.1
+                let pbKv = MessagesPb.LoadBalancerAccumulatedStatsResponseNumRpcsStartedByMethodEntryDecode(pbField.bytesValue)
+                numRpcsStartedByMethod[pbKv.0] = pbKv.1
             case 2:
-                let kv = MessagesPb.LoadBalancerAccumulatedStatsResponseNumRpcsSucceededByMethodEntryDecode(field.bytesValue)
-                numRpcsSucceededByMethod[kv.0] = kv.1
+                let pbKv = MessagesPb.LoadBalancerAccumulatedStatsResponseNumRpcsSucceededByMethodEntryDecode(pbField.bytesValue)
+                numRpcsSucceededByMethod[pbKv.0] = pbKv.1
             case 3:
-                let kv = MessagesPb.LoadBalancerAccumulatedStatsResponseNumRpcsFailedByMethodEntryDecode(field.bytesValue)
-                numRpcsFailedByMethod[kv.0] = kv.1
+                let pbKv = MessagesPb.LoadBalancerAccumulatedStatsResponseNumRpcsFailedByMethodEntryDecode(pbField.bytesValue)
+                numRpcsFailedByMethod[pbKv.0] = pbKv.1
             case 4:
-                let kv = MessagesPb.LoadBalancerAccumulatedStatsResponseStatsPerMethodEntryDecode(field.bytesValue)
-                statsPerMethod[kv.0] = kv.1
-            default: unknownFields += field.rawValue
+                let pbKv = MessagesPb.LoadBalancerAccumulatedStatsResponseStatsPerMethodEntryDecode(pbField.bytesValue)
+                statsPerMethod[pbKv.0] = pbKv.1
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -1123,27 +1123,27 @@ public final class LoadBalancerAccumulatedStatsResponse: Marshaler, Unmarshaler 
             self.value = value
         }
         public func MarshalDc() -> [UInt8] {
-            let w = MessagesPb.Writer()
-        w.StringField(1, key)
-        if value != 0 { w.Tag(2, 0); w.Varint(Int64(value)) }
-            w.Raw(unknownFields)
-            return w.ToBytes()
+            let pbW = MessagesPb.Writer()
+        pbW.StringField(1, key)
+        if value != 0 { pbW.Tag(2, 0); pbW.Varint(Int64(value)) }
+            pbW.Raw(unknownFields)
+            return pbW.ToBytes()
         }
         public func UnmarshalDc(_ data: [UInt8]) {
             unknownFields = []
             key = ""
             value = 0
-            let r = MessagesPb.Reader(data)
+            let pbR = MessagesPb.Reader(data)
             while true {
                 let next: MessagesPb.Field?
-                do { next = try r.Next() } catch { break }
-                guard let field = next else { break }
-                switch field.number {
+                do { next = try pbR.Next() } catch { break }
+                guard let pbField = next else { break }
+                switch pbField.number {
             case 1:
-                key = String(decoding: field.bytesValue, as: UTF8.self)
+                key = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                value = Int32(truncatingIfNeeded: field.varintValue)
-                default: unknownFields += field.rawValue
+                value = Int32(truncatingIfNeeded: pbField.varintValue)
+                default: unknownFields += pbField.rawValue
                 }
             }
         }
@@ -1158,27 +1158,27 @@ public final class LoadBalancerAccumulatedStatsResponse: Marshaler, Unmarshaler 
             self.value = value
         }
         public func MarshalDc() -> [UInt8] {
-            let w = MessagesPb.Writer()
-        w.StringField(1, key)
-        if value != 0 { w.Tag(2, 0); w.Varint(Int64(value)) }
-            w.Raw(unknownFields)
-            return w.ToBytes()
+            let pbW = MessagesPb.Writer()
+        pbW.StringField(1, key)
+        if value != 0 { pbW.Tag(2, 0); pbW.Varint(Int64(value)) }
+            pbW.Raw(unknownFields)
+            return pbW.ToBytes()
         }
         public func UnmarshalDc(_ data: [UInt8]) {
             unknownFields = []
             key = ""
             value = 0
-            let r = MessagesPb.Reader(data)
+            let pbR = MessagesPb.Reader(data)
             while true {
                 let next: MessagesPb.Field?
-                do { next = try r.Next() } catch { break }
-                guard let field = next else { break }
-                switch field.number {
+                do { next = try pbR.Next() } catch { break }
+                guard let pbField = next else { break }
+                switch pbField.number {
             case 1:
-                key = String(decoding: field.bytesValue, as: UTF8.self)
+                key = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                value = Int32(truncatingIfNeeded: field.varintValue)
-                default: unknownFields += field.rawValue
+                value = Int32(truncatingIfNeeded: pbField.varintValue)
+                default: unknownFields += pbField.rawValue
                 }
             }
         }
@@ -1193,27 +1193,27 @@ public final class LoadBalancerAccumulatedStatsResponse: Marshaler, Unmarshaler 
             self.value = value
         }
         public func MarshalDc() -> [UInt8] {
-            let w = MessagesPb.Writer()
-        w.StringField(1, key)
-        if value != 0 { w.Tag(2, 0); w.Varint(Int64(value)) }
-            w.Raw(unknownFields)
-            return w.ToBytes()
+            let pbW = MessagesPb.Writer()
+        pbW.StringField(1, key)
+        if value != 0 { pbW.Tag(2, 0); pbW.Varint(Int64(value)) }
+            pbW.Raw(unknownFields)
+            return pbW.ToBytes()
         }
         public func UnmarshalDc(_ data: [UInt8]) {
             unknownFields = []
             key = ""
             value = 0
-            let r = MessagesPb.Reader(data)
+            let pbR = MessagesPb.Reader(data)
             while true {
                 let next: MessagesPb.Field?
-                do { next = try r.Next() } catch { break }
-                guard let field = next else { break }
-                switch field.number {
+                do { next = try pbR.Next() } catch { break }
+                guard let pbField = next else { break }
+                switch pbField.number {
             case 1:
-                key = String(decoding: field.bytesValue, as: UTF8.self)
+                key = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                value = Int32(truncatingIfNeeded: field.varintValue)
-                default: unknownFields += field.rawValue
+                value = Int32(truncatingIfNeeded: pbField.varintValue)
+                default: unknownFields += pbField.rawValue
                 }
             }
         }
@@ -1228,28 +1228,28 @@ public final class LoadBalancerAccumulatedStatsResponse: Marshaler, Unmarshaler 
             self.result = result
         }
         public func MarshalDc() -> [UInt8] {
-            let w = MessagesPb.Writer()
-        if rpcsStarted != 0 { w.Tag(1, 0); w.Varint(Int64(rpcsStarted)) }
-        for (k, val) in result.sorted(by: { $0.key < $1.key }) { w.BytesField(2, MessagesPb.LoadBalancerAccumulatedStatsResponseMethodStatsResultEntryEncode(k, val)) }
-            w.Raw(unknownFields)
-            return w.ToBytes()
+            let pbW = MessagesPb.Writer()
+        if rpcsStarted != 0 { pbW.Tag(1, 0); pbW.Varint(Int64(rpcsStarted)) }
+        for (k, val) in result.sorted(by: { $0.key < $1.key }) { pbW.BytesField(2, MessagesPb.LoadBalancerAccumulatedStatsResponseMethodStatsResultEntryEncode(k, val)) }
+            pbW.Raw(unknownFields)
+            return pbW.ToBytes()
         }
         public func UnmarshalDc(_ data: [UInt8]) {
             unknownFields = []
             rpcsStarted = 0
             result = [:]
-            let r = MessagesPb.Reader(data)
+            let pbR = MessagesPb.Reader(data)
             while true {
                 let next: MessagesPb.Field?
-                do { next = try r.Next() } catch { break }
-                guard let field = next else { break }
-                switch field.number {
+                do { next = try pbR.Next() } catch { break }
+                guard let pbField = next else { break }
+                switch pbField.number {
             case 1:
-                rpcsStarted = Int32(truncatingIfNeeded: field.varintValue)
+                rpcsStarted = Int32(truncatingIfNeeded: pbField.varintValue)
             case 2:
-                let kv = MessagesPb.LoadBalancerAccumulatedStatsResponseMethodStatsResultEntryDecode(field.bytesValue)
-                result[kv.0] = kv.1
-                default: unknownFields += field.rawValue
+                let pbKv = MessagesPb.LoadBalancerAccumulatedStatsResponseMethodStatsResultEntryDecode(pbField.bytesValue)
+                result[pbKv.0] = pbKv.1
+                default: unknownFields += pbField.rawValue
                 }
             }
         }
@@ -1263,27 +1263,27 @@ public final class LoadBalancerAccumulatedStatsResponse: Marshaler, Unmarshaler 
                 self.value = value
             }
             public func MarshalDc() -> [UInt8] {
-                let w = MessagesPb.Writer()
-        if key != 0 { w.Tag(1, 0); w.Varint(Int64(key)) }
-        if value != 0 { w.Tag(2, 0); w.Varint(Int64(value)) }
-                w.Raw(unknownFields)
-                return w.ToBytes()
+                let pbW = MessagesPb.Writer()
+        if key != 0 { pbW.Tag(1, 0); pbW.Varint(Int64(key)) }
+        if value != 0 { pbW.Tag(2, 0); pbW.Varint(Int64(value)) }
+                pbW.Raw(unknownFields)
+                return pbW.ToBytes()
             }
             public func UnmarshalDc(_ data: [UInt8]) {
                 unknownFields = []
                 key = 0
                 value = 0
-                let r = MessagesPb.Reader(data)
+                let pbR = MessagesPb.Reader(data)
                 while true {
                     let next: MessagesPb.Field?
-                    do { next = try r.Next() } catch { break }
-                    guard let field = next else { break }
-                    switch field.number {
+                    do { next = try pbR.Next() } catch { break }
+                    guard let pbField = next else { break }
+                    switch pbField.number {
             case 1:
-                key = Int32(truncatingIfNeeded: field.varintValue)
+                key = Int32(truncatingIfNeeded: pbField.varintValue)
             case 2:
-                value = Int32(truncatingIfNeeded: field.varintValue)
-                    default: unknownFields += field.rawValue
+                value = Int32(truncatingIfNeeded: pbField.varintValue)
+                    default: unknownFields += pbField.rawValue
                     }
                 }
             }
@@ -1299,28 +1299,28 @@ public final class LoadBalancerAccumulatedStatsResponse: Marshaler, Unmarshaler 
             self.value = value
         }
         public func MarshalDc() -> [UInt8] {
-            let w = MessagesPb.Writer()
-        w.StringField(1, key)
-        if let v = value { w.BytesField(2, v.MarshalDc()) }
-            w.Raw(unknownFields)
-            return w.ToBytes()
+            let pbW = MessagesPb.Writer()
+        pbW.StringField(1, key)
+        if let v = value { pbW.BytesField(2, v.MarshalDc()) }
+            pbW.Raw(unknownFields)
+            return pbW.ToBytes()
         }
         public func UnmarshalDc(_ data: [UInt8]) {
             unknownFields = []
             key = ""
             value = nil
-            let r = MessagesPb.Reader(data)
+            let pbR = MessagesPb.Reader(data)
             while true {
                 let next: MessagesPb.Field?
-                do { next = try r.Next() } catch { break }
-                guard let field = next else { break }
-                switch field.number {
+                do { next = try pbR.Next() } catch { break }
+                guard let pbField = next else { break }
+                switch pbField.number {
             case 1:
-                key = String(decoding: field.bytesValue, as: UTF8.self)
+                key = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
                 value = LoadBalancerAccumulatedStatsResponse.MethodStats()
-                value!.UnmarshalDc(field.bytesValue)
-                default: unknownFields += field.rawValue
+                value!.UnmarshalDc(pbField.bytesValue)
+                default: unknownFields += pbField.rawValue
                 }
             }
         }
@@ -1338,44 +1338,44 @@ public final class ClientConfigureRequest: Marshaler, Unmarshaler {
         self.timeoutSec = timeoutSec
     }
     public func MarshalDc() -> [UInt8] {
-        let w = MessagesPb.Writer()
+        let pbW = MessagesPb.Writer()
         if !types.isEmpty {
-            let payload = MessagesPb.Writer()
-            for x in types { payload.Varint(Int64(x.rawValue)) }
-            w.BytesField(1, payload.ToBytes())
+            let pbPayload = MessagesPb.Writer()
+            for pbX in types { pbPayload.Varint(Int64(pbX.rawValue)) }
+            pbW.BytesField(1, pbPayload.ToBytes())
         }
-        for x in metadata { w.BytesField(2, x.MarshalDc()) }
-        if timeoutSec != 0 { w.Tag(3, 0); w.Varint(Int64(timeoutSec)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        for pbX in metadata { pbW.BytesField(2, pbX.MarshalDc()) }
+        if timeoutSec != 0 { pbW.Tag(3, 0); pbW.Varint(Int64(timeoutSec)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         types = []
         metadata = []
         timeoutSec = 0
-        let r = MessagesPb.Reader(data)
+        let pbR = MessagesPb.Reader(data)
         while true {
             let next: MessagesPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                if field.wire == 2 {
-                    let sub = MessagesPb.Reader(field.bytesValue)
-                    while !sub.Done() {
-                        types.append(RpcType(rawValue: Int32(truncatingIfNeeded: sub.Varint())) ?? RpcType.EMPTY_CALL)
+                if pbField.wire == 2 {
+                    let pbSub = MessagesPb.Reader(pbField.bytesValue)
+                    while !pbSub.Done() {
+                        types.append(RpcType(rawValue: Int32(truncatingIfNeeded: pbSub.Varint())) ?? RpcType.EMPTY_CALL)
                     }
                 } else {
-                    types.append(RpcType(rawValue: Int32(truncatingIfNeeded: field.varintValue)) ?? RpcType.EMPTY_CALL)
+                    types.append(RpcType(rawValue: Int32(truncatingIfNeeded: pbField.varintValue)) ?? RpcType.EMPTY_CALL)
                 }
             case 2:
-                let item = ClientConfigureRequest.Metadata()
-                item.UnmarshalDc(field.bytesValue)
-                metadata.append(item)
+                let pbItem = ClientConfigureRequest.Metadata()
+                pbItem.UnmarshalDc(pbField.bytesValue)
+                metadata.append(pbItem)
             case 3:
-                timeoutSec = Int32(truncatingIfNeeded: field.varintValue)
-            default: unknownFields += field.rawValue
+                timeoutSec = Int32(truncatingIfNeeded: pbField.varintValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -1391,31 +1391,31 @@ public final class ClientConfigureRequest: Marshaler, Unmarshaler {
             self.value = value
         }
         public func MarshalDc() -> [UInt8] {
-            let w = MessagesPb.Writer()
-        if type.rawValue != 0 { w.Tag(1, 0); w.Varint(Int64(type.rawValue)) }
-        w.StringField(2, key)
-        w.StringField(3, value)
-            w.Raw(unknownFields)
-            return w.ToBytes()
+            let pbW = MessagesPb.Writer()
+        if type.rawValue != 0 { pbW.Tag(1, 0); pbW.Varint(Int64(type.rawValue)) }
+        pbW.StringField(2, key)
+        pbW.StringField(3, value)
+            pbW.Raw(unknownFields)
+            return pbW.ToBytes()
         }
         public func UnmarshalDc(_ data: [UInt8]) {
             unknownFields = []
             type = RpcType.EMPTY_CALL
             key = ""
             value = ""
-            let r = MessagesPb.Reader(data)
+            let pbR = MessagesPb.Reader(data)
             while true {
                 let next: MessagesPb.Field?
-                do { next = try r.Next() } catch { break }
-                guard let field = next else { break }
-                switch field.number {
+                do { next = try pbR.Next() } catch { break }
+                guard let pbField = next else { break }
+                switch pbField.number {
             case 1:
-                type = RpcType(rawValue: Int32(truncatingIfNeeded: field.varintValue)) ?? RpcType.EMPTY_CALL
+                type = RpcType(rawValue: Int32(truncatingIfNeeded: pbField.varintValue)) ?? RpcType.EMPTY_CALL
             case 2:
-                key = String(decoding: field.bytesValue, as: UTF8.self)
+                key = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 3:
-                value = String(decoding: field.bytesValue, as: UTF8.self)
-                default: unknownFields += field.rawValue
+                value = String(decoding: pbField.bytesValue, as: UTF8.self)
+                default: unknownFields += pbField.rawValue
                 }
             }
         }
@@ -1429,19 +1429,19 @@ public final class ClientConfigureResponse: Marshaler, Unmarshaler {
     public var unknownFields: [UInt8] = []
     public init() {}
     public func MarshalDc() -> [UInt8] {
-        let w = MessagesPb.Writer()
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = MessagesPb.Writer()
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
-        let r = MessagesPb.Reader(data)
+        let pbR = MessagesPb.Reader(data)
         while true {
             let next: MessagesPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
-            default: unknownFields += field.rawValue
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -1460,13 +1460,13 @@ public final class TestOrcaReport: Marshaler, Unmarshaler {
         self.utilization = utilization
     }
     public func MarshalDc() -> [UInt8] {
-        let w = MessagesPb.Writer()
-        if cpuUtilization != 0 { w.Tag(1, 1); w.FixedDouble(cpuUtilization) }
-        if memoryUtilization != 0 { w.Tag(2, 1); w.FixedDouble(memoryUtilization) }
-        for (k, val) in requestCost.sorted(by: { $0.key < $1.key }) { w.BytesField(3, MessagesPb.TestOrcaReportRequestCostEntryEncode(k, val)) }
-        for (k, val) in utilization.sorted(by: { $0.key < $1.key }) { w.BytesField(4, MessagesPb.TestOrcaReportUtilizationEntryEncode(k, val)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = MessagesPb.Writer()
+        if cpuUtilization != 0 { pbW.Tag(1, 1); pbW.FixedDouble(cpuUtilization) }
+        if memoryUtilization != 0 { pbW.Tag(2, 1); pbW.FixedDouble(memoryUtilization) }
+        for (k, val) in requestCost.sorted(by: { $0.key < $1.key }) { pbW.BytesField(3, MessagesPb.TestOrcaReportRequestCostEntryEncode(k, val)) }
+        for (k, val) in utilization.sorted(by: { $0.key < $1.key }) { pbW.BytesField(4, MessagesPb.TestOrcaReportUtilizationEntryEncode(k, val)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
@@ -1474,23 +1474,23 @@ public final class TestOrcaReport: Marshaler, Unmarshaler {
         memoryUtilization = 0
         requestCost = [:]
         utilization = [:]
-        let r = MessagesPb.Reader(data)
+        let pbR = MessagesPb.Reader(data)
         while true {
             let next: MessagesPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                cpuUtilization = MessagesPb.BitsToDouble(field.fixedValue)
+                cpuUtilization = MessagesPb.BitsToDouble(pbField.fixedValue)
             case 2:
-                memoryUtilization = MessagesPb.BitsToDouble(field.fixedValue)
+                memoryUtilization = MessagesPb.BitsToDouble(pbField.fixedValue)
             case 3:
-                let kv = MessagesPb.TestOrcaReportRequestCostEntryDecode(field.bytesValue)
-                requestCost[kv.0] = kv.1
+                let pbKv = MessagesPb.TestOrcaReportRequestCostEntryDecode(pbField.bytesValue)
+                requestCost[pbKv.0] = pbKv.1
             case 4:
-                let kv = MessagesPb.TestOrcaReportUtilizationEntryDecode(field.bytesValue)
-                utilization[kv.0] = kv.1
-            default: unknownFields += field.rawValue
+                let pbKv = MessagesPb.TestOrcaReportUtilizationEntryDecode(pbField.bytesValue)
+                utilization[pbKv.0] = pbKv.1
+            default: unknownFields += pbField.rawValue
             }
         }
     }
@@ -1504,27 +1504,27 @@ public final class TestOrcaReport: Marshaler, Unmarshaler {
             self.value = value
         }
         public func MarshalDc() -> [UInt8] {
-            let w = MessagesPb.Writer()
-        w.StringField(1, key)
-        if value != 0 { w.Tag(2, 1); w.FixedDouble(value) }
-            w.Raw(unknownFields)
-            return w.ToBytes()
+            let pbW = MessagesPb.Writer()
+        pbW.StringField(1, key)
+        if value != 0 { pbW.Tag(2, 1); pbW.FixedDouble(value) }
+            pbW.Raw(unknownFields)
+            return pbW.ToBytes()
         }
         public func UnmarshalDc(_ data: [UInt8]) {
             unknownFields = []
             key = ""
             value = 0
-            let r = MessagesPb.Reader(data)
+            let pbR = MessagesPb.Reader(data)
             while true {
                 let next: MessagesPb.Field?
-                do { next = try r.Next() } catch { break }
-                guard let field = next else { break }
-                switch field.number {
+                do { next = try pbR.Next() } catch { break }
+                guard let pbField = next else { break }
+                switch pbField.number {
             case 1:
-                key = String(decoding: field.bytesValue, as: UTF8.self)
+                key = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                value = MessagesPb.BitsToDouble(field.fixedValue)
-                default: unknownFields += field.rawValue
+                value = MessagesPb.BitsToDouble(pbField.fixedValue)
+                default: unknownFields += pbField.rawValue
                 }
             }
         }
@@ -1539,27 +1539,27 @@ public final class TestOrcaReport: Marshaler, Unmarshaler {
             self.value = value
         }
         public func MarshalDc() -> [UInt8] {
-            let w = MessagesPb.Writer()
-        w.StringField(1, key)
-        if value != 0 { w.Tag(2, 1); w.FixedDouble(value) }
-            w.Raw(unknownFields)
-            return w.ToBytes()
+            let pbW = MessagesPb.Writer()
+        pbW.StringField(1, key)
+        if value != 0 { pbW.Tag(2, 1); pbW.FixedDouble(value) }
+            pbW.Raw(unknownFields)
+            return pbW.ToBytes()
         }
         public func UnmarshalDc(_ data: [UInt8]) {
             unknownFields = []
             key = ""
             value = 0
-            let r = MessagesPb.Reader(data)
+            let pbR = MessagesPb.Reader(data)
             while true {
                 let next: MessagesPb.Field?
-                do { next = try r.Next() } catch { break }
-                guard let field = next else { break }
-                switch field.number {
+                do { next = try pbR.Next() } catch { break }
+                guard let pbField = next else { break }
+                switch pbField.number {
             case 1:
-                key = String(decoding: field.bytesValue, as: UTF8.self)
+                key = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                value = MessagesPb.BitsToDouble(field.fixedValue)
-                default: unknownFields += field.rawValue
+                value = MessagesPb.BitsToDouble(pbField.fixedValue)
+                default: unknownFields += pbField.rawValue
                 }
             }
         }

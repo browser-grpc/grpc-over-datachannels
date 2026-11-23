@@ -21,6 +21,17 @@ import { dialDc, startIngressProxy } from "../../proxy/grpc-dc-proxy.mjs";
 import { createTestServiceService } from "../examples/interop/test_grpc_dc.js";
 import { testServiceHandlers } from "./interop_service.js";
 
+// GRPC_DC_REQUIRE_ORACLE (set in the CI image, whose Dockerfile
+// builds both oracles) turns an availability skip into a hard
+// failure: in CI, a missing oracle is build breakage, not a skip.
+function oracleSkip(t, reason) {
+  if (process.env.GRPC_DC_REQUIRE_ORACLE) {
+    throw new Error(`oracle required but unavailable: ${reason}`);
+  }
+  t.skip(reason);
+}
+
+
 const run = promisify(execFile);
 const ROOT = new URL("../..", import.meta.url).pathname;
 const JAVA_DIR = `${ROOT}oracle/java`;
@@ -72,7 +83,7 @@ async function startServerSide(t) {
 function javaClasspath(t) {
   const cpFile = `${JAVA_DIR}/target/cp.txt`;
   if (!existsSync(`${JAVA_DIR}/target/classes`) || !existsSync(cpFile)) {
-    t.skip("java oracle not built (cd oracle/java && mvn package)");
+    oracleSkip(t, "java oracle not built (cd oracle/java && mvn package)");
     return null;
   }
   return `${JAVA_DIR}/target/classes:${readFileSync(cpFile, "utf8").trim()}`;
@@ -104,7 +115,7 @@ test("interop B: grpc-java client -> ingress proxy -> JS TestService server", { 
 
 test("interop B: grpc-go client -> ingress proxy -> JS TestService server", { timeout: 280000 }, async (t) => {
   if (!existsSync(GO_CLIENT)) {
-    t.skip("go interop client not built (cd oracle/go-interop && go build -o interop-client google.golang.org/grpc/interop/client)");
+    oracleSkip(t, "go interop client not built (cd oracle/go-interop && go build -o interop-client google.golang.org/grpc/interop/client)");
     return;
   }
   const port = await startServerSide(t);

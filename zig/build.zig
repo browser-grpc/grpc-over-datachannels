@@ -40,6 +40,9 @@ pub fn build(b: *std.Build) void {
                 },
             }),
         });
+        exe.addLibraryPath(b.path("../rust/target/release"));
+        exe.linkSystemLibrary("grpc_dc");
+        exe.root_module.link_libc = true;
         b.installArtifact(exe);
     }
 }

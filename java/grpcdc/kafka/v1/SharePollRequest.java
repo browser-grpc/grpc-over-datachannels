@@ -16,12 +16,12 @@ public final class SharePollRequest implements grpcdc.Marshaler, grpcdc.Unmarsha
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
-        w.stringField(1, sessionId);
-        if (maxRecords != 0) { w.tag(2, 0); w.varint(maxRecords); }
-        if (maxWaitMs != 0) { w.tag(3, 0); w.varint(maxWaitMs); }
-        w.raw(unknownFields);
-        return w.toBytes();
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
+        pbW.stringField(1, sessionId);
+        if (maxRecords != 0) { pbW.tag(2, 0); pbW.varint(maxRecords); }
+        if (maxWaitMs != 0) { pbW.tag(3, 0); pbW.varint(maxWaitMs); }
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -30,20 +30,20 @@ public final class SharePollRequest implements grpcdc.Marshaler, grpcdc.Unmarsha
         sessionId = "";
         maxRecords = 0;
         maxWaitMs = 0;
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    sessionId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    sessionId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 2 -> {
-                    maxRecords = (int) field.varintValue;
+                    maxRecords = (int) pbField.varintValue;
                 }
                 case 3 -> {
-                    maxWaitMs = (int) field.varintValue;
+                    maxWaitMs = (int) pbField.varintValue;
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

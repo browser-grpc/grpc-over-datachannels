@@ -395,7 +395,7 @@ class _KafkaConsumeServerImpl implements KafkaConsumeServer {
 
   @override
   void send(ConsumeResponse resp) {
-    _sink(resp.marshalDc());
+    _sink(context.encodeMessage(resp));
   }
 }
 
@@ -408,7 +408,7 @@ class _KafkaSubscribeServerImpl implements KafkaSubscribeServer {
 
   @override
   void send(GroupSubscribeResponse resp) {
-    _sink(resp.marshalDc());
+    _sink(context.encodeMessage(resp));
   }
 }
 
@@ -421,31 +421,31 @@ class KafkaGrpcDc {
           (ctx, reqs, sink) async {
         final req = MetadataRequest();
         await reqs.recvInto(req);
-        sink((await impl.metadata(ctx, req)).marshalDc());
+        sink(ctx.encodeMessage(await impl.metadata(ctx, req)));
       }),
       Method("OpenProducer", "/grpcdc.kafka.v1.Kafka/OpenProducer", Server.kindUnary,
           (ctx, reqs, sink) async {
         final req = OpenProducerRequest();
         await reqs.recvInto(req);
-        sink((await impl.openProducer(ctx, req)).marshalDc());
+        sink(ctx.encodeMessage(await impl.openProducer(ctx, req)));
       }),
       Method("CloseProducer", "/grpcdc.kafka.v1.Kafka/CloseProducer", Server.kindUnary,
           (ctx, reqs, sink) async {
         final req = CloseProducerRequest();
         await reqs.recvInto(req);
-        sink((await impl.closeProducer(ctx, req)).marshalDc());
+        sink(ctx.encodeMessage(await impl.closeProducer(ctx, req)));
       }),
       Method("EndTransaction", "/grpcdc.kafka.v1.Kafka/EndTransaction", Server.kindUnary,
           (ctx, reqs, sink) async {
         final req = EndTransactionRequest();
         await reqs.recvInto(req);
-        sink((await impl.endTransaction(ctx, req)).marshalDc());
+        sink(ctx.encodeMessage(await impl.endTransaction(ctx, req)));
       }),
       Method("Produce", "/grpcdc.kafka.v1.Kafka/Produce", Server.kindUnary,
           (ctx, reqs, sink) async {
         final req = ProduceRequest();
         await reqs.recvInto(req);
-        sink((await impl.produce(ctx, req)).marshalDc());
+        sink(ctx.encodeMessage(await impl.produce(ctx, req)));
       }),
       Method("Consume", "/grpcdc.kafka.v1.Kafka/Consume",
           Server.kindServerStreaming, (ctx, reqs, sink) async {
@@ -463,139 +463,139 @@ class KafkaGrpcDc {
           (ctx, reqs, sink) async {
         final req = ListOffsetsRequest();
         await reqs.recvInto(req);
-        sink((await impl.listOffsets(ctx, req)).marshalDc());
+        sink(ctx.encodeMessage(await impl.listOffsets(ctx, req)));
       }),
       Method("CommitOffset", "/grpcdc.kafka.v1.Kafka/CommitOffset", Server.kindUnary,
           (ctx, reqs, sink) async {
         final req = CommitOffsetRequest();
         await reqs.recvInto(req);
-        sink((await impl.commitOffset(ctx, req)).marshalDc());
+        sink(ctx.encodeMessage(await impl.commitOffset(ctx, req)));
       }),
       Method("FetchOffset", "/grpcdc.kafka.v1.Kafka/FetchOffset", Server.kindUnary,
           (ctx, reqs, sink) async {
         final req = FetchOffsetRequest();
         await reqs.recvInto(req);
-        sink((await impl.fetchOffset(ctx, req)).marshalDc());
+        sink(ctx.encodeMessage(await impl.fetchOffset(ctx, req)));
       }),
       Method("CreateTopics", "/grpcdc.kafka.v1.Kafka/CreateTopics", Server.kindUnary,
           (ctx, reqs, sink) async {
         final req = CreateTopicsRequest();
         await reqs.recvInto(req);
-        sink((await impl.createTopics(ctx, req)).marshalDc());
+        sink(ctx.encodeMessage(await impl.createTopics(ctx, req)));
       }),
       Method("DeleteTopics", "/grpcdc.kafka.v1.Kafka/DeleteTopics", Server.kindUnary,
           (ctx, reqs, sink) async {
         final req = DeleteTopicsRequest();
         await reqs.recvInto(req);
-        sink((await impl.deleteTopics(ctx, req)).marshalDc());
+        sink(ctx.encodeMessage(await impl.deleteTopics(ctx, req)));
       }),
       Method("DescribeConfigs", "/grpcdc.kafka.v1.Kafka/DescribeConfigs", Server.kindUnary,
           (ctx, reqs, sink) async {
         final req = DescribeConfigsRequest();
         await reqs.recvInto(req);
-        sink((await impl.describeConfigs(ctx, req)).marshalDc());
+        sink(ctx.encodeMessage(await impl.describeConfigs(ctx, req)));
       }),
       Method("AlterConfigs", "/grpcdc.kafka.v1.Kafka/AlterConfigs", Server.kindUnary,
           (ctx, reqs, sink) async {
         final req = AlterConfigsRequest();
         await reqs.recvInto(req);
-        sink((await impl.alterConfigs(ctx, req)).marshalDc());
+        sink(ctx.encodeMessage(await impl.alterConfigs(ctx, req)));
       }),
       Method("CreatePartitions", "/grpcdc.kafka.v1.Kafka/CreatePartitions", Server.kindUnary,
           (ctx, reqs, sink) async {
         final req = CreatePartitionsRequest();
         await reqs.recvInto(req);
-        sink((await impl.createPartitions(ctx, req)).marshalDc());
+        sink(ctx.encodeMessage(await impl.createPartitions(ctx, req)));
       }),
       Method("DeleteRecords", "/grpcdc.kafka.v1.Kafka/DeleteRecords", Server.kindUnary,
           (ctx, reqs, sink) async {
         final req = DeleteRecordsRequest();
         await reqs.recvInto(req);
-        sink((await impl.deleteRecords(ctx, req)).marshalDc());
+        sink(ctx.encodeMessage(await impl.deleteRecords(ctx, req)));
       }),
       Method("ListGroups", "/grpcdc.kafka.v1.Kafka/ListGroups", Server.kindUnary,
           (ctx, reqs, sink) async {
         final req = ListGroupsRequest();
         await reqs.recvInto(req);
-        sink((await impl.listGroups(ctx, req)).marshalDc());
+        sink(ctx.encodeMessage(await impl.listGroups(ctx, req)));
       }),
       Method("DescribeGroups", "/grpcdc.kafka.v1.Kafka/DescribeGroups", Server.kindUnary,
           (ctx, reqs, sink) async {
         final req = DescribeGroupsRequest();
         await reqs.recvInto(req);
-        sink((await impl.describeGroups(ctx, req)).marshalDc());
+        sink(ctx.encodeMessage(await impl.describeGroups(ctx, req)));
       }),
       Method("DeleteGroups", "/grpcdc.kafka.v1.Kafka/DeleteGroups", Server.kindUnary,
           (ctx, reqs, sink) async {
         final req = DeleteGroupsRequest();
         await reqs.recvInto(req);
-        sink((await impl.deleteGroups(ctx, req)).marshalDc());
+        sink(ctx.encodeMessage(await impl.deleteGroups(ctx, req)));
       }),
       Method("DeleteGroupOffsets", "/grpcdc.kafka.v1.Kafka/DeleteGroupOffsets", Server.kindUnary,
           (ctx, reqs, sink) async {
         final req = DeleteGroupOffsetsRequest();
         await reqs.recvInto(req);
-        sink((await impl.deleteGroupOffsets(ctx, req)).marshalDc());
+        sink(ctx.encodeMessage(await impl.deleteGroupOffsets(ctx, req)));
       }),
       Method("DescribeAcls", "/grpcdc.kafka.v1.Kafka/DescribeAcls", Server.kindUnary,
           (ctx, reqs, sink) async {
         final req = DescribeAclsRequest();
         await reqs.recvInto(req);
-        sink((await impl.describeAcls(ctx, req)).marshalDc());
+        sink(ctx.encodeMessage(await impl.describeAcls(ctx, req)));
       }),
       Method("CreateAcls", "/grpcdc.kafka.v1.Kafka/CreateAcls", Server.kindUnary,
           (ctx, reqs, sink) async {
         final req = CreateAclsRequest();
         await reqs.recvInto(req);
-        sink((await impl.createAcls(ctx, req)).marshalDc());
+        sink(ctx.encodeMessage(await impl.createAcls(ctx, req)));
       }),
       Method("DeleteAcls", "/grpcdc.kafka.v1.Kafka/DeleteAcls", Server.kindUnary,
           (ctx, reqs, sink) async {
         final req = DeleteAclsRequest();
         await reqs.recvInto(req);
-        sink((await impl.deleteAcls(ctx, req)).marshalDc());
+        sink(ctx.encodeMessage(await impl.deleteAcls(ctx, req)));
       }),
       Method("ListTransactions", "/grpcdc.kafka.v1.Kafka/ListTransactions", Server.kindUnary,
           (ctx, reqs, sink) async {
         final req = ListTransactionsRequest();
         await reqs.recvInto(req);
-        sink((await impl.listTransactions(ctx, req)).marshalDc());
+        sink(ctx.encodeMessage(await impl.listTransactions(ctx, req)));
       }),
       Method("DescribeTransactions", "/grpcdc.kafka.v1.Kafka/DescribeTransactions", Server.kindUnary,
           (ctx, reqs, sink) async {
         final req = DescribeTransactionsRequest();
         await reqs.recvInto(req);
-        sink((await impl.describeTransactions(ctx, req)).marshalDc());
+        sink(ctx.encodeMessage(await impl.describeTransactions(ctx, req)));
       }),
       Method("OpenShareGroup", "/grpcdc.kafka.v1.Kafka/OpenShareGroup", Server.kindUnary,
           (ctx, reqs, sink) async {
         final req = OpenShareGroupRequest();
         await reqs.recvInto(req);
-        sink((await impl.openShareGroup(ctx, req)).marshalDc());
+        sink(ctx.encodeMessage(await impl.openShareGroup(ctx, req)));
       }),
       Method("SharePoll", "/grpcdc.kafka.v1.Kafka/SharePoll", Server.kindUnary,
           (ctx, reqs, sink) async {
         final req = SharePollRequest();
         await reqs.recvInto(req);
-        sink((await impl.sharePoll(ctx, req)).marshalDc());
+        sink(ctx.encodeMessage(await impl.sharePoll(ctx, req)));
       }),
       Method("ShareAck", "/grpcdc.kafka.v1.Kafka/ShareAck", Server.kindUnary,
           (ctx, reqs, sink) async {
         final req = ShareAckRequest();
         await reqs.recvInto(req);
-        sink((await impl.shareAck(ctx, req)).marshalDc());
+        sink(ctx.encodeMessage(await impl.shareAck(ctx, req)));
       }),
       Method("CloseShareGroup", "/grpcdc.kafka.v1.Kafka/CloseShareGroup", Server.kindUnary,
           (ctx, reqs, sink) async {
         final req = CloseShareGroupRequest();
         await reqs.recvInto(req);
-        sink((await impl.closeShareGroup(ctx, req)).marshalDc());
+        sink(ctx.encodeMessage(await impl.closeShareGroup(ctx, req)));
       }),
       Method("DescribeShareGroups", "/grpcdc.kafka.v1.Kafka/DescribeShareGroups", Server.kindUnary,
           (ctx, reqs, sink) async {
         final req = DescribeShareGroupsRequest();
         await reqs.recvInto(req);
-        sink((await impl.describeShareGroups(ctx, req)).marshalDc());
+        sink(ctx.encodeMessage(await impl.describeShareGroups(ctx, req)));
       }),
     ]));
   }

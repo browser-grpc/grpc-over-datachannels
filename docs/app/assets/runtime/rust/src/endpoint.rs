@@ -48,6 +48,7 @@ pub struct Endpoint {
     traces: Mutex<HashMap<u32, (crate::status::TraceContext, String)>>,
     rendezvous_auth: RwLock<Option<Arc<crate::server::RendezvousAuth>>>,
     interceptors: RwLock<Vec<Arc<dyn Fn(&str, &crate::status::Metadata) -> Result<(), Status> + Send + Sync>>>,
+    struct_codec: std::sync::atomic::AtomicBool,
 }
 
 impl Endpoint {
@@ -65,7 +66,21 @@ impl Endpoint {
             traces: Mutex::new(HashMap::new()),
             rendezvous_auth: RwLock::new(None),
             interceptors: RwLock::new(Vec::new()),
+            struct_codec: std::sync::atomic::AtomicBool::new(false),
         })
+    }
+
+    /// Enable the struct codec for calls this endpoint serves:
+    /// a call carrying HEADERS dc-codec: struct-v1 is decoded
+    /// with the struct layout; any other dc-codec value is
+    /// rejected UNIMPLEMENTED. Mirrors the Go Server.SetStructCodec.
+    pub fn set_struct_codec(&self, enabled: bool) {
+        self.struct_codec.store(enabled, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Whether the struct codec is enabled on this endpoint.
+    pub fn struct_codec(&self) -> bool {
+        self.struct_codec.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Record the client span for a locally-initiated stream.
@@ -273,6 +288,25 @@ impl Endpoint {
                         }
                     }
                 }
+                // Struct codec negotiation: an explicit dc-codec
+                // marker must be struct-v1 and enabled here, else
+                // the call ends UNIMPLEMENTED before the handler.
+                let struct_codec = match headers.metadata.get(crate::structdc::STRUCT_CODEC_HEADER) {
+                    None => false,
+                    Some(v) if v == crate::structdc::STRUCT_CODEC_V1 && self.struct_codec() => true,
+                    Some(_) => {
+                        let _ = self
+                            .send_frame(
+                                Frame::trailers(
+                                    frame.stream_id,
+                                    &Status::unimplemented("struct codec not enabled"),
+                                )
+                                .unwrap(),
+                            )
+                            .await;
+                        return;
+                    }
+                };
                 let (tx, rx) = mpsc::unbounded();
                 self.streams.lock().unwrap().insert(frame.stream_id, tx);
                 // No eager HEADERS: initial metadata flushes
@@ -300,6 +334,7 @@ impl Endpoint {
                             .and_then(|t| crate::codec::parse_timeout(t))
                             .map(|d| crate::platform_time::Instant::now() + d),
                         response_meta: response_meta.clone(),
+                        struct_codec,
                     },
                     requests: RequestStream::<Bytes>::from_events(rx),
                     sink,

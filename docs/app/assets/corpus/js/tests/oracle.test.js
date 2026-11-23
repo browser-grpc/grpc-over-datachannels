@@ -20,6 +20,17 @@ import { runOracleScenarios } from "./oracle_driver.generated.js";
 import { EchoClient, createEchoService } from "../examples/echo_grpc_dc.js";
 import { StdioChannel, serveDcToHttp2, serveHttp2ToDc } from "../../oracle/bridge.mjs";
 
+// GRPC_DC_REQUIRE_ORACLE (set in the CI image, whose Dockerfile
+// builds both oracles) turns an availability skip into a hard
+// failure: in CI, a missing oracle is build breakage, not a skip.
+function oracleSkip(t, reason) {
+  if (process.env.GRPC_DC_REQUIRE_ORACLE) {
+    throw new Error(`oracle required but unavailable: ${reason}`);
+  }
+  t.skip(reason);
+}
+
+
 const ROOT = new URL("../..", import.meta.url).pathname;
 const JAVA_DIR = `${ROOT}oracle/java`;
 const SCENARIOS = `${ROOT}fixtures/oracle_scenarios.txt`;
@@ -62,7 +73,7 @@ const handlers = {
 function javaClasspath(t) {
   const cpFile = `${JAVA_DIR}/target/cp.txt`;
   if (!existsSync(`${JAVA_DIR}/target/classes`) || !existsSync(cpFile)) {
-    t.skip("java oracle not built (cd oracle/java && mvn package)");
+    oracleSkip(t, "java oracle not built (cd oracle/java && mvn package)");
     return null;
   }
   return `${JAVA_DIR}/target/classes:${readFileSync(cpFile, "utf8").trim()}`;
@@ -242,7 +253,7 @@ test("oracle gaps: Java client (TLS) -> bridge (TLS) -> JS server", { timeout: 1
       "-addext", "subjectAltName=DNS:localhost,IP:127.0.0.1",
     ], { stdio: "ignore" });
   } catch {
-    t.skip("openssl unavailable for TLS fixture");
+    oracleSkip(t, "openssl unavailable for TLS fixture");
     return;
   }
   const port = await freePort();
@@ -272,7 +283,7 @@ test("oracle gaps: official Java client -> ingress proxy -> grpc-dc server (WebR
 test("oracle: official Java client -> bridge -> Rust server", { timeout: 180000 }, async (t) => {
   if (!javaClasspath(t)) return;
   if (!existsSync(RUST_SERVER)) {
-    t.skip("rust echo_server_stdio not built");
+    oracleSkip(t, "rust echo_server_stdio not built");
     return;
   }
   const proc = spawn(RUST_SERVER, { stdio: ["pipe", "pipe", "inherit"] });

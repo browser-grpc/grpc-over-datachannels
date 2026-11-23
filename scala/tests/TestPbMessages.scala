@@ -29,7 +29,9 @@ def testPbMessages(): Unit = {
     gen.resolve("CommonMessages.scala").toString,
     gen.resolve("KitchenMessages.scala").toString,
     gen.resolve("Harness.scala").toString,
-    s"$rootPath/scala/grpcdc/Transport.scala"))
+    s"$rootPath/scala/grpcdc/Transport.scala",
+    s"$rootPath/scala/grpcdc/Status.scala",
+    s"$rootPath/scala/grpcdc/WireGen.scala"))
   val out1 = capture(List("scala", "-cp", classes.toString, "Harness", "roundtrip"))
   check(out1.contains("roundtrip OK"), s"roundtrip: $out1")
   Files.writeString(tmp.resolve("kitchen.txt"), kitchenText)

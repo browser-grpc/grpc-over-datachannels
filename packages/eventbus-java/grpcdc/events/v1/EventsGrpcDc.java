@@ -150,7 +150,7 @@ public final class EventsGrpcDc {
         }
 
         public void send(Event resp) throws Exception {
-            sink.send(resp.marshalDc());
+            sink.send(ctx.encodeMessage(resp));
         }
 
         public Endpoint.CallContext context() {
@@ -201,7 +201,7 @@ public final class EventsGrpcDc {
                     new Server.Method("Publish", "/grpcdc.events.v1.EventBus/Publish", Server.KIND_UNARY, (ctx, reqs, sink) -> {
                         PublishRequest req = new PublishRequest();
                         reqs.recvInto(req);
-                        sink.send(impl.Publish(ctx, req).marshalDc());
+                        sink.send(ctx.encodeMessage(impl.Publish(ctx, req)));
                     }),
                     new Server.Method("Subscribe", "/grpcdc.events.v1.EventBus/Subscribe", Server.KIND_SERVER_STREAMING, (ctx, reqs, sink) -> {
                         SubscribeRequest req = new SubscribeRequest();

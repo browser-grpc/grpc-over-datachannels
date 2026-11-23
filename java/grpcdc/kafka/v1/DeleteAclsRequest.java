@@ -12,26 +12,26 @@ public final class DeleteAclsRequest implements grpcdc.Marshaler, grpcdc.Unmarsh
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
-        if (filters != null) for (Acl x : filters) w.bytesField(1, x.marshalDc());
-        w.raw(unknownFields);
-        return w.toBytes();
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
+        if (filters != null) for (Acl pbX : filters) pbW.bytesField(1, pbX.marshalDc());
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
     public void unmarshalDc(byte[] data) {
         unknownFields = new byte[0];
         filters = new java.util.ArrayList<>();
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    Acl item = new Acl();
-                    item.unmarshalDc(field.bytesValue);
-                    filters.add(item);
+                    Acl pbItem = new Acl();
+                    pbItem.unmarshalDc(pbField.bytesValue);
+                    filters.add(pbItem);
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

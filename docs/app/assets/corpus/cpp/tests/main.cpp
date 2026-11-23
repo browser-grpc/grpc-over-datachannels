@@ -5,6 +5,7 @@
 #include <string>
 
 namespace tests {
+void TestStructCodec();
 void TestCodec();
 void TestEcho();
 void TestEventBus();
@@ -33,7 +34,9 @@ int main(int argc, char** argv) {
   }
   std::string name = argv[1];
   try {
-    if (name == "TestCodec") {
+    if (name == "TestStructCodec") {
+      tests::TestStructCodec();
+    } else if (name == "TestCodec") {
       tests::TestCodec();
     } else if (name == "TestEcho") {
       tests::TestEcho();

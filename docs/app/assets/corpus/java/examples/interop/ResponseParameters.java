@@ -16,12 +16,12 @@ public final class ResponseParameters implements grpcdc.Marshaler, grpcdc.Unmars
 
     @Override
     public byte[] marshalDc() {
-        MessagesPb.Writer w = new MessagesPb.Writer();
-        if (size != 0) { w.tag(1, 0); w.varint(size); }
-        if (intervalUs != 0) { w.tag(2, 0); w.varint(intervalUs); }
-        if (compressed != null) w.bytesField(3, compressed.marshalDc());
-        w.raw(unknownFields);
-        return w.toBytes();
+        MessagesPb.Writer pbW = new MessagesPb.Writer();
+        if (size != 0) { pbW.tag(1, 0); pbW.varint(size); }
+        if (intervalUs != 0) { pbW.tag(2, 0); pbW.varint(intervalUs); }
+        if (compressed != null) pbW.bytesField(3, compressed.marshalDc());
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -30,21 +30,21 @@ public final class ResponseParameters implements grpcdc.Marshaler, grpcdc.Unmars
         size = 0;
         intervalUs = 0;
         compressed = null;
-        MessagesPb.Reader r = new MessagesPb.Reader(data);
-        MessagesPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        MessagesPb.Reader pbR = new MessagesPb.Reader(data);
+        MessagesPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    size = (int) field.varintValue;
+                    size = (int) pbField.varintValue;
                 }
                 case 2 -> {
-                    intervalUs = (int) field.varintValue;
+                    intervalUs = (int) pbField.varintValue;
                 }
                 case 3 -> {
                     compressed = new BoolValue();
-                    compressed.unmarshalDc(field.bytesValue);
+                    compressed.unmarshalDc(pbField.bytesValue);
                 }
-                default -> { unknownFields = MessagesPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = MessagesPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

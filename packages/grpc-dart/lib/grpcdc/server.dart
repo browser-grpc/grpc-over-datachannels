@@ -12,8 +12,9 @@ import 'wire.dart';
 /// Reads request messages of one inbound call.
 class RequestStream {
   final StreamInput _input;
+  final bool structCodec;
 
-  RequestStream(this._input);
+  RequestStream(this._input, [this.structCodec = false]);
 
   /// Next request payload; EndOfStreamError at half-close.
   Future<Uint8List> recvRaw() async {
@@ -39,7 +40,7 @@ class RequestStream {
 
   /// Decode the next request message into req.
   Future<void> recvInto(Unmarshaler req) async {
-    req.unmarshalDc(await recvRaw());
+    Codec.unmarshalForCodec(structCodec, await recvRaw(), req);
   }
 }
 
@@ -77,6 +78,16 @@ class Server {
 
   final _methods = <String, Method>{};
   Endpoint? _endpoint;
+  bool _structCodec = false;
+
+  /// Enable the struct codec on this server: a call carrying
+  /// HEADERS dc-codec: struct-v1 is decoded with the struct codec
+  /// and answered in kind. A struct-v1 request to a server without
+  /// it enabled fails Unimplemented, as does any other dc-codec
+  /// value. Mirrors the Go Server.SetStructCodec.
+  void setStructCodec(bool enabled) {
+    _structCodec = enabled;
+  }
 
   /// The endpoint this server is attached to (retained so it
   /// outlives serveEndpoint; read loops keep it alive regardless).
@@ -110,12 +121,24 @@ class Server {
       return StatusException(
           Wire.codeUnimplemented, 'unknown method ${headers.path}');
     }
+    // Struct codec negotiation: an explicit dc-codec marker
+    // must be struct-v1 and enabled here, else Unimplemented.
+    var useStruct = false;
+    final marker = headers.metadata[Codec.structCodecHeader];
+    if (marker != null) {
+      if (marker != Codec.structCodecV1 || !_structCodec) {
+        return StatusException(
+            Wire.codeUnimplemented, 'struct codec not enabled');
+      }
+      useStruct = true;
+    }
+    ctx.structCodec = useStruct;
     final traceCtx = traceStart('server', headers.path ?? '',
         parseTraceparent(headers.metadata['traceparent']));
     ctx.traceContext = traceCtx;
     StatusException? result;
     try {
-      await method.handler(ctx, RequestStream(input), sink.send);
+      await method.handler(ctx, RequestStream(input, useStruct), sink.send);
     } catch (e) {
       result = StatusException.toStatus(e);
     }

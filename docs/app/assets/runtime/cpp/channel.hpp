@@ -14,6 +14,15 @@ namespace grpcdc {
 /// Channel: the client side of one Endpoint.
 class Channel {
  public:
+  /// Make every call on this channel request the struct codec
+  /// (HEADERS marker dc-codec: struct-v1) and encode requests /
+  /// decode responses with it. The server must enable it too
+  /// (see Server::SetStructCodec); otherwise calls fail
+  /// Unimplemented. Mirrors the Go Channel.SetStructCodec.
+  void SetStructCodec(bool enabled) { struct_codec_ = enabled; }
+
+  /// Whether this channel requests the struct codec on every call.
+  bool struct_codec() const { return struct_codec_; }
   /// Wrap a transport, allocating odd stream ids.
   explicit Channel(std::shared_ptr<Transport> transport)
       : endpoint_(std::make_shared<Endpoint>(std::move(transport), true)) {
@@ -33,6 +42,7 @@ class Channel {
   Channel WithTraceContext(const std::optional<Tracing::TraceContext>& ctx) const {
     Channel ch(endpoint_);
     ch.trace_context_ = ctx;
+    ch.struct_codec_ = struct_codec_;
     return ch;
   }
 
@@ -53,7 +63,8 @@ class Channel {
           trace_ctx_(other.trace_ctx_),
           trace_path_(std::move(other.trace_path_)),
           trace_ended_(other.trace_ended_),
-          terminated_(other.terminated_) {
+          terminated_(other.terminated_),
+          struct_codec_(other.struct_codec_) {
       other.terminated_ = true;
     }
     ClientStream& operator=(ClientStream&& other) noexcept {
@@ -69,6 +80,7 @@ class Channel {
         trace_path_ = std::move(other.trace_path_);
         trace_ended_ = other.trace_ended_;
         terminated_ = other.terminated_;
+        struct_codec_ = other.struct_codec_;
         other.terminated_ = true;
       }
       return *this;
@@ -114,7 +126,7 @@ class Channel {
             headers_ = evt.headers;
             break;
           case Endpoint::EventKind::kData:
-            resp.UnmarshalDc(evt.payload);
+            UnmarshalForCodec(struct_codec_, evt.payload, resp);
             return;
           case Endpoint::EventKind::kTrailers:
             terminated_ = true;
@@ -147,8 +159,8 @@ class Channel {
 
     /// Send one request message on an open stream (no half-close).
     void Send(const Marshaler& msg) {
-      endpoint_->SendFrame(
-          Codec::EncodeFrame(wire::kFrameData, stream_id_, msg.MarshalDc()));
+      endpoint_->SendFrame(Codec::EncodeFrame(wire::kFrameData, stream_id_,
+                                               MarshalForCodec(struct_codec_, msg)));
     }
 
     /// Half-close an open stream (no more requests).
@@ -182,6 +194,7 @@ class Channel {
     std::string trace_path_;
     bool trace_ended_ = false;
     bool terminated_ = false;
+    bool struct_codec_ = false;
   };
 
   /// Abort an open ClientStream (sends RST, wakes pending Recv).
@@ -289,8 +302,11 @@ class Channel {
     const Metadata* md = metadata;
     std::optional<std::chrono::steady_clock::time_point> deadline;
     std::optional<Tracing::TraceContext> trace_ctx;
-    if (timeout || Tracing::Enabled()) {
+    if (timeout || Tracing::Enabled() || struct_codec_) {
       if (metadata) merged = *metadata;
+      if (struct_codec_) {
+        merged[Codec::kStructCodecHeader] = Codec::kStructCodecV1;
+      }
       if (timeout) {
         deadline = std::chrono::steady_clock::now() + *timeout;
         merged["grpc-timeout"] = Codec::EncodeTimeout(*timeout);
@@ -316,6 +332,7 @@ class Channel {
       throw;
     }
     ClientStream stream(opened.first, opened.second);
+    stream.struct_codec_ = struct_codec_;
     stream.endpoint_ = endpoint_;
     stream.deadline_ = deadline;
     stream.trace_ctx_ = trace_ctx;
@@ -324,8 +341,9 @@ class Channel {
   }
 
   void SendMessage(ClientStream& stream, const Marshaler& msg) {
-    endpoint_->SendFrame(
-        Codec::EncodeFrame(wire::kFrameData, stream.stream_id(), msg.MarshalDc()));
+    endpoint_->SendFrame(Codec::EncodeFrame(
+        wire::kFrameData, stream.stream_id(),
+        MarshalForCodec(stream.struct_codec_, msg)));
   }
 
   void HalfClose(ClientStream& stream) {
@@ -340,6 +358,7 @@ class Channel {
 
   std::shared_ptr<Endpoint> endpoint_;
   std::optional<Tracing::TraceContext> trace_context_;
+  bool struct_codec_ = false;
 };
 
 }  // namespace grpcdc

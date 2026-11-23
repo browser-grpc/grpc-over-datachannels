@@ -34,6 +34,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`TestOracle.scala`](tests/TestOracle.scala) — Official-implementation oracle, via the proxy
 - [`TestPbMessages.scala`](tests/TestPbMessages.scala) — Generated suite/example
 - [`TestSidecar.scala`](tests/TestSidecar.scala) — Sidecar transport
+- [`TestStructCodec.scala`](tests/TestStructCodec.scala) — Wire codec vectors
 - [`TestTracing.scala`](tests/TestTracing.scala) — Tracing: traceparent propagation, span observers, nested calls
 - [`TestUtil.scala`](tests/TestUtil.scala) — Generated suite/example
 
@@ -45,6 +46,8 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`Main.scala`](examples/EchoClientStdio/Main.scala) — Generated suite/example
 - [`EchoGrpcDc.scala`](examples/EchoGrpcDc.scala) — Echo: all four call shapes
 - [`EchoMessages.scala`](examples/EchoMessages.scala) — Echo: all four call shapes
+- [`EchoRequestStruct.scala`](examples/EchoRequestStruct.scala) — Echo: all four call shapes
+- [`EchoResponseStruct.scala`](examples/EchoResponseStruct.scala) — Echo: all four call shapes
 - [`Main.scala`](examples/EchoServerStdio/Main.scala) — Generated suite/example
 - [`EchoServiceImpl.scala`](examples/EchoServiceImpl.scala) — Echo: all four call shapes
 - [`EventBusDemo.scala`](examples/EventBusDemo.scala) — Event bus end-to-end

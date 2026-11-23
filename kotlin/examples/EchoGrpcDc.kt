@@ -175,7 +175,7 @@ object EchoGrpcDc {
         private val sink: Server.ServerSink
     ) : EchoServerStreamServer {
         override fun send(resp: EchoResponse) {
-            sink.send(resp.marshalDc())
+            sink.send(context.encodeMessage(resp))
         }
     }
 
@@ -203,7 +203,7 @@ object EchoGrpcDc {
         private val sink: Server.ServerSink
     ) : EchoBidiServer {
         override fun send(resp: EchoResponse) {
-            sink.send(resp.marshalDc())
+            sink.send(context.encodeMessage(resp))
         }
 
         override fun recv(): EchoRequest {
@@ -241,7 +241,7 @@ object EchoGrpcDc {
                     Server.Method("Unary", "/echo.Echo/Unary", Server.KIND_UNARY) { ctx, reqs, sink ->
                         val req = EchoRequest()
                         reqs.recvInto(req)
-                        sink.send(impl.Unary(ctx, req).marshalDc())
+                        sink.send(ctx.encodeMessage(impl.Unary(ctx, req)))
                     },
                     Server.Method("ServerStream", "/echo.Echo/ServerStream", Server.KIND_SERVER_STREAMING) { ctx, reqs, sink ->
                         val req = EchoRequest()
@@ -256,7 +256,7 @@ object EchoGrpcDc {
                                 Wire.CODE_INTERNAL,
                                 "client-streaming handler never called sendAndClose"
                             )
-                        sink.send(resp.marshalDc())
+                        sink.send(ctx.encodeMessage(resp))
                     },
                     Server.Method("Bidi", "/echo.Echo/Bidi", Server.KIND_BIDI) { ctx, reqs, sink ->
                         impl.Bidi(EchoBidiServerImpl(ctx, reqs, sink))

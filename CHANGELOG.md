@@ -3,6 +3,51 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.45.0 — 2026-11-23 (published to GitHub/npm/PyPI/pub.dev/crates.io/GHCR/NuGet/GitHub Maven/RubyGems/LuaRocks/JSR; Maven Central sync deferred to its weekly slot)
+
+- Struct codec on the wire for every tier-1 language.
+  `struct_codec=true` at generation time emits a Cap'n-Proto-
+  style packed layout (SPEC.md: magic `DCS1`, schema
+  fingerprint, presence bitmap, fixed slots, variable area)
+  implemented once in the shared Rust runtime
+  (`grpc_dc::structdc`); each language's codec is a thin FFI
+  call-in transcoding protobuf <-> struct, byte-identical
+  across languages (conformance corpus:
+  `scripts/test-struct-corpus.py`, 12/12). Channels and
+  servers opt in per endpoint (`SetStructCodec` /
+  `setStructCodec` / `set_struct_codec`): the client sends
+  HEADERS `dc-codec: struct-v1`, the server answers in kind
+  only when also enabled; an explicit marker against a
+  protobuf-only server fails UNIMPLEMENTED. Protobuf remains
+  the default everywhere; use structs on low-latency
+  internal paths and transcode at interop boundaries.
+- JavaScript protoc plugins now fail loudly on
+  `struct_codec=true` instead of silently emitting the
+  protobuf form.
+- CI: the full suite is split into seven parallel per-group
+  jobs with BuildKit layer caching (about 50 minutes wall
+  clock, from over two hours sequential), and the CI image
+  and test entry build the gitignored browser/webapp
+  artifacts a fresh checkout lacks.
+
+## v0.44.0 — 2026-11-18 (published to GitHub/npm/PyPI/pub.dev/crates.io/GHCR/NuGet/GitHub Maven/RubyGems/LuaRocks/JSR; Maven Central sync deferred to its weekly slot)
+
+- Rust-only WebRTC consolidation: the mirrored Go and
+  JavaScript ICE/DTLS/SCTP stacks (and their generated SCTP
+  state machines) are deleted. Go reaches the Rust cores
+  through FFI seams (`dc_sctp`/`dc_dtls`/`dc_ice` build tags,
+  Rust backends by default, mirrors retained only behind
+  `dc_native`); JavaScript uses the Wasm cores as its default
+  peer backends. One implementation of each protocol now
+  exists, in Rust, shared by every language.
+- Generator stops emitting the Go/JS mirror copies; seams,
+  host-control surfaces (ICE credentials/candidates/role),
+  and scratch-buffer DTLS paths added so language runtimes
+  keep their existing APIs over the shared cores.
+- Release exports ship the shared Rust core crates so the
+  public Go/JS stacks build standalone; generated-repo CI
+  green across the export set.
+
 ## v0.43.0 — 2026-11-16 (published to GitHub/npm/PyPI/pub.dev/crates.io/GHCR/NuGet/Maven Central/GitHub Maven/RubyGems/LuaRocks/JSR + GitHub Packages npm/NuGet/RubyGems mirrors)
 
 - Host/plugin support (GitHub issue #2): one public endpoint

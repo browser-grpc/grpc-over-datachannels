@@ -74,18 +74,18 @@ class Empty : public grpcdc::Marshaler, public grpcdc::Unmarshaler {
   void UnmarshalDc(const grpcdc::Bytes& data) override;
 };
 inline grpcdc::Bytes Empty::MarshalDc() const {
-    pb_empty::Writer w;
-    w.Raw(unknown_fields);
-    return w.ToBytes();
+    pb_empty::Writer pb_w;
+    pb_w.Raw(unknown_fields);
+    return pb_w.ToBytes();
 }
 
-inline void Empty::UnmarshalDc(const grpcdc::Bytes& data) {
+inline void Empty::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
     unknown_fields.clear();
-    pb_empty::Reader r(data);
-    pb_empty::Field field;
-    while (r.Next(field)) {
-      switch (field.number) {
-        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
+    pb_empty::Reader pb_r(pb_data_);
+    pb_empty::Field pb_field;
+    while (pb_r.Next(pb_field)) {
+      switch (pb_field.number) {
+        default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;
       }
     }
 }

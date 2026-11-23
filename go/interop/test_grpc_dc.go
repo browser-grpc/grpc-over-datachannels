@@ -157,7 +157,11 @@ type TestServiceStreamingOutputCallServerImpl struct {
 }
 
 func (s *TestServiceStreamingOutputCallServerImpl) Send(resp *StreamingOutputCallResponse) error {
-	return s.sink.Send(resp.MarshalDC())
+	encoded, err := grpcdc.EncodeMessageForCall(s.ctx, resp)
+	if err != nil {
+		return err
+	}
+	return s.sink.Send(encoded)
 }
 func (s *TestServiceStreamingOutputCallServerImpl) Context() context.Context { return s.ctx }
 
@@ -187,7 +191,11 @@ type TestServiceFullDuplexCallServerImpl struct {
 }
 
 func (s *TestServiceFullDuplexCallServerImpl) Send(resp *StreamingOutputCallResponse) error {
-	return s.sink.Send(resp.MarshalDC())
+	encoded, err := grpcdc.EncodeMessageForCall(s.ctx, resp)
+	if err != nil {
+		return err
+	}
+	return s.sink.Send(encoded)
 }
 func (s *TestServiceFullDuplexCallServerImpl) Recv() (*StreamingOutputCallRequest, error) {
 	req := new(StreamingOutputCallRequest)
@@ -205,7 +213,11 @@ type TestServiceHalfDuplexCallServerImpl struct {
 }
 
 func (s *TestServiceHalfDuplexCallServerImpl) Send(resp *StreamingOutputCallResponse) error {
-	return s.sink.Send(resp.MarshalDC())
+	encoded, err := grpcdc.EncodeMessageForCall(s.ctx, resp)
+	if err != nil {
+		return err
+	}
+	return s.sink.Send(encoded)
 }
 func (s *TestServiceHalfDuplexCallServerImpl) Recv() (*StreamingOutputCallRequest, error) {
 	req := new(StreamingOutputCallRequest)
@@ -229,7 +241,11 @@ func RegisterTestServiceServer(s *grpcdc.Server, srv TestServiceServer) {
 				if err != nil {
 					return err
 				}
-				return sink.Send(resp.MarshalDC())
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
 			}},
 			{Name: "UnaryCall", Path: "/grpc.testing.TestService/UnaryCall", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
 				req := new(SimpleRequest)
@@ -240,7 +256,11 @@ func RegisterTestServiceServer(s *grpcdc.Server, srv TestServiceServer) {
 				if err != nil {
 					return err
 				}
-				return sink.Send(resp.MarshalDC())
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
 			}},
 			{Name: "CacheableUnaryCall", Path: "/grpc.testing.TestService/CacheableUnaryCall", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
 				req := new(SimpleRequest)
@@ -251,7 +271,11 @@ func RegisterTestServiceServer(s *grpcdc.Server, srv TestServiceServer) {
 				if err != nil {
 					return err
 				}
-				return sink.Send(resp.MarshalDC())
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
 			}},
 			{Name: "StreamingOutputCall", Path: "/grpc.testing.TestService/StreamingOutputCall", Kind: grpcdc.KindServerStreaming, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
 				req := new(StreamingOutputCallRequest)
@@ -268,7 +292,11 @@ func RegisterTestServiceServer(s *grpcdc.Server, srv TestServiceServer) {
 				if stream.resp == nil {
 					return grpcdc.NewStatus(grpcdc.CodeInternal, "client-streaming handler never called SendAndClose")
 				}
-				return sink.Send(stream.resp.MarshalDC())
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, stream.resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
 			}},
 			{Name: "FullDuplexCall", Path: "/grpc.testing.TestService/FullDuplexCall", Kind: grpcdc.KindBidi, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
 				return srv.FullDuplexCall(&TestServiceFullDuplexCallServerImpl{ctx: ctx, reqs: reqs, sink: sink})
@@ -285,7 +313,11 @@ func RegisterTestServiceServer(s *grpcdc.Server, srv TestServiceServer) {
 				if err != nil {
 					return err
 				}
-				return sink.Send(resp.MarshalDC())
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
 			}},
 		},
 	})
@@ -324,7 +356,11 @@ func RegisterUnimplementedServiceServer(s *grpcdc.Server, srv UnimplementedServi
 				if err != nil {
 					return err
 				}
-				return sink.Send(resp.MarshalDC())
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
 			}},
 		},
 	})
@@ -371,7 +407,11 @@ func RegisterReconnectServiceServer(s *grpcdc.Server, srv ReconnectServiceServer
 				if err != nil {
 					return err
 				}
-				return sink.Send(resp.MarshalDC())
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
 			}},
 			{Name: "Stop", Path: "/grpc.testing.ReconnectService/Stop", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
 				req := new(Empty)
@@ -382,7 +422,11 @@ func RegisterReconnectServiceServer(s *grpcdc.Server, srv ReconnectServiceServer
 				if err != nil {
 					return err
 				}
-				return sink.Send(resp.MarshalDC())
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
 			}},
 		},
 	})
@@ -429,7 +473,11 @@ func RegisterLoadBalancerStatsServiceServer(s *grpcdc.Server, srv LoadBalancerSt
 				if err != nil {
 					return err
 				}
-				return sink.Send(resp.MarshalDC())
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
 			}},
 			{Name: "GetClientAccumulatedStats", Path: "/grpc.testing.LoadBalancerStatsService/GetClientAccumulatedStats", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
 				req := new(LoadBalancerAccumulatedStatsRequest)
@@ -440,7 +488,11 @@ func RegisterLoadBalancerStatsServiceServer(s *grpcdc.Server, srv LoadBalancerSt
 				if err != nil {
 					return err
 				}
-				return sink.Send(resp.MarshalDC())
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
 			}},
 		},
 	})
@@ -487,7 +539,11 @@ func RegisterXdsUpdateHealthServiceServer(s *grpcdc.Server, srv XdsUpdateHealthS
 				if err != nil {
 					return err
 				}
-				return sink.Send(resp.MarshalDC())
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
 			}},
 			{Name: "SetNotServing", Path: "/grpc.testing.XdsUpdateHealthService/SetNotServing", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
 				req := new(Empty)
@@ -498,7 +554,11 @@ func RegisterXdsUpdateHealthServiceServer(s *grpcdc.Server, srv XdsUpdateHealthS
 				if err != nil {
 					return err
 				}
-				return sink.Send(resp.MarshalDC())
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
 			}},
 		},
 	})
@@ -537,7 +597,11 @@ func RegisterXdsUpdateClientConfigureServiceServer(s *grpcdc.Server, srv XdsUpda
 				if err != nil {
 					return err
 				}
-				return sink.Send(resp.MarshalDC())
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
 			}},
 		},
 	})

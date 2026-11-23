@@ -18,13 +18,13 @@ public final class CreatePartitionsRequest implements grpcdc.Marshaler, grpcdc.U
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
-        w.stringField(1, topic);
-        if (totalCount != 0) { w.tag(2, 0); w.varint(totalCount); }
-        if (validateOnly) { w.tag(3, 0); w.varint((validateOnly ? 1 : 0)); }
-        if (timeoutMs != 0) { w.tag(4, 0); w.varint(timeoutMs); }
-        w.raw(unknownFields);
-        return w.toBytes();
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
+        pbW.stringField(1, topic);
+        if (totalCount != 0) { pbW.tag(2, 0); pbW.varint(totalCount); }
+        if (validateOnly) { pbW.tag(3, 0); pbW.varint((validateOnly ? 1 : 0)); }
+        if (timeoutMs != 0) { pbW.tag(4, 0); pbW.varint(timeoutMs); }
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -34,23 +34,23 @@ public final class CreatePartitionsRequest implements grpcdc.Marshaler, grpcdc.U
         totalCount = 0;
         validateOnly = false;
         timeoutMs = 0;
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    topic = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    topic = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 2 -> {
-                    totalCount = (int) field.varintValue;
+                    totalCount = (int) pbField.varintValue;
                 }
                 case 3 -> {
-                    validateOnly = field.varintValue != 0;
+                    validateOnly = pbField.varintValue != 0;
                 }
                 case 4 -> {
-                    timeoutMs = (int) field.varintValue;
+                    timeoutMs = (int) pbField.varintValue;
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

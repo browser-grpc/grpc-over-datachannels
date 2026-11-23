@@ -196,7 +196,7 @@ class _EchoServerStreamServerImpl implements EchoServerStreamServer {
 
   @override
   void send(EchoResponse resp) {
-    _sink(resp.marshalDc());
+    _sink(context.encodeMessage(resp));
   }
 }
 
@@ -231,7 +231,7 @@ class _EchoBidiServerImpl implements EchoBidiServer {
 
   @override
   void send(EchoResponse resp) {
-    _sink(resp.marshalDc());
+    _sink(context.encodeMessage(resp));
   }
 
   @override
@@ -251,7 +251,7 @@ class EchoGrpcDc {
           (ctx, reqs, sink) async {
         final req = EchoRequest();
         await reqs.recvInto(req);
-        sink((await impl.unary(ctx, req)).marshalDc());
+        sink(ctx.encodeMessage(await impl.unary(ctx, req)));
       }),
       Method("ServerStream", "/echo.Echo/ServerStream",
           Server.kindServerStreaming, (ctx, reqs, sink) async {
@@ -268,7 +268,7 @@ class EchoGrpcDc {
           throw StatusException(Wire.codeInternal,
               'client-streaming handler never called sendAndClose');
         }
-        sink(resp.marshalDc());
+        sink(ctx.encodeMessage(resp));
       }),
       Method("Bidi", "/echo.Echo/Bidi", Server.kindBidi,
           (ctx, reqs, sink) async {

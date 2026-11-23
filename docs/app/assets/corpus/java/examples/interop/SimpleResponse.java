@@ -22,15 +22,15 @@ public final class SimpleResponse implements grpcdc.Marshaler, grpcdc.Unmarshale
 
     @Override
     public byte[] marshalDc() {
-        MessagesPb.Writer w = new MessagesPb.Writer();
-        if (payload != null) w.bytesField(1, payload.marshalDc());
-        w.stringField(2, username);
-        w.stringField(3, oauthScope);
-        w.stringField(4, serverId);
-        if (grpclbRouteType != null && grpclbRouteType.number != 0) { w.tag(5, 0); w.varint(grpclbRouteType.number); }
-        w.stringField(6, hostname);
-        w.raw(unknownFields);
-        return w.toBytes();
+        MessagesPb.Writer pbW = new MessagesPb.Writer();
+        if (payload != null) pbW.bytesField(1, payload.marshalDc());
+        pbW.stringField(2, username);
+        pbW.stringField(3, oauthScope);
+        pbW.stringField(4, serverId);
+        if (grpclbRouteType != null && grpclbRouteType.number != 0) { pbW.tag(5, 0); pbW.varint(grpclbRouteType.number); }
+        pbW.stringField(6, hostname);
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -42,30 +42,30 @@ public final class SimpleResponse implements grpcdc.Marshaler, grpcdc.Unmarshale
         serverId = "";
         grpclbRouteType = GrpclbRouteType.GRPCLB_ROUTE_TYPE_UNKNOWN;
         hostname = "";
-        MessagesPb.Reader r = new MessagesPb.Reader(data);
-        MessagesPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        MessagesPb.Reader pbR = new MessagesPb.Reader(data);
+        MessagesPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
                     payload = new Payload();
-                    payload.unmarshalDc(field.bytesValue);
+                    payload.unmarshalDc(pbField.bytesValue);
                 }
                 case 2 -> {
-                    username = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    username = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 3 -> {
-                    oauthScope = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    oauthScope = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 4 -> {
-                    serverId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    serverId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 5 -> {
-                    grpclbRouteType = GrpclbRouteType.fromNumber((int) field.varintValue);
+                    grpclbRouteType = GrpclbRouteType.fromNumber((int) pbField.varintValue);
                 }
                 case 6 -> {
-                    hostname = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    hostname = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
-                default -> { unknownFields = MessagesPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = MessagesPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

@@ -51,7 +51,11 @@ type OpenRcaServiceStreamCoreMetricsServerImpl struct {
 }
 
 func (s *OpenRcaServiceStreamCoreMetricsServerImpl) Send(resp *OrcaLoadReport) error {
-	return s.sink.Send(resp.MarshalDC())
+	encoded, err := grpcdc.EncodeMessageForCall(s.ctx, resp)
+	if err != nil {
+		return err
+	}
+	return s.sink.Send(encoded)
 }
 func (s *OpenRcaServiceStreamCoreMetricsServerImpl) Context() context.Context { return s.ctx }
 

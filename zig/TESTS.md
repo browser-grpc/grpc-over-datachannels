@@ -34,6 +34,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`test_oracle.zig`](tests/test_oracle.zig) — Official-implementation oracle, via the proxy
 - [`test_pb_messages.zig`](tests/test_pb_messages.zig) — Generated suite/example
 - [`test_sidecar.zig`](tests/test_sidecar.zig) — Sidecar transport
+- [`test_struct_codec.zig`](tests/test_struct_codec.zig) — Wire codec vectors
 - [`test_tracing.zig`](tests/test_tracing.zig) — Tracing: traceparent propagation, span observers, nested calls
 - [`test_util.zig`](tests/test_util.zig) — Generated suite/example
 
@@ -47,6 +48,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`echo_messages.zig`](examples/echo_messages.zig) — Echo: all four call shapes
 - [`echo_server_stdio.zig`](examples/echo_server_stdio.zig) — Echo: all four call shapes
 - [`echo_service_impl.zig`](examples/echo_service_impl.zig) — Echo: all four call shapes
+- [`echo_struct.zig`](examples/echo_struct.zig) — Echo: all four call shapes
 - [`eventbus.zig`](examples/eventbus.zig) — Event bus end-to-end
 - [`eventbus_demo.zig`](examples/eventbus_demo.zig) — Event bus end-to-end
 - [`eventbus_git.zig`](examples/eventbus_git.zig) — Event bus end-to-end

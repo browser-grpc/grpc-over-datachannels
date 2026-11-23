@@ -53,25 +53,25 @@ class Orca_load_reportPbReader {
 }
 
 Uint8List Orca_load_reportPbOrcaLoadReport_RequestCostEntryEncode(String key, double value) {
-  final w = Orca_load_reportPbWriter();
-  w.stringField(1, key);
-  if (value != 0) { w.tag(2, 1); w.fixedFloat64(value); }
-  return w.toBytes();
+  final pbW = Orca_load_reportPbWriter();
+  pbW.stringField(1, key);
+  if (value != 0) { pbW.tag(2, 1); pbW.fixedFloat64(value); }
+  return pbW.toBytes();
 }
 
 MapEntry<String, double> Orca_load_reportPbOrcaLoadReport_RequestCostEntryDecode(Uint8List bytes) {
   String key = '';
   double value = 0;
-  final r = Orca_load_reportPbReader(bytes);
+  final pbR = Orca_load_reportPbReader(bytes);
   while (true) {
-    final field = r.next();
-    if (field == null) break;
-    switch (field.number) {
+    final pbField = pbR.next();
+    if (pbField == null) break;
+    switch (pbField.number) {
       case 1:
-        key = utf8.decode(field.bytesValue);
+        key = utf8.decode(pbField.bytesValue);
         break;
       case 2:
-        value = Orca_load_reportPbBitsToFloat64(field.fixedValue);
+        value = Orca_load_reportPbBitsToFloat64(pbField.fixedValue);
         break;
       default:
         break;
@@ -81,25 +81,25 @@ MapEntry<String, double> Orca_load_reportPbOrcaLoadReport_RequestCostEntryDecode
 }
 
 Uint8List Orca_load_reportPbOrcaLoadReport_UtilizationEntryEncode(String key, double value) {
-  final w = Orca_load_reportPbWriter();
-  w.stringField(1, key);
-  if (value != 0) { w.tag(2, 1); w.fixedFloat64(value); }
-  return w.toBytes();
+  final pbW = Orca_load_reportPbWriter();
+  pbW.stringField(1, key);
+  if (value != 0) { pbW.tag(2, 1); pbW.fixedFloat64(value); }
+  return pbW.toBytes();
 }
 
 MapEntry<String, double> Orca_load_reportPbOrcaLoadReport_UtilizationEntryDecode(Uint8List bytes) {
   String key = '';
   double value = 0;
-  final r = Orca_load_reportPbReader(bytes);
+  final pbR = Orca_load_reportPbReader(bytes);
   while (true) {
-    final field = r.next();
-    if (field == null) break;
-    switch (field.number) {
+    final pbField = pbR.next();
+    if (pbField == null) break;
+    switch (pbField.number) {
       case 1:
-        key = utf8.decode(field.bytesValue);
+        key = utf8.decode(pbField.bytesValue);
         break;
       case 2:
-        value = Orca_load_reportPbBitsToFloat64(field.fixedValue);
+        value = Orca_load_reportPbBitsToFloat64(pbField.fixedValue);
         break;
       default:
         break;
@@ -118,14 +118,14 @@ class OrcaLoadReport implements Marshaler, Unmarshaler {
   OrcaLoadReport([this.cpuUtilization = 0, this.memUtilization = 0, this.rpsFractional = 0]) : requestCost = {}, utilization = {};
   @override
   Uint8List marshalDc() {
-    final w = Orca_load_reportPbWriter();
-    if (cpuUtilization != 0) { w.tag(1, 1); w.fixedFloat64(cpuUtilization); }
-    if (memUtilization != 0) { w.tag(2, 1); w.fixedFloat64(memUtilization); }
-    if (rpsFractional != 0) { w.tag(3, 1); w.fixedFloat64(rpsFractional); }
-    requestCost.forEach((k, val) { w.bytesField(4, Orca_load_reportPbOrcaLoadReport_RequestCostEntryEncode(k, val)); });
-    utilization.forEach((k, val) { w.bytesField(5, Orca_load_reportPbOrcaLoadReport_UtilizationEntryEncode(k, val)); });
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = Orca_load_reportPbWriter();
+    if (cpuUtilization != 0) { pbW.tag(1, 1); pbW.fixedFloat64(cpuUtilization); }
+    if (memUtilization != 0) { pbW.tag(2, 1); pbW.fixedFloat64(memUtilization); }
+    if (rpsFractional != 0) { pbW.tag(3, 1); pbW.fixedFloat64(rpsFractional); }
+    requestCost.forEach((k, val) { pbW.bytesField(4, Orca_load_reportPbOrcaLoadReport_RequestCostEntryEncode(k, val)); });
+    utilization.forEach((k, val) { pbW.bytesField(5, Orca_load_reportPbOrcaLoadReport_UtilizationEntryEncode(k, val)); });
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -135,30 +135,30 @@ class OrcaLoadReport implements Marshaler, Unmarshaler {
     rpsFractional = 0;
     requestCost = {};
     utilization = {};
-    final r = Orca_load_reportPbReader(Uint8List.fromList(data));
+    final pbR = Orca_load_reportPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          cpuUtilization = Orca_load_reportPbBitsToFloat64(field.fixedValue);
+          cpuUtilization = Orca_load_reportPbBitsToFloat64(pbField.fixedValue);
           break;
         case 2:
-          memUtilization = Orca_load_reportPbBitsToFloat64(field.fixedValue);
+          memUtilization = Orca_load_reportPbBitsToFloat64(pbField.fixedValue);
           break;
         case 3:
-          rpsFractional = Orca_load_reportPbBitsToFloat64(field.fixedValue);
+          rpsFractional = Orca_load_reportPbBitsToFloat64(pbField.fixedValue);
           break;
         case 4:
-          final kv = Orca_load_reportPbOrcaLoadReport_RequestCostEntryDecode(field.bytesValue);
-          requestCost[kv.key] = kv.value;
+          final pbKv = Orca_load_reportPbOrcaLoadReport_RequestCostEntryDecode(pbField.bytesValue);
+          requestCost[pbKv.key] = pbKv.value;
           break;
         case 5:
-          final kv = Orca_load_reportPbOrcaLoadReport_UtilizationEntryDecode(field.bytesValue);
-          utilization[kv.key] = kv.value;
+          final pbKv = Orca_load_reportPbOrcaLoadReport_UtilizationEntryDecode(pbField.bytesValue);
+          utilization[pbKv.key] = pbKv.value;
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -171,30 +171,30 @@ class OrcaLoadReport_RequestCostEntry implements Marshaler, Unmarshaler {
   OrcaLoadReport_RequestCostEntry([this.key = '', this.value = 0]);
   @override
   Uint8List marshalDc() {
-    final w = Orca_load_reportPbWriter();
-    w.stringField(1, key);
-    if (value != 0) { w.tag(2, 1); w.fixedFloat64(value); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = Orca_load_reportPbWriter();
+    pbW.stringField(1, key);
+    if (value != 0) { pbW.tag(2, 1); pbW.fixedFloat64(value); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     key = '';
     value = 0;
-    final r = Orca_load_reportPbReader(Uint8List.fromList(data));
+    final pbR = Orca_load_reportPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          key = utf8.decode(field.bytesValue);
+          key = utf8.decode(pbField.bytesValue);
           break;
         case 2:
-          value = Orca_load_reportPbBitsToFloat64(field.fixedValue);
+          value = Orca_load_reportPbBitsToFloat64(pbField.fixedValue);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -207,30 +207,30 @@ class OrcaLoadReport_UtilizationEntry implements Marshaler, Unmarshaler {
   OrcaLoadReport_UtilizationEntry([this.key = '', this.value = 0]);
   @override
   Uint8List marshalDc() {
-    final w = Orca_load_reportPbWriter();
-    w.stringField(1, key);
-    if (value != 0) { w.tag(2, 1); w.fixedFloat64(value); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = Orca_load_reportPbWriter();
+    pbW.stringField(1, key);
+    if (value != 0) { pbW.tag(2, 1); pbW.fixedFloat64(value); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     key = '';
     value = 0;
-    final r = Orca_load_reportPbReader(Uint8List.fromList(data));
+    final pbR = Orca_load_reportPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          key = utf8.decode(field.bytesValue);
+          key = utf8.decode(pbField.bytesValue);
           break;
         case 2:
-          value = Orca_load_reportPbBitsToFloat64(field.fixedValue);
+          value = Orca_load_reportPbBitsToFloat64(pbField.fixedValue);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }

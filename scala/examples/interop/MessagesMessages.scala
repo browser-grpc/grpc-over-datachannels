@@ -136,282 +136,282 @@ object MessagesPb {
     }
   }
   def encodeTestOrcaReport_UtilizationEntry(key: String, value: Double): Array[Byte] = {
-    val w = new Writer()
-    w.stringField(1, key)
+    val pbW = new Writer()
+    pbW.stringField(1, key)
     if (value != 0) {
-      w.fixed(2, 1, MessagesPb.int64BytesLE(java.lang.Double.doubleToRawLongBits(value)))
+      pbW.fixed(2, 1, MessagesPb.int64BytesLE(java.lang.Double.doubleToRawLongBits(value)))
     }
-    w.toBytes
+    pbW.toBytes
   }
 
   def decodeTestOrcaReport_UtilizationEntry(data: Array[Byte]): (String, Double) = {
     var key: String = ""
     var value: Double = 0.0
-    val r = new Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          key = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          value = java.lang.Double.longBitsToDouble(MessagesPb.toInt64LE(field.fixedValue, 0))
+          value = java.lang.Double.longBitsToDouble(MessagesPb.toInt64LE(pbField.fixedValue, 0))
         case _ => ()
       }
-      field = r.next()
+      pbField = pbR.next()
     }
     (key, value)
   }
 
   def encodeTestOrcaReport_RequestCostEntry(key: String, value: Double): Array[Byte] = {
-    val w = new Writer()
-    w.stringField(1, key)
+    val pbW = new Writer()
+    pbW.stringField(1, key)
     if (value != 0) {
-      w.fixed(2, 1, MessagesPb.int64BytesLE(java.lang.Double.doubleToRawLongBits(value)))
+      pbW.fixed(2, 1, MessagesPb.int64BytesLE(java.lang.Double.doubleToRawLongBits(value)))
     }
-    w.toBytes
+    pbW.toBytes
   }
 
   def decodeTestOrcaReport_RequestCostEntry(data: Array[Byte]): (String, Double) = {
     var key: String = ""
     var value: Double = 0.0
-    val r = new Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          key = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          value = java.lang.Double.longBitsToDouble(MessagesPb.toInt64LE(field.fixedValue, 0))
+          value = java.lang.Double.longBitsToDouble(MessagesPb.toInt64LE(pbField.fixedValue, 0))
         case _ => ()
       }
-      field = r.next()
+      pbField = pbR.next()
     }
     (key, value)
   }
 
   def encodeLoadBalancerAccumulatedStatsResponse_MethodStats_ResultEntry(key: Int, value: Int): Array[Byte] = {
-    val w = new Writer()
+    val pbW = new Writer()
     if (key != 0) {
-      w.tag(1, 0)
-      w.varint((key.toLong))
+      pbW.tag(1, 0)
+      pbW.varint((key.toLong))
     }
     if (value != 0) {
-      w.tag(2, 0)
-      w.varint((value.toLong))
+      pbW.tag(2, 0)
+      pbW.varint((value.toLong))
     }
-    w.toBytes
+    pbW.toBytes
   }
 
   def decodeLoadBalancerAccumulatedStatsResponse_MethodStats_ResultEntry(data: Array[Byte]): (Int, Int) = {
     var key: Int = 0
     var value: Int = 0
-    val r = new Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          key = field.varintValue.toInt
+          key = pbField.varintValue.toInt
         case 2 =>
-          value = field.varintValue.toInt
+          value = pbField.varintValue.toInt
         case _ => ()
       }
-      field = r.next()
+      pbField = pbR.next()
     }
     (key, value)
   }
 
   def encodeLoadBalancerAccumulatedStatsResponse_StatsPerMethodEntry(key: String, value: LoadBalancerAccumulatedStatsResponse_MethodStats): Array[Byte] = {
-    val w = new Writer()
-    w.stringField(1, key)
+    val pbW = new Writer()
+    pbW.stringField(1, key)
     if (value != null) {
-      w.bytesField(2, value.marshalDc())
+      pbW.bytesField(2, value.marshalDc())
     }
-    w.toBytes
+    pbW.toBytes
   }
 
   def decodeLoadBalancerAccumulatedStatsResponse_StatsPerMethodEntry(data: Array[Byte]): (String, LoadBalancerAccumulatedStatsResponse_MethodStats) = {
     var key: String = ""
     var value: LoadBalancerAccumulatedStatsResponse_MethodStats = null
-    val r = new Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          key = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
           value = new LoadBalancerAccumulatedStatsResponse_MethodStats()
-          value.unmarshalDc(field.bytesValue)
+          value.unmarshalDc(pbField.bytesValue)
         case _ => ()
       }
-      field = r.next()
+      pbField = pbR.next()
     }
     (key, value)
   }
 
   def encodeLoadBalancerAccumulatedStatsResponse_NumRpcsFailedByMethodEntry(key: String, value: Int): Array[Byte] = {
-    val w = new Writer()
-    w.stringField(1, key)
+    val pbW = new Writer()
+    pbW.stringField(1, key)
     if (value != 0) {
-      w.tag(2, 0)
-      w.varint((value.toLong))
+      pbW.tag(2, 0)
+      pbW.varint((value.toLong))
     }
-    w.toBytes
+    pbW.toBytes
   }
 
   def decodeLoadBalancerAccumulatedStatsResponse_NumRpcsFailedByMethodEntry(data: Array[Byte]): (String, Int) = {
     var key: String = ""
     var value: Int = 0
-    val r = new Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          key = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          value = field.varintValue.toInt
+          value = pbField.varintValue.toInt
         case _ => ()
       }
-      field = r.next()
+      pbField = pbR.next()
     }
     (key, value)
   }
 
   def encodeLoadBalancerAccumulatedStatsResponse_NumRpcsSucceededByMethodEntry(key: String, value: Int): Array[Byte] = {
-    val w = new Writer()
-    w.stringField(1, key)
+    val pbW = new Writer()
+    pbW.stringField(1, key)
     if (value != 0) {
-      w.tag(2, 0)
-      w.varint((value.toLong))
+      pbW.tag(2, 0)
+      pbW.varint((value.toLong))
     }
-    w.toBytes
+    pbW.toBytes
   }
 
   def decodeLoadBalancerAccumulatedStatsResponse_NumRpcsSucceededByMethodEntry(data: Array[Byte]): (String, Int) = {
     var key: String = ""
     var value: Int = 0
-    val r = new Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          key = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          value = field.varintValue.toInt
+          value = pbField.varintValue.toInt
         case _ => ()
       }
-      field = r.next()
+      pbField = pbR.next()
     }
     (key, value)
   }
 
   def encodeLoadBalancerAccumulatedStatsResponse_NumRpcsStartedByMethodEntry(key: String, value: Int): Array[Byte] = {
-    val w = new Writer()
-    w.stringField(1, key)
+    val pbW = new Writer()
+    pbW.stringField(1, key)
     if (value != 0) {
-      w.tag(2, 0)
-      w.varint((value.toLong))
+      pbW.tag(2, 0)
+      pbW.varint((value.toLong))
     }
-    w.toBytes
+    pbW.toBytes
   }
 
   def decodeLoadBalancerAccumulatedStatsResponse_NumRpcsStartedByMethodEntry(data: Array[Byte]): (String, Int) = {
     var key: String = ""
     var value: Int = 0
-    val r = new Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          key = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          value = field.varintValue.toInt
+          value = pbField.varintValue.toInt
         case _ => ()
       }
-      field = r.next()
+      pbField = pbR.next()
     }
     (key, value)
   }
 
   def encodeLoadBalancerStatsResponse_RpcsByPeer_RpcsByPeerEntry(key: String, value: Int): Array[Byte] = {
-    val w = new Writer()
-    w.stringField(1, key)
+    val pbW = new Writer()
+    pbW.stringField(1, key)
     if (value != 0) {
-      w.tag(2, 0)
-      w.varint((value.toLong))
+      pbW.tag(2, 0)
+      pbW.varint((value.toLong))
     }
-    w.toBytes
+    pbW.toBytes
   }
 
   def decodeLoadBalancerStatsResponse_RpcsByPeer_RpcsByPeerEntry(data: Array[Byte]): (String, Int) = {
     var key: String = ""
     var value: Int = 0
-    val r = new Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          key = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          value = field.varintValue.toInt
+          value = pbField.varintValue.toInt
         case _ => ()
       }
-      field = r.next()
+      pbField = pbR.next()
     }
     (key, value)
   }
 
   def encodeLoadBalancerStatsResponse_RpcsByMethodEntry(key: String, value: LoadBalancerStatsResponse_RpcsByPeer): Array[Byte] = {
-    val w = new Writer()
-    w.stringField(1, key)
+    val pbW = new Writer()
+    pbW.stringField(1, key)
     if (value != null) {
-      w.bytesField(2, value.marshalDc())
+      pbW.bytesField(2, value.marshalDc())
     }
-    w.toBytes
+    pbW.toBytes
   }
 
   def decodeLoadBalancerStatsResponse_RpcsByMethodEntry(data: Array[Byte]): (String, LoadBalancerStatsResponse_RpcsByPeer) = {
     var key: String = ""
     var value: LoadBalancerStatsResponse_RpcsByPeer = null
-    val r = new Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          key = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
           value = new LoadBalancerStatsResponse_RpcsByPeer()
-          value.unmarshalDc(field.bytesValue)
+          value.unmarshalDc(pbField.bytesValue)
         case _ => ()
       }
-      field = r.next()
+      pbField = pbR.next()
     }
     (key, value)
   }
 
   def encodeLoadBalancerStatsResponse_RpcsByPeerEntry(key: String, value: Int): Array[Byte] = {
-    val w = new Writer()
-    w.stringField(1, key)
+    val pbW = new Writer()
+    pbW.stringField(1, key)
     if (value != 0) {
-      w.tag(2, 0)
-      w.varint((value.toLong))
+      pbW.tag(2, 0)
+      pbW.varint((value.toLong))
     }
-    w.toBytes
+    pbW.toBytes
   }
 
   def decodeLoadBalancerStatsResponse_RpcsByPeerEntry(data: Array[Byte]): (String, Int) = {
     var key: String = ""
     var value: Int = 0
-    val r = new Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          key = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          value = field.varintValue.toInt
+          value = pbField.varintValue.toInt
         case _ => ()
       }
-      field = r.next()
+      pbField = pbR.next()
     }
     (key, value)
   }
@@ -433,27 +433,27 @@ class BoolValue(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new MessagesPb.Writer()
+    val pbW = new MessagesPb.Writer()
     if (value) {
-      w.tag(1, 0)
-      w.varint((if (value) 1L else 0L))
+      pbW.tag(1, 0)
+      pbW.varint((if (value) 1L else 0L))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     value = false
-    val r = new MessagesPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new MessagesPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          value = (field.varintValue != 0L)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          value = (pbField.varintValue != 0L)
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -464,33 +464,33 @@ class Payload(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new MessagesPb.Writer()
+    val pbW = new MessagesPb.Writer()
     if (`type` != 0) {
-      w.tag(1, 0)
-      w.varint((`type`.toLong))
+      pbW.tag(1, 0)
+      pbW.varint((`type`.toLong))
     }
     if (body.nonEmpty) {
-      w.bytesField(2, body)
+      pbW.bytesField(2, body)
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     `type` = 0
     body = Array.empty[Byte]
-    val r = new MessagesPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new MessagesPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          `type` = field.varintValue.toInt
+          `type` = pbField.varintValue.toInt
         case 2 =>
-          body = field.bytesValue
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          body = pbField.bytesValue
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -501,31 +501,31 @@ class EchoStatus(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new MessagesPb.Writer()
+    val pbW = new MessagesPb.Writer()
     if (code != 0) {
-      w.tag(1, 0)
-      w.varint((code.toLong))
+      pbW.tag(1, 0)
+      pbW.varint((code.toLong))
     }
-    w.stringField(2, message)
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.stringField(2, message)
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     code = 0
     message = ""
-    val r = new MessagesPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new MessagesPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          code = field.varintValue.toInt
+          code = pbField.varintValue.toInt
         case 2 =>
-          message = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          message = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -545,48 +545,48 @@ class SimpleRequest(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new MessagesPb.Writer()
+    val pbW = new MessagesPb.Writer()
     if (responseType != 0) {
-      w.tag(1, 0)
-      w.varint((responseType.toLong))
+      pbW.tag(1, 0)
+      pbW.varint((responseType.toLong))
     }
     if (responseSize != 0) {
-      w.tag(2, 0)
-      w.varint((responseSize.toLong))
+      pbW.tag(2, 0)
+      pbW.varint((responseSize.toLong))
     }
     if (payload != null) {
-      w.bytesField(3, payload.marshalDc())
+      pbW.bytesField(3, payload.marshalDc())
     }
     if (fillUsername) {
-      w.tag(4, 0)
-      w.varint((if (fillUsername) 1L else 0L))
+      pbW.tag(4, 0)
+      pbW.varint((if (fillUsername) 1L else 0L))
     }
     if (fillOauthScope) {
-      w.tag(5, 0)
-      w.varint((if (fillOauthScope) 1L else 0L))
+      pbW.tag(5, 0)
+      pbW.varint((if (fillOauthScope) 1L else 0L))
     }
     if (responseCompressed != null) {
-      w.bytesField(6, responseCompressed.marshalDc())
+      pbW.bytesField(6, responseCompressed.marshalDc())
     }
     if (responseStatus != null) {
-      w.bytesField(7, responseStatus.marshalDc())
+      pbW.bytesField(7, responseStatus.marshalDc())
     }
     if (expectCompressed != null) {
-      w.bytesField(8, expectCompressed.marshalDc())
+      pbW.bytesField(8, expectCompressed.marshalDc())
     }
     if (fillServerId) {
-      w.tag(9, 0)
-      w.varint((if (fillServerId) 1L else 0L))
+      pbW.tag(9, 0)
+      pbW.varint((if (fillServerId) 1L else 0L))
     }
     if (fillGrpclbRouteType) {
-      w.tag(10, 0)
-      w.varint((if (fillGrpclbRouteType) 1L else 0L))
+      pbW.tag(10, 0)
+      pbW.varint((if (fillGrpclbRouteType) 1L else 0L))
     }
     if (orcaPerQueryReport != null) {
-      w.bytesField(11, orcaPerQueryReport.marshalDc())
+      pbW.bytesField(11, orcaPerQueryReport.marshalDc())
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -602,40 +602,40 @@ class SimpleRequest(
     fillServerId = false
     fillGrpclbRouteType = false
     orcaPerQueryReport = null
-    val r = new MessagesPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new MessagesPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          responseType = field.varintValue.toInt
+          responseType = pbField.varintValue.toInt
         case 2 =>
-          responseSize = field.varintValue.toInt
+          responseSize = pbField.varintValue.toInt
         case 3 =>
           payload = new Payload()
-          payload.unmarshalDc(field.bytesValue)
+          payload.unmarshalDc(pbField.bytesValue)
         case 4 =>
-          fillUsername = (field.varintValue != 0L)
+          fillUsername = (pbField.varintValue != 0L)
         case 5 =>
-          fillOauthScope = (field.varintValue != 0L)
+          fillOauthScope = (pbField.varintValue != 0L)
         case 6 =>
           responseCompressed = new BoolValue()
-          responseCompressed.unmarshalDc(field.bytesValue)
+          responseCompressed.unmarshalDc(pbField.bytesValue)
         case 7 =>
           responseStatus = new EchoStatus()
-          responseStatus.unmarshalDc(field.bytesValue)
+          responseStatus.unmarshalDc(pbField.bytesValue)
         case 8 =>
           expectCompressed = new BoolValue()
-          expectCompressed.unmarshalDc(field.bytesValue)
+          expectCompressed.unmarshalDc(pbField.bytesValue)
         case 9 =>
-          fillServerId = (field.varintValue != 0L)
+          fillServerId = (pbField.varintValue != 0L)
         case 10 =>
-          fillGrpclbRouteType = (field.varintValue != 0L)
+          fillGrpclbRouteType = (pbField.varintValue != 0L)
         case 11 =>
           orcaPerQueryReport = new TestOrcaReport()
-          orcaPerQueryReport.unmarshalDc(field.bytesValue)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          orcaPerQueryReport.unmarshalDc(pbField.bytesValue)
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -650,20 +650,20 @@ class SimpleResponse(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new MessagesPb.Writer()
+    val pbW = new MessagesPb.Writer()
     if (payload != null) {
-      w.bytesField(1, payload.marshalDc())
+      pbW.bytesField(1, payload.marshalDc())
     }
-    w.stringField(2, username)
-    w.stringField(3, oauthScope)
-    w.stringField(4, serverId)
+    pbW.stringField(2, username)
+    pbW.stringField(3, oauthScope)
+    pbW.stringField(4, serverId)
     if (grpclbRouteType != 0) {
-      w.tag(5, 0)
-      w.varint((grpclbRouteType.toLong))
+      pbW.tag(5, 0)
+      pbW.varint((grpclbRouteType.toLong))
     }
-    w.stringField(6, hostname)
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.stringField(6, hostname)
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -674,26 +674,26 @@ class SimpleResponse(
     serverId = ""
     grpclbRouteType = 0
     hostname = ""
-    val r = new MessagesPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new MessagesPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
           payload = new Payload()
-          payload.unmarshalDc(field.bytesValue)
+          payload.unmarshalDc(pbField.bytesValue)
         case 2 =>
-          username = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          username = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 3 =>
-          oauthScope = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          oauthScope = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 4 =>
-          serverId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          serverId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 5 =>
-          grpclbRouteType = field.varintValue.toInt
+          grpclbRouteType = pbField.varintValue.toInt
         case 6 =>
-          hostname = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          hostname = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -704,34 +704,34 @@ class StreamingInputCallRequest(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new MessagesPb.Writer()
+    val pbW = new MessagesPb.Writer()
     if (payload != null) {
-      w.bytesField(1, payload.marshalDc())
+      pbW.bytesField(1, payload.marshalDc())
     }
     if (expectCompressed != null) {
-      w.bytesField(2, expectCompressed.marshalDc())
+      pbW.bytesField(2, expectCompressed.marshalDc())
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     payload = null
     expectCompressed = null
-    val r = new MessagesPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new MessagesPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
           payload = new Payload()
-          payload.unmarshalDc(field.bytesValue)
+          payload.unmarshalDc(pbField.bytesValue)
         case 2 =>
           expectCompressed = new BoolValue()
-          expectCompressed.unmarshalDc(field.bytesValue)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          expectCompressed.unmarshalDc(pbField.bytesValue)
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -741,27 +741,27 @@ class StreamingInputCallResponse(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new MessagesPb.Writer()
+    val pbW = new MessagesPb.Writer()
     if (aggregatedPayloadSize != 0) {
-      w.tag(1, 0)
-      w.varint((aggregatedPayloadSize.toLong))
+      pbW.tag(1, 0)
+      pbW.varint((aggregatedPayloadSize.toLong))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     aggregatedPayloadSize = 0
-    val r = new MessagesPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new MessagesPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          aggregatedPayloadSize = field.varintValue.toInt
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          aggregatedPayloadSize = pbField.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -773,20 +773,20 @@ class ResponseParameters(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new MessagesPb.Writer()
+    val pbW = new MessagesPb.Writer()
     if (size != 0) {
-      w.tag(1, 0)
-      w.varint((size.toLong))
+      pbW.tag(1, 0)
+      pbW.varint((size.toLong))
     }
     if (intervalUs != 0) {
-      w.tag(2, 0)
-      w.varint((intervalUs.toLong))
+      pbW.tag(2, 0)
+      pbW.varint((intervalUs.toLong))
     }
     if (compressed != null) {
-      w.bytesField(3, compressed.marshalDc())
+      pbW.bytesField(3, compressed.marshalDc())
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -794,20 +794,20 @@ class ResponseParameters(
     size = 0
     intervalUs = 0
     compressed = null
-    val r = new MessagesPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new MessagesPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          size = field.varintValue.toInt
+          size = pbField.varintValue.toInt
         case 2 =>
-          intervalUs = field.varintValue.toInt
+          intervalUs = pbField.varintValue.toInt
         case 3 =>
           compressed = new BoolValue()
-          compressed.unmarshalDc(field.bytesValue)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          compressed.unmarshalDc(pbField.bytesValue)
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -821,25 +821,25 @@ class StreamingOutputCallRequest(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new MessagesPb.Writer()
+    val pbW = new MessagesPb.Writer()
     if (responseType != 0) {
-      w.tag(1, 0)
-      w.varint((responseType.toLong))
+      pbW.tag(1, 0)
+      pbW.varint((responseType.toLong))
     }
-    for (x <- responseParameters) {
-      w.bytesField(2, x.marshalDc())
+    for (pbX <- responseParameters) {
+      pbW.bytesField(2, pbX.marshalDc())
     }
     if (payload != null) {
-      w.bytesField(3, payload.marshalDc())
+      pbW.bytesField(3, payload.marshalDc())
     }
     if (responseStatus != null) {
-      w.bytesField(7, responseStatus.marshalDc())
+      pbW.bytesField(7, responseStatus.marshalDc())
     }
     if (orcaOobReport != null) {
-      w.bytesField(8, orcaOobReport.marshalDc())
+      pbW.bytesField(8, orcaOobReport.marshalDc())
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -849,28 +849,28 @@ class StreamingOutputCallRequest(
     payload = null
     responseStatus = null
     orcaOobReport = null
-    val r = new MessagesPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new MessagesPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          responseType = field.varintValue.toInt
+          responseType = pbField.varintValue.toInt
         case 2 =>
-          val item = new ResponseParameters()
-          item.unmarshalDc(field.bytesValue)
-          responseParameters = responseParameters :+ item
+          val pbItem = new ResponseParameters()
+          pbItem.unmarshalDc(pbField.bytesValue)
+          responseParameters = responseParameters :+ pbItem
         case 3 =>
           payload = new Payload()
-          payload.unmarshalDc(field.bytesValue)
+          payload.unmarshalDc(pbField.bytesValue)
         case 7 =>
           responseStatus = new EchoStatus()
-          responseStatus.unmarshalDc(field.bytesValue)
+          responseStatus.unmarshalDc(pbField.bytesValue)
         case 8 =>
           orcaOobReport = new TestOrcaReport()
-          orcaOobReport.unmarshalDc(field.bytesValue)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          orcaOobReport.unmarshalDc(pbField.bytesValue)
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -880,27 +880,27 @@ class StreamingOutputCallResponse(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new MessagesPb.Writer()
+    val pbW = new MessagesPb.Writer()
     if (payload != null) {
-      w.bytesField(1, payload.marshalDc())
+      pbW.bytesField(1, payload.marshalDc())
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     payload = null
-    val r = new MessagesPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new MessagesPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
           payload = new Payload()
-          payload.unmarshalDc(field.bytesValue)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          payload.unmarshalDc(pbField.bytesValue)
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -910,27 +910,27 @@ class ReconnectParams(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new MessagesPb.Writer()
+    val pbW = new MessagesPb.Writer()
     if (maxReconnectBackoffMs != 0) {
-      w.tag(1, 0)
-      w.varint((maxReconnectBackoffMs.toLong))
+      pbW.tag(1, 0)
+      pbW.varint((maxReconnectBackoffMs.toLong))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     maxReconnectBackoffMs = 0
-    val r = new MessagesPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new MessagesPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          maxReconnectBackoffMs = field.varintValue.toInt
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          maxReconnectBackoffMs = pbField.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -941,45 +941,45 @@ class ReconnectInfo(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new MessagesPb.Writer()
+    val pbW = new MessagesPb.Writer()
     if (passed) {
-      w.tag(1, 0)
-      w.varint((if (passed) 1L else 0L))
+      pbW.tag(1, 0)
+      pbW.varint((if (passed) 1L else 0L))
     }
     if (backoffMs.nonEmpty) {
-      val payload = new java.io.ByteArrayOutputStream()
-      for (x <- backoffMs) {
-        payload.write(MessagesPb.varintBytes((x.toLong)))
+      val pbPayload = new java.io.ByteArrayOutputStream()
+      for (pbX <- backoffMs) {
+        pbPayload.write(MessagesPb.varintBytes((pbX.toLong)))
       }
-      w.bytesField(2, payload.toByteArray)
+      pbW.bytesField(2, pbPayload.toByteArray)
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     passed = false
     backoffMs = List.empty
-    val r = new MessagesPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new MessagesPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          passed = (field.varintValue != 0L)
+          passed = (pbField.varintValue != 0L)
         case 2 =>
-          if (field.wire == 2) {
-            val sub = new MessagesPb.Reader(field.bytesValue)
-            while (!sub.done) {
-              val raw = sub.varint()
+          if (pbField.wire == 2) {
+            val pbSub = new MessagesPb.Reader(pbField.bytesValue)
+            while (!pbSub.done) {
+              val raw = pbSub.varint()
               backoffMs = backoffMs :+ raw.toInt
             }
           } else {
-            backoffMs = backoffMs :+ field.varintValue.toInt
+            backoffMs = backoffMs :+ pbField.varintValue.toInt
           }
-        case _ => unknownFields = unknownFields ++ field.rawValue
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -990,34 +990,34 @@ class LoadBalancerStatsRequest(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new MessagesPb.Writer()
+    val pbW = new MessagesPb.Writer()
     if (numRpcs != 0) {
-      w.tag(1, 0)
-      w.varint((numRpcs.toLong))
+      pbW.tag(1, 0)
+      pbW.varint((numRpcs.toLong))
     }
     if (timeoutSec != 0) {
-      w.tag(2, 0)
-      w.varint((timeoutSec.toLong))
+      pbW.tag(2, 0)
+      pbW.varint((timeoutSec.toLong))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     numRpcs = 0
     timeoutSec = 0
-    val r = new MessagesPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new MessagesPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          numRpcs = field.varintValue.toInt
+          numRpcs = pbField.varintValue.toInt
         case 2 =>
-          timeoutSec = field.varintValue.toInt
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          timeoutSec = pbField.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -1029,19 +1029,19 @@ class LoadBalancerStatsResponse(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new MessagesPb.Writer()
+    val pbW = new MessagesPb.Writer()
     for (k <- rpcsByPeer.keys.toArray.sorted) {
-      w.bytesField(1, MessagesPb.encodeLoadBalancerStatsResponse_RpcsByPeerEntry(k, rpcsByPeer(k)))
+      pbW.bytesField(1, MessagesPb.encodeLoadBalancerStatsResponse_RpcsByPeerEntry(k, rpcsByPeer(k)))
     }
     if (numFailures != 0) {
-      w.tag(2, 0)
-      w.varint((numFailures.toLong))
+      pbW.tag(2, 0)
+      pbW.varint((numFailures.toLong))
     }
     for (k <- rpcsByMethod.keys.toArray.sorted) {
-      w.bytesField(3, MessagesPb.encodeLoadBalancerStatsResponse_RpcsByMethodEntry(k, rpcsByMethod(k)))
+      pbW.bytesField(3, MessagesPb.encodeLoadBalancerStatsResponse_RpcsByMethodEntry(k, rpcsByMethod(k)))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -1049,21 +1049,21 @@ class LoadBalancerStatsResponse(
     rpcsByPeer = Map.empty
     numFailures = 0
     rpcsByMethod = Map.empty
-    val r = new MessagesPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new MessagesPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          val (kk, vv) = MessagesPb.decodeLoadBalancerStatsResponse_RpcsByPeerEntry(field.bytesValue)
+          val (kk, vv) = MessagesPb.decodeLoadBalancerStatsResponse_RpcsByPeerEntry(pbField.bytesValue)
           rpcsByPeer = rpcsByPeer + (kk -> vv)
         case 2 =>
-          numFailures = field.varintValue.toInt
+          numFailures = pbField.varintValue.toInt
         case 3 =>
-          val (kk, vv) = MessagesPb.decodeLoadBalancerStatsResponse_RpcsByMethodEntry(field.bytesValue)
+          val (kk, vv) = MessagesPb.decodeLoadBalancerStatsResponse_RpcsByMethodEntry(pbField.bytesValue)
           rpcsByMethod = rpcsByMethod + (kk -> vv)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -1073,27 +1073,27 @@ class LoadBalancerStatsResponse_RpcsByPeer(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new MessagesPb.Writer()
+    val pbW = new MessagesPb.Writer()
     for (k <- rpcsByPeer.keys.toArray.sorted) {
-      w.bytesField(1, MessagesPb.encodeLoadBalancerStatsResponse_RpcsByPeer_RpcsByPeerEntry(k, rpcsByPeer(k)))
+      pbW.bytesField(1, MessagesPb.encodeLoadBalancerStatsResponse_RpcsByPeer_RpcsByPeerEntry(k, rpcsByPeer(k)))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     rpcsByPeer = Map.empty
-    val r = new MessagesPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new MessagesPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          val (kk, vv) = MessagesPb.decodeLoadBalancerStatsResponse_RpcsByPeer_RpcsByPeerEntry(field.bytesValue)
+          val (kk, vv) = MessagesPb.decodeLoadBalancerStatsResponse_RpcsByPeer_RpcsByPeerEntry(pbField.bytesValue)
           rpcsByPeer = rpcsByPeer + (kk -> vv)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -1104,31 +1104,31 @@ class LoadBalancerStatsResponse_RpcsByPeer_RpcsByPeerEntry(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new MessagesPb.Writer()
-    w.stringField(1, key)
+    val pbW = new MessagesPb.Writer()
+    pbW.stringField(1, key)
     if (value != 0) {
-      w.tag(2, 0)
-      w.varint((value.toLong))
+      pbW.tag(2, 0)
+      pbW.varint((value.toLong))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     key = ""
     value = 0
-    val r = new MessagesPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new MessagesPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          key = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          value = field.varintValue.toInt
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          value = pbField.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -1139,31 +1139,31 @@ class LoadBalancerStatsResponse_RpcsByPeerEntry(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new MessagesPb.Writer()
-    w.stringField(1, key)
+    val pbW = new MessagesPb.Writer()
+    pbW.stringField(1, key)
     if (value != 0) {
-      w.tag(2, 0)
-      w.varint((value.toLong))
+      pbW.tag(2, 0)
+      pbW.varint((value.toLong))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     key = ""
     value = 0
-    val r = new MessagesPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new MessagesPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          key = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          value = field.varintValue.toInt
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          value = pbField.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -1174,31 +1174,31 @@ class LoadBalancerStatsResponse_RpcsByMethodEntry(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new MessagesPb.Writer()
-    w.stringField(1, key)
+    val pbW = new MessagesPb.Writer()
+    pbW.stringField(1, key)
     if (value != null) {
-      w.bytesField(2, value.marshalDc())
+      pbW.bytesField(2, value.marshalDc())
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     key = ""
     value = null
-    val r = new MessagesPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new MessagesPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          key = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
           value = new LoadBalancerStatsResponse_RpcsByPeer()
-          value.unmarshalDc(field.bytesValue)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          value.unmarshalDc(pbField.bytesValue)
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -1207,20 +1207,20 @@ class LoadBalancerAccumulatedStatsRequest(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new MessagesPb.Writer()
-    w.raw(unknownFields)
-    w.toBytes
+    val pbW = new MessagesPb.Writer()
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
-    val r = new MessagesPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
-        case _ => unknownFields = unknownFields ++ field.rawValue
+    val pbR = new MessagesPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -1233,21 +1233,21 @@ class LoadBalancerAccumulatedStatsResponse(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new MessagesPb.Writer()
+    val pbW = new MessagesPb.Writer()
     for (k <- numRpcsStartedByMethod.keys.toArray.sorted) {
-      w.bytesField(1, MessagesPb.encodeLoadBalancerAccumulatedStatsResponse_NumRpcsStartedByMethodEntry(k, numRpcsStartedByMethod(k)))
+      pbW.bytesField(1, MessagesPb.encodeLoadBalancerAccumulatedStatsResponse_NumRpcsStartedByMethodEntry(k, numRpcsStartedByMethod(k)))
     }
     for (k <- numRpcsSucceededByMethod.keys.toArray.sorted) {
-      w.bytesField(2, MessagesPb.encodeLoadBalancerAccumulatedStatsResponse_NumRpcsSucceededByMethodEntry(k, numRpcsSucceededByMethod(k)))
+      pbW.bytesField(2, MessagesPb.encodeLoadBalancerAccumulatedStatsResponse_NumRpcsSucceededByMethodEntry(k, numRpcsSucceededByMethod(k)))
     }
     for (k <- numRpcsFailedByMethod.keys.toArray.sorted) {
-      w.bytesField(3, MessagesPb.encodeLoadBalancerAccumulatedStatsResponse_NumRpcsFailedByMethodEntry(k, numRpcsFailedByMethod(k)))
+      pbW.bytesField(3, MessagesPb.encodeLoadBalancerAccumulatedStatsResponse_NumRpcsFailedByMethodEntry(k, numRpcsFailedByMethod(k)))
     }
     for (k <- statsPerMethod.keys.toArray.sorted) {
-      w.bytesField(4, MessagesPb.encodeLoadBalancerAccumulatedStatsResponse_StatsPerMethodEntry(k, statsPerMethod(k)))
+      pbW.bytesField(4, MessagesPb.encodeLoadBalancerAccumulatedStatsResponse_StatsPerMethodEntry(k, statsPerMethod(k)))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -1256,25 +1256,25 @@ class LoadBalancerAccumulatedStatsResponse(
     numRpcsSucceededByMethod = Map.empty
     numRpcsFailedByMethod = Map.empty
     statsPerMethod = Map.empty
-    val r = new MessagesPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new MessagesPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          val (kk, vv) = MessagesPb.decodeLoadBalancerAccumulatedStatsResponse_NumRpcsStartedByMethodEntry(field.bytesValue)
+          val (kk, vv) = MessagesPb.decodeLoadBalancerAccumulatedStatsResponse_NumRpcsStartedByMethodEntry(pbField.bytesValue)
           numRpcsStartedByMethod = numRpcsStartedByMethod + (kk -> vv)
         case 2 =>
-          val (kk, vv) = MessagesPb.decodeLoadBalancerAccumulatedStatsResponse_NumRpcsSucceededByMethodEntry(field.bytesValue)
+          val (kk, vv) = MessagesPb.decodeLoadBalancerAccumulatedStatsResponse_NumRpcsSucceededByMethodEntry(pbField.bytesValue)
           numRpcsSucceededByMethod = numRpcsSucceededByMethod + (kk -> vv)
         case 3 =>
-          val (kk, vv) = MessagesPb.decodeLoadBalancerAccumulatedStatsResponse_NumRpcsFailedByMethodEntry(field.bytesValue)
+          val (kk, vv) = MessagesPb.decodeLoadBalancerAccumulatedStatsResponse_NumRpcsFailedByMethodEntry(pbField.bytesValue)
           numRpcsFailedByMethod = numRpcsFailedByMethod + (kk -> vv)
         case 4 =>
-          val (kk, vv) = MessagesPb.decodeLoadBalancerAccumulatedStatsResponse_StatsPerMethodEntry(field.bytesValue)
+          val (kk, vv) = MessagesPb.decodeLoadBalancerAccumulatedStatsResponse_StatsPerMethodEntry(pbField.bytesValue)
           statsPerMethod = statsPerMethod + (kk -> vv)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -1285,31 +1285,31 @@ class LoadBalancerAccumulatedStatsResponse_NumRpcsStartedByMethodEntry(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new MessagesPb.Writer()
-    w.stringField(1, key)
+    val pbW = new MessagesPb.Writer()
+    pbW.stringField(1, key)
     if (value != 0) {
-      w.tag(2, 0)
-      w.varint((value.toLong))
+      pbW.tag(2, 0)
+      pbW.varint((value.toLong))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     key = ""
     value = 0
-    val r = new MessagesPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new MessagesPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          key = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          value = field.varintValue.toInt
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          value = pbField.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -1320,31 +1320,31 @@ class LoadBalancerAccumulatedStatsResponse_NumRpcsSucceededByMethodEntry(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new MessagesPb.Writer()
-    w.stringField(1, key)
+    val pbW = new MessagesPb.Writer()
+    pbW.stringField(1, key)
     if (value != 0) {
-      w.tag(2, 0)
-      w.varint((value.toLong))
+      pbW.tag(2, 0)
+      pbW.varint((value.toLong))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     key = ""
     value = 0
-    val r = new MessagesPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new MessagesPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          key = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          value = field.varintValue.toInt
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          value = pbField.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -1355,31 +1355,31 @@ class LoadBalancerAccumulatedStatsResponse_NumRpcsFailedByMethodEntry(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new MessagesPb.Writer()
-    w.stringField(1, key)
+    val pbW = new MessagesPb.Writer()
+    pbW.stringField(1, key)
     if (value != 0) {
-      w.tag(2, 0)
-      w.varint((value.toLong))
+      pbW.tag(2, 0)
+      pbW.varint((value.toLong))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     key = ""
     value = 0
-    val r = new MessagesPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new MessagesPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          key = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          value = field.varintValue.toInt
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          value = pbField.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -1390,34 +1390,34 @@ class LoadBalancerAccumulatedStatsResponse_MethodStats(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new MessagesPb.Writer()
+    val pbW = new MessagesPb.Writer()
     if (rpcsStarted != 0) {
-      w.tag(1, 0)
-      w.varint((rpcsStarted.toLong))
+      pbW.tag(1, 0)
+      pbW.varint((rpcsStarted.toLong))
     }
     for (k <- result.keys.toArray.sorted) {
-      w.bytesField(2, MessagesPb.encodeLoadBalancerAccumulatedStatsResponse_MethodStats_ResultEntry(k, result(k)))
+      pbW.bytesField(2, MessagesPb.encodeLoadBalancerAccumulatedStatsResponse_MethodStats_ResultEntry(k, result(k)))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     rpcsStarted = 0
     result = Map.empty
-    val r = new MessagesPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new MessagesPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          rpcsStarted = field.varintValue.toInt
+          rpcsStarted = pbField.varintValue.toInt
         case 2 =>
-          val (kk, vv) = MessagesPb.decodeLoadBalancerAccumulatedStatsResponse_MethodStats_ResultEntry(field.bytesValue)
+          val (kk, vv) = MessagesPb.decodeLoadBalancerAccumulatedStatsResponse_MethodStats_ResultEntry(pbField.bytesValue)
           result = result + (kk -> vv)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -1428,34 +1428,34 @@ class LoadBalancerAccumulatedStatsResponse_MethodStats_ResultEntry(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new MessagesPb.Writer()
+    val pbW = new MessagesPb.Writer()
     if (key != 0) {
-      w.tag(1, 0)
-      w.varint((key.toLong))
+      pbW.tag(1, 0)
+      pbW.varint((key.toLong))
     }
     if (value != 0) {
-      w.tag(2, 0)
-      w.varint((value.toLong))
+      pbW.tag(2, 0)
+      pbW.varint((value.toLong))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     key = 0
     value = 0
-    val r = new MessagesPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new MessagesPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          key = field.varintValue.toInt
+          key = pbField.varintValue.toInt
         case 2 =>
-          value = field.varintValue.toInt
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          value = pbField.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -1466,31 +1466,31 @@ class LoadBalancerAccumulatedStatsResponse_StatsPerMethodEntry(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new MessagesPb.Writer()
-    w.stringField(1, key)
+    val pbW = new MessagesPb.Writer()
+    pbW.stringField(1, key)
     if (value != null) {
-      w.bytesField(2, value.marshalDc())
+      pbW.bytesField(2, value.marshalDc())
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     key = ""
     value = null
-    val r = new MessagesPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new MessagesPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          key = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
           value = new LoadBalancerAccumulatedStatsResponse_MethodStats()
-          value.unmarshalDc(field.bytesValue)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          value.unmarshalDc(pbField.bytesValue)
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -1502,23 +1502,23 @@ class ClientConfigureRequest(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new MessagesPb.Writer()
+    val pbW = new MessagesPb.Writer()
     if (types.nonEmpty) {
-      val payload = new java.io.ByteArrayOutputStream()
-      for (x <- types) {
-        payload.write(MessagesPb.varintBytes((x.toLong)))
+      val pbPayload = new java.io.ByteArrayOutputStream()
+      for (pbX <- types) {
+        pbPayload.write(MessagesPb.varintBytes((pbX.toLong)))
       }
-      w.bytesField(1, payload.toByteArray)
+      pbW.bytesField(1, pbPayload.toByteArray)
     }
-    for (x <- metadata) {
-      w.bytesField(2, x.marshalDc())
+    for (pbX <- metadata) {
+      pbW.bytesField(2, pbX.marshalDc())
     }
     if (timeoutSec != 0) {
-      w.tag(3, 0)
-      w.varint((timeoutSec.toLong))
+      pbW.tag(3, 0)
+      pbW.varint((timeoutSec.toLong))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -1526,29 +1526,29 @@ class ClientConfigureRequest(
     types = List.empty
     metadata = List.empty
     timeoutSec = 0
-    val r = new MessagesPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new MessagesPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          if (field.wire == 2) {
-            val sub = new MessagesPb.Reader(field.bytesValue)
-            while (!sub.done) {
-              val raw = sub.varint()
+          if (pbField.wire == 2) {
+            val pbSub = new MessagesPb.Reader(pbField.bytesValue)
+            while (!pbSub.done) {
+              val raw = pbSub.varint()
               types = types :+ raw.toInt
             }
           } else {
-            types = types :+ field.varintValue.toInt
+            types = types :+ pbField.varintValue.toInt
           }
         case 2 =>
-          val item = new ClientConfigureRequest_Metadata()
-          item.unmarshalDc(field.bytesValue)
-          metadata = metadata :+ item
+          val pbItem = new ClientConfigureRequest_Metadata()
+          pbItem.unmarshalDc(pbField.bytesValue)
+          metadata = metadata :+ pbItem
         case 3 =>
-          timeoutSec = field.varintValue.toInt
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          timeoutSec = pbField.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -1560,15 +1560,15 @@ class ClientConfigureRequest_Metadata(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new MessagesPb.Writer()
+    val pbW = new MessagesPb.Writer()
     if (`type` != 0) {
-      w.tag(1, 0)
-      w.varint((`type`.toLong))
+      pbW.tag(1, 0)
+      pbW.varint((`type`.toLong))
     }
-    w.stringField(2, key)
-    w.stringField(3, value)
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.stringField(2, key)
+    pbW.stringField(3, value)
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -1576,19 +1576,19 @@ class ClientConfigureRequest_Metadata(
     `type` = 0
     key = ""
     value = ""
-    val r = new MessagesPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new MessagesPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          `type` = field.varintValue.toInt
+          `type` = pbField.varintValue.toInt
         case 2 =>
-          key = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 3 =>
-          value = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          value = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -1597,20 +1597,20 @@ class ClientConfigureResponse(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new MessagesPb.Writer()
-    w.raw(unknownFields)
-    w.toBytes
+    val pbW = new MessagesPb.Writer()
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
-    val r = new MessagesPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
-        case _ => unknownFields = unknownFields ++ field.rawValue
+    val pbR = new MessagesPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -1623,21 +1623,21 @@ class TestOrcaReport(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new MessagesPb.Writer()
+    val pbW = new MessagesPb.Writer()
     if (cpuUtilization != 0) {
-      w.fixed(1, 1, MessagesPb.int64BytesLE(java.lang.Double.doubleToRawLongBits(cpuUtilization)))
+      pbW.fixed(1, 1, MessagesPb.int64BytesLE(java.lang.Double.doubleToRawLongBits(cpuUtilization)))
     }
     if (memoryUtilization != 0) {
-      w.fixed(2, 1, MessagesPb.int64BytesLE(java.lang.Double.doubleToRawLongBits(memoryUtilization)))
+      pbW.fixed(2, 1, MessagesPb.int64BytesLE(java.lang.Double.doubleToRawLongBits(memoryUtilization)))
     }
     for (k <- requestCost.keys.toArray.sorted) {
-      w.bytesField(3, MessagesPb.encodeTestOrcaReport_RequestCostEntry(k, requestCost(k)))
+      pbW.bytesField(3, MessagesPb.encodeTestOrcaReport_RequestCostEntry(k, requestCost(k)))
     }
     for (k <- utilization.keys.toArray.sorted) {
-      w.bytesField(4, MessagesPb.encodeTestOrcaReport_UtilizationEntry(k, utilization(k)))
+      pbW.bytesField(4, MessagesPb.encodeTestOrcaReport_UtilizationEntry(k, utilization(k)))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -1646,23 +1646,23 @@ class TestOrcaReport(
     memoryUtilization = 0.0
     requestCost = Map.empty
     utilization = Map.empty
-    val r = new MessagesPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new MessagesPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          cpuUtilization = java.lang.Double.longBitsToDouble(MessagesPb.toInt64LE(field.fixedValue, 0))
+          cpuUtilization = java.lang.Double.longBitsToDouble(MessagesPb.toInt64LE(pbField.fixedValue, 0))
         case 2 =>
-          memoryUtilization = java.lang.Double.longBitsToDouble(MessagesPb.toInt64LE(field.fixedValue, 0))
+          memoryUtilization = java.lang.Double.longBitsToDouble(MessagesPb.toInt64LE(pbField.fixedValue, 0))
         case 3 =>
-          val (kk, vv) = MessagesPb.decodeTestOrcaReport_RequestCostEntry(field.bytesValue)
+          val (kk, vv) = MessagesPb.decodeTestOrcaReport_RequestCostEntry(pbField.bytesValue)
           requestCost = requestCost + (kk -> vv)
         case 4 =>
-          val (kk, vv) = MessagesPb.decodeTestOrcaReport_UtilizationEntry(field.bytesValue)
+          val (kk, vv) = MessagesPb.decodeTestOrcaReport_UtilizationEntry(pbField.bytesValue)
           utilization = utilization + (kk -> vv)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -1673,30 +1673,30 @@ class TestOrcaReport_RequestCostEntry(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new MessagesPb.Writer()
-    w.stringField(1, key)
+    val pbW = new MessagesPb.Writer()
+    pbW.stringField(1, key)
     if (value != 0) {
-      w.fixed(2, 1, MessagesPb.int64BytesLE(java.lang.Double.doubleToRawLongBits(value)))
+      pbW.fixed(2, 1, MessagesPb.int64BytesLE(java.lang.Double.doubleToRawLongBits(value)))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     key = ""
     value = 0.0
-    val r = new MessagesPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new MessagesPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          key = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          value = java.lang.Double.longBitsToDouble(MessagesPb.toInt64LE(field.fixedValue, 0))
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          value = java.lang.Double.longBitsToDouble(MessagesPb.toInt64LE(pbField.fixedValue, 0))
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -1707,30 +1707,30 @@ class TestOrcaReport_UtilizationEntry(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new MessagesPb.Writer()
-    w.stringField(1, key)
+    val pbW = new MessagesPb.Writer()
+    pbW.stringField(1, key)
     if (value != 0) {
-      w.fixed(2, 1, MessagesPb.int64BytesLE(java.lang.Double.doubleToRawLongBits(value)))
+      pbW.fixed(2, 1, MessagesPb.int64BytesLE(java.lang.Double.doubleToRawLongBits(value)))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     key = ""
     value = 0.0
-    val r = new MessagesPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new MessagesPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          key = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          value = java.lang.Double.longBitsToDouble(MessagesPb.toInt64LE(field.fixedValue, 0))
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          value = java.lang.Double.longBitsToDouble(MessagesPb.toInt64LE(pbField.fixedValue, 0))
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }

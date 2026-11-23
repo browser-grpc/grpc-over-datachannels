@@ -8,6 +8,7 @@ if args.count < 2 {
 }
 do {
     switch args[1] {
+    case "TestStructCodec": try TestStructCodec()
     case "TestCodec": try TestCodec()
     case "TestEcho": try TestEcho()
     case "TestEventBus": try TestEventBus()

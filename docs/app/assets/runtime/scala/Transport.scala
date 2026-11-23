@@ -22,9 +22,22 @@ trait Transport {
 /** Implemented by hand-written protobuf message types. */
 trait Marshaler {
   def marshalDc(): Array[Byte]
+
+  /**
+   * Struct-layout encoding (see Codec.STRUCT_CODEC_V1). Messages
+   * generated without struct_codec=true inherit this error,
+   * mirroring the Go runtime's "message has no struct codec".
+   */
+  def marshalStruct(): Array[Byte] =
+    throw StatusException(Wire.CODE_INTERNAL, "message has no struct codec")
 }
 
 /** Implemented by hand-written protobuf message types. */
 trait Unmarshaler {
   def unmarshalDc(data: Array[Byte]): Unit
+
+  /** Decoding side of Marshaler.marshalStruct. */
+  def unmarshalStruct(data: Array[Byte]): Unit = {
+    throw StatusException(Wire.CODE_INTERNAL, "message has no struct codec")
+  }
 }

@@ -10,13 +10,31 @@ import java.util.Map;
 public class Channel {
     private final Endpoint endpoint;
     private Tracing.TraceContext traceContext;
+    private boolean structCodec;
 
     /** A Channel view sharing this endpoint whose outbound spans
      *  are parented to ctx. Explicit call metadata still wins. */
     public Channel withTraceContext(Tracing.TraceContext ctx) {
         Channel ch = new Channel(endpoint);
         ch.traceContext = ctx;
+        ch.structCodec = structCodec;
         return ch;
+    }
+
+    /**
+     * Make every call on this channel request the struct codec
+     * (HEADERS marker dc-codec: struct-v1) and encode requests /
+     * decode responses with it. The server must enable it too
+     * (see Server.setStructCodec); otherwise calls fail
+     * UNIMPLEMENTED. Mirrors the Go Channel.SetStructCodec.
+     */
+    public void setStructCodec(boolean enabled) {
+        this.structCodec = enabled;
+    }
+
+    /** Whether this channel requests the struct codec on every call. */
+    public boolean structCodec() {
+        return structCodec;
     }
 
     /** Wrap a transport, allocating odd stream ids. */
@@ -52,6 +70,7 @@ public class Channel {
         private boolean traceEnded;
         private boolean terminated;
         private boolean closed;
+        private boolean structCodec;
 
         private void endTrace(String status) {
             if (!traceEnded) {
@@ -91,7 +110,8 @@ public class Channel {
          */
         /** Send one request message on an open stream (no half-close). */
         public void send(Marshaler msg) throws Exception {
-            endpoint.sendFrame(Codec.encodeFrame(Wire.FRAME_DATA, streamId, msg.marshalDc()));
+            endpoint.sendFrame(Codec.encodeFrame(Wire.FRAME_DATA, streamId,
+                    Codec.marshalForCodec(structCodec, msg)));
         }
 
         /** Half-close an open stream (no more requests). */
@@ -142,7 +162,7 @@ public class Channel {
                 switch (event.kind) {
                     case HEADERS -> headers = event.headers;
                     case DATA -> {
-                        resp.unmarshalDc(event.payload);
+                        Codec.unmarshalForCodec(structCodec, event.payload, resp);
                         return;
                     }
                     case TRAILERS -> {
@@ -176,10 +196,13 @@ public class Channel {
             throws Exception {
         long deadlineNanos = -1L;
         Tracing.TraceContext traceCtx = null;
-        if (timeout != null || Tracing.enabled()) {
+        if (timeout != null || Tracing.enabled() || structCodec) {
             Map<String, String> merged = new java.util.HashMap<>();
             if (metadata != null) {
                 merged.putAll(metadata);
+            }
+            if (structCodec) {
+                merged.put(Codec.STRUCT_CODEC_HEADER, Codec.STRUCT_CODEC_V1);
             }
             if (timeout != null) {
                 deadlineNanos = System.nanoTime() + timeout.toNanos();
@@ -208,6 +231,7 @@ public class Channel {
         stream.deadlineNanos = deadlineNanos;
         stream.traceCtx = traceCtx;
         stream.tracePath = path;
+        stream.structCodec = structCodec;
         return stream;
     }
 
@@ -223,7 +247,8 @@ public class Channel {
     }
 
     private void sendMessage(ClientStream stream, Marshaler msg) throws Exception {
-        endpoint.sendFrame(Codec.encodeFrame(Wire.FRAME_DATA, stream.streamId(), msg.marshalDc()));
+        endpoint.sendFrame(Codec.encodeFrame(Wire.FRAME_DATA, stream.streamId(),
+                Codec.marshalForCodec(stream.structCodec, msg)));
     }
 
     private void halfClose(ClientStream stream) throws Exception {

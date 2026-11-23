@@ -12,26 +12,26 @@ public final class SubscribeRequest implements grpcdc.Marshaler, grpcdc.Unmarsha
 
     @Override
     public byte[] marshalDc() {
-        EventsPb.Writer w = new EventsPb.Writer();
-        if (filter != null) for (TagValue x : filter) w.bytesField(1, x.marshalDc());
-        w.raw(unknownFields);
-        return w.toBytes();
+        EventsPb.Writer pbW = new EventsPb.Writer();
+        if (filter != null) for (TagValue pbX : filter) pbW.bytesField(1, pbX.marshalDc());
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
     public void unmarshalDc(byte[] data) {
         unknownFields = new byte[0];
         filter = new java.util.ArrayList<>();
-        EventsPb.Reader r = new EventsPb.Reader(data);
-        EventsPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        EventsPb.Reader pbR = new EventsPb.Reader(data);
+        EventsPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    TagValue item = new TagValue();
-                    item.unmarshalDc(field.bytesValue);
-                    filter.add(item);
+                    TagValue pbItem = new TagValue();
+                    pbItem.unmarshalDc(pbField.bytesValue);
+                    filter.add(pbItem);
                 }
-                default -> { unknownFields = EventsPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = EventsPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

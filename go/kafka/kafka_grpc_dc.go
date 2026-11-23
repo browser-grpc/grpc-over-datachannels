@@ -298,7 +298,11 @@ type KafkaConsumeServerImpl struct {
 }
 
 func (s *KafkaConsumeServerImpl) Send(resp *ConsumeResponse) error {
-	return s.sink.Send(resp.MarshalDC())
+	encoded, err := grpcdc.EncodeMessageForCall(s.ctx, resp)
+	if err != nil {
+		return err
+	}
+	return s.sink.Send(encoded)
 }
 func (s *KafkaConsumeServerImpl) Context() context.Context { return s.ctx }
 
@@ -308,7 +312,11 @@ type KafkaSubscribeServerImpl struct {
 }
 
 func (s *KafkaSubscribeServerImpl) Send(resp *GroupSubscribeResponse) error {
-	return s.sink.Send(resp.MarshalDC())
+	encoded, err := grpcdc.EncodeMessageForCall(s.ctx, resp)
+	if err != nil {
+		return err
+	}
+	return s.sink.Send(encoded)
 }
 func (s *KafkaSubscribeServerImpl) Context() context.Context { return s.ctx }
 
@@ -325,7 +333,11 @@ func RegisterKafkaServer(s *grpcdc.Server, srv KafkaServer) {
 				if err != nil {
 					return err
 				}
-				return sink.Send(resp.MarshalDC())
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
 			}},
 			{Name: "OpenProducer", Path: "/grpcdc.kafka.v1.Kafka/OpenProducer", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
 				req := new(OpenProducerRequest)
@@ -336,7 +348,11 @@ func RegisterKafkaServer(s *grpcdc.Server, srv KafkaServer) {
 				if err != nil {
 					return err
 				}
-				return sink.Send(resp.MarshalDC())
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
 			}},
 			{Name: "CloseProducer", Path: "/grpcdc.kafka.v1.Kafka/CloseProducer", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
 				req := new(CloseProducerRequest)
@@ -347,7 +363,11 @@ func RegisterKafkaServer(s *grpcdc.Server, srv KafkaServer) {
 				if err != nil {
 					return err
 				}
-				return sink.Send(resp.MarshalDC())
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
 			}},
 			{Name: "EndTransaction", Path: "/grpcdc.kafka.v1.Kafka/EndTransaction", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
 				req := new(EndTransactionRequest)
@@ -358,7 +378,11 @@ func RegisterKafkaServer(s *grpcdc.Server, srv KafkaServer) {
 				if err != nil {
 					return err
 				}
-				return sink.Send(resp.MarshalDC())
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
 			}},
 			{Name: "Produce", Path: "/grpcdc.kafka.v1.Kafka/Produce", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
 				req := new(ProduceRequest)
@@ -369,7 +393,11 @@ func RegisterKafkaServer(s *grpcdc.Server, srv KafkaServer) {
 				if err != nil {
 					return err
 				}
-				return sink.Send(resp.MarshalDC())
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
 			}},
 			{Name: "Consume", Path: "/grpcdc.kafka.v1.Kafka/Consume", Kind: grpcdc.KindServerStreaming, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
 				req := new(ConsumeRequest)
@@ -394,7 +422,11 @@ func RegisterKafkaServer(s *grpcdc.Server, srv KafkaServer) {
 				if err != nil {
 					return err
 				}
-				return sink.Send(resp.MarshalDC())
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
 			}},
 			{Name: "CommitOffset", Path: "/grpcdc.kafka.v1.Kafka/CommitOffset", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
 				req := new(CommitOffsetRequest)
@@ -405,7 +437,11 @@ func RegisterKafkaServer(s *grpcdc.Server, srv KafkaServer) {
 				if err != nil {
 					return err
 				}
-				return sink.Send(resp.MarshalDC())
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
 			}},
 			{Name: "FetchOffset", Path: "/grpcdc.kafka.v1.Kafka/FetchOffset", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
 				req := new(FetchOffsetRequest)
@@ -416,7 +452,11 @@ func RegisterKafkaServer(s *grpcdc.Server, srv KafkaServer) {
 				if err != nil {
 					return err
 				}
-				return sink.Send(resp.MarshalDC())
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
 			}},
 			{Name: "CreateTopics", Path: "/grpcdc.kafka.v1.Kafka/CreateTopics", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
 				req := new(CreateTopicsRequest)
@@ -427,7 +467,11 @@ func RegisterKafkaServer(s *grpcdc.Server, srv KafkaServer) {
 				if err != nil {
 					return err
 				}
-				return sink.Send(resp.MarshalDC())
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
 			}},
 			{Name: "DeleteTopics", Path: "/grpcdc.kafka.v1.Kafka/DeleteTopics", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
 				req := new(DeleteTopicsRequest)
@@ -438,7 +482,11 @@ func RegisterKafkaServer(s *grpcdc.Server, srv KafkaServer) {
 				if err != nil {
 					return err
 				}
-				return sink.Send(resp.MarshalDC())
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
 			}},
 			{Name: "DescribeConfigs", Path: "/grpcdc.kafka.v1.Kafka/DescribeConfigs", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
 				req := new(DescribeConfigsRequest)
@@ -449,7 +497,11 @@ func RegisterKafkaServer(s *grpcdc.Server, srv KafkaServer) {
 				if err != nil {
 					return err
 				}
-				return sink.Send(resp.MarshalDC())
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
 			}},
 			{Name: "AlterConfigs", Path: "/grpcdc.kafka.v1.Kafka/AlterConfigs", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
 				req := new(AlterConfigsRequest)
@@ -460,7 +512,11 @@ func RegisterKafkaServer(s *grpcdc.Server, srv KafkaServer) {
 				if err != nil {
 					return err
 				}
-				return sink.Send(resp.MarshalDC())
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
 			}},
 			{Name: "CreatePartitions", Path: "/grpcdc.kafka.v1.Kafka/CreatePartitions", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
 				req := new(CreatePartitionsRequest)
@@ -471,7 +527,11 @@ func RegisterKafkaServer(s *grpcdc.Server, srv KafkaServer) {
 				if err != nil {
 					return err
 				}
-				return sink.Send(resp.MarshalDC())
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
 			}},
 			{Name: "DeleteRecords", Path: "/grpcdc.kafka.v1.Kafka/DeleteRecords", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
 				req := new(DeleteRecordsRequest)
@@ -482,7 +542,11 @@ func RegisterKafkaServer(s *grpcdc.Server, srv KafkaServer) {
 				if err != nil {
 					return err
 				}
-				return sink.Send(resp.MarshalDC())
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
 			}},
 			{Name: "ListGroups", Path: "/grpcdc.kafka.v1.Kafka/ListGroups", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
 				req := new(ListGroupsRequest)
@@ -493,7 +557,11 @@ func RegisterKafkaServer(s *grpcdc.Server, srv KafkaServer) {
 				if err != nil {
 					return err
 				}
-				return sink.Send(resp.MarshalDC())
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
 			}},
 			{Name: "DescribeGroups", Path: "/grpcdc.kafka.v1.Kafka/DescribeGroups", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
 				req := new(DescribeGroupsRequest)
@@ -504,7 +572,11 @@ func RegisterKafkaServer(s *grpcdc.Server, srv KafkaServer) {
 				if err != nil {
 					return err
 				}
-				return sink.Send(resp.MarshalDC())
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
 			}},
 			{Name: "DeleteGroups", Path: "/grpcdc.kafka.v1.Kafka/DeleteGroups", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
 				req := new(DeleteGroupsRequest)
@@ -515,7 +587,11 @@ func RegisterKafkaServer(s *grpcdc.Server, srv KafkaServer) {
 				if err != nil {
 					return err
 				}
-				return sink.Send(resp.MarshalDC())
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
 			}},
 			{Name: "DeleteGroupOffsets", Path: "/grpcdc.kafka.v1.Kafka/DeleteGroupOffsets", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
 				req := new(DeleteGroupOffsetsRequest)
@@ -526,7 +602,11 @@ func RegisterKafkaServer(s *grpcdc.Server, srv KafkaServer) {
 				if err != nil {
 					return err
 				}
-				return sink.Send(resp.MarshalDC())
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
 			}},
 			{Name: "DescribeAcls", Path: "/grpcdc.kafka.v1.Kafka/DescribeAcls", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
 				req := new(DescribeAclsRequest)
@@ -537,7 +617,11 @@ func RegisterKafkaServer(s *grpcdc.Server, srv KafkaServer) {
 				if err != nil {
 					return err
 				}
-				return sink.Send(resp.MarshalDC())
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
 			}},
 			{Name: "CreateAcls", Path: "/grpcdc.kafka.v1.Kafka/CreateAcls", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
 				req := new(CreateAclsRequest)
@@ -548,7 +632,11 @@ func RegisterKafkaServer(s *grpcdc.Server, srv KafkaServer) {
 				if err != nil {
 					return err
 				}
-				return sink.Send(resp.MarshalDC())
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
 			}},
 			{Name: "DeleteAcls", Path: "/grpcdc.kafka.v1.Kafka/DeleteAcls", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
 				req := new(DeleteAclsRequest)
@@ -559,7 +647,11 @@ func RegisterKafkaServer(s *grpcdc.Server, srv KafkaServer) {
 				if err != nil {
 					return err
 				}
-				return sink.Send(resp.MarshalDC())
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
 			}},
 			{Name: "ListTransactions", Path: "/grpcdc.kafka.v1.Kafka/ListTransactions", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
 				req := new(ListTransactionsRequest)
@@ -570,7 +662,11 @@ func RegisterKafkaServer(s *grpcdc.Server, srv KafkaServer) {
 				if err != nil {
 					return err
 				}
-				return sink.Send(resp.MarshalDC())
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
 			}},
 			{Name: "DescribeTransactions", Path: "/grpcdc.kafka.v1.Kafka/DescribeTransactions", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
 				req := new(DescribeTransactionsRequest)
@@ -581,7 +677,11 @@ func RegisterKafkaServer(s *grpcdc.Server, srv KafkaServer) {
 				if err != nil {
 					return err
 				}
-				return sink.Send(resp.MarshalDC())
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
 			}},
 			{Name: "OpenShareGroup", Path: "/grpcdc.kafka.v1.Kafka/OpenShareGroup", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
 				req := new(OpenShareGroupRequest)
@@ -592,7 +692,11 @@ func RegisterKafkaServer(s *grpcdc.Server, srv KafkaServer) {
 				if err != nil {
 					return err
 				}
-				return sink.Send(resp.MarshalDC())
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
 			}},
 			{Name: "SharePoll", Path: "/grpcdc.kafka.v1.Kafka/SharePoll", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
 				req := new(SharePollRequest)
@@ -603,7 +707,11 @@ func RegisterKafkaServer(s *grpcdc.Server, srv KafkaServer) {
 				if err != nil {
 					return err
 				}
-				return sink.Send(resp.MarshalDC())
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
 			}},
 			{Name: "ShareAck", Path: "/grpcdc.kafka.v1.Kafka/ShareAck", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
 				req := new(ShareAckRequest)
@@ -614,7 +722,11 @@ func RegisterKafkaServer(s *grpcdc.Server, srv KafkaServer) {
 				if err != nil {
 					return err
 				}
-				return sink.Send(resp.MarshalDC())
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
 			}},
 			{Name: "CloseShareGroup", Path: "/grpcdc.kafka.v1.Kafka/CloseShareGroup", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
 				req := new(CloseShareGroupRequest)
@@ -625,7 +737,11 @@ func RegisterKafkaServer(s *grpcdc.Server, srv KafkaServer) {
 				if err != nil {
 					return err
 				}
-				return sink.Send(resp.MarshalDC())
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
 			}},
 			{Name: "DescribeShareGroups", Path: "/grpcdc.kafka.v1.Kafka/DescribeShareGroups", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
 				req := new(DescribeShareGroupsRequest)
@@ -636,7 +752,11 @@ func RegisterKafkaServer(s *grpcdc.Server, srv KafkaServer) {
 				if err != nil {
 					return err
 				}
-				return sink.Send(resp.MarshalDC())
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
 			}},
 		},
 	})

@@ -16,12 +16,12 @@ public final class OpenShareGroupResponse implements grpcdc.Marshaler, grpcdc.Un
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
-        w.stringField(1, sessionId);
-        if (errorCode != 0) { w.tag(2, 0); w.varint(errorCode); }
-        if (assignment != null) w.bytesField(3, assignment.marshalDc());
-        w.raw(unknownFields);
-        return w.toBytes();
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
+        pbW.stringField(1, sessionId);
+        if (errorCode != 0) { pbW.tag(2, 0); pbW.varint(errorCode); }
+        if (assignment != null) pbW.bytesField(3, assignment.marshalDc());
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -30,21 +30,21 @@ public final class OpenShareGroupResponse implements grpcdc.Marshaler, grpcdc.Un
         sessionId = "";
         errorCode = 0;
         assignment = null;
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    sessionId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    sessionId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 2 -> {
-                    errorCode = (int) field.varintValue;
+                    errorCode = (int) pbField.varintValue;
                 }
                 case 3 -> {
                     assignment = new Assignment();
-                    assignment.unmarshalDc(field.bytesValue);
+                    assignment.unmarshalDc(pbField.bytesValue);
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

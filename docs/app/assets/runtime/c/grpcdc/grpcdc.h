@@ -184,12 +184,29 @@ const char *grpcdc_headers_get(const grpcdc_headers *h, const char *key);
 grpcdc_status grpcdc_parse_status_payload(const uint8_t *payload, size_t len);
 
 /* ---- client ---- */
+/* HEADERS metadata key/value a client sends to request the
+   struct codec for a call (see SPEC.md struct codec). */
+#define GRPCDC_STRUCT_CODEC_HEADER "dc-codec"
+#define GRPCDC_STRUCT_CODEC_V1 "struct-v1"
+
 typedef struct grpcdc_channel {
     grpcdc_transport *transport;
     uint32_t next_stream_id;
     /* Bound parent for outbound spans (grpcdc_channel_set_trace_parent). */
     grpcdc_trace_context trace_parent;
+    /* Request the struct codec on every call (grpcdc_channel_set_struct_codec). */
+    bool struct_codec;
 } grpcdc_channel;
+
+/* Make every call on this channel request the struct codec
+   (HEADERS marker dc-codec: struct-v1) and encode requests /
+   decode responses with it. The server must enable it too
+   (grpcdc_server_set_struct_codec); otherwise calls fail
+   UNIMPLEMENTED. Mirrors the Go Channel.SetStructCodec. */
+void grpcdc_channel_set_struct_codec(grpcdc_channel *ch, bool enabled);
+/* Whether the call currently being dispatched (server side, this
+   thread) negotiated the struct codec; false outside dispatch. */
+bool grpcdc_current_struct_codec(void);
 
 /* Parent this channel's outbound spans to ctx (usually the serving
    span from grpcdc_server_stream_trace_context, or a root from
@@ -200,6 +217,9 @@ void grpcdc_channel_set_trace_parent(grpcdc_channel *ch,
 void grpcdc_channel_init(grpcdc_channel *ch, grpcdc_transport *transport);
 
 typedef struct grpcdc_stream grpcdc_stream;
+
+/* Whether the stream's call negotiated the struct codec. */
+bool grpcdc_stream_struct_codec(const grpcdc_stream *s);
 
 /* Unary call: req is one serialized message; *resp_out receives the
    response message bytes (owned). */
@@ -229,6 +249,8 @@ void grpcdc_stream_cancel(grpcdc_stream *s);
 
 /* ---- server ---- */
 typedef struct grpcdc_server_stream grpcdc_server_stream;
+/* Whether the call being served negotiated the struct codec. */
+bool grpcdc_server_stream_struct_codec(const grpcdc_server_stream *s);
 grpcdc_status grpcdc_server_stream_send(grpcdc_server_stream *s,
                                         const uint8_t *msg, size_t len);
 int grpcdc_server_stream_recv(grpcdc_server_stream *s, grpcdc_bytes *out,
@@ -289,6 +311,11 @@ typedef struct {
 
 typedef struct grpcdc_server grpcdc_server;
 grpcdc_server *grpcdc_server_new(void);
+/* Enable the struct codec on a server: a call carrying HEADERS
+   dc-codec: struct-v1 is decoded with the struct codec and
+   answered in kind; any other dc-codec value (or struct-v1 when
+   not enabled) fails UNIMPLEMENTED. Mirrors Go Server.SetStructCodec. */
+void grpcdc_server_set_struct_codec(grpcdc_server *srv, bool enabled);
 void grpcdc_server_add_service(grpcdc_server *srv, const char *full_name,
                                const grpcdc_method_desc *methods,
                                size_t method_count, void *impl);

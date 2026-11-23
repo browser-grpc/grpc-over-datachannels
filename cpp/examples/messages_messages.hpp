@@ -426,99 +426,99 @@ inline std::pair<std::string, double> TestOrcaReportUtilizationEntryDecode(const
 }  // namespace pb_messages
 
 inline grpcdc::Bytes BoolValue::MarshalDc() const {
-    pb_messages::Writer w;
-    if (value) { w.Tag(1, 0); w.Varint((value ? 1 : 0)); }
-    w.Raw(unknown_fields);
-    return w.ToBytes();
+    pb_messages::Writer pb_w;
+    if (value) { pb_w.Tag(1, 0); pb_w.Varint((value ? 1 : 0)); }
+    pb_w.Raw(unknown_fields);
+    return pb_w.ToBytes();
 }
 
-inline void BoolValue::UnmarshalDc(const grpcdc::Bytes& data) {
+inline void BoolValue::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
     unknown_fields.clear();
     value = false;
-    pb_messages::Reader r(data);
-    pb_messages::Field field;
-    while (r.Next(field)) {
-      switch (field.number) {
+    pb_messages::Reader pb_r(pb_data_);
+    pb_messages::Field pb_field;
+    while (pb_r.Next(pb_field)) {
+      switch (pb_field.number) {
         case 1: {
-            value = field.varint != 0;
+            value = pb_field.varint != 0;
             break;
         }
-        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
+        default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;
       }
     }
 }
 
 inline grpcdc::Bytes Payload::MarshalDc() const {
-    pb_messages::Writer w;
-    if (static_cast<std::int32_t>(type) != 0) { w.Tag(1, 0); w.Varint(static_cast<std::int32_t>(type)); }
-    if (!body.empty()) w.BytesField(2, body);
-    w.Raw(unknown_fields);
-    return w.ToBytes();
+    pb_messages::Writer pb_w;
+    if (static_cast<std::int32_t>(type) != 0) { pb_w.Tag(1, 0); pb_w.Varint(static_cast<std::int32_t>(type)); }
+    if (!body.empty()) pb_w.BytesField(2, body);
+    pb_w.Raw(unknown_fields);
+    return pb_w.ToBytes();
 }
 
-inline void Payload::UnmarshalDc(const grpcdc::Bytes& data) {
+inline void Payload::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
     unknown_fields.clear();
     type = PayloadType::COMPRESSABLE;
     body = {};
-    pb_messages::Reader r(data);
-    pb_messages::Field field;
-    while (r.Next(field)) {
-      switch (field.number) {
+    pb_messages::Reader pb_r(pb_data_);
+    pb_messages::Field pb_field;
+    while (pb_r.Next(pb_field)) {
+      switch (pb_field.number) {
         case 1: {
-            type = static_cast<PayloadType>(static_cast<std::int32_t>(field.varint));
+            type = static_cast<PayloadType>(static_cast<std::int32_t>(pb_field.varint));
             break;
         }
         case 2: {
-            body = field.bytes;
+            body = pb_field.bytes;
             break;
         }
-        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
+        default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;
       }
     }
 }
 
 inline grpcdc::Bytes EchoStatus::MarshalDc() const {
-    pb_messages::Writer w;
-    if (code != 0) { w.Tag(1, 0); w.Varint(static_cast<std::int64_t>(code)); }
-    w.StringField(2, message);
-    w.Raw(unknown_fields);
-    return w.ToBytes();
+    pb_messages::Writer pb_w;
+    if (code != 0) { pb_w.Tag(1, 0); pb_w.Varint(static_cast<std::int64_t>(code)); }
+    pb_w.StringField(2, message);
+    pb_w.Raw(unknown_fields);
+    return pb_w.ToBytes();
 }
 
-inline void EchoStatus::UnmarshalDc(const grpcdc::Bytes& data) {
+inline void EchoStatus::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
     unknown_fields.clear();
     code = 0;
     message = "";
-    pb_messages::Reader r(data);
-    pb_messages::Field field;
-    while (r.Next(field)) {
-      switch (field.number) {
+    pb_messages::Reader pb_r(pb_data_);
+    pb_messages::Field pb_field;
+    while (pb_r.Next(pb_field)) {
+      switch (pb_field.number) {
         case 1: {
-            code = static_cast<std::int32_t>(field.varint);
+            code = static_cast<std::int32_t>(pb_field.varint);
             break;
         }
         case 2: {
-            message = std::string(field.bytes.begin(), field.bytes.end());
+            message = std::string(pb_field.bytes.begin(), pb_field.bytes.end());
             break;
         }
-        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
+        default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;
       }
     }
 }
 
 inline grpcdc::Bytes SimpleResponse::MarshalDc() const {
-    pb_messages::Writer w;
-    if (payload) w.BytesField(1, payload->MarshalDc());
-    w.StringField(2, username);
-    w.StringField(3, oauth_scope);
-    w.StringField(4, server_id);
-    if (static_cast<std::int32_t>(grpclb_route_type) != 0) { w.Tag(5, 0); w.Varint(static_cast<std::int32_t>(grpclb_route_type)); }
-    w.StringField(6, hostname);
-    w.Raw(unknown_fields);
-    return w.ToBytes();
+    pb_messages::Writer pb_w;
+    if (payload) pb_w.BytesField(1, payload->MarshalDc());
+    pb_w.StringField(2, username);
+    pb_w.StringField(3, oauth_scope);
+    pb_w.StringField(4, server_id);
+    if (static_cast<std::int32_t>(grpclb_route_type) != 0) { pb_w.Tag(5, 0); pb_w.Varint(static_cast<std::int32_t>(grpclb_route_type)); }
+    pb_w.StringField(6, hostname);
+    pb_w.Raw(unknown_fields);
+    return pb_w.ToBytes();
 }
 
-inline void SimpleResponse::UnmarshalDc(const grpcdc::Bytes& data) {
+inline void SimpleResponse::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
     unknown_fields.clear();
     payload = std::nullopt;
     username = "";
@@ -526,560 +526,560 @@ inline void SimpleResponse::UnmarshalDc(const grpcdc::Bytes& data) {
     server_id = "";
     grpclb_route_type = GrpclbRouteType::GRPCLB_ROUTE_TYPE_UNKNOWN;
     hostname = "";
-    pb_messages::Reader r(data);
-    pb_messages::Field field;
-    while (r.Next(field)) {
-      switch (field.number) {
+    pb_messages::Reader pb_r(pb_data_);
+    pb_messages::Field pb_field;
+    while (pb_r.Next(pb_field)) {
+      switch (pb_field.number) {
         case 1: {
             payload.emplace();
-            payload->UnmarshalDc(field.bytes);
+            payload->UnmarshalDc(pb_field.bytes);
             break;
         }
         case 2: {
-            username = std::string(field.bytes.begin(), field.bytes.end());
+            username = std::string(pb_field.bytes.begin(), pb_field.bytes.end());
             break;
         }
         case 3: {
-            oauth_scope = std::string(field.bytes.begin(), field.bytes.end());
+            oauth_scope = std::string(pb_field.bytes.begin(), pb_field.bytes.end());
             break;
         }
         case 4: {
-            server_id = std::string(field.bytes.begin(), field.bytes.end());
+            server_id = std::string(pb_field.bytes.begin(), pb_field.bytes.end());
             break;
         }
         case 5: {
-            grpclb_route_type = static_cast<GrpclbRouteType>(static_cast<std::int32_t>(field.varint));
+            grpclb_route_type = static_cast<GrpclbRouteType>(static_cast<std::int32_t>(pb_field.varint));
             break;
         }
         case 6: {
-            hostname = std::string(field.bytes.begin(), field.bytes.end());
+            hostname = std::string(pb_field.bytes.begin(), pb_field.bytes.end());
             break;
         }
-        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
+        default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;
       }
     }
 }
 
 inline grpcdc::Bytes StreamingInputCallRequest::MarshalDc() const {
-    pb_messages::Writer w;
-    if (payload) w.BytesField(1, payload->MarshalDc());
-    if (expect_compressed) w.BytesField(2, expect_compressed->MarshalDc());
-    w.Raw(unknown_fields);
-    return w.ToBytes();
+    pb_messages::Writer pb_w;
+    if (payload) pb_w.BytesField(1, payload->MarshalDc());
+    if (expect_compressed) pb_w.BytesField(2, expect_compressed->MarshalDc());
+    pb_w.Raw(unknown_fields);
+    return pb_w.ToBytes();
 }
 
-inline void StreamingInputCallRequest::UnmarshalDc(const grpcdc::Bytes& data) {
+inline void StreamingInputCallRequest::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
     unknown_fields.clear();
     payload = std::nullopt;
     expect_compressed = std::nullopt;
-    pb_messages::Reader r(data);
-    pb_messages::Field field;
-    while (r.Next(field)) {
-      switch (field.number) {
+    pb_messages::Reader pb_r(pb_data_);
+    pb_messages::Field pb_field;
+    while (pb_r.Next(pb_field)) {
+      switch (pb_field.number) {
         case 1: {
             payload.emplace();
-            payload->UnmarshalDc(field.bytes);
+            payload->UnmarshalDc(pb_field.bytes);
             break;
         }
         case 2: {
             expect_compressed.emplace();
-            expect_compressed->UnmarshalDc(field.bytes);
+            expect_compressed->UnmarshalDc(pb_field.bytes);
             break;
         }
-        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
+        default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;
       }
     }
 }
 
 inline grpcdc::Bytes StreamingInputCallResponse::MarshalDc() const {
-    pb_messages::Writer w;
-    if (aggregated_payload_size != 0) { w.Tag(1, 0); w.Varint(static_cast<std::int64_t>(aggregated_payload_size)); }
-    w.Raw(unknown_fields);
-    return w.ToBytes();
+    pb_messages::Writer pb_w;
+    if (aggregated_payload_size != 0) { pb_w.Tag(1, 0); pb_w.Varint(static_cast<std::int64_t>(aggregated_payload_size)); }
+    pb_w.Raw(unknown_fields);
+    return pb_w.ToBytes();
 }
 
-inline void StreamingInputCallResponse::UnmarshalDc(const grpcdc::Bytes& data) {
+inline void StreamingInputCallResponse::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
     unknown_fields.clear();
     aggregated_payload_size = 0;
-    pb_messages::Reader r(data);
-    pb_messages::Field field;
-    while (r.Next(field)) {
-      switch (field.number) {
+    pb_messages::Reader pb_r(pb_data_);
+    pb_messages::Field pb_field;
+    while (pb_r.Next(pb_field)) {
+      switch (pb_field.number) {
         case 1: {
-            aggregated_payload_size = static_cast<std::int32_t>(field.varint);
+            aggregated_payload_size = static_cast<std::int32_t>(pb_field.varint);
             break;
         }
-        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
+        default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;
       }
     }
 }
 
 inline grpcdc::Bytes ResponseParameters::MarshalDc() const {
-    pb_messages::Writer w;
-    if (size != 0) { w.Tag(1, 0); w.Varint(static_cast<std::int64_t>(size)); }
-    if (interval_us != 0) { w.Tag(2, 0); w.Varint(static_cast<std::int64_t>(interval_us)); }
-    if (compressed) w.BytesField(3, compressed->MarshalDc());
-    w.Raw(unknown_fields);
-    return w.ToBytes();
+    pb_messages::Writer pb_w;
+    if (size != 0) { pb_w.Tag(1, 0); pb_w.Varint(static_cast<std::int64_t>(size)); }
+    if (interval_us != 0) { pb_w.Tag(2, 0); pb_w.Varint(static_cast<std::int64_t>(interval_us)); }
+    if (compressed) pb_w.BytesField(3, compressed->MarshalDc());
+    pb_w.Raw(unknown_fields);
+    return pb_w.ToBytes();
 }
 
-inline void ResponseParameters::UnmarshalDc(const grpcdc::Bytes& data) {
+inline void ResponseParameters::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
     unknown_fields.clear();
     size = 0;
     interval_us = 0;
     compressed = std::nullopt;
-    pb_messages::Reader r(data);
-    pb_messages::Field field;
-    while (r.Next(field)) {
-      switch (field.number) {
+    pb_messages::Reader pb_r(pb_data_);
+    pb_messages::Field pb_field;
+    while (pb_r.Next(pb_field)) {
+      switch (pb_field.number) {
         case 1: {
-            size = static_cast<std::int32_t>(field.varint);
+            size = static_cast<std::int32_t>(pb_field.varint);
             break;
         }
         case 2: {
-            interval_us = static_cast<std::int32_t>(field.varint);
+            interval_us = static_cast<std::int32_t>(pb_field.varint);
             break;
         }
         case 3: {
             compressed.emplace();
-            compressed->UnmarshalDc(field.bytes);
+            compressed->UnmarshalDc(pb_field.bytes);
             break;
         }
-        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
+        default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;
       }
     }
 }
 
 inline grpcdc::Bytes StreamingOutputCallResponse::MarshalDc() const {
-    pb_messages::Writer w;
-    if (payload) w.BytesField(1, payload->MarshalDc());
-    w.Raw(unknown_fields);
-    return w.ToBytes();
+    pb_messages::Writer pb_w;
+    if (payload) pb_w.BytesField(1, payload->MarshalDc());
+    pb_w.Raw(unknown_fields);
+    return pb_w.ToBytes();
 }
 
-inline void StreamingOutputCallResponse::UnmarshalDc(const grpcdc::Bytes& data) {
+inline void StreamingOutputCallResponse::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
     unknown_fields.clear();
     payload = std::nullopt;
-    pb_messages::Reader r(data);
-    pb_messages::Field field;
-    while (r.Next(field)) {
-      switch (field.number) {
+    pb_messages::Reader pb_r(pb_data_);
+    pb_messages::Field pb_field;
+    while (pb_r.Next(pb_field)) {
+      switch (pb_field.number) {
         case 1: {
             payload.emplace();
-            payload->UnmarshalDc(field.bytes);
+            payload->UnmarshalDc(pb_field.bytes);
             break;
         }
-        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
+        default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;
       }
     }
 }
 
 inline grpcdc::Bytes ReconnectParams::MarshalDc() const {
-    pb_messages::Writer w;
-    if (max_reconnect_backoff_ms != 0) { w.Tag(1, 0); w.Varint(static_cast<std::int64_t>(max_reconnect_backoff_ms)); }
-    w.Raw(unknown_fields);
-    return w.ToBytes();
+    pb_messages::Writer pb_w;
+    if (max_reconnect_backoff_ms != 0) { pb_w.Tag(1, 0); pb_w.Varint(static_cast<std::int64_t>(max_reconnect_backoff_ms)); }
+    pb_w.Raw(unknown_fields);
+    return pb_w.ToBytes();
 }
 
-inline void ReconnectParams::UnmarshalDc(const grpcdc::Bytes& data) {
+inline void ReconnectParams::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
     unknown_fields.clear();
     max_reconnect_backoff_ms = 0;
-    pb_messages::Reader r(data);
-    pb_messages::Field field;
-    while (r.Next(field)) {
-      switch (field.number) {
+    pb_messages::Reader pb_r(pb_data_);
+    pb_messages::Field pb_field;
+    while (pb_r.Next(pb_field)) {
+      switch (pb_field.number) {
         case 1: {
-            max_reconnect_backoff_ms = static_cast<std::int32_t>(field.varint);
+            max_reconnect_backoff_ms = static_cast<std::int32_t>(pb_field.varint);
             break;
         }
-        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
+        default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;
       }
     }
 }
 
 inline grpcdc::Bytes ReconnectInfo::MarshalDc() const {
-    pb_messages::Writer w;
-    if (passed) { w.Tag(1, 0); w.Varint((passed ? 1 : 0)); }
+    pb_messages::Writer pb_w;
+    if (passed) { pb_w.Tag(1, 0); pb_w.Varint((passed ? 1 : 0)); }
     if (!backoff_ms.empty()) {
-        pb_messages::Writer payload;
-        for (auto x : backoff_ms) payload.Varint(static_cast<std::int64_t>(x));
-        w.BytesField(2, payload.ToBytes());
+        pb_messages::Writer pb_payload;
+        for (auto pb_x : backoff_ms) pb_payload.Varint(static_cast<std::int64_t>(pb_x));
+        pb_w.BytesField(2, pb_payload.ToBytes());
     }
-    w.Raw(unknown_fields);
-    return w.ToBytes();
+    pb_w.Raw(unknown_fields);
+    return pb_w.ToBytes();
 }
 
-inline void ReconnectInfo::UnmarshalDc(const grpcdc::Bytes& data) {
+inline void ReconnectInfo::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
     unknown_fields.clear();
     passed = false;
     backoff_ms = {};
-    pb_messages::Reader r(data);
-    pb_messages::Field field;
-    while (r.Next(field)) {
-      switch (field.number) {
+    pb_messages::Reader pb_r(pb_data_);
+    pb_messages::Field pb_field;
+    while (pb_r.Next(pb_field)) {
+      switch (pb_field.number) {
         case 1: {
-            passed = field.varint != 0;
+            passed = pb_field.varint != 0;
             break;
         }
         case 2: {
-            if (field.wire == 2) {
-                pb_messages::Reader sub(field.bytes);
-                while (!sub.Done()) {
-                    backoff_ms.push_back(static_cast<std::int32_t>(sub.Varint()));
+            if (pb_field.wire == 2) {
+                pb_messages::Reader pb_sub(pb_field.bytes);
+                while (!pb_sub.Done()) {
+                    backoff_ms.push_back(static_cast<std::int32_t>(pb_sub.Varint()));
                 }
             } else {
-                backoff_ms.push_back(static_cast<std::int32_t>(field.varint));
+                backoff_ms.push_back(static_cast<std::int32_t>(pb_field.varint));
             }
             break;
         }
-        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
+        default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;
       }
     }
 }
 
 inline grpcdc::Bytes LoadBalancerStatsRequest::MarshalDc() const {
-    pb_messages::Writer w;
-    if (num_rpcs != 0) { w.Tag(1, 0); w.Varint(static_cast<std::int64_t>(num_rpcs)); }
-    if (timeout_sec != 0) { w.Tag(2, 0); w.Varint(static_cast<std::int64_t>(timeout_sec)); }
-    w.Raw(unknown_fields);
-    return w.ToBytes();
+    pb_messages::Writer pb_w;
+    if (num_rpcs != 0) { pb_w.Tag(1, 0); pb_w.Varint(static_cast<std::int64_t>(num_rpcs)); }
+    if (timeout_sec != 0) { pb_w.Tag(2, 0); pb_w.Varint(static_cast<std::int64_t>(timeout_sec)); }
+    pb_w.Raw(unknown_fields);
+    return pb_w.ToBytes();
 }
 
-inline void LoadBalancerStatsRequest::UnmarshalDc(const grpcdc::Bytes& data) {
+inline void LoadBalancerStatsRequest::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
     unknown_fields.clear();
     num_rpcs = 0;
     timeout_sec = 0;
-    pb_messages::Reader r(data);
-    pb_messages::Field field;
-    while (r.Next(field)) {
-      switch (field.number) {
+    pb_messages::Reader pb_r(pb_data_);
+    pb_messages::Field pb_field;
+    while (pb_r.Next(pb_field)) {
+      switch (pb_field.number) {
         case 1: {
-            num_rpcs = static_cast<std::int32_t>(field.varint);
+            num_rpcs = static_cast<std::int32_t>(pb_field.varint);
             break;
         }
         case 2: {
-            timeout_sec = static_cast<std::int32_t>(field.varint);
+            timeout_sec = static_cast<std::int32_t>(pb_field.varint);
             break;
         }
-        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
+        default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;
       }
     }
 }
 
 inline grpcdc::Bytes LoadBalancerStatsResponse::MarshalDc() const {
-    pb_messages::Writer w;
-    if (!rpcs_by_peer.empty()) for (const auto& e : rpcs_by_peer) w.BytesField(1, pb_messages::LoadBalancerStatsResponseRpcsByPeerEntryEncode(e.first, e.second));
-    if (num_failures != 0) { w.Tag(2, 0); w.Varint(static_cast<std::int64_t>(num_failures)); }
-    if (!rpcs_by_method.empty()) for (const auto& e : rpcs_by_method) w.BytesField(3, pb_messages::LoadBalancerStatsResponseRpcsByMethodEntryEncode(e.first, e.second));
-    w.Raw(unknown_fields);
-    return w.ToBytes();
+    pb_messages::Writer pb_w;
+    if (!rpcs_by_peer.empty()) for (const auto& pb_e : rpcs_by_peer) pb_w.BytesField(1, pb_messages::LoadBalancerStatsResponseRpcsByPeerEntryEncode(pb_e.first, pb_e.second));
+    if (num_failures != 0) { pb_w.Tag(2, 0); pb_w.Varint(static_cast<std::int64_t>(num_failures)); }
+    if (!rpcs_by_method.empty()) for (const auto& pb_e : rpcs_by_method) pb_w.BytesField(3, pb_messages::LoadBalancerStatsResponseRpcsByMethodEntryEncode(pb_e.first, pb_e.second));
+    pb_w.Raw(unknown_fields);
+    return pb_w.ToBytes();
 }
 
-inline void LoadBalancerStatsResponse::UnmarshalDc(const grpcdc::Bytes& data) {
+inline void LoadBalancerStatsResponse::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
     unknown_fields.clear();
     rpcs_by_peer = {};
     num_failures = 0;
     rpcs_by_method = {};
-    pb_messages::Reader r(data);
-    pb_messages::Field field;
-    while (r.Next(field)) {
-      switch (field.number) {
+    pb_messages::Reader pb_r(pb_data_);
+    pb_messages::Field pb_field;
+    while (pb_r.Next(pb_field)) {
+      switch (pb_field.number) {
         case 1: {
-            auto kv = pb_messages::LoadBalancerStatsResponseRpcsByPeerEntryDecode(field.bytes);
-            rpcs_by_peer[kv.first] = kv.second;
+            auto pb_kv = pb_messages::LoadBalancerStatsResponseRpcsByPeerEntryDecode(pb_field.bytes);
+            rpcs_by_peer[pb_kv.first] = pb_kv.second;
             break;
         }
         case 2: {
-            num_failures = static_cast<std::int32_t>(field.varint);
+            num_failures = static_cast<std::int32_t>(pb_field.varint);
             break;
         }
         case 3: {
-            auto kv = pb_messages::LoadBalancerStatsResponseRpcsByMethodEntryDecode(field.bytes);
-            rpcs_by_method[kv.first] = kv.second;
+            auto pb_kv = pb_messages::LoadBalancerStatsResponseRpcsByMethodEntryDecode(pb_field.bytes);
+            rpcs_by_method[pb_kv.first] = pb_kv.second;
             break;
         }
-        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
+        default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;
       }
     }
 }
 
 inline grpcdc::Bytes LoadBalancerStatsResponse::RpcsByPeer::MarshalDc() const {
-    pb_messages::Writer w;
-    if (!rpcs_by_peer.empty()) for (const auto& e : rpcs_by_peer) w.BytesField(1, pb_messages::LoadBalancerStatsResponseRpcsByPeerRpcsByPeerEntryEncode(e.first, e.second));
-    w.Raw(unknown_fields);
-    return w.ToBytes();
+    pb_messages::Writer pb_w;
+    if (!rpcs_by_peer.empty()) for (const auto& pb_e : rpcs_by_peer) pb_w.BytesField(1, pb_messages::LoadBalancerStatsResponseRpcsByPeerRpcsByPeerEntryEncode(pb_e.first, pb_e.second));
+    pb_w.Raw(unknown_fields);
+    return pb_w.ToBytes();
 }
 
-inline void LoadBalancerStatsResponse::RpcsByPeer::UnmarshalDc(const grpcdc::Bytes& data) {
+inline void LoadBalancerStatsResponse::RpcsByPeer::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
     unknown_fields.clear();
     rpcs_by_peer = {};
-    pb_messages::Reader r(data);
-    pb_messages::Field field;
-    while (r.Next(field)) {
-      switch (field.number) {
+    pb_messages::Reader pb_r(pb_data_);
+    pb_messages::Field pb_field;
+    while (pb_r.Next(pb_field)) {
+      switch (pb_field.number) {
         case 1: {
-            auto kv = pb_messages::LoadBalancerStatsResponseRpcsByPeerRpcsByPeerEntryDecode(field.bytes);
-            rpcs_by_peer[kv.first] = kv.second;
+            auto pb_kv = pb_messages::LoadBalancerStatsResponseRpcsByPeerRpcsByPeerEntryDecode(pb_field.bytes);
+            rpcs_by_peer[pb_kv.first] = pb_kv.second;
             break;
         }
-        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
+        default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;
       }
     }
 }
 
 inline grpcdc::Bytes LoadBalancerAccumulatedStatsRequest::MarshalDc() const {
-    pb_messages::Writer w;
-    w.Raw(unknown_fields);
-    return w.ToBytes();
+    pb_messages::Writer pb_w;
+    pb_w.Raw(unknown_fields);
+    return pb_w.ToBytes();
 }
 
-inline void LoadBalancerAccumulatedStatsRequest::UnmarshalDc(const grpcdc::Bytes& data) {
+inline void LoadBalancerAccumulatedStatsRequest::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
     unknown_fields.clear();
-    pb_messages::Reader r(data);
-    pb_messages::Field field;
-    while (r.Next(field)) {
-      switch (field.number) {
-        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
+    pb_messages::Reader pb_r(pb_data_);
+    pb_messages::Field pb_field;
+    while (pb_r.Next(pb_field)) {
+      switch (pb_field.number) {
+        default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;
       }
     }
 }
 
 inline grpcdc::Bytes LoadBalancerAccumulatedStatsResponse::MarshalDc() const {
-    pb_messages::Writer w;
-    if (!num_rpcs_started_by_method.empty()) for (const auto& e : num_rpcs_started_by_method) w.BytesField(1, pb_messages::LoadBalancerAccumulatedStatsResponseNumRpcsStartedByMethodEntryEncode(e.first, e.second));
-    if (!num_rpcs_succeeded_by_method.empty()) for (const auto& e : num_rpcs_succeeded_by_method) w.BytesField(2, pb_messages::LoadBalancerAccumulatedStatsResponseNumRpcsSucceededByMethodEntryEncode(e.first, e.second));
-    if (!num_rpcs_failed_by_method.empty()) for (const auto& e : num_rpcs_failed_by_method) w.BytesField(3, pb_messages::LoadBalancerAccumulatedStatsResponseNumRpcsFailedByMethodEntryEncode(e.first, e.second));
-    if (!stats_per_method.empty()) for (const auto& e : stats_per_method) w.BytesField(4, pb_messages::LoadBalancerAccumulatedStatsResponseStatsPerMethodEntryEncode(e.first, e.second));
-    w.Raw(unknown_fields);
-    return w.ToBytes();
+    pb_messages::Writer pb_w;
+    if (!num_rpcs_started_by_method.empty()) for (const auto& pb_e : num_rpcs_started_by_method) pb_w.BytesField(1, pb_messages::LoadBalancerAccumulatedStatsResponseNumRpcsStartedByMethodEntryEncode(pb_e.first, pb_e.second));
+    if (!num_rpcs_succeeded_by_method.empty()) for (const auto& pb_e : num_rpcs_succeeded_by_method) pb_w.BytesField(2, pb_messages::LoadBalancerAccumulatedStatsResponseNumRpcsSucceededByMethodEntryEncode(pb_e.first, pb_e.second));
+    if (!num_rpcs_failed_by_method.empty()) for (const auto& pb_e : num_rpcs_failed_by_method) pb_w.BytesField(3, pb_messages::LoadBalancerAccumulatedStatsResponseNumRpcsFailedByMethodEntryEncode(pb_e.first, pb_e.second));
+    if (!stats_per_method.empty()) for (const auto& pb_e : stats_per_method) pb_w.BytesField(4, pb_messages::LoadBalancerAccumulatedStatsResponseStatsPerMethodEntryEncode(pb_e.first, pb_e.second));
+    pb_w.Raw(unknown_fields);
+    return pb_w.ToBytes();
 }
 
-inline void LoadBalancerAccumulatedStatsResponse::UnmarshalDc(const grpcdc::Bytes& data) {
+inline void LoadBalancerAccumulatedStatsResponse::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
     unknown_fields.clear();
     num_rpcs_started_by_method = {};
     num_rpcs_succeeded_by_method = {};
     num_rpcs_failed_by_method = {};
     stats_per_method = {};
-    pb_messages::Reader r(data);
-    pb_messages::Field field;
-    while (r.Next(field)) {
-      switch (field.number) {
+    pb_messages::Reader pb_r(pb_data_);
+    pb_messages::Field pb_field;
+    while (pb_r.Next(pb_field)) {
+      switch (pb_field.number) {
         case 1: {
-            auto kv = pb_messages::LoadBalancerAccumulatedStatsResponseNumRpcsStartedByMethodEntryDecode(field.bytes);
-            num_rpcs_started_by_method[kv.first] = kv.second;
+            auto pb_kv = pb_messages::LoadBalancerAccumulatedStatsResponseNumRpcsStartedByMethodEntryDecode(pb_field.bytes);
+            num_rpcs_started_by_method[pb_kv.first] = pb_kv.second;
             break;
         }
         case 2: {
-            auto kv = pb_messages::LoadBalancerAccumulatedStatsResponseNumRpcsSucceededByMethodEntryDecode(field.bytes);
-            num_rpcs_succeeded_by_method[kv.first] = kv.second;
+            auto pb_kv = pb_messages::LoadBalancerAccumulatedStatsResponseNumRpcsSucceededByMethodEntryDecode(pb_field.bytes);
+            num_rpcs_succeeded_by_method[pb_kv.first] = pb_kv.second;
             break;
         }
         case 3: {
-            auto kv = pb_messages::LoadBalancerAccumulatedStatsResponseNumRpcsFailedByMethodEntryDecode(field.bytes);
-            num_rpcs_failed_by_method[kv.first] = kv.second;
+            auto pb_kv = pb_messages::LoadBalancerAccumulatedStatsResponseNumRpcsFailedByMethodEntryDecode(pb_field.bytes);
+            num_rpcs_failed_by_method[pb_kv.first] = pb_kv.second;
             break;
         }
         case 4: {
-            auto kv = pb_messages::LoadBalancerAccumulatedStatsResponseStatsPerMethodEntryDecode(field.bytes);
-            stats_per_method[kv.first] = kv.second;
+            auto pb_kv = pb_messages::LoadBalancerAccumulatedStatsResponseStatsPerMethodEntryDecode(pb_field.bytes);
+            stats_per_method[pb_kv.first] = pb_kv.second;
             break;
         }
-        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
+        default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;
       }
     }
 }
 
 inline grpcdc::Bytes LoadBalancerAccumulatedStatsResponse::MethodStats::MarshalDc() const {
-    pb_messages::Writer w;
-    if (rpcs_started != 0) { w.Tag(1, 0); w.Varint(static_cast<std::int64_t>(rpcs_started)); }
-    if (!result.empty()) for (const auto& e : result) w.BytesField(2, pb_messages::LoadBalancerAccumulatedStatsResponseMethodStatsResultEntryEncode(e.first, e.second));
-    w.Raw(unknown_fields);
-    return w.ToBytes();
+    pb_messages::Writer pb_w;
+    if (rpcs_started != 0) { pb_w.Tag(1, 0); pb_w.Varint(static_cast<std::int64_t>(rpcs_started)); }
+    if (!result.empty()) for (const auto& pb_e : result) pb_w.BytesField(2, pb_messages::LoadBalancerAccumulatedStatsResponseMethodStatsResultEntryEncode(pb_e.first, pb_e.second));
+    pb_w.Raw(unknown_fields);
+    return pb_w.ToBytes();
 }
 
-inline void LoadBalancerAccumulatedStatsResponse::MethodStats::UnmarshalDc(const grpcdc::Bytes& data) {
+inline void LoadBalancerAccumulatedStatsResponse::MethodStats::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
     unknown_fields.clear();
     rpcs_started = 0;
     result = {};
-    pb_messages::Reader r(data);
-    pb_messages::Field field;
-    while (r.Next(field)) {
-      switch (field.number) {
+    pb_messages::Reader pb_r(pb_data_);
+    pb_messages::Field pb_field;
+    while (pb_r.Next(pb_field)) {
+      switch (pb_field.number) {
         case 1: {
-            rpcs_started = static_cast<std::int32_t>(field.varint);
+            rpcs_started = static_cast<std::int32_t>(pb_field.varint);
             break;
         }
         case 2: {
-            auto kv = pb_messages::LoadBalancerAccumulatedStatsResponseMethodStatsResultEntryDecode(field.bytes);
-            result[kv.first] = kv.second;
+            auto pb_kv = pb_messages::LoadBalancerAccumulatedStatsResponseMethodStatsResultEntryDecode(pb_field.bytes);
+            result[pb_kv.first] = pb_kv.second;
             break;
         }
-        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
+        default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;
       }
     }
 }
 
 inline grpcdc::Bytes ClientConfigureRequest::MarshalDc() const {
-    pb_messages::Writer w;
+    pb_messages::Writer pb_w;
     if (!types.empty()) {
-        pb_messages::Writer payload;
-        for (auto x : types) payload.Varint(static_cast<std::int32_t>(x));
-        w.BytesField(1, payload.ToBytes());
+        pb_messages::Writer pb_payload;
+        for (auto pb_x : types) pb_payload.Varint(static_cast<std::int32_t>(pb_x));
+        pb_w.BytesField(1, pb_payload.ToBytes());
     }
-    for (const auto& x : metadata) w.BytesField(2, x.MarshalDc());
-    if (timeout_sec != 0) { w.Tag(3, 0); w.Varint(static_cast<std::int64_t>(timeout_sec)); }
-    w.Raw(unknown_fields);
-    return w.ToBytes();
+    for (const auto& pb_x : metadata) pb_w.BytesField(2, pb_x.MarshalDc());
+    if (timeout_sec != 0) { pb_w.Tag(3, 0); pb_w.Varint(static_cast<std::int64_t>(timeout_sec)); }
+    pb_w.Raw(unknown_fields);
+    return pb_w.ToBytes();
 }
 
-inline void ClientConfigureRequest::UnmarshalDc(const grpcdc::Bytes& data) {
+inline void ClientConfigureRequest::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
     unknown_fields.clear();
     types = {};
     metadata = {};
     timeout_sec = 0;
-    pb_messages::Reader r(data);
-    pb_messages::Field field;
-    while (r.Next(field)) {
-      switch (field.number) {
+    pb_messages::Reader pb_r(pb_data_);
+    pb_messages::Field pb_field;
+    while (pb_r.Next(pb_field)) {
+      switch (pb_field.number) {
         case 1: {
-            if (field.wire == 2) {
-                pb_messages::Reader sub(field.bytes);
-                while (!sub.Done()) {
-                    types.push_back(static_cast<RpcType>(static_cast<std::int32_t>(sub.Varint())));
+            if (pb_field.wire == 2) {
+                pb_messages::Reader pb_sub(pb_field.bytes);
+                while (!pb_sub.Done()) {
+                    types.push_back(static_cast<RpcType>(static_cast<std::int32_t>(pb_sub.Varint())));
                 }
             } else {
-                types.push_back(static_cast<RpcType>(static_cast<std::int32_t>(field.varint)));
+                types.push_back(static_cast<RpcType>(static_cast<std::int32_t>(pb_field.varint)));
             }
             break;
         }
         case 2: {
-            ClientConfigureRequest::Metadata item;
-            item.UnmarshalDc(field.bytes);
-            metadata.push_back(item);
+            ClientConfigureRequest::Metadata pb_item;
+            pb_item.UnmarshalDc(pb_field.bytes);
+            metadata.push_back(pb_item);
             break;
         }
         case 3: {
-            timeout_sec = static_cast<std::int32_t>(field.varint);
+            timeout_sec = static_cast<std::int32_t>(pb_field.varint);
             break;
         }
-        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
+        default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;
       }
     }
 }
 
 inline grpcdc::Bytes ClientConfigureRequest::Metadata::MarshalDc() const {
-    pb_messages::Writer w;
-    if (static_cast<std::int32_t>(type) != 0) { w.Tag(1, 0); w.Varint(static_cast<std::int32_t>(type)); }
-    w.StringField(2, key);
-    w.StringField(3, value);
-    w.Raw(unknown_fields);
-    return w.ToBytes();
+    pb_messages::Writer pb_w;
+    if (static_cast<std::int32_t>(type) != 0) { pb_w.Tag(1, 0); pb_w.Varint(static_cast<std::int32_t>(type)); }
+    pb_w.StringField(2, key);
+    pb_w.StringField(3, value);
+    pb_w.Raw(unknown_fields);
+    return pb_w.ToBytes();
 }
 
-inline void ClientConfigureRequest::Metadata::UnmarshalDc(const grpcdc::Bytes& data) {
+inline void ClientConfigureRequest::Metadata::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
     unknown_fields.clear();
     type = RpcType::EMPTY_CALL;
     key = "";
     value = "";
-    pb_messages::Reader r(data);
-    pb_messages::Field field;
-    while (r.Next(field)) {
-      switch (field.number) {
+    pb_messages::Reader pb_r(pb_data_);
+    pb_messages::Field pb_field;
+    while (pb_r.Next(pb_field)) {
+      switch (pb_field.number) {
         case 1: {
-            type = static_cast<RpcType>(static_cast<std::int32_t>(field.varint));
+            type = static_cast<RpcType>(static_cast<std::int32_t>(pb_field.varint));
             break;
         }
         case 2: {
-            key = std::string(field.bytes.begin(), field.bytes.end());
+            key = std::string(pb_field.bytes.begin(), pb_field.bytes.end());
             break;
         }
         case 3: {
-            value = std::string(field.bytes.begin(), field.bytes.end());
+            value = std::string(pb_field.bytes.begin(), pb_field.bytes.end());
             break;
         }
-        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
+        default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;
       }
     }
 }
 
 inline grpcdc::Bytes ClientConfigureResponse::MarshalDc() const {
-    pb_messages::Writer w;
-    w.Raw(unknown_fields);
-    return w.ToBytes();
+    pb_messages::Writer pb_w;
+    pb_w.Raw(unknown_fields);
+    return pb_w.ToBytes();
 }
 
-inline void ClientConfigureResponse::UnmarshalDc(const grpcdc::Bytes& data) {
+inline void ClientConfigureResponse::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
     unknown_fields.clear();
-    pb_messages::Reader r(data);
-    pb_messages::Field field;
-    while (r.Next(field)) {
-      switch (field.number) {
-        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
+    pb_messages::Reader pb_r(pb_data_);
+    pb_messages::Field pb_field;
+    while (pb_r.Next(pb_field)) {
+      switch (pb_field.number) {
+        default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;
       }
     }
 }
 
 inline grpcdc::Bytes TestOrcaReport::MarshalDc() const {
-    pb_messages::Writer w;
-    if (cpu_utilization != 0) { w.Tag(1, 1); w.FixedDouble(cpu_utilization); }
-    if (memory_utilization != 0) { w.Tag(2, 1); w.FixedDouble(memory_utilization); }
-    if (!request_cost.empty()) for (const auto& e : request_cost) w.BytesField(3, pb_messages::TestOrcaReportRequestCostEntryEncode(e.first, e.second));
-    if (!utilization.empty()) for (const auto& e : utilization) w.BytesField(4, pb_messages::TestOrcaReportUtilizationEntryEncode(e.first, e.second));
-    w.Raw(unknown_fields);
-    return w.ToBytes();
+    pb_messages::Writer pb_w;
+    if (cpu_utilization != 0) { pb_w.Tag(1, 1); pb_w.FixedDouble(cpu_utilization); }
+    if (memory_utilization != 0) { pb_w.Tag(2, 1); pb_w.FixedDouble(memory_utilization); }
+    if (!request_cost.empty()) for (const auto& pb_e : request_cost) pb_w.BytesField(3, pb_messages::TestOrcaReportRequestCostEntryEncode(pb_e.first, pb_e.second));
+    if (!utilization.empty()) for (const auto& pb_e : utilization) pb_w.BytesField(4, pb_messages::TestOrcaReportUtilizationEntryEncode(pb_e.first, pb_e.second));
+    pb_w.Raw(unknown_fields);
+    return pb_w.ToBytes();
 }
 
-inline void TestOrcaReport::UnmarshalDc(const grpcdc::Bytes& data) {
+inline void TestOrcaReport::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
     unknown_fields.clear();
     cpu_utilization = 0;
     memory_utilization = 0;
     request_cost = {};
     utilization = {};
-    pb_messages::Reader r(data);
-    pb_messages::Field field;
-    while (r.Next(field)) {
-      switch (field.number) {
+    pb_messages::Reader pb_r(pb_data_);
+    pb_messages::Field pb_field;
+    while (pb_r.Next(pb_field)) {
+      switch (pb_field.number) {
         case 1: {
-            cpu_utilization = pb_messages::BitsToDouble(field.fixed);
+            cpu_utilization = pb_messages::BitsToDouble(pb_field.fixed);
             break;
         }
         case 2: {
-            memory_utilization = pb_messages::BitsToDouble(field.fixed);
+            memory_utilization = pb_messages::BitsToDouble(pb_field.fixed);
             break;
         }
         case 3: {
-            auto kv = pb_messages::TestOrcaReportRequestCostEntryDecode(field.bytes);
-            request_cost[kv.first] = kv.second;
+            auto pb_kv = pb_messages::TestOrcaReportRequestCostEntryDecode(pb_field.bytes);
+            request_cost[pb_kv.first] = pb_kv.second;
             break;
         }
         case 4: {
-            auto kv = pb_messages::TestOrcaReportUtilizationEntryDecode(field.bytes);
-            utilization[kv.first] = kv.second;
+            auto pb_kv = pb_messages::TestOrcaReportUtilizationEntryDecode(pb_field.bytes);
+            utilization[pb_kv.first] = pb_kv.second;
             break;
         }
-        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
+        default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;
       }
     }
 }
 
 inline grpcdc::Bytes SimpleRequest::MarshalDc() const {
-    pb_messages::Writer w;
-    if (static_cast<std::int32_t>(response_type) != 0) { w.Tag(1, 0); w.Varint(static_cast<std::int32_t>(response_type)); }
-    if (response_size != 0) { w.Tag(2, 0); w.Varint(static_cast<std::int64_t>(response_size)); }
-    if (payload) w.BytesField(3, payload->MarshalDc());
-    if (fill_username) { w.Tag(4, 0); w.Varint((fill_username ? 1 : 0)); }
-    if (fill_oauth_scope) { w.Tag(5, 0); w.Varint((fill_oauth_scope ? 1 : 0)); }
-    if (response_compressed) w.BytesField(6, response_compressed->MarshalDc());
-    if (response_status) w.BytesField(7, response_status->MarshalDc());
-    if (expect_compressed) w.BytesField(8, expect_compressed->MarshalDc());
-    if (fill_server_id) { w.Tag(9, 0); w.Varint((fill_server_id ? 1 : 0)); }
-    if (fill_grpclb_route_type) { w.Tag(10, 0); w.Varint((fill_grpclb_route_type ? 1 : 0)); }
-    if (orca_per_query_report) w.BytesField(11, orca_per_query_report->MarshalDc());
-    w.Raw(unknown_fields);
-    return w.ToBytes();
+    pb_messages::Writer pb_w;
+    if (static_cast<std::int32_t>(response_type) != 0) { pb_w.Tag(1, 0); pb_w.Varint(static_cast<std::int32_t>(response_type)); }
+    if (response_size != 0) { pb_w.Tag(2, 0); pb_w.Varint(static_cast<std::int64_t>(response_size)); }
+    if (payload) pb_w.BytesField(3, payload->MarshalDc());
+    if (fill_username) { pb_w.Tag(4, 0); pb_w.Varint((fill_username ? 1 : 0)); }
+    if (fill_oauth_scope) { pb_w.Tag(5, 0); pb_w.Varint((fill_oauth_scope ? 1 : 0)); }
+    if (response_compressed) pb_w.BytesField(6, response_compressed->MarshalDc());
+    if (response_status) pb_w.BytesField(7, response_status->MarshalDc());
+    if (expect_compressed) pb_w.BytesField(8, expect_compressed->MarshalDc());
+    if (fill_server_id) { pb_w.Tag(9, 0); pb_w.Varint((fill_server_id ? 1 : 0)); }
+    if (fill_grpclb_route_type) { pb_w.Tag(10, 0); pb_w.Varint((fill_grpclb_route_type ? 1 : 0)); }
+    if (orca_per_query_report) pb_w.BytesField(11, orca_per_query_report->MarshalDc());
+    pb_w.Raw(unknown_fields);
+    return pb_w.ToBytes();
 }
 
-inline void SimpleRequest::UnmarshalDc(const grpcdc::Bytes& data) {
+inline void SimpleRequest::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
     unknown_fields.clear();
     response_type = PayloadType::COMPRESSABLE;
     response_size = 0;
@@ -1092,112 +1092,112 @@ inline void SimpleRequest::UnmarshalDc(const grpcdc::Bytes& data) {
     fill_server_id = false;
     fill_grpclb_route_type = false;
     orca_per_query_report = std::nullopt;
-    pb_messages::Reader r(data);
-    pb_messages::Field field;
-    while (r.Next(field)) {
-      switch (field.number) {
+    pb_messages::Reader pb_r(pb_data_);
+    pb_messages::Field pb_field;
+    while (pb_r.Next(pb_field)) {
+      switch (pb_field.number) {
         case 1: {
-            response_type = static_cast<PayloadType>(static_cast<std::int32_t>(field.varint));
+            response_type = static_cast<PayloadType>(static_cast<std::int32_t>(pb_field.varint));
             break;
         }
         case 2: {
-            response_size = static_cast<std::int32_t>(field.varint);
+            response_size = static_cast<std::int32_t>(pb_field.varint);
             break;
         }
         case 3: {
             payload.emplace();
-            payload->UnmarshalDc(field.bytes);
+            payload->UnmarshalDc(pb_field.bytes);
             break;
         }
         case 4: {
-            fill_username = field.varint != 0;
+            fill_username = pb_field.varint != 0;
             break;
         }
         case 5: {
-            fill_oauth_scope = field.varint != 0;
+            fill_oauth_scope = pb_field.varint != 0;
             break;
         }
         case 6: {
             response_compressed.emplace();
-            response_compressed->UnmarshalDc(field.bytes);
+            response_compressed->UnmarshalDc(pb_field.bytes);
             break;
         }
         case 7: {
             response_status.emplace();
-            response_status->UnmarshalDc(field.bytes);
+            response_status->UnmarshalDc(pb_field.bytes);
             break;
         }
         case 8: {
             expect_compressed.emplace();
-            expect_compressed->UnmarshalDc(field.bytes);
+            expect_compressed->UnmarshalDc(pb_field.bytes);
             break;
         }
         case 9: {
-            fill_server_id = field.varint != 0;
+            fill_server_id = pb_field.varint != 0;
             break;
         }
         case 10: {
-            fill_grpclb_route_type = field.varint != 0;
+            fill_grpclb_route_type = pb_field.varint != 0;
             break;
         }
         case 11: {
             orca_per_query_report.emplace();
-            orca_per_query_report->UnmarshalDc(field.bytes);
+            orca_per_query_report->UnmarshalDc(pb_field.bytes);
             break;
         }
-        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
+        default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;
       }
     }
 }
 
 inline grpcdc::Bytes StreamingOutputCallRequest::MarshalDc() const {
-    pb_messages::Writer w;
-    if (static_cast<std::int32_t>(response_type) != 0) { w.Tag(1, 0); w.Varint(static_cast<std::int32_t>(response_type)); }
-    for (const auto& x : response_parameters) w.BytesField(2, x.MarshalDc());
-    if (payload) w.BytesField(3, payload->MarshalDc());
-    if (response_status) w.BytesField(7, response_status->MarshalDc());
-    if (orca_oob_report) w.BytesField(8, orca_oob_report->MarshalDc());
-    w.Raw(unknown_fields);
-    return w.ToBytes();
+    pb_messages::Writer pb_w;
+    if (static_cast<std::int32_t>(response_type) != 0) { pb_w.Tag(1, 0); pb_w.Varint(static_cast<std::int32_t>(response_type)); }
+    for (const auto& pb_x : response_parameters) pb_w.BytesField(2, pb_x.MarshalDc());
+    if (payload) pb_w.BytesField(3, payload->MarshalDc());
+    if (response_status) pb_w.BytesField(7, response_status->MarshalDc());
+    if (orca_oob_report) pb_w.BytesField(8, orca_oob_report->MarshalDc());
+    pb_w.Raw(unknown_fields);
+    return pb_w.ToBytes();
 }
 
-inline void StreamingOutputCallRequest::UnmarshalDc(const grpcdc::Bytes& data) {
+inline void StreamingOutputCallRequest::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
     unknown_fields.clear();
     response_type = PayloadType::COMPRESSABLE;
     response_parameters = {};
     payload = std::nullopt;
     response_status = std::nullopt;
     orca_oob_report = std::nullopt;
-    pb_messages::Reader r(data);
-    pb_messages::Field field;
-    while (r.Next(field)) {
-      switch (field.number) {
+    pb_messages::Reader pb_r(pb_data_);
+    pb_messages::Field pb_field;
+    while (pb_r.Next(pb_field)) {
+      switch (pb_field.number) {
         case 1: {
-            response_type = static_cast<PayloadType>(static_cast<std::int32_t>(field.varint));
+            response_type = static_cast<PayloadType>(static_cast<std::int32_t>(pb_field.varint));
             break;
         }
         case 2: {
-            ResponseParameters item;
-            item.UnmarshalDc(field.bytes);
-            response_parameters.push_back(item);
+            ResponseParameters pb_item;
+            pb_item.UnmarshalDc(pb_field.bytes);
+            response_parameters.push_back(pb_item);
             break;
         }
         case 3: {
             payload.emplace();
-            payload->UnmarshalDc(field.bytes);
+            payload->UnmarshalDc(pb_field.bytes);
             break;
         }
         case 7: {
             response_status.emplace();
-            response_status->UnmarshalDc(field.bytes);
+            response_status->UnmarshalDc(pb_field.bytes);
             break;
         }
         case 8: {
             orca_oob_report.emplace();
-            orca_oob_report->UnmarshalDc(field.bytes);
+            orca_oob_report->UnmarshalDc(pb_field.bytes);
             break;
         }
-        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
+        default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;
       }
     }
 }
@@ -1205,21 +1205,21 @@ inline void StreamingOutputCallRequest::UnmarshalDc(const grpcdc::Bytes& data) {
 namespace pb_messages {
 
 inline grpcdc::Bytes LoadBalancerStatsResponseRpcsByPeerEntryEncode(const std::string& key, const std::int32_t& value) {
-    Writer w;
-    w.StringField(1, key);
-    if (value != 0) { w.Tag(2, 0); w.Varint(static_cast<std::int64_t>(value)); }
-    return w.ToBytes();
+    Writer pb_w;
+    pb_w.StringField(1, key);
+    if (value != 0) { pb_w.Tag(2, 0); pb_w.Varint(static_cast<std::int64_t>(value)); }
+    return pb_w.ToBytes();
 }
 
 inline std::pair<std::string, std::int32_t> LoadBalancerStatsResponseRpcsByPeerEntryDecode(const grpcdc::Bytes& bytes) {
     std::string key = "";
     std::int32_t value = 0;
-    Reader r(bytes);
-    Field field;
-    while (r.Next(field)) {
-        switch (field.number) {
-            case 1: key = std::string(field.bytes.begin(), field.bytes.end()); break;
-            case 2: value = static_cast<std::int32_t>(field.varint); break;
+    Reader pb_r(bytes);
+    Field pb_field;
+    while (pb_r.Next(pb_field)) {
+        switch (pb_field.number) {
+            case 1: key = std::string(pb_field.bytes.begin(), pb_field.bytes.end()); break;
+            case 2: value = static_cast<std::int32_t>(pb_field.varint); break;
             default: break;
         }
     }
@@ -1227,21 +1227,21 @@ inline std::pair<std::string, std::int32_t> LoadBalancerStatsResponseRpcsByPeerE
 }
 
 inline grpcdc::Bytes LoadBalancerStatsResponseRpcsByMethodEntryEncode(const std::string& key, const LoadBalancerStatsResponse::RpcsByPeer& value) {
-    Writer w;
-    w.StringField(1, key);
-    w.BytesField(2, value.MarshalDc());
-    return w.ToBytes();
+    Writer pb_w;
+    pb_w.StringField(1, key);
+    pb_w.BytesField(2, value.MarshalDc());
+    return pb_w.ToBytes();
 }
 
 inline std::pair<std::string, LoadBalancerStatsResponse::RpcsByPeer> LoadBalancerStatsResponseRpcsByMethodEntryDecode(const grpcdc::Bytes& bytes) {
     std::string key = "";
     LoadBalancerStatsResponse::RpcsByPeer value;
-    Reader r(bytes);
-    Field field;
-    while (r.Next(field)) {
-        switch (field.number) {
-            case 1: key = std::string(field.bytes.begin(), field.bytes.end()); break;
-            case 2: value.UnmarshalDc(field.bytes); break;
+    Reader pb_r(bytes);
+    Field pb_field;
+    while (pb_r.Next(pb_field)) {
+        switch (pb_field.number) {
+            case 1: key = std::string(pb_field.bytes.begin(), pb_field.bytes.end()); break;
+            case 2: value.UnmarshalDc(pb_field.bytes); break;
             default: break;
         }
     }
@@ -1249,21 +1249,21 @@ inline std::pair<std::string, LoadBalancerStatsResponse::RpcsByPeer> LoadBalance
 }
 
 inline grpcdc::Bytes LoadBalancerStatsResponseRpcsByPeerRpcsByPeerEntryEncode(const std::string& key, const std::int32_t& value) {
-    Writer w;
-    w.StringField(1, key);
-    if (value != 0) { w.Tag(2, 0); w.Varint(static_cast<std::int64_t>(value)); }
-    return w.ToBytes();
+    Writer pb_w;
+    pb_w.StringField(1, key);
+    if (value != 0) { pb_w.Tag(2, 0); pb_w.Varint(static_cast<std::int64_t>(value)); }
+    return pb_w.ToBytes();
 }
 
 inline std::pair<std::string, std::int32_t> LoadBalancerStatsResponseRpcsByPeerRpcsByPeerEntryDecode(const grpcdc::Bytes& bytes) {
     std::string key = "";
     std::int32_t value = 0;
-    Reader r(bytes);
-    Field field;
-    while (r.Next(field)) {
-        switch (field.number) {
-            case 1: key = std::string(field.bytes.begin(), field.bytes.end()); break;
-            case 2: value = static_cast<std::int32_t>(field.varint); break;
+    Reader pb_r(bytes);
+    Field pb_field;
+    while (pb_r.Next(pb_field)) {
+        switch (pb_field.number) {
+            case 1: key = std::string(pb_field.bytes.begin(), pb_field.bytes.end()); break;
+            case 2: value = static_cast<std::int32_t>(pb_field.varint); break;
             default: break;
         }
     }
@@ -1271,21 +1271,21 @@ inline std::pair<std::string, std::int32_t> LoadBalancerStatsResponseRpcsByPeerR
 }
 
 inline grpcdc::Bytes LoadBalancerAccumulatedStatsResponseNumRpcsStartedByMethodEntryEncode(const std::string& key, const std::int32_t& value) {
-    Writer w;
-    w.StringField(1, key);
-    if (value != 0) { w.Tag(2, 0); w.Varint(static_cast<std::int64_t>(value)); }
-    return w.ToBytes();
+    Writer pb_w;
+    pb_w.StringField(1, key);
+    if (value != 0) { pb_w.Tag(2, 0); pb_w.Varint(static_cast<std::int64_t>(value)); }
+    return pb_w.ToBytes();
 }
 
 inline std::pair<std::string, std::int32_t> LoadBalancerAccumulatedStatsResponseNumRpcsStartedByMethodEntryDecode(const grpcdc::Bytes& bytes) {
     std::string key = "";
     std::int32_t value = 0;
-    Reader r(bytes);
-    Field field;
-    while (r.Next(field)) {
-        switch (field.number) {
-            case 1: key = std::string(field.bytes.begin(), field.bytes.end()); break;
-            case 2: value = static_cast<std::int32_t>(field.varint); break;
+    Reader pb_r(bytes);
+    Field pb_field;
+    while (pb_r.Next(pb_field)) {
+        switch (pb_field.number) {
+            case 1: key = std::string(pb_field.bytes.begin(), pb_field.bytes.end()); break;
+            case 2: value = static_cast<std::int32_t>(pb_field.varint); break;
             default: break;
         }
     }
@@ -1293,21 +1293,21 @@ inline std::pair<std::string, std::int32_t> LoadBalancerAccumulatedStatsResponse
 }
 
 inline grpcdc::Bytes LoadBalancerAccumulatedStatsResponseNumRpcsSucceededByMethodEntryEncode(const std::string& key, const std::int32_t& value) {
-    Writer w;
-    w.StringField(1, key);
-    if (value != 0) { w.Tag(2, 0); w.Varint(static_cast<std::int64_t>(value)); }
-    return w.ToBytes();
+    Writer pb_w;
+    pb_w.StringField(1, key);
+    if (value != 0) { pb_w.Tag(2, 0); pb_w.Varint(static_cast<std::int64_t>(value)); }
+    return pb_w.ToBytes();
 }
 
 inline std::pair<std::string, std::int32_t> LoadBalancerAccumulatedStatsResponseNumRpcsSucceededByMethodEntryDecode(const grpcdc::Bytes& bytes) {
     std::string key = "";
     std::int32_t value = 0;
-    Reader r(bytes);
-    Field field;
-    while (r.Next(field)) {
-        switch (field.number) {
-            case 1: key = std::string(field.bytes.begin(), field.bytes.end()); break;
-            case 2: value = static_cast<std::int32_t>(field.varint); break;
+    Reader pb_r(bytes);
+    Field pb_field;
+    while (pb_r.Next(pb_field)) {
+        switch (pb_field.number) {
+            case 1: key = std::string(pb_field.bytes.begin(), pb_field.bytes.end()); break;
+            case 2: value = static_cast<std::int32_t>(pb_field.varint); break;
             default: break;
         }
     }
@@ -1315,21 +1315,21 @@ inline std::pair<std::string, std::int32_t> LoadBalancerAccumulatedStatsResponse
 }
 
 inline grpcdc::Bytes LoadBalancerAccumulatedStatsResponseNumRpcsFailedByMethodEntryEncode(const std::string& key, const std::int32_t& value) {
-    Writer w;
-    w.StringField(1, key);
-    if (value != 0) { w.Tag(2, 0); w.Varint(static_cast<std::int64_t>(value)); }
-    return w.ToBytes();
+    Writer pb_w;
+    pb_w.StringField(1, key);
+    if (value != 0) { pb_w.Tag(2, 0); pb_w.Varint(static_cast<std::int64_t>(value)); }
+    return pb_w.ToBytes();
 }
 
 inline std::pair<std::string, std::int32_t> LoadBalancerAccumulatedStatsResponseNumRpcsFailedByMethodEntryDecode(const grpcdc::Bytes& bytes) {
     std::string key = "";
     std::int32_t value = 0;
-    Reader r(bytes);
-    Field field;
-    while (r.Next(field)) {
-        switch (field.number) {
-            case 1: key = std::string(field.bytes.begin(), field.bytes.end()); break;
-            case 2: value = static_cast<std::int32_t>(field.varint); break;
+    Reader pb_r(bytes);
+    Field pb_field;
+    while (pb_r.Next(pb_field)) {
+        switch (pb_field.number) {
+            case 1: key = std::string(pb_field.bytes.begin(), pb_field.bytes.end()); break;
+            case 2: value = static_cast<std::int32_t>(pb_field.varint); break;
             default: break;
         }
     }
@@ -1337,21 +1337,21 @@ inline std::pair<std::string, std::int32_t> LoadBalancerAccumulatedStatsResponse
 }
 
 inline grpcdc::Bytes LoadBalancerAccumulatedStatsResponseStatsPerMethodEntryEncode(const std::string& key, const LoadBalancerAccumulatedStatsResponse::MethodStats& value) {
-    Writer w;
-    w.StringField(1, key);
-    w.BytesField(2, value.MarshalDc());
-    return w.ToBytes();
+    Writer pb_w;
+    pb_w.StringField(1, key);
+    pb_w.BytesField(2, value.MarshalDc());
+    return pb_w.ToBytes();
 }
 
 inline std::pair<std::string, LoadBalancerAccumulatedStatsResponse::MethodStats> LoadBalancerAccumulatedStatsResponseStatsPerMethodEntryDecode(const grpcdc::Bytes& bytes) {
     std::string key = "";
     LoadBalancerAccumulatedStatsResponse::MethodStats value;
-    Reader r(bytes);
-    Field field;
-    while (r.Next(field)) {
-        switch (field.number) {
-            case 1: key = std::string(field.bytes.begin(), field.bytes.end()); break;
-            case 2: value.UnmarshalDc(field.bytes); break;
+    Reader pb_r(bytes);
+    Field pb_field;
+    while (pb_r.Next(pb_field)) {
+        switch (pb_field.number) {
+            case 1: key = std::string(pb_field.bytes.begin(), pb_field.bytes.end()); break;
+            case 2: value.UnmarshalDc(pb_field.bytes); break;
             default: break;
         }
     }
@@ -1359,21 +1359,21 @@ inline std::pair<std::string, LoadBalancerAccumulatedStatsResponse::MethodStats>
 }
 
 inline grpcdc::Bytes LoadBalancerAccumulatedStatsResponseMethodStatsResultEntryEncode(const std::int32_t& key, const std::int32_t& value) {
-    Writer w;
-    if (key != 0) { w.Tag(1, 0); w.Varint(static_cast<std::int64_t>(key)); }
-    if (value != 0) { w.Tag(2, 0); w.Varint(static_cast<std::int64_t>(value)); }
-    return w.ToBytes();
+    Writer pb_w;
+    if (key != 0) { pb_w.Tag(1, 0); pb_w.Varint(static_cast<std::int64_t>(key)); }
+    if (value != 0) { pb_w.Tag(2, 0); pb_w.Varint(static_cast<std::int64_t>(value)); }
+    return pb_w.ToBytes();
 }
 
 inline std::pair<std::int32_t, std::int32_t> LoadBalancerAccumulatedStatsResponseMethodStatsResultEntryDecode(const grpcdc::Bytes& bytes) {
     std::int32_t key = 0;
     std::int32_t value = 0;
-    Reader r(bytes);
-    Field field;
-    while (r.Next(field)) {
-        switch (field.number) {
-            case 1: key = static_cast<std::int32_t>(field.varint); break;
-            case 2: value = static_cast<std::int32_t>(field.varint); break;
+    Reader pb_r(bytes);
+    Field pb_field;
+    while (pb_r.Next(pb_field)) {
+        switch (pb_field.number) {
+            case 1: key = static_cast<std::int32_t>(pb_field.varint); break;
+            case 2: value = static_cast<std::int32_t>(pb_field.varint); break;
             default: break;
         }
     }
@@ -1381,21 +1381,21 @@ inline std::pair<std::int32_t, std::int32_t> LoadBalancerAccumulatedStatsRespons
 }
 
 inline grpcdc::Bytes TestOrcaReportRequestCostEntryEncode(const std::string& key, const double& value) {
-    Writer w;
-    w.StringField(1, key);
-    if (value != 0) { w.Tag(2, 1); w.FixedDouble(value); }
-    return w.ToBytes();
+    Writer pb_w;
+    pb_w.StringField(1, key);
+    if (value != 0) { pb_w.Tag(2, 1); pb_w.FixedDouble(value); }
+    return pb_w.ToBytes();
 }
 
 inline std::pair<std::string, double> TestOrcaReportRequestCostEntryDecode(const grpcdc::Bytes& bytes) {
     std::string key = "";
     double value = 0;
-    Reader r(bytes);
-    Field field;
-    while (r.Next(field)) {
-        switch (field.number) {
-            case 1: key = std::string(field.bytes.begin(), field.bytes.end()); break;
-            case 2: value = pb_messages::BitsToDouble(field.fixed); break;
+    Reader pb_r(bytes);
+    Field pb_field;
+    while (pb_r.Next(pb_field)) {
+        switch (pb_field.number) {
+            case 1: key = std::string(pb_field.bytes.begin(), pb_field.bytes.end()); break;
+            case 2: value = pb_messages::BitsToDouble(pb_field.fixed); break;
             default: break;
         }
     }
@@ -1403,21 +1403,21 @@ inline std::pair<std::string, double> TestOrcaReportRequestCostEntryDecode(const
 }
 
 inline grpcdc::Bytes TestOrcaReportUtilizationEntryEncode(const std::string& key, const double& value) {
-    Writer w;
-    w.StringField(1, key);
-    if (value != 0) { w.Tag(2, 1); w.FixedDouble(value); }
-    return w.ToBytes();
+    Writer pb_w;
+    pb_w.StringField(1, key);
+    if (value != 0) { pb_w.Tag(2, 1); pb_w.FixedDouble(value); }
+    return pb_w.ToBytes();
 }
 
 inline std::pair<std::string, double> TestOrcaReportUtilizationEntryDecode(const grpcdc::Bytes& bytes) {
     std::string key = "";
     double value = 0;
-    Reader r(bytes);
-    Field field;
-    while (r.Next(field)) {
-        switch (field.number) {
-            case 1: key = std::string(field.bytes.begin(), field.bytes.end()); break;
-            case 2: value = pb_messages::BitsToDouble(field.fixed); break;
+    Reader pb_r(bytes);
+    Field pb_field;
+    while (pb_r.Next(pb_field)) {
+        switch (pb_field.number) {
+            case 1: key = std::string(pb_field.bytes.begin(), pb_field.bytes.end()); break;
+            case 2: value = pb_messages::BitsToDouble(pb_field.fixed); break;
             default: break;
         }
     }

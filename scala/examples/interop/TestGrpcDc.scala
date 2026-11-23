@@ -236,25 +236,25 @@ object TestGrpcDc {
                 val req = new Empty()
                 reqs.recvInto(req)
                 val resp = impl.EmptyCall(ctx, req)
-                sink.send(resp.marshalDc())
+                sink.send(ctx.encodeMessage(resp))
             }),
             grpcdc.Server.Method("UnaryCall", "/grpc.testing.TestService/UnaryCall", grpcdc.Server.KIND_UNARY, (ctx, reqs, sink) => {
                 val req = new SimpleRequest()
                 reqs.recvInto(req)
                 val resp = impl.UnaryCall(ctx, req)
-                sink.send(resp.marshalDc())
+                sink.send(ctx.encodeMessage(resp))
             }),
             grpcdc.Server.Method("CacheableUnaryCall", "/grpc.testing.TestService/CacheableUnaryCall", grpcdc.Server.KIND_UNARY, (ctx, reqs, sink) => {
                 val req = new SimpleRequest()
                 reqs.recvInto(req)
                 val resp = impl.CacheableUnaryCall(ctx, req)
-                sink.send(resp.marshalDc())
+                sink.send(ctx.encodeMessage(resp))
             }),
             grpcdc.Server.Method("StreamingOutputCall", "/grpc.testing.TestService/StreamingOutputCall", grpcdc.Server.KIND_SERVER_STREAMING, (ctx, reqs, sink) => {
                 val req = new StreamingOutputCallRequest()
                 reqs.recvInto(req)
                 impl.StreamingOutputCall(req, new TestServiceServerStreamServer {
-                    def send(resp: StreamingOutputCallResponse): Unit = sink.send(resp.marshalDc())
+                    def send(resp: StreamingOutputCallResponse): Unit = sink.send(ctx.encodeMessage(resp))
                     val context: grpcdc.Endpoint#CallContext = ctx
                 })
             }),
@@ -272,11 +272,11 @@ object TestGrpcDc {
                 if (response == null) {
                     throw grpcdc.StatusException(grpcdc.Wire.CODE_INTERNAL, "client-streaming handler never called sendAndClose")
                 }
-                sink.send(response.marshalDc())
+                sink.send(ctx.encodeMessage(response))
             }),
             grpcdc.Server.Method("FullDuplexCall", "/grpc.testing.TestService/FullDuplexCall", grpcdc.Server.KIND_BIDI, (ctx, reqs, sink) => {
                 impl.FullDuplexCall(new TestServiceBidiServer {
-                    def send(resp: StreamingOutputCallResponse): Unit = sink.send(resp.marshalDc())
+                    def send(resp: StreamingOutputCallResponse): Unit = sink.send(ctx.encodeMessage(resp))
                     def recv(): StreamingOutputCallRequest = {
                         val req = new StreamingOutputCallRequest()
                         reqs.recvInto(req)
@@ -287,7 +287,7 @@ object TestGrpcDc {
             }),
             grpcdc.Server.Method("HalfDuplexCall", "/grpc.testing.TestService/HalfDuplexCall", grpcdc.Server.KIND_BIDI, (ctx, reqs, sink) => {
                 impl.HalfDuplexCall(new TestServiceBidiServer {
-                    def send(resp: StreamingOutputCallResponse): Unit = sink.send(resp.marshalDc())
+                    def send(resp: StreamingOutputCallResponse): Unit = sink.send(ctx.encodeMessage(resp))
                     def recv(): StreamingOutputCallRequest = {
                         val req = new StreamingOutputCallRequest()
                         reqs.recvInto(req)
@@ -300,7 +300,7 @@ object TestGrpcDc {
                 val req = new Empty()
                 reqs.recvInto(req)
                 val resp = impl.UnimplementedCall(ctx, req)
-                sink.send(resp.marshalDc())
+                sink.send(ctx.encodeMessage(resp))
             }),
         )))
     }
@@ -458,7 +458,7 @@ object TestGrpcDc {
                 val req = new Empty()
                 reqs.recvInto(req)
                 val resp = impl.UnimplementedCall(ctx, req)
-                sink.send(resp.marshalDc())
+                sink.send(ctx.encodeMessage(resp))
             }),
         )))
     }
@@ -599,13 +599,13 @@ object TestGrpcDc {
                 val req = new ReconnectParams()
                 reqs.recvInto(req)
                 val resp = impl.Start(ctx, req)
-                sink.send(resp.marshalDc())
+                sink.send(ctx.encodeMessage(resp))
             }),
             grpcdc.Server.Method("Stop", "/grpc.testing.ReconnectService/Stop", grpcdc.Server.KIND_UNARY, (ctx, reqs, sink) => {
                 val req = new Empty()
                 reqs.recvInto(req)
                 val resp = impl.Stop(ctx, req)
-                sink.send(resp.marshalDc())
+                sink.send(ctx.encodeMessage(resp))
             }),
         )))
     }
@@ -750,13 +750,13 @@ object TestGrpcDc {
                 val req = new LoadBalancerStatsRequest()
                 reqs.recvInto(req)
                 val resp = impl.GetClientStats(ctx, req)
-                sink.send(resp.marshalDc())
+                sink.send(ctx.encodeMessage(resp))
             }),
             grpcdc.Server.Method("GetClientAccumulatedStats", "/grpc.testing.LoadBalancerStatsService/GetClientAccumulatedStats", grpcdc.Server.KIND_UNARY, (ctx, reqs, sink) => {
                 val req = new LoadBalancerAccumulatedStatsRequest()
                 reqs.recvInto(req)
                 val resp = impl.GetClientAccumulatedStats(ctx, req)
-                sink.send(resp.marshalDc())
+                sink.send(ctx.encodeMessage(resp))
             }),
         )))
     }
@@ -901,13 +901,13 @@ object TestGrpcDc {
                 val req = new Empty()
                 reqs.recvInto(req)
                 val resp = impl.SetServing(ctx, req)
-                sink.send(resp.marshalDc())
+                sink.send(ctx.encodeMessage(resp))
             }),
             grpcdc.Server.Method("SetNotServing", "/grpc.testing.XdsUpdateHealthService/SetNotServing", grpcdc.Server.KIND_UNARY, (ctx, reqs, sink) => {
                 val req = new Empty()
                 reqs.recvInto(req)
                 val resp = impl.SetNotServing(ctx, req)
-                sink.send(resp.marshalDc())
+                sink.send(ctx.encodeMessage(resp))
             }),
         )))
     }
@@ -1041,7 +1041,7 @@ object TestGrpcDc {
                 val req = new ClientConfigureRequest()
                 reqs.recvInto(req)
                 val resp = impl.Configure(ctx, req)
-                sink.send(resp.marshalDc())
+                sink.send(ctx.encodeMessage(resp))
             }),
         )))
     }

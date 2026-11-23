@@ -8,19 +8,19 @@ public final class ClientConfigureResponse implements grpcdc.Marshaler, grpcdc.U
 
     @Override
     public byte[] marshalDc() {
-        MessagesPb.Writer w = new MessagesPb.Writer();
-        w.raw(unknownFields);
-        return w.toBytes();
+        MessagesPb.Writer pbW = new MessagesPb.Writer();
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
     public void unmarshalDc(byte[] data) {
         unknownFields = new byte[0];
-        MessagesPb.Reader r = new MessagesPb.Reader(data);
-        MessagesPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
-                default -> { unknownFields = MessagesPb.concatBytes(unknownFields, field.rawValue); }
+        MessagesPb.Reader pbR = new MessagesPb.Reader(data);
+        MessagesPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
+                default -> { unknownFields = MessagesPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

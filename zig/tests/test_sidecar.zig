@@ -60,7 +60,21 @@ fn waitLine(alloc: std.mem.Allocator, child: *std.process.Child, needle: []const
     var total: usize = 0;
     while (total < buf.len) {
         const n = child.stdout.?.read(buf[total .. total + 1]) catch unreachable;
-        util.check(n == 1, "sidecar exited");
+        if (n != 1) {
+            // Surface the sidecar's stderr: without it this
+            // failure is undiagnosable in CI.
+            var ebuf: [4096]u8 = undefined;
+            var etotal: usize = 0;
+            if (child.stderr) |errf| {
+                while (etotal < ebuf.len) {
+                    const en = errf.read(ebuf[etotal .. ebuf.len]) catch break;
+                    if (en == 0) break;
+                    etotal += en;
+                }
+            }
+            util.checkFmt(false, "sidecar exited: {s}", .{ebuf[0..etotal]});
+            unreachable;
+        }
         total += n;
         if (buf[total - 1] == '\n') break;
     }
@@ -105,7 +119,7 @@ pub fn testSidecar(alloc: std.mem.Allocator) void {
         alloc,
     );
     listen_child.stdout_behavior = .Pipe;
-    listen_child.stderr_behavior = .Ignore;
+    listen_child.stderr_behavior = .Pipe;
     listen_child.spawn() catch unreachable;
     const ma_line = waitLine(alloc, &listen_child, "MULTIADDR");
     const multiaddr = ma_line[std.mem.indexOf(u8, ma_line, " ").? + 1 ..];
@@ -117,7 +131,7 @@ pub fn testSidecar(alloc: std.mem.Allocator) void {
         alloc,
     );
     dial_child.stdout_behavior = .Pipe;
-    dial_child.stderr_behavior = .Ignore;
+    dial_child.stderr_behavior = .Pipe;
     dial_child.spawn() catch unreachable;
     _ = waitLine(alloc, &dial_child, "TCP");
 

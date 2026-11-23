@@ -22,23 +22,23 @@ public final class PartitionMetadata implements grpcdc.Marshaler, grpcdc.Unmarsh
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
-        if (id != 0) { w.tag(1, 0); w.varint(id); }
-        if (leaderId != 0) { w.tag(2, 0); w.varint(leaderId); }
-        if (leaderEpoch != 0) { w.tag(3, 0); w.varint(leaderEpoch); }
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
+        if (id != 0) { pbW.tag(1, 0); pbW.varint(id); }
+        if (leaderId != 0) { pbW.tag(2, 0); pbW.varint(leaderId); }
+        if (leaderEpoch != 0) { pbW.tag(3, 0); pbW.varint(leaderEpoch); }
         if (replicas != null && !replicas.isEmpty()) {
-            KafkaPb.Writer payload = new KafkaPb.Writer();
-            for (Integer x : replicas) payload.varint(x);
-            w.bytesField(4, payload.toBytes());
+            KafkaPb.Writer pbPayload = new KafkaPb.Writer();
+            for (Integer pbX : replicas) pbPayload.varint(pbX);
+            pbW.bytesField(4, pbPayload.toBytes());
         }
         if (isr != null && !isr.isEmpty()) {
-            KafkaPb.Writer payload = new KafkaPb.Writer();
-            for (Integer x : isr) payload.varint(x);
-            w.bytesField(5, payload.toBytes());
+            KafkaPb.Writer pbPayload = new KafkaPb.Writer();
+            for (Integer pbX : isr) pbPayload.varint(pbX);
+            pbW.bytesField(5, pbPayload.toBytes());
         }
-        if (errorCode != 0) { w.tag(6, 0); w.varint(errorCode); }
-        w.raw(unknownFields);
-        return w.toBytes();
+        if (errorCode != 0) { pbW.tag(6, 0); pbW.varint(errorCode); }
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -50,43 +50,43 @@ public final class PartitionMetadata implements grpcdc.Marshaler, grpcdc.Unmarsh
         replicas = new java.util.ArrayList<>();
         isr = new java.util.ArrayList<>();
         errorCode = 0;
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    id = (int) field.varintValue;
+                    id = (int) pbField.varintValue;
                 }
                 case 2 -> {
-                    leaderId = (int) field.varintValue;
+                    leaderId = (int) pbField.varintValue;
                 }
                 case 3 -> {
-                    leaderEpoch = (int) field.varintValue;
+                    leaderEpoch = (int) pbField.varintValue;
                 }
                 case 4 -> {
-                    if (field.wire == 2) {
-                        KafkaPb.Reader sub = new KafkaPb.Reader(field.bytesValue);
-                        while (!sub.done()) {
-                            replicas.add((int) sub.varint());
+                    if (pbField.wire == 2) {
+                        KafkaPb.Reader pbSub = new KafkaPb.Reader(pbField.bytesValue);
+                        while (!pbSub.done()) {
+                            replicas.add((int) pbSub.varint());
                         }
                     } else {
-                        replicas.add((int) field.varintValue);
+                        replicas.add((int) pbField.varintValue);
                     }
                 }
                 case 5 -> {
-                    if (field.wire == 2) {
-                        KafkaPb.Reader sub = new KafkaPb.Reader(field.bytesValue);
-                        while (!sub.done()) {
-                            isr.add((int) sub.varint());
+                    if (pbField.wire == 2) {
+                        KafkaPb.Reader pbSub = new KafkaPb.Reader(pbField.bytesValue);
+                        while (!pbSub.done()) {
+                            isr.add((int) pbSub.varint());
                         }
                     } else {
-                        isr.add((int) field.varintValue);
+                        isr.add((int) pbField.varintValue);
                     }
                 }
                 case 6 -> {
-                    errorCode = (int) field.varintValue;
+                    errorCode = (int) pbField.varintValue;
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

@@ -84,7 +84,7 @@ object OrcaGrpcDc {
         private val sink: Server.ServerSink
     ) : OpenRcaServiceStreamCoreMetricsServer {
         override fun send(resp: xds.data.orca.v3.OrcaLoadReport) {
-            sink.send(resp.marshalDc())
+            sink.send(context.encodeMessage(resp))
         }
     }
 

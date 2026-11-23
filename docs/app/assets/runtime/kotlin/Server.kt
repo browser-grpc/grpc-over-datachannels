@@ -7,7 +7,7 @@ import java.io.EOFException
 /** Server: dispatches inbound calls to registered methods. */
 class Server {
     /** Reads request messages of one inbound call. */
-    class RequestStream(private val input: Endpoint.StreamInput) {
+    class RequestStream(private val input: Endpoint.StreamInput, private val structCodec: Boolean = false) {
         /** Next request payload; EOFException at half-close. */
         fun recvRaw(): ByteArray {
             while (true) {
@@ -27,7 +27,7 @@ class Server {
 
         /** Decode the next request message into req. */
         fun recvInto(req: Unmarshaler) {
-            req.unmarshalDc(recvRaw())
+            Codec.unmarshalForCodec(structCodec, recvRaw(), req)
         }
     }
 
@@ -48,6 +48,18 @@ class Server {
     data class ServiceDesc(val name: String, val methods: List<Method>)
 
     private val methods = HashMap<String, Method>()
+    private var structCodec: Boolean = false
+
+    /**
+     * Enable the struct codec on this server: a call carrying
+     * HEADERS dc-codec: struct-v1 is decoded with the struct codec
+     * and answered in kind. A struct-v1 request to a server without
+     * it enabled fails UNIMPLEMENTED, as does any other dc-codec
+     * value. Mirrors the Go Server.SetStructCodec.
+     */
+    fun setStructCodec(enabled: Boolean) {
+        structCodec = enabled
+    }
 
     /** Adds a service's methods (generated code calls it). */
     fun registerService(desc: ServiceDesc) {
@@ -73,11 +85,22 @@ class Server {
                          input: Endpoint.StreamInput, sink: Endpoint.ResponseSink): StatusException? {
         val method = methods[headers.path]
             ?: return StatusException(Wire.CODE_UNIMPLEMENTED, "unknown method " + headers.path)
+        // Struct codec negotiation: an explicit dc-codec marker
+        // must be struct-v1 and enabled here, else UNIMPLEMENTED.
+        var useStruct = false
+        val marker = headers.metadata[Codec.STRUCT_CODEC_HEADER]
+        if (marker != null) {
+            if (marker != Codec.STRUCT_CODEC_V1 || !structCodec) {
+                return StatusException(Wire.CODE_UNIMPLEMENTED, "struct codec not enabled")
+            }
+            useStruct = true
+        }
+        ctx.structCodec = useStruct
         val traceCtx = Tracing.traceStart("server", headers.path ?: "", Tracing.parseTraceparent(headers.metadata["traceparent"]))
         ctx.traceContext = traceCtx
         var result: StatusException? = null
         try {
-            method.handler.handle(ctx, RequestStream(input), ServerSink { payload -> sink.send(payload) })
+            method.handler.handle(ctx, RequestStream(input, useStruct), ServerSink { payload -> sink.send(payload) })
         } catch (e: Exception) {
             result = StatusException.toStatus(e)
         }

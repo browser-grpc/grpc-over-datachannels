@@ -433,7 +433,7 @@ public final class TestGrpcDc {
         }
 
         public void send(StreamingOutputCallResponse resp) throws Exception {
-            sink.send(resp.marshalDc());
+            sink.send(ctx.encodeMessage(resp));
         }
 
         public Endpoint.CallContext context() {
@@ -478,7 +478,7 @@ public final class TestGrpcDc {
         }
 
         public void send(StreamingOutputCallResponse resp) throws Exception {
-            sink.send(resp.marshalDc());
+            sink.send(ctx.encodeMessage(resp));
         }
 
         public StreamingOutputCallRequest recv() throws Exception {
@@ -504,7 +504,7 @@ public final class TestGrpcDc {
         }
 
         public void send(StreamingOutputCallResponse resp) throws Exception {
-            sink.send(resp.marshalDc());
+            sink.send(ctx.encodeMessage(resp));
         }
 
         public StreamingOutputCallRequest recv() throws Exception {
@@ -627,17 +627,17 @@ public final class TestGrpcDc {
                     new Server.Method("EmptyCall", "/grpc.testing.TestService/EmptyCall", Server.KIND_UNARY, (ctx, reqs, sink) -> {
                         Empty req = new Empty();
                         reqs.recvInto(req);
-                        sink.send(impl.EmptyCall(ctx, req).marshalDc());
+                        sink.send(ctx.encodeMessage(impl.EmptyCall(ctx, req)));
                     }),
                     new Server.Method("UnaryCall", "/grpc.testing.TestService/UnaryCall", Server.KIND_UNARY, (ctx, reqs, sink) -> {
                         SimpleRequest req = new SimpleRequest();
                         reqs.recvInto(req);
-                        sink.send(impl.UnaryCall(ctx, req).marshalDc());
+                        sink.send(ctx.encodeMessage(impl.UnaryCall(ctx, req)));
                     }),
                     new Server.Method("CacheableUnaryCall", "/grpc.testing.TestService/CacheableUnaryCall", Server.KIND_UNARY, (ctx, reqs, sink) -> {
                         SimpleRequest req = new SimpleRequest();
                         reqs.recvInto(req);
-                        sink.send(impl.CacheableUnaryCall(ctx, req).marshalDc());
+                        sink.send(ctx.encodeMessage(impl.CacheableUnaryCall(ctx, req)));
                     }),
                     new Server.Method("StreamingOutputCall", "/grpc.testing.TestService/StreamingOutputCall", Server.KIND_SERVER_STREAMING, (ctx, reqs, sink) -> {
                         StreamingOutputCallRequest req = new StreamingOutputCallRequest();
@@ -651,7 +651,7 @@ public final class TestGrpcDc {
                             throw new StatusException(Wire.CODE_INTERNAL,
                                     "client-streaming handler never called SendAndClose");
                         }
-                        sink.send(stream.resp.marshalDc());
+                        sink.send(ctx.encodeMessage(stream.resp));
                     }),
                     new Server.Method("FullDuplexCall", "/grpc.testing.TestService/FullDuplexCall", Server.KIND_BIDI, (ctx, reqs, sink) -> {
                         impl.FullDuplexCall(new TestServiceFullDuplexCallServerImpl(ctx, reqs, sink));
@@ -662,7 +662,7 @@ public final class TestGrpcDc {
                     new Server.Method("UnimplementedCall", "/grpc.testing.TestService/UnimplementedCall", Server.KIND_UNARY, (ctx, reqs, sink) -> {
                         Empty req = new Empty();
                         reqs.recvInto(req);
-                        sink.send(impl.UnimplementedCall(ctx, req).marshalDc());
+                        sink.send(ctx.encodeMessage(impl.UnimplementedCall(ctx, req)));
                     })
                 )));
     }
@@ -746,7 +746,7 @@ public final class TestGrpcDc {
                     new Server.Method("UnimplementedCall", "/grpc.testing.UnimplementedService/UnimplementedCall", Server.KIND_UNARY, (ctx, reqs, sink) -> {
                         Empty req = new Empty();
                         reqs.recvInto(req);
-                        sink.send(impl.UnimplementedCall(ctx, req).marshalDc());
+                        sink.send(ctx.encodeMessage(impl.UnimplementedCall(ctx, req)));
                     })
                 )));
     }
@@ -871,12 +871,12 @@ public final class TestGrpcDc {
                     new Server.Method("Start", "/grpc.testing.ReconnectService/Start", Server.KIND_UNARY, (ctx, reqs, sink) -> {
                         ReconnectParams req = new ReconnectParams();
                         reqs.recvInto(req);
-                        sink.send(impl.Start(ctx, req).marshalDc());
+                        sink.send(ctx.encodeMessage(impl.Start(ctx, req)));
                     }),
                     new Server.Method("Stop", "/grpc.testing.ReconnectService/Stop", Server.KIND_UNARY, (ctx, reqs, sink) -> {
                         Empty req = new Empty();
                         reqs.recvInto(req);
-                        sink.send(impl.Stop(ctx, req).marshalDc());
+                        sink.send(ctx.encodeMessage(impl.Stop(ctx, req)));
                     })
                 )));
     }
@@ -1001,12 +1001,12 @@ public final class TestGrpcDc {
                     new Server.Method("GetClientStats", "/grpc.testing.LoadBalancerStatsService/GetClientStats", Server.KIND_UNARY, (ctx, reqs, sink) -> {
                         LoadBalancerStatsRequest req = new LoadBalancerStatsRequest();
                         reqs.recvInto(req);
-                        sink.send(impl.GetClientStats(ctx, req).marshalDc());
+                        sink.send(ctx.encodeMessage(impl.GetClientStats(ctx, req)));
                     }),
                     new Server.Method("GetClientAccumulatedStats", "/grpc.testing.LoadBalancerStatsService/GetClientAccumulatedStats", Server.KIND_UNARY, (ctx, reqs, sink) -> {
                         LoadBalancerAccumulatedStatsRequest req = new LoadBalancerAccumulatedStatsRequest();
                         reqs.recvInto(req);
-                        sink.send(impl.GetClientAccumulatedStats(ctx, req).marshalDc());
+                        sink.send(ctx.encodeMessage(impl.GetClientAccumulatedStats(ctx, req)));
                     })
                 )));
     }
@@ -1131,12 +1131,12 @@ public final class TestGrpcDc {
                     new Server.Method("SetServing", "/grpc.testing.XdsUpdateHealthService/SetServing", Server.KIND_UNARY, (ctx, reqs, sink) -> {
                         Empty req = new Empty();
                         reqs.recvInto(req);
-                        sink.send(impl.SetServing(ctx, req).marshalDc());
+                        sink.send(ctx.encodeMessage(impl.SetServing(ctx, req)));
                     }),
                     new Server.Method("SetNotServing", "/grpc.testing.XdsUpdateHealthService/SetNotServing", Server.KIND_UNARY, (ctx, reqs, sink) -> {
                         Empty req = new Empty();
                         reqs.recvInto(req);
-                        sink.send(impl.SetNotServing(ctx, req).marshalDc());
+                        sink.send(ctx.encodeMessage(impl.SetNotServing(ctx, req)));
                     })
                 )));
     }
@@ -1220,7 +1220,7 @@ public final class TestGrpcDc {
                     new Server.Method("Configure", "/grpc.testing.XdsUpdateClientConfigureService/Configure", Server.KIND_UNARY, (ctx, reqs, sink) -> {
                         ClientConfigureRequest req = new ClientConfigureRequest();
                         reqs.recvInto(req);
-                        sink.send(impl.Configure(ctx, req).marshalDc());
+                        sink.send(ctx.encodeMessage(impl.Configure(ctx, req)));
                     })
                 )));
     }

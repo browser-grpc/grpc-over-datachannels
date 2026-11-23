@@ -56,17 +56,17 @@ object EmptyPb {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = EmptyPb.Writer()
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = EmptyPb.Writer()
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
-        val r = EmptyPb.Reader(data)
+        val pbR = EmptyPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
-                else -> { unknownFields = unknownFields + field.rawValue }
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }

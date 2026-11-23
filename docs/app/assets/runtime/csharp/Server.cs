@@ -14,10 +14,16 @@ public class Server
     public sealed class RequestStream
     {
         private readonly Endpoint.StreamInput _input;
+        private readonly bool _structCodec;
 
-        public RequestStream(Endpoint.StreamInput input)
+        public RequestStream(Endpoint.StreamInput input) : this(input, false)
+        {
+        }
+
+        public RequestStream(Endpoint.StreamInput input, bool structCodec)
         {
             _input = input;
+            _structCodec = structCodec;
         }
 
         /// <summary>Next request payload; EndOfStreamException at half-close.</summary>
@@ -46,7 +52,7 @@ public class Server
         }
 
         /// <summary>Decode the next request message into req.</summary>
-        public void RecvInto(IUnmarshaler req) => req.UnmarshalDc(RecvRaw());
+        public void RecvInto(IUnmarshaler req) => Codec.UnmarshalForCodec(_structCodec, RecvRaw(), req);
     }
 
     /// <summary>Sends response payloads of one inbound call.</summary>
@@ -62,6 +68,16 @@ public class Server
     public sealed record ServiceDesc(string Name, List<Method> Methods);
 
     private readonly Dictionary<string, Method> _methods = new();
+    private bool _structCodec;
+
+    /// <summary>
+    /// Enable the struct codec on this server: a call carrying
+    /// HEADERS dc-codec: struct-v1 is decoded with the struct codec
+    /// and answered in kind. A struct-v1 request to a server without
+    /// it enabled fails Unimplemented, as does any other dc-codec
+    /// value. Mirrors the Go Server.SetStructCodec.
+    /// </summary>
+    public void SetStructCodec(bool enabled) => _structCodec = enabled;
 
     /// <summary>Adds a service's methods (generated code calls it).</summary>
     public void RegisterService(ServiceDesc desc)
@@ -94,13 +110,25 @@ public class Server
         {
             return new StatusException(Wire.CodeUnimplemented, $"unknown method {headers.Path}");
         }
+        // Struct codec negotiation: an explicit dc-codec marker
+        // must be struct-v1 and enabled here, else Unimplemented.
+        bool useStruct = false;
+        if (headers.Metadata.TryGetValue(Codec.StructCodecHeader, out string marker))
+        {
+            if (marker != Codec.StructCodecV1 || !_structCodec)
+            {
+                return new StatusException(Wire.CodeUnimplemented, "struct codec not enabled");
+            }
+            useStruct = true;
+        }
+        ctx.StructCodec = useStruct;
         Tracing.TraceContext traceCtx = Tracing.TraceStart("server", headers.Path,
             Tracing.ParseTraceparent(headers.Metadata.TryGetValue("traceparent", out string tp) ? tp : null));
         ctx.TraceContext = traceCtx;
         StatusException result = null;
         try
         {
-            method.Handler(ctx, new RequestStream(input), payload => sink.Send(payload));
+            method.Handler(ctx, new RequestStream(input, useStruct), payload => sink.Send(payload));
         }
         catch (Exception e)
         {

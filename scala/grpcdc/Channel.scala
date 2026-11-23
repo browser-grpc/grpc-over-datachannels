@@ -9,12 +9,28 @@ class Channel(val endpoint: Endpoint) {
   endpoint.start()
 
   private var traceContext: Tracing.TraceContext = null
+  private var structCodecFlag: Boolean = false
+
+  /**
+   * Make every call on this channel request the struct codec
+   * (HEADERS marker dc-codec: struct-v1) and encode requests /
+   * decode responses with it. The server must enable it too
+   * (see Server.setStructCodec); otherwise calls fail
+   * UNIMPLEMENTED. Mirrors the Go Channel.SetStructCodec.
+   */
+  def setStructCodec(enabled: Boolean): Unit = {
+    structCodecFlag = enabled
+  }
+
+  /** Whether this channel requests the struct codec on every call. */
+  def structCodec(): Boolean = structCodecFlag
 
   /** A Channel view sharing this endpoint whose outbound spans
    *  are parented to ctx. Explicit call metadata still wins. */
   def withTraceContext(ctx: Tracing.TraceContext): Channel = {
     val ch = new Channel(endpoint)
     ch.traceContext = ctx
+    ch.structCodecFlag = structCodecFlag
     ch
   }
 
@@ -29,6 +45,7 @@ class Channel(val endpoint: Endpoint) {
       private val endpoint: Endpoint,
       private val input: Endpoint#StreamInput) {
     var deadlineNanos: Long = -1L
+    var structCodec: Boolean = false
     var headers: Codec.Headers = null
     /** Trailing metadata of the terminal status (null until it arrives). */
     var trailers: Map[String, String] = null
@@ -48,7 +65,7 @@ class Channel(val endpoint: Endpoint) {
 
     /** Send one request message on an open stream (no half-close). */
     def send(msg: Marshaler): Unit = {
-      endpoint.sendFrame(Codec.encodeFrame(Wire.FRAME_DATA, streamId, msg.marshalDc()))
+      endpoint.sendFrame(Codec.encodeFrame(Wire.FRAME_DATA, streamId, Codec.marshalForCodec(structCodec, msg)))
     }
 
     /** Half-close an open stream (no more requests). */
@@ -104,7 +121,7 @@ class Channel(val endpoint: Endpoint) {
         event.kind match {
           case Endpoint.EventKind.HEADERS => headers = event.headers
           case Endpoint.EventKind.DATA =>
-            resp.unmarshalDc(event.payload)
+            Codec.unmarshalForCodec(structCodec, event.payload, resp)
             return
           case Endpoint.EventKind.TRAILERS =>
             terminated = true
@@ -133,8 +150,11 @@ class Channel(val endpoint: Endpoint) {
     var md = metadata
     var deadlineNanos = -1L
     var traceCtx: Tracing.TraceContext = null
-    if (timeout != null || Tracing.enabled) {
+    if (timeout != null || Tracing.enabled || structCodecFlag) {
       md = if (md == null) Map.empty[String, String] else md
+      if (structCodecFlag) {
+        md = md + (Codec.STRUCT_CODEC_HEADER -> Codec.STRUCT_CODEC_V1)
+      }
       if (timeout != null) {
         deadlineNanos = System.nanoTime() + timeout.toNanos
         md = md + ("grpc-timeout" -> Codec.encodeTimeout(timeout))
@@ -160,6 +180,7 @@ class Channel(val endpoint: Endpoint) {
         throw e
     }
     val stream = new ClientStream(opened.id, endpoint, opened.input)
+    stream.structCodec = structCodecFlag
     stream.deadlineNanos = deadlineNanos
     stream.traceCtx = traceCtx
     stream.tracePath = path
@@ -167,7 +188,7 @@ class Channel(val endpoint: Endpoint) {
   }
 
   private def sendMessage(stream: ClientStream, msg: Marshaler): Unit = {
-    endpoint.sendFrame(Codec.encodeFrame(Wire.FRAME_DATA, stream.streamId, msg.marshalDc()))
+    endpoint.sendFrame(Codec.encodeFrame(Wire.FRAME_DATA, stream.streamId, Codec.marshalForCodec(stream.structCodec, msg)))
   }
 
   private def halfClose(stream: ClientStream): Unit = {

@@ -24,6 +24,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`main.c`](tests/main.c) — Generated suite/example
 - [`oracle_scenarios.h`](tests/oracle_scenarios.h) — Official-implementation oracle, via the proxy
 - [`test_eventbus.h`](tests/test_eventbus.h) — Event bus end-to-end
+- [`test_struct_codec.h`](tests/test_struct_codec.h) — Wire codec vectors
 
 ## Examples
 
@@ -33,6 +34,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`echo_messages.h`](examples/echo_messages.h) — Echo: all four call shapes
 - [`echo_server_stdio.c`](examples/echo_server_stdio.c) — Echo: all four call shapes
 - [`echo_service_impl.h`](examples/echo_service_impl.h) — Echo: all four call shapes
+- [`echo_struct.h`](examples/echo_struct.h) — Echo: all four call shapes
 - [`eventbus_demo.c`](examples/eventbus_demo.c) — Event bus end-to-end
 - [`empty_grpc_dc.h`](examples/interop/empty_grpc_dc.h) — Generated suite/example
 - [`empty_messages.h`](examples/interop/empty_messages.h) — Generated suite/example

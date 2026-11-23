@@ -197,6 +197,44 @@ so both runtimes stay dependency-light and debuggable; every other gRPC
 concept (paths, methods, streaming shapes, status codes, metadata,
 deadlines via RST) maps one-to-one.
 
+## Struct codec (opt-in)
+
+Protobuf is the default and the interop format. Plugins accept
+`struct_codec=true` and additionally generate a Cap'n-Proto-style
+packed layout per message (`MarshalStructDC` / `UnmarshalStructDC`
+in Go, `marshal_struct` / `unmarshal_struct` in Rust, companion
+`*Struct` types elsewhere). One shared, descriptor-driven
+implementation lives in the Rust runtime (`grpc_dc::structdc`,
+generated from `racket/runtime-rust.rkt`); every generated codec
+must match its bytes exactly, proven by the conformance corpus
+in `conformance/struct` (Go golden bytes, one driver per language;
+run `scripts/test-struct-corpus.py`):
+
+- header: magic `DCS1`, total length, FNV-1a schema fingerprint
+  of the message full name, presence bitmap words;
+- fixed area: one slot per field in field-number order (8 bytes
+  for varint-family/fixed64/double, 4 for fixed32/float, offset+
+  length for string/bytes/message/repeated/map);
+- variable area: raw strings/bytes, nested struct encodings,
+  packed repeated scalars, element tables, and map entries with
+  sorted keys; unknown-fields bytes form the tail.
+
+All tier-1 languages negotiate the codec the same way: channel
+and server opt in with `SetStructCodec` / `setStructCodec` /
+`set_struct_codec` (Go, JS-style, and Rust/Dart spellings per
+language): the client sends HEADERS `dc-codec: struct-v1`, the
+server decodes and answers in kind only when it is also enabled;
+an explicit marker against a protobuf-only server (or any other
+`dc-codec` value) fails `UNIMPLEMENTED`. Messages generated
+without `struct_codec=true` have no struct codec and fail
+`INTERNAL` if one is negotiated for them. Use the struct codec
+for low-latency internal paths and transcode at interop
+boundaries; coverage: `go/struct_codec_test.go`,
+`rust/tests/struct_codec.rs`, `rust/tests/structdc_corpus.rs`,
+`rust/tests/structdc_negotiation.rs`, and a `TestStructCodec`
+negotiation test in every other tier-1 language's suite (Java,
+Kotlin, Scala, C#, Dart, Swift, C, C++, Zig).
+
 ## Host/plugin deployments (issue #2)
 
 A long-lived host can serve one public endpoint while

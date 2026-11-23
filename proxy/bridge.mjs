@@ -22,7 +22,7 @@ import http2 from "node:http2";
 import { spawn } from "node:child_process";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { Endpoint, FrameType, StatusCode, StatusError, StatusName, encodeFrame } from "../js/index.js";
-import { formatTraceparent, headersFrame, parseTraceparent, statusFrame, traceEnd, traceStart } from "../js/src/codec.js";
+import { formatTraceparent, headersFrame, parseTraceparent, parseTimeout, statusFrame, traceEnd, traceStart } from "../js/src/codec.js";
 
 const { HTTP2_HEADER_PATH, HTTP2_HEADER_STATUS, HTTP2_HEADER_CONTENT_TYPE } = http2.constants;
 
@@ -361,6 +361,8 @@ export function serveDcToHttp2({ grpcAuthority, endpoint }) {
     }
     if (compressRequests) requestHeaders["grpc-encoding"] = "gzip";
     const stream = session.request(requestHeaders);
+    const timeoutMs = parseTimeout(headers.metadata?.["grpc-timeout"]);
+    const deadlineAt = timeoutMs === null ? null : Date.now() + timeoutMs;
 
     let grpcStatus = null;
     let grpcMessage = "";
@@ -439,6 +441,39 @@ export function serveDcToHttp2({ grpcAuthority, endpoint }) {
     })();
 
     await Promise.all([inDone, outDone]);
+    if (grpcStatus === null && stream.rstCode) {
+      // Current grpc-go servers abort a deadline-expired stream
+      // with RST_STREAM (CANCEL) and no trailers. Translate the
+      // HTTP/2 reset the way official transports do, and let a
+      // reset at the propagated grpc-timeout report the deadline
+      // rather than a bare cancellation.
+      const rstStatusByCode = {
+        [http2.constants.NGHTTP2_PROTOCOL_ERROR]: StatusCode.INTERNAL,
+        [http2.constants.NGHTTP2_INTERNAL_ERROR]: StatusCode.INTERNAL,
+        [http2.constants.NGHTTP2_FLOW_CONTROL_ERROR]: StatusCode.INTERNAL,
+        [http2.constants.NGHTTP2_SETTINGS_TIMEOUT]: StatusCode.UNAVAILABLE,
+        [http2.constants.NGHTTP2_STREAM_CLOSED]: StatusCode.UNAVAILABLE,
+        [http2.constants.NGHTTP2_FRAME_SIZE_ERROR]: StatusCode.INTERNAL,
+        [http2.constants.NGHTTP2_REFUSED_STREAM]: StatusCode.UNAVAILABLE,
+        [http2.constants.NGHTTP2_CANCEL]: StatusCode.CANCELLED,
+        [http2.constants.NGHTTP2_COMPRESSION_ERROR]: StatusCode.INTERNAL,
+        [http2.constants.NGHTTP2_CONNECT_ERROR]: StatusCode.UNAVAILABLE,
+        [http2.constants.NGHTTP2_ENHANCE_YOUR_CALM]: StatusCode.RESOURCE_EXHAUSTED,
+        [http2.constants.NGHTTP2_INADEQUATE_SECURITY]: StatusCode.PERMISSION_DENIED,
+        [http2.constants.NGHTTP2_HTTP_1_1_REQUIRED]: StatusCode.UNAVAILABLE,
+      };
+      if (
+        stream.rstCode === http2.constants.NGHTTP2_CANCEL &&
+        deadlineAt !== null &&
+        Date.now() >= deadlineAt - 250
+      ) {
+        grpcStatus = StatusCode.DEADLINE_EXCEEDED;
+        grpcMessage = "deadline exceeded";
+      } else {
+        grpcStatus = rstStatusByCode[stream.rstCode] ?? StatusCode.UNAVAILABLE;
+        grpcMessage = "rst stream";
+      }
+    }
     if (grpcStatus === null) {
       throw StatusError.internal("official server sent no grpc-status");
     }

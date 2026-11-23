@@ -64,6 +64,12 @@ public class Endpoint
         /// <summary>This call's server span context (null when dormant).</summary>
         public Tracing.TraceContext TraceContext { get; set; }
 
+        /// <summary>Whether this call negotiated the struct codec (HEADERS dc-codec: struct-v1).</summary>
+        public bool StructCodec { get; set; }
+
+        /// <summary>Marshal a response message with this call's negotiated codec (generated server code calls this).</summary>
+        public byte[] EncodeMessage(IMarshaler msg) => Codec.MarshalForCodec(StructCodec, msg);
+
         /// <summary>Response initial metadata recorded via SetHeaders.</summary>
         public Dictionary<string, string> ResponseHeaders { get; } = new();
 

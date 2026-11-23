@@ -20,14 +20,14 @@ public final class ConfigValue implements grpcdc.Marshaler, grpcdc.Unmarshaler {
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
-        w.stringField(1, name);
-        w.stringField(2, value);
-        if (readOnly) { w.tag(3, 0); w.varint((readOnly ? 1 : 0)); }
-        if (source != 0) { w.tag(4, 0); w.varint(source); }
-        if (isSensitive) { w.tag(5, 0); w.varint((isSensitive ? 1 : 0)); }
-        w.raw(unknownFields);
-        return w.toBytes();
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
+        pbW.stringField(1, name);
+        pbW.stringField(2, value);
+        if (readOnly) { pbW.tag(3, 0); pbW.varint((readOnly ? 1 : 0)); }
+        if (source != 0) { pbW.tag(4, 0); pbW.varint(source); }
+        if (isSensitive) { pbW.tag(5, 0); pbW.varint((isSensitive ? 1 : 0)); }
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -38,26 +38,26 @@ public final class ConfigValue implements grpcdc.Marshaler, grpcdc.Unmarshaler {
         readOnly = false;
         source = 0;
         isSensitive = false;
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    name = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    name = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 2 -> {
-                    value = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    value = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 3 -> {
-                    readOnly = field.varintValue != 0;
+                    readOnly = pbField.varintValue != 0;
                 }
                 case 4 -> {
-                    source = (int) field.varintValue;
+                    source = (int) pbField.varintValue;
                 }
                 case 5 -> {
-                    isSensitive = field.varintValue != 0;
+                    isSensitive = pbField.varintValue != 0;
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

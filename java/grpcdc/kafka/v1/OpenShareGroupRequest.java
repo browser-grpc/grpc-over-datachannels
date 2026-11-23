@@ -18,13 +18,13 @@ public final class OpenShareGroupRequest implements grpcdc.Marshaler, grpcdc.Unm
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
-        w.stringField(1, groupId);
-        if (topics != null) for (String x : topics) w.bytesField(2, x.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        w.stringField(3, groupInstanceId);
-        if (sessionTimeoutMs != 0) { w.tag(4, 0); w.varint(sessionTimeoutMs); }
-        w.raw(unknownFields);
-        return w.toBytes();
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
+        pbW.stringField(1, groupId);
+        if (topics != null) for (String pbX : topics) pbW.bytesField(2, pbX.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        pbW.stringField(3, groupInstanceId);
+        if (sessionTimeoutMs != 0) { pbW.tag(4, 0); pbW.varint(sessionTimeoutMs); }
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -34,23 +34,23 @@ public final class OpenShareGroupRequest implements grpcdc.Marshaler, grpcdc.Unm
         topics = new java.util.ArrayList<>();
         groupInstanceId = "";
         sessionTimeoutMs = 0;
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    groupId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    groupId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 2 -> {
-                    topics.add(new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8));
+                    topics.add(new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8));
                 }
                 case 3 -> {
-                    groupInstanceId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    groupInstanceId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 4 -> {
-                    sessionTimeoutMs = (int) field.varintValue;
+                    sessionTimeoutMs = (int) pbField.varintValue;
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

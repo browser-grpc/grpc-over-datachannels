@@ -96,7 +96,7 @@ public static class OrcaGrpcDc
 
         public Endpoint.CallContext Context { get; }
 
-        public void Send(Xds.data.orca.v3.OrcaLoadReport resp) => _sink(resp.MarshalDc());
+        public void Send(Xds.data.orca.v3.OrcaLoadReport resp) => _sink(Context.EncodeMessage(resp));
     }
 
     /// <summary>Async service implementation interface for xds.service.orca.v3.OpenRcaService.</summary>

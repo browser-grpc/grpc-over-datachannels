@@ -82,23 +82,6 @@ function getDataViewMemory0() {
     return cachedDataViewMemory0;
 }
 /**
- * JSON snapshot of the matrix recorder's spans.
- * @returns {string}
- */
-export function echo_tracing_spans() {
-    let deferred1_0;
-    let deferred1_1;
-    try {
-        const ret = wasm.echo_tracing_spans();
-        deferred1_0 = ret[0];
-        deferred1_1 = ret[1];
-        return getStringFromWasm0(ret[0], ret[1]);
-    } finally {
-        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
-    }
-}
-
-/**
  * Serve the generated Echo service over the given JS transport.
  * Returns immediately; serving runs as a local task until the
  * transport closes.
@@ -121,6 +104,32 @@ export function echo_client(transport) {
 }
 
 /**
+ * Run the nested tracing scenario and resolve with its JSON.
+ * @returns {Promise<string>}
+ */
+export function echo_tracing() {
+    const ret = wasm.echo_tracing();
+    return ret;
+}
+
+/**
+ * JSON snapshot of the matrix recorder's spans.
+ * @returns {string}
+ */
+export function echo_tracing_spans() {
+    let deferred1_0;
+    let deferred1_1;
+    try {
+        const ret = wasm.echo_tracing_spans();
+        deferred1_0 = ret[0];
+        deferred1_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+    }
+}
+
+/**
  * One unary call over the JS transport with the recorder
  * registered; resolves with the response plus recorded spans.
  * @param {any} transport
@@ -128,15 +137,6 @@ export function echo_client(transport) {
  */
 export function echo_client_tracing(transport) {
     const ret = wasm.echo_client_tracing(transport);
-    return ret;
-}
-
-/**
- * Run the nested tracing scenario and resolve with its JSON.
- * @returns {Promise<string>}
- */
-export function echo_tracing() {
-    const ret = wasm.echo_tracing();
     return ret;
 }
 
@@ -160,11 +160,11 @@ function passArray8ToWasm0(arg, malloc) {
 function __wbg_adapter_22(arg0, arg1, arg2) {
     const ptr0 = passArray8ToWasm0(arg2, wasm.__wbindgen_malloc);
     const len0 = WASM_VECTOR_LEN;
-    wasm._dyn_core__ops__function__FnMut__A____Output___R_as_wasm_bindgen__closure__WasmClosure___describe__invoke__h82cba992109ee99b(arg0, arg1, ptr0, len0);
+    wasm._dyn_core__ops__function__FnMut__A____Output___R_as_wasm_bindgen__closure__WasmClosure___describe__invoke__h701e37b81ed54114(arg0, arg1, ptr0, len0);
 }
 
 function __wbg_adapter_25(arg0, arg1) {
-    wasm._dyn_core__ops__function__FnMut_____Output___R_as_wasm_bindgen__closure__WasmClosure___describe__invoke__h06c81ebfc41e5c73(arg0, arg1);
+    wasm._dyn_core__ops__function__FnMut_____Output___R_as_wasm_bindgen__closure__WasmClosure___describe__invoke__h3b52059ee760b610(arg0, arg1);
 }
 
 function __wbg_adapter_28(arg0, arg1, arg2) {
@@ -301,15 +301,15 @@ function __wbg_get_imports() {
         const ret = false;
         return ret;
     };
-    imports.wbg.__wbindgen_closure_wrapper324 = function(arg0, arg1, arg2) {
+    imports.wbg.__wbindgen_closure_wrapper355 = function(arg0, arg1, arg2) {
         const ret = makeMutClosure(arg0, arg1, 132, __wbg_adapter_22);
         return ret;
     };
-    imports.wbg.__wbindgen_closure_wrapper620 = function(arg0, arg1, arg2) {
-        const ret = makeMutClosure(arg0, arg1, 187, __wbg_adapter_25);
+    imports.wbg.__wbindgen_closure_wrapper515 = function(arg0, arg1, arg2) {
+        const ret = makeMutClosure(arg0, arg1, 171, __wbg_adapter_25);
         return ret;
     };
-    imports.wbg.__wbindgen_closure_wrapper724 = function(arg0, arg1, arg2) {
+    imports.wbg.__wbindgen_closure_wrapper732 = function(arg0, arg1, arg2) {
         const ret = makeMutClosure(arg0, arg1, 202, __wbg_adapter_28);
         return ret;
     };

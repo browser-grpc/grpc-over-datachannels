@@ -290,6 +290,12 @@ fn rendezvous_many_peers_demux() {
         handles.push(std::thread::spawn(move || {
             dial_and_echo(&listener, &format!("peer-{i}"));
         }));
+        // Stagger starts: 12 simultaneous DTLS handshakes
+        // retransmitting on the same 1s boundaries collapse
+        // into each other on small CI runners (all dialers
+        // time out together); a small ramp keeps the demux
+        // pressure without the thundering herd.
+        std::thread::sleep(Duration::from_millis(150));
     }
     for h in handles {
         h.join().unwrap();

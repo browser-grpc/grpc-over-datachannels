@@ -14,11 +14,11 @@ public final class Payload implements grpcdc.Marshaler, grpcdc.Unmarshaler {
 
     @Override
     public byte[] marshalDc() {
-        MessagesPb.Writer w = new MessagesPb.Writer();
-        if (type != null && type.number != 0) { w.tag(1, 0); w.varint(type.number); }
-        if (body != null && body.length > 0) w.bytesField(2, body);
-        w.raw(unknownFields);
-        return w.toBytes();
+        MessagesPb.Writer pbW = new MessagesPb.Writer();
+        if (type != null && type.number != 0) { pbW.tag(1, 0); pbW.varint(type.number); }
+        if (body != null && body.length > 0) pbW.bytesField(2, body);
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -26,17 +26,17 @@ public final class Payload implements grpcdc.Marshaler, grpcdc.Unmarshaler {
         unknownFields = new byte[0];
         type = PayloadType.COMPRESSABLE;
         body = new byte[0];
-        MessagesPb.Reader r = new MessagesPb.Reader(data);
-        MessagesPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        MessagesPb.Reader pbR = new MessagesPb.Reader(data);
+        MessagesPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    type = PayloadType.fromNumber((int) field.varintValue);
+                    type = PayloadType.fromNumber((int) pbField.varintValue);
                 }
                 case 2 -> {
-                    body = field.bytesValue;
+                    body = pbField.bytesValue;
                 }
-                default -> { unknownFields = MessagesPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = MessagesPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

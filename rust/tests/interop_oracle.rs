@@ -33,6 +33,17 @@ use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use test_stub::TestServiceClient;
 
+/// Availability skip that hard-fails when GRPC_DC_REQUIRE_ORACLE
+/// is set (the CI image sets it; its Dockerfile builds every
+/// oracle, so a missing one there is build breakage).
+#[track_caller]
+fn oracle_skip(reason: &str) {
+    if std::env::var_os("GRPC_DC_REQUIRE_ORACLE").is_some() {
+        panic!("oracle required but unavailable: {reason}");
+    }
+    eprintln!("skip: {reason}");
+}
+
 struct StdioDc {
     tx: Mutex<std::process::ChildStdin>,
     rx: Mutex<std::process::ChildStdout>,
@@ -81,6 +92,11 @@ fn wait_port(port: u16, what: &str) {
 
 struct KillOnDrop(Child);
 
+/// free_port()+bridge spawn is racy between parallel tests in
+/// this binary (two tests can claim the same ephemeral port);
+/// serialize the bridge-owning tests.
+static BRIDGE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 impl Drop for KillOnDrop {
     fn drop(&mut self) {
         let _ = self.0.kill();
@@ -94,10 +110,11 @@ fn go_server_clients() -> Option<(KillOnDrop, KillOnDrop, TestServiceClient, orc
     let root = root();
     let binary = format!("{root}/oracle/go-interop/interop-server");
     if !std::path::Path::new(&binary).exists() {
-        eprintln!("skip: go interop server not built (oracle/go-interop)");
+        oracle_skip("go interop server not built (oracle/go-interop)");
         return None;
     }
     let port = free_port();
+    let _bridge_lock = BRIDGE_LOCK.lock().unwrap();
     let server = Command::new(&binary)
         .args(["-port", &port.to_string()])
         .stdout(Stdio::null())
@@ -245,7 +262,7 @@ fn java_classpath() -> Option<String> {
     if !std::path::Path::new(&cp_file).exists()
         || !std::path::Path::new(&format!("{target}/classes")).is_dir()
     {
-        eprintln!("skip: java oracle not built (cd oracle/java && mvn package)");
+        oracle_skip("java oracle not built (cd oracle/java && mvn package)");
         return None;
     }
     let cp = std::fs::read_to_string(cp_file).unwrap();
@@ -283,10 +300,11 @@ async fn official_clients_call_rust_server() {
     let root = root();
     let server_bin = format!("{root}/rust/target/debug/examples/interop_server_stdio");
     if !std::path::Path::new(&server_bin).exists() {
-        eprintln!("skip: interop_server_stdio not built");
+        oracle_skip("interop_server_stdio not built");
         return;
     }
     let port = free_port();
+    let _bridge_lock = BRIDGE_LOCK.lock().unwrap();
     let mut bridge = Command::new("node")
         .args([
             &format!("{root}/oracle/bridge.mjs"),
@@ -303,6 +321,7 @@ async fn official_clients_call_rust_server() {
         .expect("spawn bridge");
     let _bridge = KillOnDrop(bridge);
     wait_port(port, "bridge http2-to-dc");
+    drop(_bridge_lock);
 
     if let Some(cp) = java_classpath() {
         let port_arg = format!("--server_port={port}");

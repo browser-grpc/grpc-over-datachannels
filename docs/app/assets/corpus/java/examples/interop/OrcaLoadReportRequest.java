@@ -8,19 +8,19 @@ public final class OrcaLoadReportRequest implements grpcdc.Marshaler, grpcdc.Unm
 
     @Override
     public byte[] marshalDc() {
-        OrcaPb.Writer w = new OrcaPb.Writer();
-        w.raw(unknownFields);
-        return w.toBytes();
+        OrcaPb.Writer pbW = new OrcaPb.Writer();
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
     public void unmarshalDc(byte[] data) {
         unknownFields = new byte[0];
-        OrcaPb.Reader r = new OrcaPb.Reader(data);
-        OrcaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
-                default -> { unknownFields = OrcaPb.concatBytes(unknownFields, field.rawValue); }
+        OrcaPb.Reader pbR = new OrcaPb.Reader(data);
+        OrcaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
+                default -> { unknownFields = OrcaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

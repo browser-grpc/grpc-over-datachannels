@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 const std = @import("std");
 const wire = @import("wire.zig");
+const codec_mod = @import("codec.zig");
 const endpoint_mod = @import("endpoint.zig");
 const status_mod = @import("status.zig");
 const transport_mod = @import("transport.zig");
@@ -17,6 +18,7 @@ pub const Metadata = transport_mod.Metadata;
 pub const RequestStream = struct {
     input: *endpoint_mod.StreamInput,
     alloc: std.mem.Allocator,
+    struct_codec: bool = false,
 
     /// Next request payload; end at half-close.
     pub fn recvRaw(self: *RequestStream) status_mod.RecvResult([]u8) {
@@ -52,7 +54,7 @@ pub const RequestStream = struct {
         switch (self.recvRaw()) {
             .message => |payload| {
                 defer self.alloc.free(payload);
-                req.unmarshalDc(self.alloc, payload);
+                codec_mod.unmarshalForCodec(self.struct_codec, self.alloc, payload, req);
                 return .message;
             },
             .end => return .end,
@@ -101,6 +103,16 @@ pub const Server = struct {
     methods: std.StringHashMap(Method),
     endpoint: ?*Endpoint = null,
     owns_endpoint: bool = false,
+    struct_codec: bool = false,
+
+    /// Enable the struct codec on this server: a call carrying
+    /// HEADERS dc-codec: struct-v1 is decoded with the struct codec
+    /// and answered in kind. A struct-v1 request to a server without
+    /// it enabled fails Unimplemented, as does any other dc-codec
+    /// value. Mirrors the Go Server.SetStructCodec.
+    pub fn setStructCodec(self: *Server, enabled: bool) void {
+        self.struct_codec = enabled;
+    }
 
     pub fn init(alloc: std.mem.Allocator) Server {
         return .{ .alloc = alloc, .methods = std.StringHashMap(Method).init(alloc) };
@@ -149,9 +161,19 @@ pub const Server = struct {
             defer self.alloc.free(msg);
             return Status.init(wire.codeUnimplemented, msg);
         };
+        // Struct codec negotiation: an explicit dc-codec marker
+        // must be struct-v1 and enabled here, else Unimplemented.
+        var use_struct = false;
+        if (headers.metadata.get(codec_mod.Codec.struct_codec_header)) |marker| {
+            if (!std.mem.eql(u8, marker, codec_mod.Codec.struct_codec_v1) or !self.struct_codec) {
+                return Status.init(wire.codeUnimplemented, "struct codec not enabled");
+            }
+            use_struct = true;
+        }
+        mutable_ctx.struct_codec = use_struct;
         const trace_ctx = status_mod.traceStart("server", headers.path.?, status_mod.parseTraceparent(headers.metadata.get("traceparent")));
         mutable_ctx.trace_context = trace_ctx;
-        var reqs = RequestStream{ .input = input, .alloc = self.alloc };
+        var reqs = RequestStream{ .input = input, .alloc = self.alloc, .struct_codec = use_struct };
         const result = method.handler(method.ctx, &mutable_ctx, &reqs, .{ .sink = sink });
         status_mod.traceEnd("server", headers.path.?, trace_ctx, wire.statusName(self.alloc, result.code));
         return result;

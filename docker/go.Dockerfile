@@ -17,10 +17,12 @@ COPY docs/app/gen ./docs/app/gen
 COPY proto ./proto
 COPY webrtc/go ./webrtc/go
 COPY webrtc/rust ./webrtc/rust
+COPY rust ./rust
+COPY crates/kafka-native ./crates/kafka-native
 COPY crates/dc-sctp-ffi ./crates/dc-sctp-ffi
 COPY crates/dc-dtls-ffi ./crates/dc-dtls-ffi
 COPY crates/dc-ice-ffi ./crates/dc-ice-ffi
 RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
-RUN export PATH="$HOME/.cargo/bin:$PATH" && cd crates/dc-sctp-ffi && cargo build --release && cd ../dc-dtls-ffi && cargo build --release && cd ../dc-ice-ffi && cargo build --release
+RUN export PATH="$HOME/.cargo/bin:$PATH" && cd crates/dc-sctp-ffi && cargo build --release && cd ../dc-dtls-ffi && cargo build --release && cd ../dc-ice-ffi && cargo build --release && cd ../../rust && cargo build --release
 RUN cd go && go mod edit -replace=github.com/browser-grpc/grpc-over-datachannels/webrtc/go=../webrtc/go && go mod tidy && go build ./...
-CMD ["sh", "-c", "cd go && go test -race -skip 'Sidecar|TestInteropOfficialClientsCallGoServer' ./..."]
+CMD ["sh", "-c", "cd go && GRPCDC_STRUCTDC_LIB=/src/rust/target/release/libgrpc_dc.so go test -race -skip 'Sidecar|TestInteropOfficialClientsCallGoServer' ./..."]

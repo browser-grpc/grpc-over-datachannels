@@ -38,12 +38,38 @@ class Transport {
 struct Marshaler {
   virtual ~Marshaler() = default;
   virtual Bytes MarshalDc() const = 0;
+
+  /// Struct-layout encoding (see Codec::kStructCodecV1). Messages
+  /// generated without struct_codec=true inherit this error,
+  /// mirroring the Go runtime's "message has no struct codec".
+  virtual Bytes MarshalStruct() const {
+    throw StatusException(wire::kCodeInternal, "message has no struct codec");
+  }
 };
 
 /// Implemented by hand-written protobuf message types.
 struct Unmarshaler {
   virtual ~Unmarshaler() = default;
   virtual void UnmarshalDc(const Bytes& data) = 0;
+
+  /// Decoding side of Marshaler::MarshalStruct.
+  virtual void UnmarshalStruct(const Bytes& data) {
+    throw StatusException(wire::kCodeInternal, "message has no struct codec");
+  }
 };
+
+/// Marshal msg with the codec selected for a call (struct layout when negotiated).
+inline Bytes MarshalForCodec(bool struct_codec, const Marshaler& msg) {
+  return struct_codec ? msg.MarshalStruct() : msg.MarshalDc();
+}
+
+/// Decode data into msg with the codec selected for a call.
+inline void UnmarshalForCodec(bool struct_codec, const Bytes& data, Unmarshaler& msg) {
+  if (struct_codec) {
+    msg.UnmarshalStruct(data);
+  } else {
+    msg.UnmarshalDc(data);
+  }
+}
 
 }  // namespace grpcdc

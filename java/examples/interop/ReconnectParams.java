@@ -12,24 +12,24 @@ public final class ReconnectParams implements grpcdc.Marshaler, grpcdc.Unmarshal
 
     @Override
     public byte[] marshalDc() {
-        MessagesPb.Writer w = new MessagesPb.Writer();
-        if (maxReconnectBackoffMs != 0) { w.tag(1, 0); w.varint(maxReconnectBackoffMs); }
-        w.raw(unknownFields);
-        return w.toBytes();
+        MessagesPb.Writer pbW = new MessagesPb.Writer();
+        if (maxReconnectBackoffMs != 0) { pbW.tag(1, 0); pbW.varint(maxReconnectBackoffMs); }
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
     public void unmarshalDc(byte[] data) {
         unknownFields = new byte[0];
         maxReconnectBackoffMs = 0;
-        MessagesPb.Reader r = new MessagesPb.Reader(data);
-        MessagesPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        MessagesPb.Reader pbR = new MessagesPb.Reader(data);
+        MessagesPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    maxReconnectBackoffMs = (int) field.varintValue;
+                    maxReconnectBackoffMs = (int) pbField.varintValue;
                 }
-                default -> { unknownFields = MessagesPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = MessagesPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

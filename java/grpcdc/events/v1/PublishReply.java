@@ -12,24 +12,24 @@ public final class PublishReply implements grpcdc.Marshaler, grpcdc.Unmarshaler 
 
     @Override
     public byte[] marshalDc() {
-        EventsPb.Writer w = new EventsPb.Writer();
-        if (seq != 0) { w.tag(1, 0); w.varint(seq); }
-        w.raw(unknownFields);
-        return w.toBytes();
+        EventsPb.Writer pbW = new EventsPb.Writer();
+        if (seq != 0) { pbW.tag(1, 0); pbW.varint(seq); }
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
     public void unmarshalDc(byte[] data) {
         unknownFields = new byte[0];
         seq = 0L;
-        EventsPb.Reader r = new EventsPb.Reader(data);
-        EventsPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        EventsPb.Reader pbR = new EventsPb.Reader(data);
+        EventsPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    seq = field.varintValue;
+                    seq = pbField.varintValue;
                 }
-                default -> { unknownFields = EventsPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = EventsPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

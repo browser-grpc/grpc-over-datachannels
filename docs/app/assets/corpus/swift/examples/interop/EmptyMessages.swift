@@ -58,19 +58,19 @@ public final class Empty: Marshaler, Unmarshaler {
     public var unknownFields: [UInt8] = []
     public init() {}
     public func MarshalDc() -> [UInt8] {
-        let w = EmptyPb.Writer()
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = EmptyPb.Writer()
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
-        let r = EmptyPb.Reader(data)
+        let pbR = EmptyPb.Reader(data)
         while true {
             let next: EmptyPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
-            default: unknownFields += field.rawValue
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
+            default: unknownFields += pbField.rawValue
             }
         }
     }

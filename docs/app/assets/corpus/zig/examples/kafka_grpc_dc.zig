@@ -368,9 +368,10 @@ pub const KafkaSubscribeClient = struct {
 pub const KafkaConsumeServer = struct {
     sink: server_mod.Sink,
     alloc: std.mem.Allocator,
+    struct_codec: bool = false,
 
     pub fn send(self: *KafkaConsumeServer, resp: *const ConsumeResponse) Status {
-        const payload = resp.marshalDc(self.alloc);
+        const payload = grpcdc.codec.marshalForCodec(self.alloc, self.struct_codec, resp);
         defer self.alloc.free(payload);
         return self.sink.send(payload);
     }
@@ -380,9 +381,10 @@ pub const KafkaConsumeServer = struct {
 pub const KafkaSubscribeServer = struct {
     sink: server_mod.Sink,
     alloc: std.mem.Allocator,
+    struct_codec: bool = false,
 
     pub fn send(self: *KafkaSubscribeServer, resp: *const GroupSubscribeResponse) Status {
-        const payload = resp.marshalDc(self.alloc);
+        const payload = grpcdc.codec.marshalForCodec(self.alloc, self.struct_codec, resp);
         defer self.alloc.free(payload);
         return self.sink.send(payload);
     }
@@ -437,7 +439,7 @@ fn kafkaMetadataAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_m
     var resp = MetadataResponse{};
     const st = impl.metadata_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
     if (!st.isOk()) return st;
-    const payload = resp.marshalDc(reqs.alloc);
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
     defer reqs.alloc.free(payload);
     return sink.send(payload);
 }
@@ -455,7 +457,7 @@ fn kafkaOpenProducerAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *serv
     var resp = OpenProducerResponse{};
     const st = impl.open_producer_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
     if (!st.isOk()) return st;
-    const payload = resp.marshalDc(reqs.alloc);
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
     defer reqs.alloc.free(payload);
     return sink.send(payload);
 }
@@ -473,7 +475,7 @@ fn kafkaCloseProducerAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *ser
     var resp = CloseProducerResponse{};
     const st = impl.close_producer_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
     if (!st.isOk()) return st;
-    const payload = resp.marshalDc(reqs.alloc);
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
     defer reqs.alloc.free(payload);
     return sink.send(payload);
 }
@@ -491,7 +493,7 @@ fn kafkaEndTransactionAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *se
     var resp = EndTransactionResponse{};
     const st = impl.end_transaction_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
     if (!st.isOk()) return st;
-    const payload = resp.marshalDc(reqs.alloc);
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
     defer reqs.alloc.free(payload);
     return sink.send(payload);
 }
@@ -509,7 +511,7 @@ fn kafkaProduceAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mo
     var resp = ProduceResponse{};
     const st = impl.produce_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
     if (!st.isOk()) return st;
-    const payload = resp.marshalDc(reqs.alloc);
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
     defer reqs.alloc.free(payload);
     return sink.send(payload);
 }
@@ -522,7 +524,7 @@ fn kafkaConsumeAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mo
         .end => return Status.init(wire.codeInternal, "server-streaming call closed with no request"),
         .status => |st| return st,
     }
-    var stream = KafkaConsumeServer{ .sink = sink, .alloc = reqs.alloc };
+    var stream = KafkaConsumeServer{ .sink = sink, .alloc = reqs.alloc, .struct_codec = call_ctx.struct_codec };
     return impl.consume_fn(impl.ctx, call_ctx, &req, &stream);
 }
 
@@ -534,7 +536,7 @@ fn kafkaSubscribeAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_
         .end => return Status.init(wire.codeInternal, "server-streaming call closed with no request"),
         .status => |st| return st,
     }
-    var stream = KafkaSubscribeServer{ .sink = sink, .alloc = reqs.alloc };
+    var stream = KafkaSubscribeServer{ .sink = sink, .alloc = reqs.alloc, .struct_codec = call_ctx.struct_codec };
     return impl.subscribe_fn(impl.ctx, call_ctx, &req, &stream);
 }
 
@@ -551,7 +553,7 @@ fn kafkaListOffsetsAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *serve
     var resp = ListOffsetsResponse{};
     const st = impl.list_offsets_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
     if (!st.isOk()) return st;
-    const payload = resp.marshalDc(reqs.alloc);
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
     defer reqs.alloc.free(payload);
     return sink.send(payload);
 }
@@ -569,7 +571,7 @@ fn kafkaCommitOffsetAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *serv
     var resp = CommitOffsetResponse{};
     const st = impl.commit_offset_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
     if (!st.isOk()) return st;
-    const payload = resp.marshalDc(reqs.alloc);
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
     defer reqs.alloc.free(payload);
     return sink.send(payload);
 }
@@ -587,7 +589,7 @@ fn kafkaFetchOffsetAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *serve
     var resp = FetchOffsetResponse{};
     const st = impl.fetch_offset_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
     if (!st.isOk()) return st;
-    const payload = resp.marshalDc(reqs.alloc);
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
     defer reqs.alloc.free(payload);
     return sink.send(payload);
 }
@@ -605,7 +607,7 @@ fn kafkaCreateTopicsAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *serv
     var resp = CreateTopicsResponse{};
     const st = impl.create_topics_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
     if (!st.isOk()) return st;
-    const payload = resp.marshalDc(reqs.alloc);
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
     defer reqs.alloc.free(payload);
     return sink.send(payload);
 }
@@ -623,7 +625,7 @@ fn kafkaDeleteTopicsAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *serv
     var resp = DeleteTopicsResponse{};
     const st = impl.delete_topics_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
     if (!st.isOk()) return st;
-    const payload = resp.marshalDc(reqs.alloc);
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
     defer reqs.alloc.free(payload);
     return sink.send(payload);
 }
@@ -641,7 +643,7 @@ fn kafkaDescribeConfigsAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *s
     var resp = DescribeConfigsResponse{};
     const st = impl.describe_configs_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
     if (!st.isOk()) return st;
-    const payload = resp.marshalDc(reqs.alloc);
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
     defer reqs.alloc.free(payload);
     return sink.send(payload);
 }
@@ -659,7 +661,7 @@ fn kafkaAlterConfigsAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *serv
     var resp = AlterConfigsResponse{};
     const st = impl.alter_configs_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
     if (!st.isOk()) return st;
-    const payload = resp.marshalDc(reqs.alloc);
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
     defer reqs.alloc.free(payload);
     return sink.send(payload);
 }
@@ -677,7 +679,7 @@ fn kafkaCreatePartitionsAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *
     var resp = CreatePartitionsResponse{};
     const st = impl.create_partitions_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
     if (!st.isOk()) return st;
-    const payload = resp.marshalDc(reqs.alloc);
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
     defer reqs.alloc.free(payload);
     return sink.send(payload);
 }
@@ -695,7 +697,7 @@ fn kafkaDeleteRecordsAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *ser
     var resp = DeleteRecordsResponse{};
     const st = impl.delete_records_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
     if (!st.isOk()) return st;
-    const payload = resp.marshalDc(reqs.alloc);
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
     defer reqs.alloc.free(payload);
     return sink.send(payload);
 }
@@ -713,7 +715,7 @@ fn kafkaListGroupsAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server
     var resp = ListGroupsResponse{};
     const st = impl.list_groups_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
     if (!st.isOk()) return st;
-    const payload = resp.marshalDc(reqs.alloc);
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
     defer reqs.alloc.free(payload);
     return sink.send(payload);
 }
@@ -731,7 +733,7 @@ fn kafkaDescribeGroupsAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *se
     var resp = DescribeGroupsResponse{};
     const st = impl.describe_groups_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
     if (!st.isOk()) return st;
-    const payload = resp.marshalDc(reqs.alloc);
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
     defer reqs.alloc.free(payload);
     return sink.send(payload);
 }
@@ -749,7 +751,7 @@ fn kafkaDeleteGroupsAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *serv
     var resp = DeleteGroupsResponse{};
     const st = impl.delete_groups_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
     if (!st.isOk()) return st;
-    const payload = resp.marshalDc(reqs.alloc);
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
     defer reqs.alloc.free(payload);
     return sink.send(payload);
 }
@@ -767,7 +769,7 @@ fn kafkaDeleteGroupOffsetsAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs:
     var resp = DeleteGroupOffsetsResponse{};
     const st = impl.delete_group_offsets_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
     if (!st.isOk()) return st;
-    const payload = resp.marshalDc(reqs.alloc);
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
     defer reqs.alloc.free(payload);
     return sink.send(payload);
 }
@@ -785,7 +787,7 @@ fn kafkaDescribeAclsAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *serv
     var resp = DescribeAclsResponse{};
     const st = impl.describe_acls_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
     if (!st.isOk()) return st;
-    const payload = resp.marshalDc(reqs.alloc);
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
     defer reqs.alloc.free(payload);
     return sink.send(payload);
 }
@@ -803,7 +805,7 @@ fn kafkaCreateAclsAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server
     var resp = CreateAclsResponse{};
     const st = impl.create_acls_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
     if (!st.isOk()) return st;
-    const payload = resp.marshalDc(reqs.alloc);
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
     defer reqs.alloc.free(payload);
     return sink.send(payload);
 }
@@ -821,7 +823,7 @@ fn kafkaDeleteAclsAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server
     var resp = DeleteAclsResponse{};
     const st = impl.delete_acls_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
     if (!st.isOk()) return st;
-    const payload = resp.marshalDc(reqs.alloc);
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
     defer reqs.alloc.free(payload);
     return sink.send(payload);
 }
@@ -839,7 +841,7 @@ fn kafkaListTransactionsAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *
     var resp = ListTransactionsResponse{};
     const st = impl.list_transactions_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
     if (!st.isOk()) return st;
-    const payload = resp.marshalDc(reqs.alloc);
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
     defer reqs.alloc.free(payload);
     return sink.send(payload);
 }
@@ -857,7 +859,7 @@ fn kafkaDescribeTransactionsAdapter(ctx: *anyopaque, call_ctx: *CallContext, req
     var resp = DescribeTransactionsResponse{};
     const st = impl.describe_transactions_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
     if (!st.isOk()) return st;
-    const payload = resp.marshalDc(reqs.alloc);
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
     defer reqs.alloc.free(payload);
     return sink.send(payload);
 }
@@ -875,7 +877,7 @@ fn kafkaOpenShareGroupAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *se
     var resp = OpenShareGroupResponse{};
     const st = impl.open_share_group_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
     if (!st.isOk()) return st;
-    const payload = resp.marshalDc(reqs.alloc);
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
     defer reqs.alloc.free(payload);
     return sink.send(payload);
 }
@@ -893,7 +895,7 @@ fn kafkaSharePollAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_
     var resp = SharePollResponse{};
     const st = impl.share_poll_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
     if (!st.isOk()) return st;
-    const payload = resp.marshalDc(reqs.alloc);
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
     defer reqs.alloc.free(payload);
     return sink.send(payload);
 }
@@ -911,7 +913,7 @@ fn kafkaShareAckAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_m
     var resp = ShareAckResponse{};
     const st = impl.share_ack_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
     if (!st.isOk()) return st;
-    const payload = resp.marshalDc(reqs.alloc);
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
     defer reqs.alloc.free(payload);
     return sink.send(payload);
 }
@@ -929,7 +931,7 @@ fn kafkaCloseShareGroupAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *s
     var resp = CloseShareGroupResponse{};
     const st = impl.close_share_group_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
     if (!st.isOk()) return st;
-    const payload = resp.marshalDc(reqs.alloc);
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
     defer reqs.alloc.free(payload);
     return sink.send(payload);
 }
@@ -947,7 +949,7 @@ fn kafkaDescribeShareGroupsAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs
     var resp = DescribeShareGroupsResponse{};
     const st = impl.describe_share_groups_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
     if (!st.isOk()) return st;
-    const payload = resp.marshalDc(reqs.alloc);
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
     defer reqs.alloc.free(payload);
     return sink.send(payload);
 }

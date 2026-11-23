@@ -719,7 +719,16 @@ struct grpcdc_stream {
     grpcdc_trace_context trace;
     const char *trace_path;
     bool trace_ended;
+    bool struct_codec;
 };
+
+void grpcdc_channel_set_struct_codec(grpcdc_channel *ch, bool enabled) {
+    ch->struct_codec = enabled;
+}
+
+bool grpcdc_stream_struct_codec(const grpcdc_stream *s) {
+    return s ? s->struct_codec : false;
+}
 
 static void stream_end_trace(grpcdc_stream *s, const char *status) {
     if (!s->trace_ended) {
@@ -738,6 +747,10 @@ static const char *md_find(const grpcdc_kv *md, size_t count, const char *key) {
 }
 
 void grpcdc_channel_init(grpcdc_channel *ch, grpcdc_transport *transport) {
+    /* Zero the whole struct: trace_parent (and any field added
+       later) must not leak caller stack garbage into span
+       parenting. */
+    memset(ch, 0, sizeof(*ch));
     ch->transport = transport;
     ch->next_stream_id = 1;
 }
@@ -773,6 +786,7 @@ grpcdc_status grpcdc_channel_open(grpcdc_channel *ch, const char *path,
                                   grpcdc_stream **out) {
     grpcdc_stream *s = (grpcdc_stream *)calloc(1, sizeof(grpcdc_stream));
     s->channel = ch;
+    s->struct_codec = ch->struct_codec;
     s->id = ch->next_stream_id;
     ch->next_stream_id += 2;
     const char *parent_tp = md_find(md, md_count, "traceparent");
@@ -792,10 +806,15 @@ grpcdc_status grpcdc_channel_open(grpcdc_channel *ch, const char *path,
     size_t merged_count = md_count;
     char *timeout = NULL;
     char tpbuf[56];
-    if (deadline_ms > 0 || s->trace.active) {
-        merged = (grpcdc_kv *)malloc(sizeof(grpcdc_kv) * (md_count + 2));
+    if (deadline_ms > 0 || s->trace.active || ch->struct_codec) {
+        merged = (grpcdc_kv *)malloc(sizeof(grpcdc_kv) * (md_count + 3));
         if (md_count) memcpy(merged, md, sizeof(grpcdc_kv) * md_count);
         merged_count = md_count;
+        if (ch->struct_codec) {
+            merged[merged_count].key = GRPCDC_STRUCT_CODEC_HEADER;
+            merged[merged_count].value = GRPCDC_STRUCT_CODEC_V1;
+            merged_count++;
+        }
         if (deadline_ms > 0) {
             timeout = grpcdc_encode_timeout(deadline_ms);
             merged[merged_count].key = "grpc-timeout";
@@ -1085,6 +1104,7 @@ typedef struct {
 } server_service_entry;
 
 struct grpcdc_server {
+    bool struct_codec;
     server_service_entry *services;
     size_t service_count;
 };
@@ -1107,6 +1127,7 @@ typedef struct {
     char *path;
     bool cancelled;
     bool half_closed;
+    bool struct_codec;
     grpcdc_trace_context trace;
 } server_stream_state;
 
@@ -1325,6 +1346,20 @@ grpcdc_server *grpcdc_server_new(void) {
     return (grpcdc_server *)calloc(1, sizeof(grpcdc_server));
 }
 
+void grpcdc_server_set_struct_codec(grpcdc_server *srv, bool enabled) {
+    srv->struct_codec = enabled;
+}
+
+static bool g_current_struct_codec;
+
+bool grpcdc_current_struct_codec(void) {
+    return g_current_struct_codec;
+}
+
+bool grpcdc_server_stream_struct_codec(const grpcdc_server_stream *s) {
+    return (s && s->state) ? s->state->struct_codec : false;
+}
+
 void grpcdc_server_add_service(grpcdc_server *srv, const char *full_name,
                                const grpcdc_method_desc *methods,
                                size_t method_count, void *impl) {
@@ -1378,7 +1413,6 @@ grpcdc_trace_context grpcdc_server_stream_trace_context(grpcdc_server_stream *s)
 }
 
 static void server_dispatch(grpcdc_server *srv, server_stream_state *ss) {
-    (void)srv;
     grpcdc_trace_context trace = grpcdc_trace_start(
         "server", ss->path ? ss->path : "",
         md_find(ss->metadata, ss->metadata_count, "traceparent"));
@@ -1387,7 +1421,26 @@ static void server_dispatch(grpcdc_server *srv, server_stream_state *ss) {
     grpcdc_status st = grpcdc_ok();
     grpcdc_server_stream raw;
     raw.state = ss;
-    switch (ss->method->desc->kind) {
+    /* Struct codec negotiation: an explicit dc-codec marker must
+       be struct-v1 and enabled here, else UNIMPLEMENTED. */
+    bool use_struct = false;
+    bool reject_struct = false;
+    const char *codec_marker =
+        md_find(ss->metadata, ss->metadata_count, GRPCDC_STRUCT_CODEC_HEADER);
+    if (codec_marker) {
+        if (strcmp(codec_marker, GRPCDC_STRUCT_CODEC_V1) != 0 ||
+            !srv->struct_codec) {
+            reject_struct = true;
+        } else {
+            use_struct = true;
+        }
+    }
+    ss->struct_codec = use_struct;
+    g_current_struct_codec = use_struct;
+    if (reject_struct) {
+        st = grpcdc_status_make(GRPCDC_UNIMPLEMENTED,
+                                "struct codec not enabled");
+    } else switch (ss->method->desc->kind) {
         case 0: {
             if (ss->request_count < 1) {
                 st = grpcdc_status_make(GRPCDC_INVALID_ARGUMENT,
@@ -1451,6 +1504,7 @@ static void server_dispatch(grpcdc_server *srv, server_stream_state *ss) {
             break;
         }
     }
+    g_current_struct_codec = false;
     memset(&g_current_trace, 0, sizeof(g_current_trace));
     grpcdc_trace_end("server", ss->path ? ss->path : "", &trace,
                      grpcdc_status_name(st.code));

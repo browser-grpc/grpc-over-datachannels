@@ -120,7 +120,7 @@ public final class OrcaGrpcDc {
         }
 
         public void send(xds.data.orca.v3.OrcaLoadReport resp) throws Exception {
-            sink.send(resp.marshalDc());
+            sink.send(ctx.encodeMessage(resp));
         }
 
         public Endpoint.CallContext context() {

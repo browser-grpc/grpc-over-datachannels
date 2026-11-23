@@ -1,10 +1,6 @@
 /* tslint:disable */
 /* eslint-disable */
 /**
- * JSON snapshot of the matrix recorder's spans.
- */
-export function echo_tracing_spans(): string;
-/**
  * Serve the generated Echo service over the given JS transport.
  * Returns immediately; serving runs as a local task until the
  * transport closes.
@@ -17,14 +13,18 @@ export function echo_server(transport: any): void;
  */
 export function echo_client(transport: any): Promise<string>;
 /**
+ * Run the nested tracing scenario and resolve with its JSON.
+ */
+export function echo_tracing(): Promise<string>;
+/**
+ * JSON snapshot of the matrix recorder's spans.
+ */
+export function echo_tracing_spans(): string;
+/**
  * One unary call over the JS transport with the recorder
  * registered; resolves with the response plus recorded spans.
  */
 export function echo_client_tracing(transport: any): Promise<string>;
-/**
- * Run the nested tracing scenario and resolve with its JSON.
- */
-export function echo_tracing(): Promise<string>;
 /**
  * Serve Echo over the JS transport with the matrix recorder
  * registered (spans readable via echo_tracing_spans).
@@ -47,8 +47,8 @@ export interface InitOutput {
   readonly __wbindgen_export_3: WebAssembly.Table;
   readonly __wbindgen_free: (a: number, b: number, c: number) => void;
   readonly __wbindgen_malloc: (a: number, b: number) => number;
-  readonly _dyn_core__ops__function__FnMut__A____Output___R_as_wasm_bindgen__closure__WasmClosure___describe__invoke__h82cba992109ee99b: (a: number, b: number, c: number, d: number) => void;
-  readonly _dyn_core__ops__function__FnMut_____Output___R_as_wasm_bindgen__closure__WasmClosure___describe__invoke__h06c81ebfc41e5c73: (a: number, b: number) => void;
+  readonly _dyn_core__ops__function__FnMut__A____Output___R_as_wasm_bindgen__closure__WasmClosure___describe__invoke__h701e37b81ed54114: (a: number, b: number, c: number, d: number) => void;
+  readonly _dyn_core__ops__function__FnMut_____Output___R_as_wasm_bindgen__closure__WasmClosure___describe__invoke__h3b52059ee760b610: (a: number, b: number) => void;
   readonly closure201_externref_shim: (a: number, b: number, c: any) => void;
   readonly closure223_externref_shim: (a: number, b: number, c: any, d: any) => void;
   readonly __wbindgen_start: () => void;

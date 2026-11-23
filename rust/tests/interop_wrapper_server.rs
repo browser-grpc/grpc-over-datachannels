@@ -17,6 +17,17 @@ use std::net::TcpListener;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 
+/// Availability skip that hard-fails when GRPC_DC_REQUIRE_ORACLE
+/// is set (the CI image sets it; its Dockerfile builds every
+/// oracle, so a missing one there is build breakage).
+#[track_caller]
+fn oracle_skip(reason: &str) {
+    if std::env::var_os("GRPC_DC_REQUIRE_ORACLE").is_some() {
+        panic!("oracle required but unavailable: {reason}");
+    }
+    eprintln!("skip: {reason}");
+}
+
 struct StdioDc {
     tx: Mutex<std::process::ChildStdin>,
     rx: Mutex<std::process::ChildStdout>,
@@ -67,7 +78,7 @@ async fn official_go_client_through_wrapper_calls_rust_server() {
     let server_bin = format!("{root}/rust/target/debug/examples/interop_server_stdio");
     let go_client = format!("{root}/oracle/go-interop/interop-client");
     if !std::path::Path::new(&server_bin).exists() || !std::path::Path::new(&go_client).exists() {
-        eprintln!("skip: interop server/client not built");
+        oracle_skip("interop server/client not built");
         return;
     }
     let mut server = Command::new(&server_bin)

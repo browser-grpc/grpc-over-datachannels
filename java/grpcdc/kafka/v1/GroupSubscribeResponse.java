@@ -16,16 +16,16 @@ public final class GroupSubscribeResponse implements grpcdc.Marshaler, grpcdc.Un
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
         if (!(batch != null || groupError != null)) {
-        if (assignment != null) w.bytesField(1, assignment.marshalDc());
+        if (assignment != null) pbW.bytesField(1, assignment.marshalDc());
         }
         if (!(groupError != null)) {
-        if (batch != null) w.bytesField(2, batch.marshalDc());
+        if (batch != null) pbW.bytesField(2, batch.marshalDc());
         }
-        if (groupError != null) w.bytesField(3, groupError.marshalDc());
-        w.raw(unknownFields);
-        return w.toBytes();
+        if (groupError != null) pbW.bytesField(3, groupError.marshalDc());
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -34,29 +34,29 @@ public final class GroupSubscribeResponse implements grpcdc.Marshaler, grpcdc.Un
         assignment = null;
         batch = null;
         groupError = null;
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
                     batch = null;
                     groupError = null;
                     assignment = new Assignment();
-                    assignment.unmarshalDc(field.bytesValue);
+                    assignment.unmarshalDc(pbField.bytesValue);
                 }
                 case 2 -> {
                     assignment = null;
                     groupError = null;
                     batch = new RecordBatch();
-                    batch.unmarshalDc(field.bytesValue);
+                    batch.unmarshalDc(pbField.bytesValue);
                 }
                 case 3 -> {
                     assignment = null;
                     batch = null;
                     groupError = new GroupError();
-                    groupError.unmarshalDc(field.bytesValue);
+                    groupError.unmarshalDc(pbField.bytesValue);
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

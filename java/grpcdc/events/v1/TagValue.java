@@ -22,23 +22,23 @@ public final class TagValue implements grpcdc.Marshaler, grpcdc.Unmarshaler {
 
     @Override
     public byte[] marshalDc() {
-        EventsPb.Writer w = new EventsPb.Writer();
-        if (tag != null && tag.number != 0) { w.tag(1, 0); w.varint(tag.number); }
+        EventsPb.Writer pbW = new EventsPb.Writer();
+        if (tag != null && tag.number != 0) { pbW.tag(1, 0); pbW.varint(tag.number); }
         if (!(intValue != 0 || doubleValue != 0 || boolValue || enumValue != 0)) {
-        w.stringField(2, stringValue);
+        pbW.stringField(2, stringValue);
         }
         if (!(doubleValue != 0 || boolValue || enumValue != 0)) {
-        if (intValue != 0) { w.tag(3, 0); w.varint(intValue); }
+        if (intValue != 0) { pbW.tag(3, 0); pbW.varint(intValue); }
         }
         if (!(boolValue || enumValue != 0)) {
-        if (doubleValue != 0) { w.tag(4, 1); w.fixedDouble(doubleValue); }
+        if (doubleValue != 0) { pbW.tag(4, 1); pbW.fixedDouble(doubleValue); }
         }
         if (!(enumValue != 0)) {
-        if (boolValue) { w.tag(5, 0); w.varint((boolValue ? 1 : 0)); }
+        if (boolValue) { pbW.tag(5, 0); pbW.varint((boolValue ? 1 : 0)); }
         }
-        if (enumValue != 0) { w.tag(6, 0); w.varint(enumValue); }
-        w.raw(unknownFields);
-        return w.toBytes();
+        if (enumValue != 0) { pbW.tag(6, 0); pbW.varint(enumValue); }
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -50,49 +50,49 @@ public final class TagValue implements grpcdc.Marshaler, grpcdc.Unmarshaler {
         doubleValue = 0;
         boolValue = false;
         enumValue = 0;
-        EventsPb.Reader r = new EventsPb.Reader(data);
-        EventsPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        EventsPb.Reader pbR = new EventsPb.Reader(data);
+        EventsPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    tag = Tag.fromNumber((int) field.varintValue);
+                    tag = Tag.fromNumber((int) pbField.varintValue);
                 }
                 case 2 -> {
                     intValue = 0L;
                     doubleValue = 0;
                     boolValue = false;
                     enumValue = 0;
-                    stringValue = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    stringValue = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 3 -> {
                     stringValue = "";
                     doubleValue = 0;
                     boolValue = false;
                     enumValue = 0;
-                    intValue = field.varintValue;
+                    intValue = pbField.varintValue;
                 }
                 case 4 -> {
                     stringValue = "";
                     intValue = 0L;
                     boolValue = false;
                     enumValue = 0;
-                    doubleValue = Double.longBitsToDouble(field.fixedValue);
+                    doubleValue = Double.longBitsToDouble(pbField.fixedValue);
                 }
                 case 5 -> {
                     stringValue = "";
                     intValue = 0L;
                     doubleValue = 0;
                     enumValue = 0;
-                    boolValue = field.varintValue != 0;
+                    boolValue = pbField.varintValue != 0;
                 }
                 case 6 -> {
                     stringValue = "";
                     intValue = 0L;
                     doubleValue = 0;
                     boolValue = false;
-                    enumValue = (int) field.varintValue;
+                    enumValue = (int) pbField.varintValue;
                 }
-                default -> { unknownFields = EventsPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = EventsPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

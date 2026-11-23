@@ -184,7 +184,7 @@ public enum EchoGrpcDc {
             ctxRef = ctx
             self.sink = sink
         }
-        func Send(_ resp: EchoResponse) throws { try sink(resp.MarshalDc()) }
+        func Send(_ resp: EchoResponse) throws { try sink(ctxRef.EncodeMessage(resp)) }
         var context: Endpoint.CallContext { ctxRef }
     }
 
@@ -214,7 +214,7 @@ public enum EchoGrpcDc {
             self.reqs = reqs
             self.sink = sink
         }
-        func Send(_ resp: EchoResponse) throws { try sink(resp.MarshalDc()) }
+        func Send(_ resp: EchoResponse) throws { try sink(ctxRef.EncodeMessage(resp)) }
         func Recv() throws -> EchoRequest {
             let req = EchoRequest()
             try reqs.RecvInto(req)
@@ -250,7 +250,7 @@ public enum EchoGrpcDc {
                 let req = EchoRequest()
                 try reqs.RecvInto(req)
                 let resp = try impl.Unary(ctx, req)
-                try sink(resp.MarshalDc())
+                try sink(ctx.EncodeMessage(resp))
             },
             Server.Method(name: "ServerStream", path: "/echo.Echo/ServerStream", kind: Server.KindServerStreaming) { ctx, reqs, sink in
                 let req = EchoRequest()
@@ -263,7 +263,7 @@ public enum EchoGrpcDc {
                 guard let resp = stream.resp else {
                     throw StatusException(Wire.CodeInternal, "client-streaming handler never called SendAndClose")
                 }
-                try sink(resp.MarshalDc())
+                try sink(ctx.EncodeMessage(resp))
             },
             Server.Method(name: "Bidi", path: "/echo.Echo/Bidi", kind: Server.KindBidi) { ctx, reqs, sink in
                 try impl.Bidi(EchoBidiServerImpl(ctx, reqs, sink))

@@ -65,11 +65,29 @@ extension Transport {
 /// Implemented by hand-written protobuf message types.
 public protocol Marshaler {
     func MarshalDc() -> [UInt8]
+    func MarshalStruct() throws -> [UInt8]
+}
+
+extension Marshaler {
+    /// Struct-layout encoding (see Codec.StructCodecV1). Messages
+    /// generated without struct_codec=true inherit this error,
+    /// mirroring the Go runtime's "message has no struct codec".
+    public func MarshalStruct() throws -> [UInt8] {
+        throw StatusException(Wire.CodeInternal, "message has no struct codec")
+    }
 }
 
 /// Implemented by hand-written protobuf message types.
 public protocol Unmarshaler {
     func UnmarshalDc(_ data: [UInt8])
+    func UnmarshalStruct(_ data: [UInt8]) throws
+}
+
+extension Unmarshaler {
+    /// Decoding side of Marshaler.MarshalStruct.
+    public func UnmarshalStruct(_ data: [UInt8]) throws {
+        throw StatusException(Wire.CodeInternal, "message has no struct codec")
+    }
 }
 
 #if canImport(Foundation)

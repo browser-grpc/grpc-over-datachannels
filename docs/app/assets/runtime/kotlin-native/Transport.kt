@@ -41,11 +41,24 @@ interface Transport {
 /** Implemented by hand-written protobuf message types. */
 interface Marshaler {
     fun marshalDc(): ByteArray
+
+    /**
+     * Struct-layout encoding (see Codec.STRUCT_CODEC_V1). Messages
+     * generated without struct_codec=true inherit this error,
+     * mirroring the Go runtime's "message has no struct codec".
+     */
+    fun marshalStruct(): ByteArray =
+        throw StatusException(Wire.CODE_INTERNAL, "message has no struct codec")
 }
 
 /** Implemented by hand-written protobuf message types. */
 interface Unmarshaler {
     fun unmarshalDc(data: ByteArray)
+
+    /** Decoding side of Marshaler.marshalStruct. */
+    fun unmarshalStruct(data: ByteArray) {
+        throw StatusException(Wire.CODE_INTERNAL, "message has no struct codec")
+    }
 }
 // ---- Kotlin/Wasm platform pieces (single-threaded) ----
 

@@ -103,6 +103,8 @@ public final class TestBddSchemas {
         }
         javac.add(root.resolve("java/grpcdc/Marshaler.java").toString());
         javac.add(root.resolve("java/grpcdc/Unmarshaler.java").toString());
+        javac.add(root.resolve("java/grpcdc/StatusException.java").toString());
+        javac.add(root.resolve("java/grpcdc/Wire.java").toString());
         Path harness = gen.resolve("Harness.java");
         Files.writeString(harness, HARNESS_HEAD + harnessRows() + HARNESS_TAIL);
         javac.add(harness.toString());

@@ -291,7 +291,7 @@ class _TestServiceStreamingOutputCallServerImpl implements TestServiceStreamingO
 
   @override
   void send(StreamingOutputCallResponse resp) {
-    _sink(resp.marshalDc());
+    _sink(context.encodeMessage(resp));
   }
 }
 
@@ -326,7 +326,7 @@ class _TestServiceFullDuplexCallServerImpl implements TestServiceFullDuplexCallS
 
   @override
   void send(StreamingOutputCallResponse resp) {
-    _sink(resp.marshalDc());
+    _sink(context.encodeMessage(resp));
   }
 
   @override
@@ -347,7 +347,7 @@ class _TestServiceHalfDuplexCallServerImpl implements TestServiceHalfDuplexCallS
 
   @override
   void send(StreamingOutputCallResponse resp) {
-    _sink(resp.marshalDc());
+    _sink(context.encodeMessage(resp));
   }
 
   @override
@@ -491,19 +491,19 @@ class TestGrpcDc {
           (ctx, reqs, sink) async {
         final req = Empty();
         await reqs.recvInto(req);
-        sink((await impl.emptyCall(ctx, req)).marshalDc());
+        sink(ctx.encodeMessage(await impl.emptyCall(ctx, req)));
       }),
       Method("UnaryCall", "/grpc.testing.TestService/UnaryCall", Server.kindUnary,
           (ctx, reqs, sink) async {
         final req = SimpleRequest();
         await reqs.recvInto(req);
-        sink((await impl.unaryCall(ctx, req)).marshalDc());
+        sink(ctx.encodeMessage(await impl.unaryCall(ctx, req)));
       }),
       Method("CacheableUnaryCall", "/grpc.testing.TestService/CacheableUnaryCall", Server.kindUnary,
           (ctx, reqs, sink) async {
         final req = SimpleRequest();
         await reqs.recvInto(req);
-        sink((await impl.cacheableUnaryCall(ctx, req)).marshalDc());
+        sink(ctx.encodeMessage(await impl.cacheableUnaryCall(ctx, req)));
       }),
       Method("StreamingOutputCall", "/grpc.testing.TestService/StreamingOutputCall",
           Server.kindServerStreaming, (ctx, reqs, sink) async {
@@ -520,7 +520,7 @@ class TestGrpcDc {
           throw StatusException(Wire.codeInternal,
               'client-streaming handler never called sendAndClose');
         }
-        sink(resp.marshalDc());
+        sink(ctx.encodeMessage(resp));
       }),
       Method("FullDuplexCall", "/grpc.testing.TestService/FullDuplexCall", Server.kindBidi,
           (ctx, reqs, sink) async {
@@ -534,7 +534,7 @@ class TestGrpcDc {
           (ctx, reqs, sink) async {
         final req = Empty();
         await reqs.recvInto(req);
-        sink((await impl.unimplementedCall(ctx, req)).marshalDc());
+        sink(ctx.encodeMessage(await impl.unimplementedCall(ctx, req)));
       }),
     ]));
   }
@@ -545,7 +545,7 @@ class TestGrpcDc {
           (ctx, reqs, sink) async {
         final req = Empty();
         await reqs.recvInto(req);
-        sink((await impl.unimplementedCall(ctx, req)).marshalDc());
+        sink(ctx.encodeMessage(await impl.unimplementedCall(ctx, req)));
       }),
     ]));
   }
@@ -556,13 +556,13 @@ class TestGrpcDc {
           (ctx, reqs, sink) async {
         final req = ReconnectParams();
         await reqs.recvInto(req);
-        sink((await impl.start(ctx, req)).marshalDc());
+        sink(ctx.encodeMessage(await impl.start(ctx, req)));
       }),
       Method("Stop", "/grpc.testing.ReconnectService/Stop", Server.kindUnary,
           (ctx, reqs, sink) async {
         final req = Empty();
         await reqs.recvInto(req);
-        sink((await impl.stop(ctx, req)).marshalDc());
+        sink(ctx.encodeMessage(await impl.stop(ctx, req)));
       }),
     ]));
   }
@@ -573,13 +573,13 @@ class TestGrpcDc {
           (ctx, reqs, sink) async {
         final req = LoadBalancerStatsRequest();
         await reqs.recvInto(req);
-        sink((await impl.getClientStats(ctx, req)).marshalDc());
+        sink(ctx.encodeMessage(await impl.getClientStats(ctx, req)));
       }),
       Method("GetClientAccumulatedStats", "/grpc.testing.LoadBalancerStatsService/GetClientAccumulatedStats", Server.kindUnary,
           (ctx, reqs, sink) async {
         final req = LoadBalancerAccumulatedStatsRequest();
         await reqs.recvInto(req);
-        sink((await impl.getClientAccumulatedStats(ctx, req)).marshalDc());
+        sink(ctx.encodeMessage(await impl.getClientAccumulatedStats(ctx, req)));
       }),
     ]));
   }
@@ -590,13 +590,13 @@ class TestGrpcDc {
           (ctx, reqs, sink) async {
         final req = Empty();
         await reqs.recvInto(req);
-        sink((await impl.setServing(ctx, req)).marshalDc());
+        sink(ctx.encodeMessage(await impl.setServing(ctx, req)));
       }),
       Method("SetNotServing", "/grpc.testing.XdsUpdateHealthService/SetNotServing", Server.kindUnary,
           (ctx, reqs, sink) async {
         final req = Empty();
         await reqs.recvInto(req);
-        sink((await impl.setNotServing(ctx, req)).marshalDc());
+        sink(ctx.encodeMessage(await impl.setNotServing(ctx, req)));
       }),
     ]));
   }
@@ -607,7 +607,7 @@ class TestGrpcDc {
           (ctx, reqs, sink) async {
         final req = ClientConfigureRequest();
         await reqs.recvInto(req);
-        sink((await impl.configure(ctx, req)).marshalDc());
+        sink(ctx.encodeMessage(await impl.configure(ctx, req)));
       }),
     ]));
   }

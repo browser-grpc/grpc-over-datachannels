@@ -100,7 +100,7 @@ object EventsGrpcDc {
         private val sink: Server.ServerSink
     ) : EventBusSubscribeServer {
         override fun send(resp: Event) {
-            sink.send(resp.marshalDc())
+            sink.send(context.encodeMessage(resp))
         }
     }
 
@@ -124,7 +124,7 @@ object EventsGrpcDc {
                     Server.Method("Publish", "/grpcdc.events.v1.EventBus/Publish", Server.KIND_UNARY) { ctx, reqs, sink ->
                         val req = PublishRequest()
                         reqs.recvInto(req)
-                        sink.send(impl.Publish(ctx, req).marshalDc())
+                        sink.send(ctx.encodeMessage(impl.Publish(ctx, req)))
                     },
                     Server.Method("Subscribe", "/grpcdc.events.v1.EventBus/Subscribe", Server.KIND_SERVER_STREAMING) { ctx, reqs, sink ->
                         val req = SubscribeRequest()

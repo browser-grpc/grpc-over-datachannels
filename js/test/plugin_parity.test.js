@@ -87,3 +87,34 @@ test("node plugin shim matches racket plugins byte-for-byte", () => {
     rmSync(work, { recursive: true, force: true });
   }
 });
+
+test("node plugin shim rejects struct_codec=true instead of silently emitting protobuf", () => {
+  const work = mkdtempSync(join(tmpdir(), "grpc-dc-plugin-struct-"));
+  try {
+    const binDir = join(work, "bin");
+    mkdirSync(binDir);
+    const link = join(binDir, "protoc-gen-grpc-dc-java");
+    symlinkSync(SHIM, link);
+    const nodeOut = join(work, "node");
+    mkdirSync(nodeOut, { recursive: true });
+    let err = null;
+    try {
+      execFileSync(
+        "protoc",
+        [
+          `--plugin=protoc-gen-grpc-dc-java=${link}`,
+          `--grpc-dc-java_out=${nodeOut}`,
+          "--grpc-dc-java_opt=struct_codec=true",
+          "-I", "proto", "proto/echo.proto",
+        ],
+        { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"] },
+      );
+    } catch (e) {
+      err = e;
+    }
+    assert.ok(err, "expected protoc to fail for struct_codec=true via the node shim");
+    assert.match(String(err.stderr), /struct_codec/, "error should name struct_codec");
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});

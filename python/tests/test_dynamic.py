@@ -19,6 +19,17 @@ from oracle_scenarios_generated import SCENARIOS
 from test_oracle import free_port, java_classpath, unmsg
 
 
+def oracle_skip(test, reason):
+    """Availability skip that hard-fails when GRPC_DC_REQUIRE_ORACLE
+    is set (the CI image sets it; its Dockerfile builds every
+    oracle, so a missing one there is build breakage)."""
+    if os.environ.get("GRPC_DC_REQUIRE_ORACLE"):
+        test.fail(f"oracle required but unavailable: {reason}")
+    test.skipTest(reason)
+
+
+
+
 def kill_and_wait(proc):
     """addCleanup target: kill, reap, and close pipes so the
     interpreter does not report still-running subprocesses or
@@ -47,7 +58,7 @@ SERVICE = "echo.Echo"
 def load_model(test):
     path = os.path.join(ROOT, "fixtures", "echo_descriptor_set.bin")
     if not os.path.exists(path):
-        test.skipTest("descriptor fixture missing (make generate)")
+        oracle_skip(test, "descriptor fixture missing (make generate)")
     with open(path, "rb") as f:
         return grpcdc.parse_descriptor_set(f.read())
 
@@ -160,7 +171,7 @@ class TestDynamicOracle(unittest.TestCase):
                 ready = True
                 break
         if not ready:
-            self.skipTest("java oracle server did not start")
+            oracle_skip(self, "java oracle server did not start")
         bridge = subprocess.Popen(
             ["node", os.path.join(ROOT, "oracle", "bridge.mjs"),
              "dc-to-http2", "--grpc", f"127.0.0.1:{port}"],
@@ -186,7 +197,7 @@ class TestDynamicOracle(unittest.TestCase):
         self.addCleanup(kill_and_wait, bridge)
         line = bridge.stderr.readline()
         if b"listening" not in line:
-            self.skipTest(f"bridge did not start: {line!r}")
+            oracle_skip(self, f"bridge did not start: {line!r}")
         client = subprocess.run(
             ["java", "-cp", cp, "dc.oracle.OracleClient", str(port),
              os.path.join(ROOT, "fixtures", "oracle_scenarios.txt")],

@@ -14,11 +14,11 @@ public final class DeleteTopicsRequest implements grpcdc.Marshaler, grpcdc.Unmar
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
-        if (topics != null) for (String x : topics) w.bytesField(1, x.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        if (timeoutMs != 0) { w.tag(2, 0); w.varint(timeoutMs); }
-        w.raw(unknownFields);
-        return w.toBytes();
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
+        if (topics != null) for (String pbX : topics) pbW.bytesField(1, pbX.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        if (timeoutMs != 0) { pbW.tag(2, 0); pbW.varint(timeoutMs); }
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -26,17 +26,17 @@ public final class DeleteTopicsRequest implements grpcdc.Marshaler, grpcdc.Unmar
         unknownFields = new byte[0];
         topics = new java.util.ArrayList<>();
         timeoutMs = 0;
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    topics.add(new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8));
+                    topics.add(new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8));
                 }
                 case 2 -> {
-                    timeoutMs = (int) field.varintValue;
+                    timeoutMs = (int) pbField.varintValue;
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

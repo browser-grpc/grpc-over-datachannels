@@ -9,6 +9,7 @@ object Main {
     }
     try {
       args(0) match {
+        case "TestStructCodec" => testStructCodec()
         case "TestCodec" => testCodec()
         case "TestEcho" => testEcho()
         case "TestEventBus" => TestEventBus.run()

@@ -14,11 +14,11 @@ public final class EchoStatus implements grpcdc.Marshaler, grpcdc.Unmarshaler {
 
     @Override
     public byte[] marshalDc() {
-        MessagesPb.Writer w = new MessagesPb.Writer();
-        if (code != 0) { w.tag(1, 0); w.varint(code); }
-        w.stringField(2, message);
-        w.raw(unknownFields);
-        return w.toBytes();
+        MessagesPb.Writer pbW = new MessagesPb.Writer();
+        if (code != 0) { pbW.tag(1, 0); pbW.varint(code); }
+        pbW.stringField(2, message);
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -26,17 +26,17 @@ public final class EchoStatus implements grpcdc.Marshaler, grpcdc.Unmarshaler {
         unknownFields = new byte[0];
         code = 0;
         message = "";
-        MessagesPb.Reader r = new MessagesPb.Reader(data);
-        MessagesPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        MessagesPb.Reader pbR = new MessagesPb.Reader(data);
+        MessagesPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    code = (int) field.varintValue;
+                    code = (int) pbField.varintValue;
                 }
                 case 2 -> {
-                    message = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    message = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
-                default -> { unknownFields = MessagesPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = MessagesPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

@@ -62,6 +62,7 @@ pub struct MessageModel {
     pub full_name: String,
     pub fields: BTreeMap<u32, FieldModel>,
     pub by_name: HashMap<String, u32>,
+    pub map_entry: bool,
 }
 
 impl MessageModel {
@@ -504,10 +505,66 @@ pub fn decode_generic(
             message.unknown.push(chunk);
             continue;
         };
+        // Packed repeated scalars arrive as one LEN field;
+        // split them into elements (protobuf packable types).
+        if field.repeated {
+            if let PbValue::Len(b) = &raw {
+                if !matches!(field.ty, TYPE_STRING | TYPE_BYTES | TYPE_MESSAGE | TYPE_GROUP) {
+                    for value in decode_packed(field, b, file)? {
+                        message.values.entry(number).or_default().push(value);
+                    }
+                    continue;
+                }
+            }
+        }
         let value = decode_value(field, wire, &raw, file)?;
         message.values.entry(number).or_default().push(value);
     }
     Ok(message)
+}
+
+fn decode_packed(
+    field: &FieldModel,
+    bytes: &[u8],
+    file: &FileModel,
+) -> Result<Vec<GenericValue>, Status> {
+    let mut out = Vec::new();
+    match wire_type(field.ty) {
+        Some(0) => {
+            let mut reader = PbReader::new(bytes);
+            while reader.pos < bytes.len() {
+                let v = reader.varint()?;
+                out.push(decode_value(field, 0, &PbValue::Varint(v), file)?);
+            }
+        }
+        Some(1) => {
+            if bytes.len() % 8 != 0 {
+                return Err(Status::invalid_argument("truncated packed fixed64 field"));
+            }
+            for chunk in bytes.chunks_exact(8) {
+                let mut b = [0u8; 8];
+                b.copy_from_slice(chunk);
+                out.push(decode_value(field, 1, &PbValue::Fixed64(b), file)?);
+            }
+        }
+        Some(5) => {
+            if bytes.len() % 4 != 0 {
+                return Err(Status::invalid_argument("truncated packed fixed32 field"));
+            }
+            for chunk in bytes.chunks_exact(4) {
+                let mut b = [0u8; 4];
+                b.copy_from_slice(chunk);
+                out.push(decode_value(field, 5, &PbValue::Fixed32(b), file)?);
+            }
+        }
+        _ => {
+            return Err(Status::invalid_argument(format!(
+                "unsupported packed field type {}",
+                field.ty
+            )))
+        }
+    }
+    Ok(out)
 }
 
 fn decode_value(
@@ -591,10 +648,22 @@ pub fn parse_descriptor_set(data: &[u8]) -> Result<FileModel, Status> {
     Ok(file)
 }
 
+fn parse_map_entry(data: &[u8]) -> Result<bool, Status> {
+    let mut reader = PbReader::new(data);
+    while let Some(field_result) = reader.next_field() {
+        let (fnum, _w, fval, _c) = field_result?;
+        if fnum == 7 {
+            return Ok(as_varint(&fval)? != 0);
+        }
+    }
+    Ok(false)
+}
+
 fn parse_message(prefix: &str, data: &[u8], file: &mut FileModel) -> Result<(), Status> {
     let mut name = String::new();
     let mut raw_fields: Vec<Vec<u8>> = Vec::new();
     let mut nested: Vec<Vec<u8>> = Vec::new();
+    let mut map_entry = false;
     let mut reader = PbReader::new(data);
     while let Some(field_result) = reader.next_field() {
         let (fnum, _w, fval, _c) = field_result?;
@@ -602,6 +671,7 @@ fn parse_message(prefix: &str, data: &[u8], file: &mut FileModel) -> Result<(), 
             (1, _) => name = as_str(&fval)?.to_string(),
             (2, PbValue::Len(b)) => raw_fields.push(b.to_vec()),
             (3, PbValue::Len(b)) => nested.push(b.to_vec()),
+            (7, PbValue::Len(b)) => map_entry = parse_map_entry(b)?,
             _ => {}
         }
     }
@@ -619,7 +689,7 @@ fn parse_message(prefix: &str, data: &[u8], file: &mut FileModel) -> Result<(), 
     }
     file.messages.insert(
         format!(".{full_name}"),
-        Arc::new(MessageModel { full_name: full_name.clone(), fields, by_name }),
+        Arc::new(MessageModel { full_name: full_name.clone(), fields, by_name, map_entry }),
     );
     for nested_bytes in &nested {
         parse_message(&full_name, nested_bytes, file)?;
@@ -720,11 +790,40 @@ fn parse_service(package: &str, data: &[u8], file: &mut FileModel) -> Result<(),
 pub struct DynamicClient {
     channel: Channel,
     model: Arc<FileModel>,
+    struct_codec: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl DynamicClient {
     pub fn new(channel: Channel, model: Arc<FileModel>) -> Self {
-        Self { channel, model }
+        Self { channel, model, struct_codec: Arc::new(std::sync::atomic::AtomicBool::new(false)) }
+    }
+
+    /// Encode calls with the shared struct codec (crate::structdc)
+    /// instead of protobuf, and request it via HEADERS
+    /// dc-codec: struct-v1. The server must enable it too.
+    pub fn set_struct_codec(&self, enabled: bool) {
+        self.struct_codec.store(enabled, std::sync::atomic::Ordering::Relaxed);
+        self.channel.set_struct_codec(enabled);
+    }
+
+    fn use_struct_codec(&self) -> bool {
+        self.struct_codec.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn encode(&self, model: &MessageModel, message: &GenericMessage) -> Result<Vec<u8>, Status> {
+        if self.use_struct_codec() {
+            crate::structdc::encode_struct(model, message, &self.model)
+        } else {
+            encode_generic(model, message, &self.model)
+        }
+    }
+
+    fn decode(&self, model: &MessageModel, bytes: &[u8]) -> Result<GenericMessage, Status> {
+        if self.use_struct_codec() {
+            crate::structdc::decode_struct(model, bytes, &self.model)
+        } else {
+            decode_generic(model, bytes, &self.model)
+        }
     }
 
     fn method(&self, service_name: &str, method_name: &str) -> Result<Arc<MethodModel>, Status> {
@@ -745,9 +844,9 @@ impl DynamicClient {
         request: GenericMessage,
     ) -> Result<GenericMessage, Status> {
         let method = self.method(service_name, method_name)?;
-        let bytes = encode_generic(&method.input, &request, &self.model)?;
+        let bytes = self.encode(&method.input, &request)?;
         let resp: Vec<u8> = self.channel.unary(&method.path, bytes).await?;
-        decode_generic(&method.output, &resp, &self.model)
+        self.decode(&method.output, &resp)
     }
 
     pub async fn server_stream(
@@ -757,10 +856,10 @@ impl DynamicClient {
         request: GenericMessage,
     ) -> Result<ResponseStream<GenericMessage>, Status> {
         let method = self.method(service_name, method_name)?;
-        let bytes = encode_generic(&method.input, &request, &self.model)?;
+        let bytes = self.encode(&method.input, &request)?;
         let raw: ResponseStream<Vec<u8>> =
             self.channel.server_stream(&method.path, bytes).await?;
-        Ok(decode_stream(raw, method.output.clone(), self.model.clone()))
+        Ok(decode_stream(raw, method.output.clone(), self.model.clone(), self.use_struct_codec()))
     }
 
     pub async fn client_stream(
@@ -772,13 +871,13 @@ impl DynamicClient {
         let method = self.method(service_name, method_name)?;
         let mut encoded = Vec::with_capacity(requests.len());
         for request in &requests {
-            encoded.push(encode_generic(&method.input, request, &self.model)?);
+            encoded.push(self.encode(&method.input, request)?);
         }
         let resp: Vec<u8> = self
             .channel
             .client_stream(&method.path, futures_util::stream::iter(encoded))
             .await?;
-        decode_generic(&method.output, &resp, &self.model)
+        self.decode(&method.output, &resp)
     }
 
     pub async fn bidi(
@@ -790,13 +889,13 @@ impl DynamicClient {
         let method = self.method(service_name, method_name)?;
         let mut encoded = Vec::with_capacity(requests.len());
         for request in &requests {
-            encoded.push(encode_generic(&method.input, request, &self.model)?);
+            encoded.push(self.encode(&method.input, request)?);
         }
         let raw: ResponseStream<Vec<u8>> = self
             .channel
             .bidi(&method.path, futures_util::stream::iter(encoded))
             .await?;
-        Ok(decode_stream(raw, method.output.clone(), self.model.clone()))
+        Ok(decode_stream(raw, method.output.clone(), self.model.clone(), self.use_struct_codec()))
     }
 }
 
@@ -804,9 +903,16 @@ fn decode_stream(
     raw: ResponseStream<Vec<u8>>,
     model: Arc<MessageModel>,
     file: Arc<FileModel>,
+    struct_codec: bool,
 ) -> ResponseStream<GenericMessage> {
     Box::pin(raw.map(move |item| {
-        item.and_then(|bytes| decode_generic(&model, &bytes, &file))
+        item.and_then(|bytes| {
+            if struct_codec {
+                crate::structdc::decode_struct(&model, &bytes, &file)
+            } else {
+                decode_generic(&model, &bytes, &file)
+            }
+        })
     }))
 }
 
@@ -820,13 +926,17 @@ pub struct DynamicSink {
     sink: ResponseSink,
     model: Arc<MessageModel>,
     file: Arc<FileModel>,
+    struct_codec: bool,
 }
 
 impl DynamicSink {
     pub async fn send(&self, message: &GenericMessage) -> Result<(), Status> {
-        self.sink
-            .send(encode_generic(&self.model, message, &self.file)?)
-            .await
+        let bytes = if self.struct_codec {
+            crate::structdc::encode_struct(&self.model, message, &self.file)?
+        } else {
+            encode_generic(&self.model, message, &self.file)?
+        };
+        self.sink.send(bytes).await
     }
 }
 
@@ -903,11 +1013,14 @@ pub fn dynamic_service(
                 let file = file_for_call.clone();
                 Box::pin(async move {
                     let ServerCall { ctx, requests, sink } = call;
-                    let mut decoded = decode_requests(requests, method.input.clone(), file.clone());
+                    let struct_codec = ctx.struct_codec;
+                    let mut decoded =
+                        decode_requests(requests, method.input.clone(), file.clone(), struct_codec);
                     let out_sink = DynamicSink {
                         sink: sink.clone(),
                         model: method.output.clone(),
                         file: file.clone(),
+                        struct_codec,
                     };
                     match method.kind {
                         MethodKind::Unary => {
@@ -948,8 +1061,15 @@ fn decode_requests(
     requests: crate::server::RequestStream<Bytes>,
     model: Arc<MessageModel>,
     file: Arc<FileModel>,
+    struct_codec: bool,
 ) -> DynamicRequestStream {
     Box::pin(requests.map(move |item| {
-        item.and_then(|bytes| decode_generic(&model, &bytes, &file))
+        item.and_then(|bytes| {
+            if struct_codec {
+                crate::structdc::decode_struct(&model, &bytes, &file)
+            } else {
+                decode_generic(&model, &bytes, &file)
+            }
+        })
     }))
 }

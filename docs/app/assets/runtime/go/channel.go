@@ -22,7 +22,17 @@ func MetadataFromContext(ctx context.Context) map[string]string {
 
 // Channel is the client side of one Endpoint.
 type Channel struct {
-	ep *Endpoint
+	ep          *Endpoint
+	structCodec bool
+}
+
+// SetStructCodec makes every call on this channel request the
+// struct codec (HEADERS marker dc-codec: struct-v1) and encode
+// requests / decode responses with it. Both peers must be
+// generated with the struct_codec option and the server must
+// have it enabled too; the default (off) is protobuf.
+func (ch *Channel) SetStructCodec(enabled bool) {
+	ch.structCodec = enabled
 }
 
 // NewChannel wraps a transport, allocating odd stream ids.
@@ -52,6 +62,7 @@ type ClientStream struct {
 	traceCtx   *traceContext
 	tracePath  string
 	traceEnded bool
+	structCodec bool
 	done       chan struct{}
 	finishOnce sync.Once
 }
@@ -116,7 +127,7 @@ func (s *ClientStream) Recv(resp Unmarshaler) error {
 		case eventHeaders:
 			s.header, s.gotHdr = ev.headers, true
 		case eventData:
-			return resp.UnmarshalDC(ev.payload)
+			return unmarshalForCodec(s.structCodec, ev.payload, resp)
 		case eventTrailers:
 			s.trailer = ev.status.Trailers
 			s.endTrace(ev.status.Code.Name())
@@ -129,6 +140,33 @@ func (s *ClientStream) Recv(resp Unmarshaler) error {
 			s.trailer = ev.status.Trailers
 			s.endTrace(ev.status.Code.Name())
 			s.finish()
+			// A server RST racing our own deadline must not mask
+			// it: the server generates this RST from the same
+			// grpc-timeout, so it can be processed a hair before
+			// the local timer marks expiry. Within a small grace
+			// window, let the deadline win (official clients
+			// report DEADLINE_EXCEEDED here).
+			if s.ctx != nil {
+				if deadline, ok := s.ctx.Deadline(); ok {
+					if errors.Is(s.ctx.Err(), context.DeadlineExceeded) || !time.Now().Before(deadline) {
+						return NewStatus(CodeDeadlineExceeded, "deadline exceeded")
+					}
+					if remaining := time.Until(deadline); remaining <= 25*time.Millisecond {
+						// Wait out the deadline (plus a small
+						// cushion for runtime timer lag) before
+						// letting the RST status stand.
+						timer := time.NewTimer(remaining + 10*time.Millisecond)
+						select {
+						case <-s.ctx.Done():
+						case <-timer.C:
+						}
+						timer.Stop()
+						if errors.Is(s.ctx.Err(), context.DeadlineExceeded) || !time.Now().Before(deadline) {
+							return NewStatus(CodeDeadlineExceeded, "deadline exceeded")
+						}
+					}
+				}
+			}
 			return ev.status
 		}
 	}
@@ -137,10 +175,13 @@ func (s *ClientStream) Recv(resp Unmarshaler) error {
 func (ch *Channel) open(ctx context.Context, path string, metadata map[string]string) (*ClientStream, error) {
 	var traceCtx *traceContext
 	_, hasDeadline := ctx.Deadline()
-	if hasDeadline || getTracer() != nil {
-		merged := make(map[string]string, len(metadata)+2)
+	if hasDeadline || getTracer() != nil || ch.structCodec {
+		merged := make(map[string]string, len(metadata)+3)
 		for k, v := range metadata {
 			merged[k] = v
+		}
+		if ch.structCodec {
+			merged[StructCodecHeader] = StructCodecV1
 		}
 		if hasDeadline {
 			deadline, _ := ctx.Deadline()
@@ -168,7 +209,7 @@ func (ch *Channel) open(ctx context.Context, path string, metadata map[string]st
 		traceEnd("client", path, traceCtx, "UNAVAILABLE")
 		return nil, err
 	}
-	stream := &ClientStream{ep: ch.ep, id: id, in: in, ctx: ctx, traceCtx: traceCtx, tracePath: path, done: make(chan struct{})}
+	stream := &ClientStream{ep: ch.ep, id: id, in: in, ctx: ctx, traceCtx: traceCtx, tracePath: path, structCodec: ch.structCodec, done: make(chan struct{})}
 	// Context cancellation must reach the peer even when no
 	// Recv is in flight (grpc-go semantics): watch Done for the
 	// life of the call and RST the stream when it fires.
@@ -195,7 +236,11 @@ func (s *ClientStream) Cancel() {
 }
 
 func (ch *Channel) sendMessage(stream *ClientStream, msg Marshaler) error {
-	frame, err := EncodeFrame(FrameData, stream.id, msg.MarshalDC())
+	payload, merr := marshalForCodec(stream.structCodec, msg)
+	if merr != nil {
+		return merr
+	}
+	frame, err := EncodeFrame(FrameData, stream.id, payload)
 	if err != nil {
 		return err
 	}

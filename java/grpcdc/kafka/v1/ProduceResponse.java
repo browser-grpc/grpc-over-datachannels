@@ -18,13 +18,13 @@ public final class ProduceResponse implements grpcdc.Marshaler, grpcdc.Unmarshal
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
-        if (partition != 0) { w.tag(1, 0); w.varint(partition); }
-        if (baseOffset != 0) { w.tag(2, 0); w.varint(baseOffset); }
-        if (logAppendTimeMs != 0) { w.tag(3, 0); w.varint(logAppendTimeMs); }
-        if (errorCode != 0) { w.tag(4, 0); w.varint(errorCode); }
-        w.raw(unknownFields);
-        return w.toBytes();
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
+        if (partition != 0) { pbW.tag(1, 0); pbW.varint(partition); }
+        if (baseOffset != 0) { pbW.tag(2, 0); pbW.varint(baseOffset); }
+        if (logAppendTimeMs != 0) { pbW.tag(3, 0); pbW.varint(logAppendTimeMs); }
+        if (errorCode != 0) { pbW.tag(4, 0); pbW.varint(errorCode); }
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -34,23 +34,23 @@ public final class ProduceResponse implements grpcdc.Marshaler, grpcdc.Unmarshal
         baseOffset = 0L;
         logAppendTimeMs = 0L;
         errorCode = 0;
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    partition = (int) field.varintValue;
+                    partition = (int) pbField.varintValue;
                 }
                 case 2 -> {
-                    baseOffset = field.varintValue;
+                    baseOffset = pbField.varintValue;
                 }
                 case 3 -> {
-                    logAppendTimeMs = field.varintValue;
+                    logAppendTimeMs = pbField.varintValue;
                 }
                 case 4 -> {
-                    errorCode = (int) field.varintValue;
+                    errorCode = (int) pbField.varintValue;
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

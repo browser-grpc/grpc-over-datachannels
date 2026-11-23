@@ -64,6 +64,13 @@ class CallContext {
   /// This call's server span context (null when dormant).
   TraceContext? traceContext;
 
+  /// Whether this call negotiated the struct codec (HEADERS dc-codec: struct-v1).
+  bool structCodec = false;
+
+  /// Marshal a response message with this call's negotiated codec (generated server code calls this).
+  Uint8List encodeMessage(Marshaler msg) =>
+      Codec.marshalForCodec(structCodec, msg);
+
   /// Response initial metadata recorded via setHeaders.
   final Map<String, String> responseHeaders = {};
 

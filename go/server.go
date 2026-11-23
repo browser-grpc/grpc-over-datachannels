@@ -20,7 +20,8 @@ const (
 
 // RequestStream reads request messages of one inbound call.
 type RequestStream struct {
-	in *streamInput
+	in          *streamInput
+	structCodec bool
 }
 
 // RecvRaw returns the next request payload; io.EOF at half-close.
@@ -47,7 +48,7 @@ func (s *RequestStream) RecvInto(req Unmarshaler) error {
 	if err != nil {
 		return err
 	}
-	return req.UnmarshalDC(payload)
+	return unmarshalForCodec(s.structCodec, payload, req)
 }
 
 // ServerSink sends response payloads of one inbound call.
@@ -86,6 +87,7 @@ type Server struct {
 	methods      map[string]Method
 	auth         *RendezvousAuth
 	interceptors []Interceptor
+	structCodec bool
 }
 
 // NewServer builds an empty server.
@@ -157,6 +159,15 @@ func (s *Server) ServeEndpoint(ep *Endpoint) {
 // by design: no protoc plugin option.
 func (s *Server) SetRendezvousAuth(auth *RendezvousAuth) {
 	s.auth = auth
+}
+
+// SetStructCodec enables the struct codec on this server: a
+// call carrying HEADERS dc-codec: struct-v1 is decoded with
+// the struct codec and answered in kind. A struct-v1 request
+// to a server without it enabled fails UNIMPLEMENTED, as does
+// any other dc-codec value.
+func (s *Server) SetStructCodec(enabled bool) {
+	s.structCodec = enabled
 }
 
 type callStateKey struct{}
@@ -249,10 +260,22 @@ func (s *Server) dispatch(ctx context.Context, headers Headers, in *streamInput,
 		}
 		ctx = next
 	}
+	// Struct codec negotiation: an explicit dc-codec marker
+	// must be struct-v1 and enabled here, else UNIMPLEMENTED.
+	useStruct := false
+	if marker, ok := headers.Metadata[StructCodecHeader]; ok {
+		if marker != StructCodecV1 || !s.structCodec {
+			return NewStatus(CodeUnimplemented, "struct codec not enabled")
+		}
+		useStruct = true
+	}
+	if useStruct {
+		ctx = context.WithValue(ctx, structCodecCtxKey{}, true)
+	}
 	ctx = context.WithValue(ctx, callStateKey{}, sink)
 	traceCtx := traceStart("server", *headers.Path, ParseTraceparent(headers.Metadata["traceparent"]))
 	ctx = ContextWithTraceContext(ctx, traceCtx)
-	err := method.Handler(ctx, &RequestStream{in: in}, sinkAdapter{sink: sink})
+	err := method.Handler(ctx, &RequestStream{in: in, structCodec: useStruct}, sinkAdapter{sink: sink})
 	status := "OK"
 	if err != nil {
 		status = Status(err).Code.Name()

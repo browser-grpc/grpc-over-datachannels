@@ -1,3 +1,3 @@
 module github.com/browser-grpc/grpc-over-datachannels/go
 go 1.24
-require github.com/browser-grpc/grpc-over-datachannels/webrtc/go v0.44.0
+require github.com/browser-grpc/grpc-over-datachannels/webrtc/go v0.45.0

@@ -109,7 +109,7 @@ class _EventBusSubscribeServerImpl implements EventBusSubscribeServer {
 
   @override
   void send(Event resp) {
-    _sink(resp.marshalDc());
+    _sink(context.encodeMessage(resp));
   }
 }
 
@@ -122,7 +122,7 @@ class EventsGrpcDc {
           (ctx, reqs, sink) async {
         final req = PublishRequest();
         await reqs.recvInto(req);
-        sink((await impl.publish(ctx, req)).marshalDc());
+        sink(ctx.encodeMessage(await impl.publish(ctx, req)));
       }),
       Method("Subscribe", "/grpcdc.events.v1.EventBus/Subscribe",
           Server.kindServerStreaming, (ctx, reqs, sink) async {

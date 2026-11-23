@@ -4,6 +4,7 @@ const test_deadline = @import("test_deadline.zig");
 const test_tracing = @import("test_tracing.zig");
 const test_codec = @import("test_codec.zig");
 const test_echo = @import("test_echo.zig");
+const test_struct_codec = @import("test_struct_codec.zig");
 const test_interop = @import("test_interop.zig");
 const test_interop_oracle = @import("test_interop_oracle.zig");
 const test_oracle = @import("test_oracle.zig");
@@ -32,6 +33,8 @@ pub fn main() !void {
         test_codec.testCodec(alloc);
     } else if (std.mem.eql(u8, name, "TestEventBus")) {
         test_eventbus.testEventBus(alloc);
+    } else if (std.mem.eql(u8, name, "TestStructCodec")) {
+        test_struct_codec.testStructCodec(alloc);
     } else if (std.mem.eql(u8, name, "TestEcho")) {
         test_echo.testEcho(alloc);
     } else if (std.mem.eql(u8, name, "TestInterop")) {

@@ -18,13 +18,13 @@ public final class TestOrcaReport implements grpcdc.Marshaler, grpcdc.Unmarshale
 
     @Override
     public byte[] marshalDc() {
-        MessagesPb.Writer w = new MessagesPb.Writer();
-        if (cpuUtilization != 0) { w.tag(1, 1); w.fixedDouble(cpuUtilization); }
-        if (memoryUtilization != 0) { w.tag(2, 1); w.fixedDouble(memoryUtilization); }
-        if (requestCost != null) for (java.util.Map.Entry<String, Double> e : requestCost.entrySet()) w.bytesField(3, MessagesPb.TestOrcaReportRequestCostEntryEncode(e.getKey(), e.getValue()));
-        if (utilization != null) for (java.util.Map.Entry<String, Double> e : utilization.entrySet()) w.bytesField(4, MessagesPb.TestOrcaReportUtilizationEntryEncode(e.getKey(), e.getValue()));
-        w.raw(unknownFields);
-        return w.toBytes();
+        MessagesPb.Writer pbW = new MessagesPb.Writer();
+        if (cpuUtilization != 0) { pbW.tag(1, 1); pbW.fixedDouble(cpuUtilization); }
+        if (memoryUtilization != 0) { pbW.tag(2, 1); pbW.fixedDouble(memoryUtilization); }
+        if (requestCost != null) for (java.util.Map.Entry<String, Double> pbE : requestCost.entrySet()) pbW.bytesField(3, MessagesPb.TestOrcaReportRequestCostEntryEncode(pbE.getKey(), pbE.getValue()));
+        if (utilization != null) for (java.util.Map.Entry<String, Double> pbE : utilization.entrySet()) pbW.bytesField(4, MessagesPb.TestOrcaReportUtilizationEntryEncode(pbE.getKey(), pbE.getValue()));
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -34,25 +34,25 @@ public final class TestOrcaReport implements grpcdc.Marshaler, grpcdc.Unmarshale
         memoryUtilization = 0;
         requestCost = new java.util.LinkedHashMap<>();
         utilization = new java.util.LinkedHashMap<>();
-        MessagesPb.Reader r = new MessagesPb.Reader(data);
-        MessagesPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        MessagesPb.Reader pbR = new MessagesPb.Reader(data);
+        MessagesPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    cpuUtilization = Double.longBitsToDouble(field.fixedValue);
+                    cpuUtilization = Double.longBitsToDouble(pbField.fixedValue);
                 }
                 case 2 -> {
-                    memoryUtilization = Double.longBitsToDouble(field.fixedValue);
+                    memoryUtilization = Double.longBitsToDouble(pbField.fixedValue);
                 }
                 case 3 -> {
-                    Object[] kv = MessagesPb.TestOrcaReportRequestCostEntryDecode(field.bytesValue);
-                    requestCost.put((String) kv[0], (Double) kv[1]);
+                    Object[] pbKv = MessagesPb.TestOrcaReportRequestCostEntryDecode(pbField.bytesValue);
+                    requestCost.put((String) pbKv[0], (Double) pbKv[1]);
                 }
                 case 4 -> {
-                    Object[] kv = MessagesPb.TestOrcaReportUtilizationEntryDecode(field.bytesValue);
-                    utilization.put((String) kv[0], (Double) kv[1]);
+                    Object[] pbKv = MessagesPb.TestOrcaReportUtilizationEntryDecode(pbField.bytesValue);
+                    utilization.put((String) pbKv[0], (Double) pbKv[1]);
                 }
-                default -> { unknownFields = MessagesPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = MessagesPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }
@@ -68,11 +68,11 @@ public final class TestOrcaReport implements grpcdc.Marshaler, grpcdc.Unmarshale
 
         @Override
         public byte[] marshalDc() {
-            MessagesPb.Writer w = new MessagesPb.Writer();
-        w.stringField(1, key);
-        if (value != 0) { w.tag(2, 1); w.fixedDouble(value); }
-            w.raw(unknownFields);
-            return w.toBytes();
+            MessagesPb.Writer pbW = new MessagesPb.Writer();
+        pbW.stringField(1, key);
+        if (value != 0) { pbW.tag(2, 1); pbW.fixedDouble(value); }
+            pbW.raw(unknownFields);
+            return pbW.toBytes();
         }
 
         @Override
@@ -80,17 +80,17 @@ public final class TestOrcaReport implements grpcdc.Marshaler, grpcdc.Unmarshale
             unknownFields = new byte[0];
             key = "";
             value = 0;
-            MessagesPb.Reader r = new MessagesPb.Reader(data);
-            MessagesPb.Field field;
-            while ((field = r.next()) != null) {
-                switch (field.number) {
+            MessagesPb.Reader pbR = new MessagesPb.Reader(data);
+            MessagesPb.Field pbField;
+            while ((pbField = pbR.next()) != null) {
+                switch (pbField.number) {
                 case 1 -> {
-                    key = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 2 -> {
-                    value = Double.longBitsToDouble(field.fixedValue);
+                    value = Double.longBitsToDouble(pbField.fixedValue);
                 }
-                    default -> { unknownFields = MessagesPb.concatBytes(unknownFields, field.rawValue); }
+                    default -> { unknownFields = MessagesPb.concatBytes(unknownFields, pbField.rawValue); }
                 }
             }
         }
@@ -107,11 +107,11 @@ public final class TestOrcaReport implements grpcdc.Marshaler, grpcdc.Unmarshale
 
         @Override
         public byte[] marshalDc() {
-            MessagesPb.Writer w = new MessagesPb.Writer();
-        w.stringField(1, key);
-        if (value != 0) { w.tag(2, 1); w.fixedDouble(value); }
-            w.raw(unknownFields);
-            return w.toBytes();
+            MessagesPb.Writer pbW = new MessagesPb.Writer();
+        pbW.stringField(1, key);
+        if (value != 0) { pbW.tag(2, 1); pbW.fixedDouble(value); }
+            pbW.raw(unknownFields);
+            return pbW.toBytes();
         }
 
         @Override
@@ -119,17 +119,17 @@ public final class TestOrcaReport implements grpcdc.Marshaler, grpcdc.Unmarshale
             unknownFields = new byte[0];
             key = "";
             value = 0;
-            MessagesPb.Reader r = new MessagesPb.Reader(data);
-            MessagesPb.Field field;
-            while ((field = r.next()) != null) {
-                switch (field.number) {
+            MessagesPb.Reader pbR = new MessagesPb.Reader(data);
+            MessagesPb.Field pbField;
+            while ((pbField = pbR.next()) != null) {
+                switch (pbField.number) {
                 case 1 -> {
-                    key = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 2 -> {
-                    value = Double.longBitsToDouble(field.fixedValue);
+                    value = Double.longBitsToDouble(pbField.fixedValue);
                 }
-                    default -> { unknownFields = MessagesPb.concatBytes(unknownFields, field.rawValue); }
+                    default -> { unknownFields = MessagesPb.concatBytes(unknownFields, pbField.rawValue); }
                 }
             }
         }

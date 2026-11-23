@@ -23,6 +23,17 @@ use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use test_stub::TestServiceClient;
 
+/// Availability skip that hard-fails when GRPC_DC_REQUIRE_ORACLE
+/// is set (the CI image sets it; its Dockerfile builds every
+/// oracle, so a missing one there is build breakage).
+#[track_caller]
+fn oracle_skip(reason: &str) {
+    if std::env::var_os("GRPC_DC_REQUIRE_ORACLE").is_some() {
+        panic!("oracle required but unavailable: {reason}");
+    }
+    eprintln!("skip: {reason}");
+}
+
 fn root() -> String {
     format!("{}/..", env!("CARGO_MANIFEST_DIR"))
 }
@@ -56,7 +67,7 @@ async fn rust_client_through_wrapper_calls_go_reference_server() {
     let root = root();
     let binary = format!("{root}/oracle/go-interop/interop-server");
     if !std::path::Path::new(&binary).exists() {
-        eprintln!("skip: go interop server not built (oracle/go-interop)");
+        oracle_skip("go interop server not built (oracle/go-interop)");
         return;
     }
     let port = free_port();

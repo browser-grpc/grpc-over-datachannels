@@ -142,13 +142,13 @@ object EventsGrpcDc {
                 val req = new PublishRequest()
                 reqs.recvInto(req)
                 val resp = impl.Publish(ctx, req)
-                sink.send(resp.marshalDc())
+                sink.send(ctx.encodeMessage(resp))
             }),
             grpcdc.Server.Method("Subscribe", "/grpcdc.events.v1.EventBus/Subscribe", grpcdc.Server.KIND_SERVER_STREAMING, (ctx, reqs, sink) => {
                 val req = new SubscribeRequest()
                 reqs.recvInto(req)
                 impl.Subscribe(req, new EventBusServerStreamServer {
-                    def send(resp: Event): Unit = sink.send(resp.marshalDc())
+                    def send(resp: Event): Unit = sink.send(ctx.encodeMessage(resp))
                     val context: grpcdc.Endpoint#CallContext = ctx
                 })
             }),

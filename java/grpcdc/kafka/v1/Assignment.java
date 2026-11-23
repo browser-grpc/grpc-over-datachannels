@@ -16,12 +16,12 @@ public final class Assignment implements grpcdc.Marshaler, grpcdc.Unmarshaler {
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
-        if (generationId != 0) { w.tag(1, 0); w.varint(generationId); }
-        w.stringField(2, memberId);
-        if (partitions != null) for (TopicPartition x : partitions) w.bytesField(3, x.marshalDc());
-        w.raw(unknownFields);
-        return w.toBytes();
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
+        if (generationId != 0) { pbW.tag(1, 0); pbW.varint(generationId); }
+        pbW.stringField(2, memberId);
+        if (partitions != null) for (TopicPartition pbX : partitions) pbW.bytesField(3, pbX.marshalDc());
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -30,22 +30,22 @@ public final class Assignment implements grpcdc.Marshaler, grpcdc.Unmarshaler {
         generationId = 0;
         memberId = "";
         partitions = new java.util.ArrayList<>();
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    generationId = (int) field.varintValue;
+                    generationId = (int) pbField.varintValue;
                 }
                 case 2 -> {
-                    memberId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    memberId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 3 -> {
-                    TopicPartition item = new TopicPartition();
-                    item.unmarshalDc(field.bytesValue);
-                    partitions.add(item);
+                    TopicPartition pbItem = new TopicPartition();
+                    pbItem.unmarshalDc(pbField.bytesValue);
+                    partitions.add(pbItem);
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

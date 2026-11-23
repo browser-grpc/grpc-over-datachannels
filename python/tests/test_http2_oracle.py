@@ -22,6 +22,17 @@ from echo_pb import EchoRequest
 from grpcdc.http2 import Http2Transport
 from oracle_scenarios_generated import SCENARIOS
 
+
+def oracle_skip(test, reason):
+    """Availability skip that hard-fails when GRPC_DC_REQUIRE_ORACLE
+    is set (the CI image sets it; its Dockerfile builds every
+    oracle, so a missing one there is build breakage)."""
+    if os.environ.get("GRPC_DC_REQUIRE_ORACLE"):
+        test.fail(f"oracle required but unavailable: {reason}")
+    test.skipTest(reason)
+
+
+
 ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 
 
@@ -48,7 +59,7 @@ def java_classpath(test):
     if not os.path.exists(cp_file) or not os.path.isdir(
         os.path.join(target, "classes")
     ):
-        test.skipTest("java oracle not built (cd oracle/java && mvn package)")
+        oracle_skip(test, "java oracle not built (cd oracle/java && mvn package)")
     with open(cp_file) as f:
         return os.path.join(target, "classes") + ":" + f.read().strip()
 
@@ -81,7 +92,7 @@ class TestHttp2Oracle(unittest.TestCase):
                 ready = True
                 break
         if not ready:
-            self.skipTest("java oracle server did not start")
+            oracle_skip(self, "java oracle server did not start")
         return port
 
     def test_python_http2_client_calls_official_server(self):
@@ -154,7 +165,7 @@ class TestHttp2Oracle(unittest.TestCase):
         self.addCleanup(kill_and_wait, proc)
         line = proc.stdout.readline()
         if "READY" not in line:
-            self.skipTest("TLS fixture did not start")
+            oracle_skip(self, "TLS fixture did not start")
         port = int(line.split()[1])
         cafile = line.split()[2]
         transport = Http2Transport(

@@ -163,6 +163,8 @@ public final class TestPbMessages {
         }
         sources.add(root.resolve("java/grpcdc/Marshaler.java"));
         sources.add(root.resolve("java/grpcdc/Unmarshaler.java"));
+        sources.add(root.resolve("java/grpcdc/StatusException.java"));
+        sources.add(root.resolve("java/grpcdc/Wire.java"));
         Path harness = tmp.resolve("Harness.java");
         Files.writeString(harness, HARNESS);
         sources.add(harness);

@@ -14,11 +14,11 @@ public final class SharePollResponse implements grpcdc.Marshaler, grpcdc.Unmarsh
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
-        if (records != null) for (SharePollRecord x : records) w.bytesField(1, x.marshalDc());
-        if (errorCode != 0) { w.tag(2, 0); w.varint(errorCode); }
-        w.raw(unknownFields);
-        return w.toBytes();
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
+        if (records != null) for (SharePollRecord pbX : records) pbW.bytesField(1, pbX.marshalDc());
+        if (errorCode != 0) { pbW.tag(2, 0); pbW.varint(errorCode); }
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -26,19 +26,19 @@ public final class SharePollResponse implements grpcdc.Marshaler, grpcdc.Unmarsh
         unknownFields = new byte[0];
         records = new java.util.ArrayList<>();
         errorCode = 0;
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    SharePollRecord item = new SharePollRecord();
-                    item.unmarshalDc(field.bytesValue);
-                    records.add(item);
+                    SharePollRecord pbItem = new SharePollRecord();
+                    pbItem.unmarshalDc(pbField.bytesValue);
+                    records.add(pbItem);
                 }
                 case 2 -> {
-                    errorCode = (int) field.varintValue;
+                    errorCode = (int) pbField.varintValue;
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

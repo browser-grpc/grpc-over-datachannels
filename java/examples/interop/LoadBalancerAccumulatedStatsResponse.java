@@ -18,13 +18,13 @@ public final class LoadBalancerAccumulatedStatsResponse implements grpcdc.Marsha
 
     @Override
     public byte[] marshalDc() {
-        MessagesPb.Writer w = new MessagesPb.Writer();
-        if (numRpcsStartedByMethod != null) for (java.util.Map.Entry<String, Integer> e : numRpcsStartedByMethod.entrySet()) w.bytesField(1, MessagesPb.LoadBalancerAccumulatedStatsResponseNumRpcsStartedByMethodEntryEncode(e.getKey(), e.getValue()));
-        if (numRpcsSucceededByMethod != null) for (java.util.Map.Entry<String, Integer> e : numRpcsSucceededByMethod.entrySet()) w.bytesField(2, MessagesPb.LoadBalancerAccumulatedStatsResponseNumRpcsSucceededByMethodEntryEncode(e.getKey(), e.getValue()));
-        if (numRpcsFailedByMethod != null) for (java.util.Map.Entry<String, Integer> e : numRpcsFailedByMethod.entrySet()) w.bytesField(3, MessagesPb.LoadBalancerAccumulatedStatsResponseNumRpcsFailedByMethodEntryEncode(e.getKey(), e.getValue()));
-        if (statsPerMethod != null) for (java.util.Map.Entry<String, LoadBalancerAccumulatedStatsResponse.MethodStats> e : statsPerMethod.entrySet()) w.bytesField(4, MessagesPb.LoadBalancerAccumulatedStatsResponseStatsPerMethodEntryEncode(e.getKey(), e.getValue()));
-        w.raw(unknownFields);
-        return w.toBytes();
+        MessagesPb.Writer pbW = new MessagesPb.Writer();
+        if (numRpcsStartedByMethod != null) for (java.util.Map.Entry<String, Integer> pbE : numRpcsStartedByMethod.entrySet()) pbW.bytesField(1, MessagesPb.LoadBalancerAccumulatedStatsResponseNumRpcsStartedByMethodEntryEncode(pbE.getKey(), pbE.getValue()));
+        if (numRpcsSucceededByMethod != null) for (java.util.Map.Entry<String, Integer> pbE : numRpcsSucceededByMethod.entrySet()) pbW.bytesField(2, MessagesPb.LoadBalancerAccumulatedStatsResponseNumRpcsSucceededByMethodEntryEncode(pbE.getKey(), pbE.getValue()));
+        if (numRpcsFailedByMethod != null) for (java.util.Map.Entry<String, Integer> pbE : numRpcsFailedByMethod.entrySet()) pbW.bytesField(3, MessagesPb.LoadBalancerAccumulatedStatsResponseNumRpcsFailedByMethodEntryEncode(pbE.getKey(), pbE.getValue()));
+        if (statsPerMethod != null) for (java.util.Map.Entry<String, LoadBalancerAccumulatedStatsResponse.MethodStats> pbE : statsPerMethod.entrySet()) pbW.bytesField(4, MessagesPb.LoadBalancerAccumulatedStatsResponseStatsPerMethodEntryEncode(pbE.getKey(), pbE.getValue()));
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -34,27 +34,27 @@ public final class LoadBalancerAccumulatedStatsResponse implements grpcdc.Marsha
         numRpcsSucceededByMethod = new java.util.LinkedHashMap<>();
         numRpcsFailedByMethod = new java.util.LinkedHashMap<>();
         statsPerMethod = new java.util.LinkedHashMap<>();
-        MessagesPb.Reader r = new MessagesPb.Reader(data);
-        MessagesPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        MessagesPb.Reader pbR = new MessagesPb.Reader(data);
+        MessagesPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    Object[] kv = MessagesPb.LoadBalancerAccumulatedStatsResponseNumRpcsStartedByMethodEntryDecode(field.bytesValue);
-                    numRpcsStartedByMethod.put((String) kv[0], (Integer) kv[1]);
+                    Object[] pbKv = MessagesPb.LoadBalancerAccumulatedStatsResponseNumRpcsStartedByMethodEntryDecode(pbField.bytesValue);
+                    numRpcsStartedByMethod.put((String) pbKv[0], (Integer) pbKv[1]);
                 }
                 case 2 -> {
-                    Object[] kv = MessagesPb.LoadBalancerAccumulatedStatsResponseNumRpcsSucceededByMethodEntryDecode(field.bytesValue);
-                    numRpcsSucceededByMethod.put((String) kv[0], (Integer) kv[1]);
+                    Object[] pbKv = MessagesPb.LoadBalancerAccumulatedStatsResponseNumRpcsSucceededByMethodEntryDecode(pbField.bytesValue);
+                    numRpcsSucceededByMethod.put((String) pbKv[0], (Integer) pbKv[1]);
                 }
                 case 3 -> {
-                    Object[] kv = MessagesPb.LoadBalancerAccumulatedStatsResponseNumRpcsFailedByMethodEntryDecode(field.bytesValue);
-                    numRpcsFailedByMethod.put((String) kv[0], (Integer) kv[1]);
+                    Object[] pbKv = MessagesPb.LoadBalancerAccumulatedStatsResponseNumRpcsFailedByMethodEntryDecode(pbField.bytesValue);
+                    numRpcsFailedByMethod.put((String) pbKv[0], (Integer) pbKv[1]);
                 }
                 case 4 -> {
-                    Object[] kv = MessagesPb.LoadBalancerAccumulatedStatsResponseStatsPerMethodEntryDecode(field.bytesValue);
-                    statsPerMethod.put((String) kv[0], (LoadBalancerAccumulatedStatsResponse.MethodStats) kv[1]);
+                    Object[] pbKv = MessagesPb.LoadBalancerAccumulatedStatsResponseStatsPerMethodEntryDecode(pbField.bytesValue);
+                    statsPerMethod.put((String) pbKv[0], (LoadBalancerAccumulatedStatsResponse.MethodStats) pbKv[1]);
                 }
-                default -> { unknownFields = MessagesPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = MessagesPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }
@@ -70,11 +70,11 @@ public final class LoadBalancerAccumulatedStatsResponse implements grpcdc.Marsha
 
         @Override
         public byte[] marshalDc() {
-            MessagesPb.Writer w = new MessagesPb.Writer();
-        w.stringField(1, key);
-        if (value != 0) { w.tag(2, 0); w.varint(value); }
-            w.raw(unknownFields);
-            return w.toBytes();
+            MessagesPb.Writer pbW = new MessagesPb.Writer();
+        pbW.stringField(1, key);
+        if (value != 0) { pbW.tag(2, 0); pbW.varint(value); }
+            pbW.raw(unknownFields);
+            return pbW.toBytes();
         }
 
         @Override
@@ -82,17 +82,17 @@ public final class LoadBalancerAccumulatedStatsResponse implements grpcdc.Marsha
             unknownFields = new byte[0];
             key = "";
             value = 0;
-            MessagesPb.Reader r = new MessagesPb.Reader(data);
-            MessagesPb.Field field;
-            while ((field = r.next()) != null) {
-                switch (field.number) {
+            MessagesPb.Reader pbR = new MessagesPb.Reader(data);
+            MessagesPb.Field pbField;
+            while ((pbField = pbR.next()) != null) {
+                switch (pbField.number) {
                 case 1 -> {
-                    key = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 2 -> {
-                    value = (int) field.varintValue;
+                    value = (int) pbField.varintValue;
                 }
-                    default -> { unknownFields = MessagesPb.concatBytes(unknownFields, field.rawValue); }
+                    default -> { unknownFields = MessagesPb.concatBytes(unknownFields, pbField.rawValue); }
                 }
             }
         }
@@ -109,11 +109,11 @@ public final class LoadBalancerAccumulatedStatsResponse implements grpcdc.Marsha
 
         @Override
         public byte[] marshalDc() {
-            MessagesPb.Writer w = new MessagesPb.Writer();
-        w.stringField(1, key);
-        if (value != 0) { w.tag(2, 0); w.varint(value); }
-            w.raw(unknownFields);
-            return w.toBytes();
+            MessagesPb.Writer pbW = new MessagesPb.Writer();
+        pbW.stringField(1, key);
+        if (value != 0) { pbW.tag(2, 0); pbW.varint(value); }
+            pbW.raw(unknownFields);
+            return pbW.toBytes();
         }
 
         @Override
@@ -121,17 +121,17 @@ public final class LoadBalancerAccumulatedStatsResponse implements grpcdc.Marsha
             unknownFields = new byte[0];
             key = "";
             value = 0;
-            MessagesPb.Reader r = new MessagesPb.Reader(data);
-            MessagesPb.Field field;
-            while ((field = r.next()) != null) {
-                switch (field.number) {
+            MessagesPb.Reader pbR = new MessagesPb.Reader(data);
+            MessagesPb.Field pbField;
+            while ((pbField = pbR.next()) != null) {
+                switch (pbField.number) {
                 case 1 -> {
-                    key = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 2 -> {
-                    value = (int) field.varintValue;
+                    value = (int) pbField.varintValue;
                 }
-                    default -> { unknownFields = MessagesPb.concatBytes(unknownFields, field.rawValue); }
+                    default -> { unknownFields = MessagesPb.concatBytes(unknownFields, pbField.rawValue); }
                 }
             }
         }
@@ -148,11 +148,11 @@ public final class LoadBalancerAccumulatedStatsResponse implements grpcdc.Marsha
 
         @Override
         public byte[] marshalDc() {
-            MessagesPb.Writer w = new MessagesPb.Writer();
-        w.stringField(1, key);
-        if (value != 0) { w.tag(2, 0); w.varint(value); }
-            w.raw(unknownFields);
-            return w.toBytes();
+            MessagesPb.Writer pbW = new MessagesPb.Writer();
+        pbW.stringField(1, key);
+        if (value != 0) { pbW.tag(2, 0); pbW.varint(value); }
+            pbW.raw(unknownFields);
+            return pbW.toBytes();
         }
 
         @Override
@@ -160,17 +160,17 @@ public final class LoadBalancerAccumulatedStatsResponse implements grpcdc.Marsha
             unknownFields = new byte[0];
             key = "";
             value = 0;
-            MessagesPb.Reader r = new MessagesPb.Reader(data);
-            MessagesPb.Field field;
-            while ((field = r.next()) != null) {
-                switch (field.number) {
+            MessagesPb.Reader pbR = new MessagesPb.Reader(data);
+            MessagesPb.Field pbField;
+            while ((pbField = pbR.next()) != null) {
+                switch (pbField.number) {
                 case 1 -> {
-                    key = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 2 -> {
-                    value = (int) field.varintValue;
+                    value = (int) pbField.varintValue;
                 }
-                    default -> { unknownFields = MessagesPb.concatBytes(unknownFields, field.rawValue); }
+                    default -> { unknownFields = MessagesPb.concatBytes(unknownFields, pbField.rawValue); }
                 }
             }
         }
@@ -187,11 +187,11 @@ public final class LoadBalancerAccumulatedStatsResponse implements grpcdc.Marsha
 
         @Override
         public byte[] marshalDc() {
-            MessagesPb.Writer w = new MessagesPb.Writer();
-        if (rpcsStarted != 0) { w.tag(1, 0); w.varint(rpcsStarted); }
-        if (result != null) for (java.util.Map.Entry<Integer, Integer> e : result.entrySet()) w.bytesField(2, MessagesPb.LoadBalancerAccumulatedStatsResponseMethodStatsResultEntryEncode(e.getKey(), e.getValue()));
-            w.raw(unknownFields);
-            return w.toBytes();
+            MessagesPb.Writer pbW = new MessagesPb.Writer();
+        if (rpcsStarted != 0) { pbW.tag(1, 0); pbW.varint(rpcsStarted); }
+        if (result != null) for (java.util.Map.Entry<Integer, Integer> pbE : result.entrySet()) pbW.bytesField(2, MessagesPb.LoadBalancerAccumulatedStatsResponseMethodStatsResultEntryEncode(pbE.getKey(), pbE.getValue()));
+            pbW.raw(unknownFields);
+            return pbW.toBytes();
         }
 
         @Override
@@ -199,18 +199,18 @@ public final class LoadBalancerAccumulatedStatsResponse implements grpcdc.Marsha
             unknownFields = new byte[0];
             rpcsStarted = 0;
             result = new java.util.LinkedHashMap<>();
-            MessagesPb.Reader r = new MessagesPb.Reader(data);
-            MessagesPb.Field field;
-            while ((field = r.next()) != null) {
-                switch (field.number) {
+            MessagesPb.Reader pbR = new MessagesPb.Reader(data);
+            MessagesPb.Field pbField;
+            while ((pbField = pbR.next()) != null) {
+                switch (pbField.number) {
                 case 1 -> {
-                    rpcsStarted = (int) field.varintValue;
+                    rpcsStarted = (int) pbField.varintValue;
                 }
                 case 2 -> {
-                    Object[] kv = MessagesPb.LoadBalancerAccumulatedStatsResponseMethodStatsResultEntryDecode(field.bytesValue);
-                    result.put((Integer) kv[0], (Integer) kv[1]);
+                    Object[] pbKv = MessagesPb.LoadBalancerAccumulatedStatsResponseMethodStatsResultEntryDecode(pbField.bytesValue);
+                    result.put((Integer) pbKv[0], (Integer) pbKv[1]);
                 }
-                    default -> { unknownFields = MessagesPb.concatBytes(unknownFields, field.rawValue); }
+                    default -> { unknownFields = MessagesPb.concatBytes(unknownFields, pbField.rawValue); }
                 }
             }
         }
@@ -226,11 +226,11 @@ public final class LoadBalancerAccumulatedStatsResponse implements grpcdc.Marsha
 
         @Override
         public byte[] marshalDc() {
-            MessagesPb.Writer w = new MessagesPb.Writer();
-        if (key != 0) { w.tag(1, 0); w.varint(key); }
-        if (value != 0) { w.tag(2, 0); w.varint(value); }
-            w.raw(unknownFields);
-            return w.toBytes();
+            MessagesPb.Writer pbW = new MessagesPb.Writer();
+        if (key != 0) { pbW.tag(1, 0); pbW.varint(key); }
+        if (value != 0) { pbW.tag(2, 0); pbW.varint(value); }
+            pbW.raw(unknownFields);
+            return pbW.toBytes();
         }
 
         @Override
@@ -238,17 +238,17 @@ public final class LoadBalancerAccumulatedStatsResponse implements grpcdc.Marsha
             unknownFields = new byte[0];
             key = 0;
             value = 0;
-            MessagesPb.Reader r = new MessagesPb.Reader(data);
-            MessagesPb.Field field;
-            while ((field = r.next()) != null) {
-                switch (field.number) {
+            MessagesPb.Reader pbR = new MessagesPb.Reader(data);
+            MessagesPb.Field pbField;
+            while ((pbField = pbR.next()) != null) {
+                switch (pbField.number) {
                 case 1 -> {
-                    key = (int) field.varintValue;
+                    key = (int) pbField.varintValue;
                 }
                 case 2 -> {
-                    value = (int) field.varintValue;
+                    value = (int) pbField.varintValue;
                 }
-                    default -> { unknownFields = MessagesPb.concatBytes(unknownFields, field.rawValue); }
+                    default -> { unknownFields = MessagesPb.concatBytes(unknownFields, pbField.rawValue); }
                 }
             }
         }
@@ -266,11 +266,11 @@ public final class LoadBalancerAccumulatedStatsResponse implements grpcdc.Marsha
 
         @Override
         public byte[] marshalDc() {
-            MessagesPb.Writer w = new MessagesPb.Writer();
-        w.stringField(1, key);
-        if (value != null) w.bytesField(2, value.marshalDc());
-            w.raw(unknownFields);
-            return w.toBytes();
+            MessagesPb.Writer pbW = new MessagesPb.Writer();
+        pbW.stringField(1, key);
+        if (value != null) pbW.bytesField(2, value.marshalDc());
+            pbW.raw(unknownFields);
+            return pbW.toBytes();
         }
 
         @Override
@@ -278,18 +278,18 @@ public final class LoadBalancerAccumulatedStatsResponse implements grpcdc.Marsha
             unknownFields = new byte[0];
             key = "";
             value = null;
-            MessagesPb.Reader r = new MessagesPb.Reader(data);
-            MessagesPb.Field field;
-            while ((field = r.next()) != null) {
-                switch (field.number) {
+            MessagesPb.Reader pbR = new MessagesPb.Reader(data);
+            MessagesPb.Field pbField;
+            while ((pbField = pbR.next()) != null) {
+                switch (pbField.number) {
                 case 1 -> {
-                    key = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 2 -> {
                     value = new LoadBalancerAccumulatedStatsResponse.MethodStats();
-                    value.unmarshalDc(field.bytesValue);
+                    value.unmarshalDc(pbField.bytesValue);
                 }
-                    default -> { unknownFields = MessagesPb.concatBytes(unknownFields, field.rawValue); }
+                    default -> { unknownFields = MessagesPb.concatBytes(unknownFields, pbField.rawValue); }
                 }
             }
         }

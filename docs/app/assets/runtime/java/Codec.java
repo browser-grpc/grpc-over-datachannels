@@ -16,6 +16,24 @@ public final class Codec {
     public static final int HEADER_LEN = 9;
     public static final int MAX_DATA_PAYLOAD = 16 * 1024 * 1024;
 
+    /** HEADERS metadata key a client sends to request the struct codec for a call. */
+    public static final String STRUCT_CODEC_HEADER = "dc-codec";
+    public static final String STRUCT_CODEC_V1 = "struct-v1";
+
+    /** Marshal msg with the codec selected for a call (struct layout when negotiated). */
+    public static byte[] marshalForCodec(boolean structCodec, Marshaler msg) {
+        return structCodec ? msg.marshalStruct() : msg.marshalDc();
+    }
+
+    /** Decode data into msg with the codec selected for a call. */
+    public static void unmarshalForCodec(boolean structCodec, byte[] data, Unmarshaler msg) {
+        if (structCodec) {
+            msg.unmarshalStruct(data);
+        } else {
+            msg.unmarshalDc(data);
+        }
+    }
+
     private Codec() {}
 
     /** One parsed frame. */

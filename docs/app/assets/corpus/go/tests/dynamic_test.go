@@ -23,7 +23,7 @@ func dynamicModel(t *testing.T) *grpcdc.FileModel {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join("..", "fixtures", "echo_descriptor_set.bin"))
 	if err != nil {
-		t.Skipf("descriptor fixture missing (make generate): %v", err)
+		skipOraclef(t, "descriptor fixture missing (make generate): %v", err)
 	}
 	model, err := grpcdc.ParseDescriptorSet(data)
 	if err != nil {
@@ -201,7 +201,7 @@ func TestDynamicOracleClientCallsOfficialServer(t *testing.T) {
 	}
 	bridge.Stderr = os.Stderr
 	if err := bridge.Start(); err != nil {
-		t.Skipf("cannot start bridge: %v", err)
+		skipOraclef(t, "cannot start bridge: %v", err)
 	}
 	t.Cleanup(func() { _ = bridge.Process.Kill() })
 
@@ -214,14 +214,14 @@ func TestDynamicOracleOfficialClientCallsDynamicServer(t *testing.T) {
 	serverBin := filepath.Join(t.TempDir(), "dynamic_echo_server_stdio")
 	build := exec.Command("go", "build", "-o", serverBin, "./examples/dynamic_echo_server_stdio")
 	if out, err := build.CombinedOutput(); err != nil {
-		t.Skipf("build dynamic server: %v\n%s", err, out)
+		skipOraclef(t, "build dynamic server: %v\n%s", err, out)
 	}
 	port := freePort(t)
 	bridge := exec.Command("node", filepath.Join("..", "oracle", "bridge.mjs"),
 		"http2-to-dc", "--port", fmt.Sprint(port), "--target-cmd", serverBin)
 	bridge.Stderr = os.Stderr
 	if err := bridge.Start(); err != nil {
-		t.Skipf("cannot start bridge: %v", err)
+		skipOraclef(t, "cannot start bridge: %v", err)
 	}
 	t.Cleanup(func() { _ = bridge.Process.Kill() })
 

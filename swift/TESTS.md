@@ -35,6 +35,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`TestOracle.swift`](tests/TestOracle.swift) — Official-implementation oracle, via the proxy
 - [`TestPbMessages.swift`](tests/TestPbMessages.swift) — Generated suite/example
 - [`TestSidecar.swift`](tests/TestSidecar.swift) — Sidecar transport
+- [`TestStructCodec.swift`](tests/TestStructCodec.swift) — Wire codec vectors
 - [`TestTracing.swift`](tests/TestTracing.swift) — Tracing: traceparent propagation, span observers, nested calls
 - [`TestUtil.swift`](tests/TestUtil.swift) — Generated suite/example
 - [`main.swift`](tests/main.swift) — Generated suite/example
@@ -47,12 +48,15 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`main.swift`](examples/EchoClientStdio/main.swift) — Generated suite/example
 - [`EchoGrpcDc.swift`](examples/EchoGrpcDc.swift) — Echo: all four call shapes
 - [`EchoMessages.swift`](examples/EchoMessages.swift) — Echo: all four call shapes
+- [`EchoRequestStruct.swift`](examples/EchoRequestStruct.swift) — Echo: all four call shapes
+- [`EchoResponseStruct.swift`](examples/EchoResponseStruct.swift) — Echo: all four call shapes
 - [`main.swift`](examples/EchoServerStdio/main.swift) — Generated suite/example
 - [`EchoServiceImpl.swift`](examples/EchoServiceImpl.swift) — Echo: all four call shapes
 - [`EventBusDemo.swift`](examples/EventBusDemo.swift) — Event bus end-to-end
 - [`main.swift`](examples/InteropServerStdio/main.swift) — Generated suite/example
 - [`Pb.swift`](examples/Pb.swift) — Generated suite/example
 - [`StdioTransport.swift`](examples/StdioTransport.swift) — Generated suite/example
+- [`StructDcBridge.swift`](examples/StructDcBridge.swift) — Generated suite/example
 - [`EmptyGrpcDc.swift`](examples/interop/EmptyGrpcDc.swift) — Generated suite/example
 - [`EmptyMessages.swift`](examples/interop/EmptyMessages.swift) — Generated suite/example
 - [`InteropServiceImpl.swift`](examples/interop/InteropServiceImpl.swift) — Cross-language interop

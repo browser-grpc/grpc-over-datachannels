@@ -5,4 +5,13 @@ package grpcdc;
 /** Implemented by generated protobuf message types. */
 public interface Marshaler {
     byte[] marshalDc();
+
+    /**
+     * Struct-layout encoding (see Codec.STRUCT_CODEC_V1). Messages
+     * generated without struct_codec=true inherit this error,
+     * mirroring the Go runtime's "message has no struct codec".
+     */
+    default byte[] marshalStruct() {
+        throw new StatusException(Wire.CODE_INTERNAL, "message has no struct codec");
+    }
 }

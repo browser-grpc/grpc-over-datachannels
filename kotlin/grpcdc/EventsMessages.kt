@@ -78,23 +78,23 @@ enum class Tag(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = EventsPb.Writer()
-        if (tag.number != 0) { w.tag(1, 0); w.varint(tag.number.toLong()) }
+        val pbW = EventsPb.Writer()
+        if (tag.number != 0) { pbW.tag(1, 0); pbW.varint(tag.number.toLong()) }
         if (!(intValue != 0L || doubleValue != 0.0 || boolValue || enumValue != 0)) {
-        w.stringField(2, stringValue)
+        pbW.stringField(2, stringValue)
         }
         if (!(doubleValue != 0.0 || boolValue || enumValue != 0)) {
-        if (intValue != 0L) { w.tag(3, 0); w.varint(intValue) }
+        if (intValue != 0L) { pbW.tag(3, 0); pbW.varint(intValue) }
         }
         if (!(boolValue || enumValue != 0)) {
-        if (doubleValue != 0.0) { w.tag(4, 1); w.fixedDouble(doubleValue) }
+        if (doubleValue != 0.0) { pbW.tag(4, 1); pbW.fixedDouble(doubleValue) }
         }
         if (!(enumValue != 0)) {
-        if (boolValue) { w.tag(5, 0); w.varint(if (boolValue) 1L else 0L) }
+        if (boolValue) { pbW.tag(5, 0); pbW.varint(if (boolValue) 1L else 0L) }
         }
-        if (enumValue != 0) { w.tag(6, 0); w.varint(enumValue.toLong()) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        if (enumValue != 0) { pbW.tag(6, 0); pbW.varint(enumValue.toLong()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
@@ -104,49 +104,49 @@ enum class Tag(val number: Int) {
         doubleValue = 0.0
         boolValue = false
         enumValue = 0
-        val r = EventsPb.Reader(data)
+        val pbR = EventsPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    tag = Tag.fromNumber(field.varintValue.toInt())
+                    tag = Tag.fromNumber(pbField.varintValue.toInt())
                 }
                 2 -> {
                     intValue = 0L
                     doubleValue = 0.0
                     boolValue = false
                     enumValue = 0
-                    stringValue = String(field.bytesValue, Charsets.UTF_8)
+                    stringValue = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 3 -> {
                     stringValue = ""
                     doubleValue = 0.0
                     boolValue = false
                     enumValue = 0
-                    intValue = field.varintValue
+                    intValue = pbField.varintValue
                 }
                 4 -> {
                     stringValue = ""
                     intValue = 0L
                     boolValue = false
                     enumValue = 0
-                    doubleValue = EventsPb.bitsToDouble(field.fixedValue.toULong())
+                    doubleValue = EventsPb.bitsToDouble(pbField.fixedValue.toULong())
                 }
                 5 -> {
                     stringValue = ""
                     intValue = 0L
                     doubleValue = 0.0
                     enumValue = 0
-                    boolValue = field.varintValue != 0L
+                    boolValue = pbField.varintValue != 0L
                 }
                 6 -> {
                     stringValue = ""
                     intValue = 0L
                     doubleValue = 0.0
                     boolValue = false
-                    enumValue = field.varintValue.toInt()
+                    enumValue = pbField.varintValue.toInt()
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -158,34 +158,34 @@ enum class Tag(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = EventsPb.Writer()
-        for (x in tags) w.bytesField(1, x.marshalDc())
-        if (payload.isNotEmpty()) w.bytesField(2, payload)
-        w.stringField(3, publisherId)
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = EventsPb.Writer()
+        for (pbX in tags) pbW.bytesField(1, pbX.marshalDc())
+        if (payload.isNotEmpty()) pbW.bytesField(2, payload)
+        pbW.stringField(3, publisherId)
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         tags = mutableListOf()
         payload = ByteArray(0)
         publisherId = ""
-        val r = EventsPb.Reader(data)
+        val pbR = EventsPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    val item = TagValue()
-                    item.unmarshalDc(field.bytesValue)
-                    tags.add(item)
+                    val pbItem = TagValue()
+                    pbItem.unmarshalDc(pbField.bytesValue)
+                    tags.add(pbItem)
                 }
                 2 -> {
-                    payload = field.bytesValue
+                    payload = pbField.bytesValue
                 }
                 3 -> {
-                    publisherId = String(field.bytesValue, Charsets.UTF_8)
+                    publisherId = String(pbField.bytesValue, Charsets.UTF_8)
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -195,22 +195,22 @@ enum class Tag(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = EventsPb.Writer()
-        if (seq != 0uL) { w.tag(1, 0); w.varint(seq.toLong()) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = EventsPb.Writer()
+        if (seq != 0uL) { pbW.tag(1, 0); pbW.varint(seq.toLong()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         seq = 0uL
-        val r = EventsPb.Reader(data)
+        val pbR = EventsPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    seq = field.varintValue.toULong()
+                    seq = pbField.varintValue.toULong()
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -220,24 +220,24 @@ enum class Tag(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = EventsPb.Writer()
-        for (x in filter) w.bytesField(1, x.marshalDc())
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = EventsPb.Writer()
+        for (pbX in filter) pbW.bytesField(1, pbX.marshalDc())
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         filter = mutableListOf()
-        val r = EventsPb.Reader(data)
+        val pbR = EventsPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    val item = TagValue()
-                    item.unmarshalDc(field.bytesValue)
-                    filter.add(item)
+                    val pbItem = TagValue()
+                    pbItem.unmarshalDc(pbField.bytesValue)
+                    filter.add(pbItem)
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -251,14 +251,14 @@ enum class Tag(val number: Int) {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = EventsPb.Writer()
-        for (x in tags) w.bytesField(1, x.marshalDc())
-        if (payload.isNotEmpty()) w.bytesField(2, payload)
-        if (seq != 0uL) { w.tag(3, 0); w.varint(seq.toLong()) }
-        w.stringField(4, publisherId)
-        if (timestampUnixMs != 0L) { w.tag(5, 0); w.varint(timestampUnixMs) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = EventsPb.Writer()
+        for (pbX in tags) pbW.bytesField(1, pbX.marshalDc())
+        if (payload.isNotEmpty()) pbW.bytesField(2, payload)
+        if (seq != 0uL) { pbW.tag(3, 0); pbW.varint(seq.toLong()) }
+        pbW.stringField(4, publisherId)
+        if (timestampUnixMs != 0L) { pbW.tag(5, 0); pbW.varint(timestampUnixMs) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
@@ -267,28 +267,28 @@ enum class Tag(val number: Int) {
         seq = 0uL
         publisherId = ""
         timestampUnixMs = 0L
-        val r = EventsPb.Reader(data)
+        val pbR = EventsPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    val item = TagValue()
-                    item.unmarshalDc(field.bytesValue)
-                    tags.add(item)
+                    val pbItem = TagValue()
+                    pbItem.unmarshalDc(pbField.bytesValue)
+                    tags.add(pbItem)
                 }
                 2 -> {
-                    payload = field.bytesValue
+                    payload = pbField.bytesValue
                 }
                 3 -> {
-                    seq = field.varintValue.toULong()
+                    seq = pbField.varintValue.toULong()
                 }
                 4 -> {
-                    publisherId = String(field.bytesValue, Charsets.UTF_8)
+                    publisherId = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 5 -> {
-                    timestampUnixMs = field.varintValue
+                    timestampUnixMs = pbField.varintValue
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }

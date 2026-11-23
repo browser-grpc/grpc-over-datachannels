@@ -14,11 +14,11 @@ public final class StreamingInputCallRequest implements grpcdc.Marshaler, grpcdc
 
     @Override
     public byte[] marshalDc() {
-        MessagesPb.Writer w = new MessagesPb.Writer();
-        if (payload != null) w.bytesField(1, payload.marshalDc());
-        if (expectCompressed != null) w.bytesField(2, expectCompressed.marshalDc());
-        w.raw(unknownFields);
-        return w.toBytes();
+        MessagesPb.Writer pbW = new MessagesPb.Writer();
+        if (payload != null) pbW.bytesField(1, payload.marshalDc());
+        if (expectCompressed != null) pbW.bytesField(2, expectCompressed.marshalDc());
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -26,19 +26,19 @@ public final class StreamingInputCallRequest implements grpcdc.Marshaler, grpcdc
         unknownFields = new byte[0];
         payload = null;
         expectCompressed = null;
-        MessagesPb.Reader r = new MessagesPb.Reader(data);
-        MessagesPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        MessagesPb.Reader pbR = new MessagesPb.Reader(data);
+        MessagesPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
                     payload = new Payload();
-                    payload.unmarshalDc(field.bytesValue);
+                    payload.unmarshalDc(pbField.bytesValue);
                 }
                 case 2 -> {
                     expectCompressed = new BoolValue();
-                    expectCompressed.unmarshalDc(field.bytesValue);
+                    expectCompressed.unmarshalDc(pbField.bytesValue);
                 }
-                default -> { unknownFields = MessagesPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = MessagesPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

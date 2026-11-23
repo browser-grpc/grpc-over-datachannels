@@ -35,6 +35,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`TestOracle.kt`](tests/TestOracle.kt) — Official-implementation oracle, via the proxy
 - [`TestPbMessages.kt`](tests/TestPbMessages.kt) — Generated suite/example
 - [`TestSidecar.kt`](tests/TestSidecar.kt) — Sidecar transport
+- [`TestStructCodec.kt`](tests/TestStructCodec.kt) — Wire codec vectors
 - [`TestTracing.kt`](tests/TestTracing.kt) — Tracing: traceparent propagation, span observers, nested calls
 - [`TestUtil.kt`](tests/TestUtil.kt) — Generated suite/example
 
@@ -46,6 +47,8 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`Main.kt`](examples/EchoClientStdio/Main.kt) — Generated suite/example
 - [`EchoGrpcDc.kt`](examples/EchoGrpcDc.kt) — Echo: all four call shapes
 - [`EchoMessages.kt`](examples/EchoMessages.kt) — Echo: all four call shapes
+- [`EchoRequestStruct.kt`](examples/EchoRequestStruct.kt) — Echo: all four call shapes
+- [`EchoResponseStruct.kt`](examples/EchoResponseStruct.kt) — Echo: all four call shapes
 - [`Main.kt`](examples/EchoServerStdio/Main.kt) — Generated suite/example
 - [`EchoServiceImpl.kt`](examples/EchoServiceImpl.kt) — Echo: all four call shapes
 - [`EventBusDemo.kt`](examples/EventBusDemo.kt) — Event bus end-to-end

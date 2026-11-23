@@ -132,6 +132,13 @@ class Endpoint : public std::enable_shared_from_this<Endpoint> {
     Metadata metadata;
     /// This call's server span context (empty when dormant).
     mutable std::optional<Tracing::TraceContext> trace_context;
+    /// Whether this call negotiated the struct codec (HEADERS dc-codec: struct-v1).
+    mutable bool struct_codec = false;
+
+    /// Marshal a response message with this call's negotiated codec (generated server code calls this).
+    Bytes EncodeMessage(const Marshaler& msg) const {
+      return MarshalForCodec(struct_codec, msg);
+    }
     std::shared_ptr<ResponseMeta> response = std::make_shared<ResponseMeta>();
 
     /// Record response initial metadata (sent lazily, before

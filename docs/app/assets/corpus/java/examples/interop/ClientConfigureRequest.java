@@ -16,16 +16,16 @@ public final class ClientConfigureRequest implements grpcdc.Marshaler, grpcdc.Un
 
     @Override
     public byte[] marshalDc() {
-        MessagesPb.Writer w = new MessagesPb.Writer();
+        MessagesPb.Writer pbW = new MessagesPb.Writer();
         if (types != null && !types.isEmpty()) {
-            MessagesPb.Writer payload = new MessagesPb.Writer();
-            for (RpcType x : types) payload.varint(x.number);
-            w.bytesField(1, payload.toBytes());
+            MessagesPb.Writer pbPayload = new MessagesPb.Writer();
+            for (RpcType pbX : types) pbPayload.varint(pbX.number);
+            pbW.bytesField(1, pbPayload.toBytes());
         }
-        if (metadata != null) for (ClientConfigureRequest.Metadata x : metadata) w.bytesField(2, x.marshalDc());
-        if (timeoutSec != 0) { w.tag(3, 0); w.varint(timeoutSec); }
-        w.raw(unknownFields);
-        return w.toBytes();
+        if (metadata != null) for (ClientConfigureRequest.Metadata pbX : metadata) pbW.bytesField(2, pbX.marshalDc());
+        if (timeoutSec != 0) { pbW.tag(3, 0); pbW.varint(timeoutSec); }
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -34,29 +34,29 @@ public final class ClientConfigureRequest implements grpcdc.Marshaler, grpcdc.Un
         types = new java.util.ArrayList<>();
         metadata = new java.util.ArrayList<>();
         timeoutSec = 0;
-        MessagesPb.Reader r = new MessagesPb.Reader(data);
-        MessagesPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        MessagesPb.Reader pbR = new MessagesPb.Reader(data);
+        MessagesPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    if (field.wire == 2) {
-                        MessagesPb.Reader sub = new MessagesPb.Reader(field.bytesValue);
-                        while (!sub.done()) {
-                            types.add(RpcType.fromNumber((int) sub.varint()));
+                    if (pbField.wire == 2) {
+                        MessagesPb.Reader pbSub = new MessagesPb.Reader(pbField.bytesValue);
+                        while (!pbSub.done()) {
+                            types.add(RpcType.fromNumber((int) pbSub.varint()));
                         }
                     } else {
-                        types.add(RpcType.fromNumber((int) field.varintValue));
+                        types.add(RpcType.fromNumber((int) pbField.varintValue));
                     }
                 }
                 case 2 -> {
-                    ClientConfigureRequest.Metadata item = new ClientConfigureRequest.Metadata();
-                    item.unmarshalDc(field.bytesValue);
-                    metadata.add(item);
+                    ClientConfigureRequest.Metadata pbItem = new ClientConfigureRequest.Metadata();
+                    pbItem.unmarshalDc(pbField.bytesValue);
+                    metadata.add(pbItem);
                 }
                 case 3 -> {
-                    timeoutSec = (int) field.varintValue;
+                    timeoutSec = (int) pbField.varintValue;
                 }
-                default -> { unknownFields = MessagesPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = MessagesPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }
@@ -74,12 +74,12 @@ public final class ClientConfigureRequest implements grpcdc.Marshaler, grpcdc.Un
 
         @Override
         public byte[] marshalDc() {
-            MessagesPb.Writer w = new MessagesPb.Writer();
-        if (type != null && type.number != 0) { w.tag(1, 0); w.varint(type.number); }
-        w.stringField(2, key);
-        w.stringField(3, value);
-            w.raw(unknownFields);
-            return w.toBytes();
+            MessagesPb.Writer pbW = new MessagesPb.Writer();
+        if (type != null && type.number != 0) { pbW.tag(1, 0); pbW.varint(type.number); }
+        pbW.stringField(2, key);
+        pbW.stringField(3, value);
+            pbW.raw(unknownFields);
+            return pbW.toBytes();
         }
 
         @Override
@@ -88,20 +88,20 @@ public final class ClientConfigureRequest implements grpcdc.Marshaler, grpcdc.Un
             type = RpcType.EMPTY_CALL;
             key = "";
             value = "";
-            MessagesPb.Reader r = new MessagesPb.Reader(data);
-            MessagesPb.Field field;
-            while ((field = r.next()) != null) {
-                switch (field.number) {
+            MessagesPb.Reader pbR = new MessagesPb.Reader(data);
+            MessagesPb.Field pbField;
+            while ((pbField = pbR.next()) != null) {
+                switch (pbField.number) {
                 case 1 -> {
-                    type = RpcType.fromNumber((int) field.varintValue);
+                    type = RpcType.fromNumber((int) pbField.varintValue);
                 }
                 case 2 -> {
-                    key = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 3 -> {
-                    value = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    value = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
-                    default -> { unknownFields = MessagesPb.concatBytes(unknownFields, field.rawValue); }
+                    default -> { unknownFields = MessagesPb.concatBytes(unknownFields, pbField.rawValue); }
                 }
             }
         }

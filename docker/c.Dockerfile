@@ -7,13 +7,15 @@
 #   docker run --rm grpc-dc-c
 FROM gcc:14-bookworm
 WORKDIR /src
-RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler nodejs && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler nodejs curl ca-certificates && rm -rf /var/lib/apt/lists/*
 COPY c ./c
+COPY rust ./rust
+RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable && export PATH="$HOME/.cargo/bin:$PATH" && cd rust && cargo build --release
 COPY fixtures ./fixtures
 COPY bin ./bin
 COPY webapp/testdata ./webapp/testdata
 COPY docs/app/protoc-gen-grpc-dc.mjs ./docs/app/protoc-gen-grpc-dc.mjs
 COPY docs/app/gen ./docs/app/gen
 COPY proto ./proto
-RUN mkdir -p c/build && gcc -std=c99 -D_DEFAULT_SOURCE -Wall -Wextra -pthread -O1 -Ic -Ic/examples -Ic/tests c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/grpcdc/sidecar_transport.c c/grpcdc/dynamic.c c/examples/stdio_transport.c c/tests/main.c -o c/build/tests && gcc -std=c99 -D_DEFAULT_SOURCE -Wall -Wextra -pthread -O1 -Ic -Ic/examples -Ic/tests c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/examples/stdio_transport.c c/examples/echo_server_stdio.c -o c/build/echo_server_stdio && gcc -std=c99 -D_DEFAULT_SOURCE -Wall -Wextra -pthread -O1 -Ic -Ic/examples -Ic/tests c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/examples/stdio_transport.c c/examples/echo_client_stdio.c -o c/build/echo_client_stdio
+RUN mkdir -p c/build && gcc -std=c99 -D_DEFAULT_SOURCE -Wall -Wextra -pthread -O1 -Ic -Ic/examples -Ic/tests c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/grpcdc/sidecar_transport.c c/grpcdc/dynamic.c c/examples/stdio_transport.c c/tests/main.c -L rust/target/release -lgrpc_dc -Wl,-rpath,$PWD/rust/target/release -o c/build/tests && gcc -std=c99 -D_DEFAULT_SOURCE -Wall -Wextra -pthread -O1 -Ic -Ic/examples -Ic/tests c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/examples/stdio_transport.c c/examples/echo_server_stdio.c -L rust/target/release -lgrpc_dc -Wl,-rpath,$PWD/rust/target/release -o c/build/echo_server_stdio && gcc -std=c99 -D_DEFAULT_SOURCE -Wall -Wextra -pthread -O1 -Ic -Ic/examples -Ic/tests c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/examples/stdio_transport.c c/examples/echo_client_stdio.c -L rust/target/release -lgrpc_dc -Wl,-rpath,$PWD/rust/target/release -o c/build/echo_client_stdio
 CMD ["sh", "-c", "./c/build/tests TestCodec && ./c/build/tests TestEcho && ./c/build/tests TestBdd && ./c/build/tests TestBddSchemas && ./c/build/tests TestPbMessages"]

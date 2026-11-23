@@ -83,9 +83,10 @@ pub const EventBusSubscribeClient = struct {
 pub const EventBusSubscribeServer = struct {
     sink: server_mod.Sink,
     alloc: std.mem.Allocator,
+    struct_codec: bool = false,
 
     pub fn send(self: *EventBusSubscribeServer, resp: *const Event) Status {
-        const payload = resp.marshalDc(self.alloc);
+        const payload = grpcdc.codec.marshalForCodec(self.alloc, self.struct_codec, resp);
         defer self.alloc.free(payload);
         return self.sink.send(payload);
     }
@@ -112,7 +113,7 @@ fn eventBusPublishAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server
     var resp = PublishReply{};
     const st = impl.publish_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
     if (!st.isOk()) return st;
-    const payload = resp.marshalDc(reqs.alloc);
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
     defer reqs.alloc.free(payload);
     return sink.send(payload);
 }
@@ -125,7 +126,7 @@ fn eventBusSubscribeAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *serv
         .end => return Status.init(wire.codeInternal, "server-streaming call closed with no request"),
         .status => |st| return st,
     }
-    var stream = EventBusSubscribeServer{ .sink = sink, .alloc = reqs.alloc };
+    var stream = EventBusSubscribeServer{ .sink = sink, .alloc = reqs.alloc, .struct_codec = call_ctx.struct_codec };
     return impl.subscribe_fn(impl.ctx, call_ctx, &req, &stream);
 }
 

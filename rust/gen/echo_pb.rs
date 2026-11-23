@@ -220,3 +220,122 @@ impl EchoResponse {
     }
 }
 
+fn struct_check(bytes: &[u8], off: usize, n: usize) -> Result<(), String> {
+    if off.checked_add(n).map_or(true, |end| end > bytes.len()) { return Err("struct codec: out of bounds".to_string()); }
+    Ok(())
+}
+
+impl EchoRequest {
+    pub const STRUCT_FINGERPRINT: u32 = 0x7e95a1c0;
+
+    fn struct_size(&self) -> usize {
+        let mut size = 40;
+        size += self.message.len();
+        size += self.unknown_fields.len();
+        size
+    }
+
+    pub fn marshal_struct(&self) -> Vec<u8> {
+        let size = self.struct_size();
+        let mut buf = vec![0u8; size];
+        buf[0..4].copy_from_slice(b"DCS1");
+        buf[4..8].copy_from_slice(&(size as u32).to_le_bytes());
+        buf[8..12].copy_from_slice(&Self::STRUCT_FINGERPRINT.to_le_bytes());
+        let mut presence0: u32 = 0;
+        if !self.message.is_empty() { presence0 |= 1 << 0; }
+        if self.count != 0 { presence0 |= 1 << 1; }
+        if self.delay_ms != 0 { presence0 |= 1 << 2; }
+        buf[12..16].copy_from_slice(&presence0.to_le_bytes());
+        let mut vp = 40;
+        if !self.message.is_empty() {
+            buf[16..20].copy_from_slice(&(vp as u32).to_le_bytes());
+            buf[20..24].copy_from_slice(&(self.message.len() as u32).to_le_bytes());
+            buf[vp..vp + self.message.len()].copy_from_slice(&self.message.as_bytes());
+            vp += self.message.len();
+        }
+        { let off = 24; buf[off..off + 8].copy_from_slice(&(self.count as i64 as u64).to_le_bytes()); }
+        { let off = 32; buf[off..off + 8].copy_from_slice(&(self.delay_ms as i64 as u64).to_le_bytes()); }
+        buf[vp..vp + self.unknown_fields.len()].copy_from_slice(&self.unknown_fields);
+        buf
+    }
+
+    pub fn unmarshal_struct(bytes: &[u8]) -> Result<Self, String> {
+        if bytes.len() < 16 || &bytes[0..4] != b"DCS1" { return Err("struct codec: bad header".to_string()); }
+        if u32::from_le_bytes(bytes[8..12].try_into().unwrap()) != Self::STRUCT_FINGERPRINT { return Err("struct codec: schema fingerprint mismatch".to_string()); }
+        if u32::from_le_bytes(bytes[4..8].try_into().unwrap()) as usize != bytes.len() { return Err("struct codec: length mismatch".to_string()); }
+        let mut msg = Self::default();
+        let mut vend = 40;
+        if u32::from_le_bytes(bytes[12..16].try_into().unwrap()) & (1 << 0) != 0 {
+            let off = u32::from_le_bytes(bytes[16..20].try_into().unwrap()) as usize;
+            let el = u32::from_le_bytes(bytes[20..24].try_into().unwrap()) as usize;
+            struct_check(bytes, off, el)?;
+            msg.message = String::from_utf8_lossy(&bytes[off..off + el]).into_owned();
+            if off + el > vend { vend = off + el; }
+        }
+        if u32::from_le_bytes(bytes[12..16].try_into().unwrap()) & (1 << 1) != 0 {
+            let off = 24;
+            msg.count = u64::from_le_bytes(bytes[off..off + 8].try_into().unwrap()) as i32;
+        }
+        if u32::from_le_bytes(bytes[12..16].try_into().unwrap()) & (1 << 2) != 0 {
+            let off = 32;
+            msg.delay_ms = u64::from_le_bytes(bytes[off..off + 8].try_into().unwrap()) as i32;
+        }
+        if vend < bytes.len() { msg.unknown_fields = bytes[vend..].to_vec(); }
+        Ok(msg)
+    }
+}
+
+impl EchoResponse {
+    pub const STRUCT_FINGERPRINT: u32 = 0x6fd5e6cc;
+
+    fn struct_size(&self) -> usize {
+        let mut size = 32;
+        size += self.message.len();
+        size += self.unknown_fields.len();
+        size
+    }
+
+    pub fn marshal_struct(&self) -> Vec<u8> {
+        let size = self.struct_size();
+        let mut buf = vec![0u8; size];
+        buf[0..4].copy_from_slice(b"DCS1");
+        buf[4..8].copy_from_slice(&(size as u32).to_le_bytes());
+        buf[8..12].copy_from_slice(&Self::STRUCT_FINGERPRINT.to_le_bytes());
+        let mut presence0: u32 = 0;
+        if !self.message.is_empty() { presence0 |= 1 << 0; }
+        if self.index != 0 { presence0 |= 1 << 1; }
+        buf[12..16].copy_from_slice(&presence0.to_le_bytes());
+        let mut vp = 32;
+        if !self.message.is_empty() {
+            buf[16..20].copy_from_slice(&(vp as u32).to_le_bytes());
+            buf[20..24].copy_from_slice(&(self.message.len() as u32).to_le_bytes());
+            buf[vp..vp + self.message.len()].copy_from_slice(&self.message.as_bytes());
+            vp += self.message.len();
+        }
+        { let off = 24; buf[off..off + 8].copy_from_slice(&(self.index as i64 as u64).to_le_bytes()); }
+        buf[vp..vp + self.unknown_fields.len()].copy_from_slice(&self.unknown_fields);
+        buf
+    }
+
+    pub fn unmarshal_struct(bytes: &[u8]) -> Result<Self, String> {
+        if bytes.len() < 16 || &bytes[0..4] != b"DCS1" { return Err("struct codec: bad header".to_string()); }
+        if u32::from_le_bytes(bytes[8..12].try_into().unwrap()) != Self::STRUCT_FINGERPRINT { return Err("struct codec: schema fingerprint mismatch".to_string()); }
+        if u32::from_le_bytes(bytes[4..8].try_into().unwrap()) as usize != bytes.len() { return Err("struct codec: length mismatch".to_string()); }
+        let mut msg = Self::default();
+        let mut vend = 32;
+        if u32::from_le_bytes(bytes[12..16].try_into().unwrap()) & (1 << 0) != 0 {
+            let off = u32::from_le_bytes(bytes[16..20].try_into().unwrap()) as usize;
+            let el = u32::from_le_bytes(bytes[20..24].try_into().unwrap()) as usize;
+            struct_check(bytes, off, el)?;
+            msg.message = String::from_utf8_lossy(&bytes[off..off + el]).into_owned();
+            if off + el > vend { vend = off + el; }
+        }
+        if u32::from_le_bytes(bytes[12..16].try_into().unwrap()) & (1 << 1) != 0 {
+            let off = 24;
+            msg.index = u64::from_le_bytes(bytes[off..off + 8].try_into().unwrap()) as i32;
+        }
+        if vend < bytes.len() { msg.unknown_fields = bytes[vend..].to_vec(); }
+        Ok(msg)
+    }
+}
+

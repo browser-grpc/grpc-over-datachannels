@@ -144,18 +144,18 @@ class EchoRequest(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new EchoPb.Writer()
-    w.stringField(1, message)
+    val pbW = new EchoPb.Writer()
+    pbW.stringField(1, message)
     if (count != 0) {
-      w.tag(2, 0)
-      w.varint((count.toLong))
+      pbW.tag(2, 0)
+      pbW.varint((count.toLong))
     }
     if (delayMs != 0) {
-      w.tag(3, 0)
-      w.varint((delayMs.toLong))
+      pbW.tag(3, 0)
+      pbW.varint((delayMs.toLong))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -163,20 +163,28 @@ class EchoRequest(
     message = ""
     count = 0
     delayMs = 0
-    val r = new EchoPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new EchoPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          message = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          message = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          count = field.varintValue.toInt
+          count = pbField.varintValue.toInt
         case 3 =>
-          delayMs = field.varintValue.toInt
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          delayMs = pbField.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
+  }
+  override def marshalStruct(): Array[Byte] = EchoRequestStruct.marshal(this)
+  override def unmarshalStruct(data: Array[Byte]): Unit = {
+    val _s = EchoRequestStruct.unmarshal(data)
+    message = _s.message
+    count = _s.count
+    delayMs = _s.delayMs
+    unknownFields = _s.unknownFields
   }
 }
 
@@ -186,32 +194,39 @@ class EchoResponse(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new EchoPb.Writer()
-    w.stringField(1, message)
+    val pbW = new EchoPb.Writer()
+    pbW.stringField(1, message)
     if (index != 0) {
-      w.tag(2, 0)
-      w.varint((index.toLong))
+      pbW.tag(2, 0)
+      pbW.varint((index.toLong))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     message = ""
     index = 0
-    val r = new EchoPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new EchoPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          message = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          message = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 2 =>
-          index = field.varintValue.toInt
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          index = pbField.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
+  }
+  override def marshalStruct(): Array[Byte] = EchoResponseStruct.marshal(this)
+  override def unmarshalStruct(data: Array[Byte]): Unit = {
+    val _s = EchoResponseStruct.unmarshal(data)
+    message = _s.message
+    index = _s.index
+    unknownFields = _s.unknownFields
   }
 }
 

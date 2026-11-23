@@ -186,7 +186,7 @@ public static class EchoGrpcDc
 
         public Endpoint.CallContext Context { get; }
 
-        public void Send(EchoResponse resp) => _sink(resp.MarshalDc());
+        public void Send(EchoResponse resp) => _sink(Context.EncodeMessage(resp));
     }
 
     private sealed class EchoClientStreamServerImpl : EchoClientStreamServer
@@ -226,7 +226,7 @@ public static class EchoGrpcDc
 
         public Endpoint.CallContext Context { get; }
 
-        public void Send(EchoResponse resp) => _sink(resp.MarshalDc());
+        public void Send(EchoResponse resp) => _sink(Context.EncodeMessage(resp));
 
         public EchoRequest Recv()
         {
@@ -287,7 +287,7 @@ public static class EchoGrpcDc
                 {
                     var req = new EchoRequest();
                     reqs.RecvInto(req);
-                    sink(impl.Unary(ctx, req).MarshalDc());
+                    sink(ctx.EncodeMessage(impl.Unary(ctx, req)));
                 }),
                 new Server.Method("ServerStream", "/echo.Echo/ServerStream", Server.KindServerStreaming, (ctx, reqs, sink) =>
                 {
@@ -304,7 +304,7 @@ public static class EchoGrpcDc
                         throw new StatusException(Wire.CodeInternal,
                             "client-streaming handler never called SendAndClose");
                     }
-                    sink(stream.Resp.MarshalDc());
+                    sink(ctx.EncodeMessage(stream.Resp));
                 }),
                 new Server.Method("Bidi", "/echo.Echo/Bidi", Server.KindBidi, (ctx, reqs, sink) =>
                 {

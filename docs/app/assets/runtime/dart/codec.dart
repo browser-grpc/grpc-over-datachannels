@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'status.dart';
+import 'transport.dart';
 import 'wire.dart';
 
 /// Parsed HEADERS payload: path == null means response headers.
@@ -16,6 +17,33 @@ typedef Headers = ({String? path, Map<String, String> metadata});
 class Codec {
   static const int headerLen = 9;
   static const int maxDataPayload = 16 * 1024 * 1024;
+
+  /// HEADERS metadata key a client sends to request the struct codec for a call.
+  static const String structCodecHeader = 'dc-codec';
+  static const String structCodecV1 = 'struct-v1';
+
+  /// Marshal msg with the codec selected for a call (struct layout when negotiated).
+  static Uint8List marshalForCodec(bool structCodec, Marshaler msg) {
+    if (structCodec) {
+      if (msg is StructMarshaler) {
+        return (msg as StructMarshaler).marshalStruct();
+      }
+      throw StatusException(Wire.codeInternal, 'message has no struct codec');
+    }
+    return msg.marshalDc();
+  }
+
+  /// Decode data into msg with the codec selected for a call.
+  static void unmarshalForCodec(bool structCodec, List<int> data, Unmarshaler msg) {
+    if (structCodec) {
+      if (msg is StructUnmarshaler) {
+        (msg as StructUnmarshaler).unmarshalStruct(data);
+        return;
+      }
+      throw StatusException(Wire.codeInternal, 'message has no struct codec');
+    }
+    msg.unmarshalDc(data);
+  }
 
   /// One parsed frame.
   static ({

@@ -57,17 +57,17 @@ const LANGS = {
     server: ["dotnet", "csharp/examples/EchoServerStdio/bin/Debug/net8.0/EchoServerStdio.dll"],
   },
   cpp: {
-    build: `mkdir -p cpp/build && ${CXX} -std=c++17 -pthread -O1 -Icpp -I. cpp/examples/echo_server_stdio.cpp -o cpp/build/echo_server_stdio && ${CXX} -std=c++17 -pthread -O1 -Icpp -I. cpp/examples/echo_client_stdio.cpp -o cpp/build/echo_client_stdio`,
+    build: `mkdir -p cpp/build && ${CXX} -std=c++17 -pthread -O1 -Icpp -I. cpp/examples/echo_server_stdio.cpp -L ${ROOT}rust/target/release -lgrpc_dc -Wl,-rpath,${ROOT}rust/target/release -o cpp/build/echo_server_stdio && ${CXX} -std=c++17 -pthread -O1 -Icpp -I. cpp/examples/echo_client_stdio.cpp -L ${ROOT}rust/target/release -lgrpc_dc -Wl,-rpath,${ROOT}rust/target/release -o cpp/build/echo_client_stdio`,
     client: ["cpp/build/echo_client_stdio"],
     server: ["cpp/build/echo_server_stdio"],
   },
   swift: {
-    build: `mkdir -p swift/build && ${SWIFTC} -swift-version 5 -O swift/grpcdc/*.swift swift/examples/Pb.swift swift/examples/EchoMessages.swift swift/examples/EchoGrpcDc.swift swift/examples/EchoServiceImpl.swift swift/examples/StdioTransport.swift swift/examples/EchoServerStdio/main.swift -o swift/build/echo_server_stdio && ${SWIFTC} -swift-version 5 -O swift/grpcdc/*.swift swift/examples/Pb.swift swift/examples/EchoMessages.swift swift/examples/EchoGrpcDc.swift swift/examples/EchoServiceImpl.swift swift/examples/StdioTransport.swift swift/examples/EchoClientStdio/main.swift -o swift/build/echo_client_stdio`,
+    build: `mkdir -p swift/build && ${SWIFTC} -swift-version 5 -O -L ${ROOT}rust/target/release -lgrpc_dc -Xlinker -rpath -Xlinker ${ROOT}rust/target/release swift/grpcdc/*.swift swift/examples/Pb.swift swift/examples/EchoMessages.swift swift/examples/EchoRequestStruct.swift swift/examples/EchoResponseStruct.swift swift/examples/StructDcBridge.swift swift/examples/EchoGrpcDc.swift swift/examples/EchoServiceImpl.swift swift/examples/StdioTransport.swift swift/examples/EchoServerStdio/main.swift -o swift/build/echo_server_stdio && ${SWIFTC} -swift-version 5 -O -L ${ROOT}rust/target/release -lgrpc_dc -Xlinker -rpath -Xlinker ${ROOT}rust/target/release swift/grpcdc/*.swift swift/examples/Pb.swift swift/examples/EchoMessages.swift swift/examples/EchoRequestStruct.swift swift/examples/EchoResponseStruct.swift swift/examples/StructDcBridge.swift swift/examples/EchoGrpcDc.swift swift/examples/EchoServiceImpl.swift swift/examples/StdioTransport.swift swift/examples/EchoClientStdio/main.swift -o swift/build/echo_client_stdio`,
     client: ["swift/build/echo_client_stdio"],
     server: ["swift/build/echo_server_stdio"],
   },
   kotlin: {
-    build: `${KOTLINC} -include-runtime kotlin/grpcdc/*.kt kotlin/examples/Pb.kt kotlin/examples/EchoMessages.kt kotlin/examples/EchoGrpcDc.kt kotlin/examples/EchoServiceImpl.kt kotlin/examples/StdioTransport.kt kotlin/examples/EchoServerStdio/Main.kt -d kotlin/build/echo_server_stdio.jar && ${KOTLINC} -include-runtime kotlin/grpcdc/*.kt kotlin/examples/Pb.kt kotlin/examples/EchoMessages.kt kotlin/examples/EchoGrpcDc.kt kotlin/examples/EchoServiceImpl.kt kotlin/examples/StdioTransport.kt kotlin/examples/EchoClientStdio/Main.kt -d kotlin/build/echo_client_stdio.jar`,
+    build: `${KOTLINC} -include-runtime kotlin/grpcdc/*.kt kotlin/examples/Pb.kt kotlin/examples/EchoMessages.kt kotlin/examples/EchoRequestStruct.kt kotlin/examples/EchoResponseStruct.kt kotlin/examples/EchoGrpcDc.kt kotlin/examples/EchoServiceImpl.kt kotlin/examples/StdioTransport.kt kotlin/examples/EchoServerStdio/Main.kt -d kotlin/build/echo_server_stdio.jar && ${KOTLINC} -include-runtime kotlin/grpcdc/*.kt kotlin/examples/Pb.kt kotlin/examples/EchoMessages.kt kotlin/examples/EchoRequestStruct.kt kotlin/examples/EchoResponseStruct.kt kotlin/examples/EchoGrpcDc.kt kotlin/examples/EchoServiceImpl.kt kotlin/examples/StdioTransport.kt kotlin/examples/EchoClientStdio/Main.kt -d kotlin/build/echo_client_stdio.jar`,
     client: ["java", "-jar", "kotlin/build/echo_client_stdio.jar"],
     server: ["java", "-jar", "kotlin/build/echo_server_stdio.jar"],
   },
@@ -82,7 +82,7 @@ const LANGS = {
     server: ["zig/build/bin/echo_server_stdio"],
   },
   c: {
-    build: "mkdir -p c/build && gcc -std=c99 -Wall -Wextra -pthread -O1 -Ic -Ic/examples c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/examples/stdio_transport.c c/examples/echo_server_stdio.c -o c/build/echo_server_stdio && gcc -std=c99 -Wall -Wextra -pthread -O1 -Ic -Ic/examples c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/examples/stdio_transport.c c/examples/echo_client_stdio.c -o c/build/echo_client_stdio",
+    build: "mkdir -p c/build && gcc -std=c99 -Wall -Wextra -pthread -O1 -Ic -Ic/examples c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/examples/stdio_transport.c c/examples/echo_server_stdio.c -L ${ROOT}rust/target/release -lgrpc_dc -Wl,-rpath,${ROOT}rust/target/release -o c/build/echo_server_stdio && gcc -std=c99 -Wall -Wextra -pthread -O1 -Ic -Ic/examples c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/examples/stdio_transport.c c/examples/echo_client_stdio.c -L ${ROOT}rust/target/release -lgrpc_dc -Wl,-rpath,${ROOT}rust/target/release -o c/build/echo_client_stdio",
     client: ["c/build/echo_client_stdio"],
     server: ["c/build/echo_server_stdio"],
   },
@@ -102,7 +102,7 @@ const LANGS = {
     server: [PHP, "php/examples/echo_server_stdio.php"],
   },
   scala: {
-    build: `mkdir -p scala/build && ${SCALAC} -d scala/build/echo_server_stdio.jar scala/grpcdc/*.scala scala/examples/EchoMessages.scala scala/examples/EchoGrpcDc.scala scala/examples/EchoServiceImpl.scala scala/examples/StdioTransport.scala scala/examples/EchoServerStdio/Main.scala && ${SCALAC} -d scala/build/echo_client_stdio.jar scala/grpcdc/*.scala scala/examples/EchoMessages.scala scala/examples/EchoGrpcDc.scala scala/examples/StdioTransport.scala scala/examples/EchoClientStdio/Main.scala`,
+    build: `mkdir -p scala/build && ${SCALAC} -d scala/build/echo_server_stdio.jar scala/grpcdc/*.scala scala/examples/EchoMessages.scala scala/examples/EchoRequestStruct.scala scala/examples/EchoResponseStruct.scala scala/examples/EchoGrpcDc.scala scala/examples/EchoServiceImpl.scala scala/examples/StdioTransport.scala scala/examples/EchoServerStdio/Main.scala && ${SCALAC} -d scala/build/echo_client_stdio.jar scala/grpcdc/*.scala scala/examples/EchoMessages.scala scala/examples/EchoRequestStruct.scala scala/examples/EchoResponseStruct.scala scala/examples/EchoGrpcDc.scala scala/examples/StdioTransport.scala scala/examples/EchoClientStdio/Main.scala`,
     client: ["java", "-cp", "scala/build/echo_client_stdio.jar:" + SCALA_LIBS, "echo.EchoClientStdio"],
     server: ["java", "-cp", "scala/build/echo_server_stdio.jar:" + SCALA_LIBS, "echo.EchoServerStdio"],
   },

@@ -11,11 +11,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compil
 RUN apt-get update && apt-get install -y curl xz-utils ca-certificates && case "$(uname -m)" in x86_64) A=x86_64 ;; aarch64) A=aarch64 ;; esac && curl -fsSL "https://ziglang.org/download/0.15.1/zig-${A}-linux-0.15.1.tar.xz" -o /tmp/zig.tar.xz && mkdir -p /opt/zig && tar -xJf /tmp/zig.tar.xz -C /opt/zig --strip-components=1 && rm /tmp/zig.tar.xz
 ENV PATH="/opt/zig:${PATH}"
 COPY zig ./zig
+COPY rust ./rust
 COPY fixtures ./fixtures
 COPY bin ./bin
 COPY webapp/testdata ./webapp/testdata
 COPY docs/app/protoc-gen-grpc-dc.mjs ./docs/app/protoc-gen-grpc-dc.mjs
 COPY docs/app/gen ./docs/app/gen
 COPY proto ./proto
+RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable && export PATH="$HOME/.cargo/bin:$PATH" && cd rust && cargo build --release
 RUN cd zig && zig build --prefix build
 CMD ["sh", "-c", "cd zig && ./build/bin/tests TestCodec && ./build/bin/tests TestEcho && ./build/bin/tests TestBdd && ./build/bin/tests TestBddSchemas && ./build/bin/tests TestPbMessages"]

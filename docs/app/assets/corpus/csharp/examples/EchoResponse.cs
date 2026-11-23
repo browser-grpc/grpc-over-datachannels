@@ -5,7 +5,7 @@ using Grpcdc;
 
 namespace Echo;
 
-public sealed class EchoResponse : IMarshaler, IUnmarshaler {
+public sealed class EchoResponse : IMarshaler, IUnmarshaler, IStructMarshaler, IStructUnmarshaler {
     public string Message = "";
     public int Index = 0;
     public byte[] UnknownFields = new byte[0];
@@ -40,5 +40,12 @@ public sealed class EchoResponse : IMarshaler, IUnmarshaler {
                 default: UnknownFields = EchoPb.ConcatBytes(UnknownFields, field.RawValue); break;
             }
         }
+    }
+    public byte[] MarshalStruct() => EchoResponseStruct.Marshal(this);
+    public void UnmarshalStruct(byte[] data) {
+        var _s = EchoResponseStruct.Unmarshal(data);
+        Message = _s.Message;
+        Index = _s.Index;
+        UnknownFields = _s.UnknownFields;
     }
 }

@@ -50,21 +50,21 @@ object Orca_load_reportPb {
     }
 
     fun OrcaLoadReportRequestCostEntryEncode(key: String, value: Double): ByteArray {
-        val w = Writer()
-        w.stringField(1, key)
-        if (value != 0.0) { w.tag(2, 1); w.fixedDouble(value) }
-        return w.toBytes()
+        val pbW = Writer()
+        pbW.stringField(1, key)
+        if (value != 0.0) { pbW.tag(2, 1); pbW.fixedDouble(value) }
+        return pbW.toBytes()
     }
 
     fun OrcaLoadReportRequestCostEntryDecode(bytes: ByteArray): Pair<String, Double> {
         var key: String = ""
         var value: Double = 0.0
-        val r = Reader(bytes)
+        val pbR = Reader(bytes)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
-                1 -> key = String(field.bytesValue, Charsets.UTF_8)
-                2 -> value = Orca_load_reportPb.bitsToDouble(field.fixedValue.toULong())
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
+                1 -> key = String(pbField.bytesValue, Charsets.UTF_8)
+                2 -> value = Orca_load_reportPb.bitsToDouble(pbField.fixedValue.toULong())
                 else -> {}
             }
         }
@@ -72,21 +72,21 @@ object Orca_load_reportPb {
     }
 
     fun OrcaLoadReportUtilizationEntryEncode(key: String, value: Double): ByteArray {
-        val w = Writer()
-        w.stringField(1, key)
-        if (value != 0.0) { w.tag(2, 1); w.fixedDouble(value) }
-        return w.toBytes()
+        val pbW = Writer()
+        pbW.stringField(1, key)
+        if (value != 0.0) { pbW.tag(2, 1); pbW.fixedDouble(value) }
+        return pbW.toBytes()
     }
 
     fun OrcaLoadReportUtilizationEntryDecode(bytes: ByteArray): Pair<String, Double> {
         var key: String = ""
         var value: Double = 0.0
-        val r = Reader(bytes)
+        val pbR = Reader(bytes)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
-                1 -> key = String(field.bytesValue, Charsets.UTF_8)
-                2 -> value = Orca_load_reportPb.bitsToDouble(field.fixedValue.toULong())
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
+                1 -> key = String(pbField.bytesValue, Charsets.UTF_8)
+                2 -> value = Orca_load_reportPb.bitsToDouble(pbField.fixedValue.toULong())
                 else -> {}
             }
         }
@@ -104,14 +104,14 @@ object Orca_load_reportPb {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = Orca_load_reportPb.Writer()
-        if (cpuUtilization != 0.0) { w.tag(1, 1); w.fixedDouble(cpuUtilization) }
-        if (memUtilization != 0.0) { w.tag(2, 1); w.fixedDouble(memUtilization) }
-        if (rpsFractional != 0.0) { w.tag(3, 1); w.fixedDouble(rpsFractional) }
-        for (e in requestCost) w.bytesField(4, Orca_load_reportPb.OrcaLoadReportRequestCostEntryEncode(e.key, e.value))
-        for (e in utilization) w.bytesField(5, Orca_load_reportPb.OrcaLoadReportUtilizationEntryEncode(e.key, e.value))
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = Orca_load_reportPb.Writer()
+        if (cpuUtilization != 0.0) { pbW.tag(1, 1); pbW.fixedDouble(cpuUtilization) }
+        if (memUtilization != 0.0) { pbW.tag(2, 1); pbW.fixedDouble(memUtilization) }
+        if (rpsFractional != 0.0) { pbW.tag(3, 1); pbW.fixedDouble(rpsFractional) }
+        for (pbE in requestCost) pbW.bytesField(4, Orca_load_reportPb.OrcaLoadReportRequestCostEntryEncode(pbE.key, pbE.value))
+        for (pbE in utilization) pbW.bytesField(5, Orca_load_reportPb.OrcaLoadReportUtilizationEntryEncode(pbE.key, pbE.value))
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
@@ -120,28 +120,28 @@ object Orca_load_reportPb {
         rpsFractional = 0.0
         requestCost = mutableMapOf()
         utilization = mutableMapOf()
-        val r = Orca_load_reportPb.Reader(data)
+        val pbR = Orca_load_reportPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    cpuUtilization = Orca_load_reportPb.bitsToDouble(field.fixedValue.toULong())
+                    cpuUtilization = Orca_load_reportPb.bitsToDouble(pbField.fixedValue.toULong())
                 }
                 2 -> {
-                    memUtilization = Orca_load_reportPb.bitsToDouble(field.fixedValue.toULong())
+                    memUtilization = Orca_load_reportPb.bitsToDouble(pbField.fixedValue.toULong())
                 }
                 3 -> {
-                    rpsFractional = Orca_load_reportPb.bitsToDouble(field.fixedValue.toULong())
+                    rpsFractional = Orca_load_reportPb.bitsToDouble(pbField.fixedValue.toULong())
                 }
                 4 -> {
-                    val kv = Orca_load_reportPb.OrcaLoadReportRequestCostEntryDecode(field.bytesValue)
-                    requestCost[kv.first] = kv.second
+                    val pbKv = Orca_load_reportPb.OrcaLoadReportRequestCostEntryDecode(pbField.bytesValue)
+                    requestCost[pbKv.first] = pbKv.second
                 }
                 5 -> {
-                    val kv = Orca_load_reportPb.OrcaLoadReportUtilizationEntryDecode(field.bytesValue)
-                    utilization[kv.first] = kv.second
+                    val pbKv = Orca_load_reportPb.OrcaLoadReportUtilizationEntryDecode(pbField.bytesValue)
+                    utilization[pbKv.first] = pbKv.second
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
     }
@@ -151,27 +151,27 @@ object Orca_load_reportPb {
     ) : Marshaler, Unmarshaler {
         var unknownFields: ByteArray = ByteArray(0)
         override fun marshalDc(): ByteArray {
-            val w = Orca_load_reportPb.Writer()
-        w.stringField(1, key)
-        if (value != 0.0) { w.tag(2, 1); w.fixedDouble(value) }
-            w.raw(unknownFields)
-            return w.toBytes()
+            val pbW = Orca_load_reportPb.Writer()
+        pbW.stringField(1, key)
+        if (value != 0.0) { pbW.tag(2, 1); pbW.fixedDouble(value) }
+            pbW.raw(unknownFields)
+            return pbW.toBytes()
         }
         override fun unmarshalDc(data: ByteArray) {
             unknownFields = ByteArray(0)
             key = ""
             value = 0.0
-            val r = Orca_load_reportPb.Reader(data)
+            val pbR = Orca_load_reportPb.Reader(data)
             while (true) {
-                val field = r.next() ?: break
-                when (field.number) {
+                val pbField = pbR.next() ?: break
+                when (pbField.number) {
                 1 -> {
-                    key = String(field.bytesValue, Charsets.UTF_8)
+                    key = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    value = Orca_load_reportPb.bitsToDouble(field.fixedValue.toULong())
+                    value = Orca_load_reportPb.bitsToDouble(pbField.fixedValue.toULong())
                 }
-                    else -> { unknownFields = unknownFields + field.rawValue }
+                    else -> { unknownFields = unknownFields + pbField.rawValue }
                 }
             }
         }
@@ -182,27 +182,27 @@ object Orca_load_reportPb {
     ) : Marshaler, Unmarshaler {
         var unknownFields: ByteArray = ByteArray(0)
         override fun marshalDc(): ByteArray {
-            val w = Orca_load_reportPb.Writer()
-        w.stringField(1, key)
-        if (value != 0.0) { w.tag(2, 1); w.fixedDouble(value) }
-            w.raw(unknownFields)
-            return w.toBytes()
+            val pbW = Orca_load_reportPb.Writer()
+        pbW.stringField(1, key)
+        if (value != 0.0) { pbW.tag(2, 1); pbW.fixedDouble(value) }
+            pbW.raw(unknownFields)
+            return pbW.toBytes()
         }
         override fun unmarshalDc(data: ByteArray) {
             unknownFields = ByteArray(0)
             key = ""
             value = 0.0
-            val r = Orca_load_reportPb.Reader(data)
+            val pbR = Orca_load_reportPb.Reader(data)
             while (true) {
-                val field = r.next() ?: break
-                when (field.number) {
+                val pbField = pbR.next() ?: break
+                when (pbField.number) {
                 1 -> {
-                    key = String(field.bytesValue, Charsets.UTF_8)
+                    key = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    value = Orca_load_reportPb.bitsToDouble(field.fixedValue.toULong())
+                    value = Orca_load_reportPb.bitsToDouble(pbField.fixedValue.toULong())
                 }
-                    else -> { unknownFields = unknownFields + field.rawValue }
+                    else -> { unknownFields = unknownFields + pbField.rawValue }
                 }
             }
         }

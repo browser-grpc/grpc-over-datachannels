@@ -1,0 +1,20 @@
+syntax = "proto3";
+package shapes;
+enum Hue { HUE_UNSPECIFIED = 0; RED = 1; }
+message Inner { string v = 1; int32 n = 2; }
+message Outer {
+  Inner inner = 1;
+  Hue hue = 2;
+  repeated int32 nums = 3;
+  map<string, Inner> by_name = 4;
+  oneof pick { string s = 5; int32 num = 6; }
+  bytes blob = 7;
+  repeated string names = 8;
+  repeated Inner inners = 9;
+  map<int32, string> by_id = 10;
+  double score = 11;
+  float ratio = 12;
+  bool flag = 13;
+  fixed64 stamp = 14;
+  sint32 delta = 15;
+}

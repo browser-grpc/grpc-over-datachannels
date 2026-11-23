@@ -14,11 +14,11 @@ public final class DeleteRecordsResponse implements grpcdc.Marshaler, grpcdc.Unm
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
-        if (lowWatermark != 0) { w.tag(1, 0); w.varint(lowWatermark); }
-        if (errorCode != 0) { w.tag(2, 0); w.varint(errorCode); }
-        w.raw(unknownFields);
-        return w.toBytes();
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
+        if (lowWatermark != 0) { pbW.tag(1, 0); pbW.varint(lowWatermark); }
+        if (errorCode != 0) { pbW.tag(2, 0); pbW.varint(errorCode); }
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -26,17 +26,17 @@ public final class DeleteRecordsResponse implements grpcdc.Marshaler, grpcdc.Unm
         unknownFields = new byte[0];
         lowWatermark = 0L;
         errorCode = 0;
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    lowWatermark = field.varintValue;
+                    lowWatermark = pbField.varintValue;
                 }
                 case 2 -> {
-                    errorCode = (int) field.varintValue;
+                    errorCode = (int) pbField.varintValue;
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

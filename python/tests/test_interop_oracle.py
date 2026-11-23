@@ -44,6 +44,17 @@ from messages_pb import (
 from orca_load_report_pb import OrcaLoadReport
 from test_pb import Empty
 
+
+def oracle_skip(test, reason):
+    """Availability skip that hard-fails when GRPC_DC_REQUIRE_ORACLE
+    is set (the CI image sets it; its Dockerfile builds every
+    oracle, so a missing one there is build breakage)."""
+    if os.environ.get("GRPC_DC_REQUIRE_ORACLE"):
+        test.fail(f"oracle required but unavailable: {reason}")
+    test.skipTest(reason)
+
+
+
 ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 
 INITIAL_METADATA_VALUE = "test_initial_metadata_value"
@@ -72,7 +83,7 @@ def java_classpath(test):
     if not os.path.exists(cp_file) or not os.path.isdir(
         os.path.join(target, "classes")
     ):
-        test.skipTest("java oracle not built (cd oracle/java && mvn package)")
+        oracle_skip(test, "java oracle not built (cd oracle/java && mvn package)")
     with open(cp_file) as f:
         return os.path.join(target, "classes") + ":" + f.read().strip()
 

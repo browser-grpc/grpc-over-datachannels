@@ -129,26 +129,26 @@ class Event : public grpcdc::Marshaler, public grpcdc::Unmarshaler {
   void UnmarshalDc(const grpcdc::Bytes& data) override;
 };
 inline grpcdc::Bytes TagValue::MarshalDc() const {
-    pb_events::Writer w;
-    if (static_cast<std::int32_t>(tag) != 0) { w.Tag(1, 0); w.Varint(static_cast<std::int32_t>(tag)); }
+    pb_events::Writer pb_w;
+    if (static_cast<std::int32_t>(tag) != 0) { pb_w.Tag(1, 0); pb_w.Varint(static_cast<std::int32_t>(tag)); }
     if (!(int_value != 0 || double_value != 0 || bool_value || enum_value != 0)) {
-    w.StringField(2, string_value);
+    pb_w.StringField(2, string_value);
     }
     if (!(double_value != 0 || bool_value || enum_value != 0)) {
-    if (int_value != 0) { w.Tag(3, 0); w.Varint(static_cast<std::uint64_t>(int_value)); }
+    if (int_value != 0) { pb_w.Tag(3, 0); pb_w.Varint(static_cast<std::uint64_t>(int_value)); }
     }
     if (!(bool_value || enum_value != 0)) {
-    if (double_value != 0) { w.Tag(4, 1); w.FixedDouble(double_value); }
+    if (double_value != 0) { pb_w.Tag(4, 1); pb_w.FixedDouble(double_value); }
     }
     if (!(enum_value != 0)) {
-    if (bool_value) { w.Tag(5, 0); w.Varint((bool_value ? 1 : 0)); }
+    if (bool_value) { pb_w.Tag(5, 0); pb_w.Varint((bool_value ? 1 : 0)); }
     }
-    if (enum_value != 0) { w.Tag(6, 0); w.Varint(static_cast<std::int64_t>(enum_value)); }
-    w.Raw(unknown_fields);
-    return w.ToBytes();
+    if (enum_value != 0) { pb_w.Tag(6, 0); pb_w.Varint(static_cast<std::int64_t>(enum_value)); }
+    pb_w.Raw(unknown_fields);
+    return pb_w.ToBytes();
 }
 
-inline void TagValue::UnmarshalDc(const grpcdc::Bytes& data) {
+inline void TagValue::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
     unknown_fields.clear();
     tag = Tag::TAG_UNSPECIFIED;
     string_value = "";
@@ -156,12 +156,12 @@ inline void TagValue::UnmarshalDc(const grpcdc::Bytes& data) {
     double_value = 0;
     bool_value = false;
     enum_value = 0;
-    pb_events::Reader r(data);
-    pb_events::Field field;
-    while (r.Next(field)) {
-      switch (field.number) {
+    pb_events::Reader pb_r(pb_data_);
+    pb_events::Field pb_field;
+    while (pb_r.Next(pb_field)) {
+      switch (pb_field.number) {
         case 1: {
-            tag = static_cast<Tag>(static_cast<std::int32_t>(field.varint));
+            tag = static_cast<Tag>(static_cast<std::int32_t>(pb_field.varint));
             break;
         }
         case 2: {
@@ -169,7 +169,7 @@ inline void TagValue::UnmarshalDc(const grpcdc::Bytes& data) {
             double_value = 0;
             bool_value = false;
             enum_value = 0;
-            string_value = std::string(field.bytes.begin(), field.bytes.end());
+            string_value = std::string(pb_field.bytes.begin(), pb_field.bytes.end());
             break;
         }
         case 3: {
@@ -177,7 +177,7 @@ inline void TagValue::UnmarshalDc(const grpcdc::Bytes& data) {
             double_value = 0;
             bool_value = false;
             enum_value = 0;
-            int_value = static_cast<std::int64_t>(field.varint);
+            int_value = static_cast<std::int64_t>(pb_field.varint);
             break;
         }
         case 4: {
@@ -185,7 +185,7 @@ inline void TagValue::UnmarshalDc(const grpcdc::Bytes& data) {
             int_value = 0;
             bool_value = false;
             enum_value = 0;
-            double_value = pb_events::BitsToDouble(field.fixed);
+            double_value = pb_events::BitsToDouble(pb_field.fixed);
             break;
         }
         case 5: {
@@ -193,7 +193,7 @@ inline void TagValue::UnmarshalDc(const grpcdc::Bytes& data) {
             int_value = 0;
             double_value = 0;
             enum_value = 0;
-            bool_value = field.varint != 0;
+            bool_value = pb_field.varint != 0;
             break;
         }
         case 6: {
@@ -201,144 +201,144 @@ inline void TagValue::UnmarshalDc(const grpcdc::Bytes& data) {
             int_value = 0;
             double_value = 0;
             bool_value = false;
-            enum_value = static_cast<std::int32_t>(field.varint);
+            enum_value = static_cast<std::int32_t>(pb_field.varint);
             break;
         }
-        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
+        default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;
       }
     }
 }
 
 inline grpcdc::Bytes PublishRequest::MarshalDc() const {
-    pb_events::Writer w;
-    for (const auto& x : tags) w.BytesField(1, x.MarshalDc());
-    if (!payload.empty()) w.BytesField(2, payload);
-    w.StringField(3, publisher_id);
-    w.Raw(unknown_fields);
-    return w.ToBytes();
+    pb_events::Writer pb_w;
+    for (const auto& pb_x : tags) pb_w.BytesField(1, pb_x.MarshalDc());
+    if (!payload.empty()) pb_w.BytesField(2, payload);
+    pb_w.StringField(3, publisher_id);
+    pb_w.Raw(unknown_fields);
+    return pb_w.ToBytes();
 }
 
-inline void PublishRequest::UnmarshalDc(const grpcdc::Bytes& data) {
+inline void PublishRequest::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
     unknown_fields.clear();
     tags = {};
     payload = {};
     publisher_id = "";
-    pb_events::Reader r(data);
-    pb_events::Field field;
-    while (r.Next(field)) {
-      switch (field.number) {
+    pb_events::Reader pb_r(pb_data_);
+    pb_events::Field pb_field;
+    while (pb_r.Next(pb_field)) {
+      switch (pb_field.number) {
         case 1: {
-            TagValue item;
-            item.UnmarshalDc(field.bytes);
-            tags.push_back(item);
+            TagValue pb_item;
+            pb_item.UnmarshalDc(pb_field.bytes);
+            tags.push_back(pb_item);
             break;
         }
         case 2: {
-            payload = field.bytes;
+            payload = pb_field.bytes;
             break;
         }
         case 3: {
-            publisher_id = std::string(field.bytes.begin(), field.bytes.end());
+            publisher_id = std::string(pb_field.bytes.begin(), pb_field.bytes.end());
             break;
         }
-        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
+        default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;
       }
     }
 }
 
 inline grpcdc::Bytes PublishReply::MarshalDc() const {
-    pb_events::Writer w;
-    if (seq != 0) { w.Tag(1, 0); w.Varint(static_cast<std::uint64_t>(seq)); }
-    w.Raw(unknown_fields);
-    return w.ToBytes();
+    pb_events::Writer pb_w;
+    if (seq != 0) { pb_w.Tag(1, 0); pb_w.Varint(static_cast<std::uint64_t>(seq)); }
+    pb_w.Raw(unknown_fields);
+    return pb_w.ToBytes();
 }
 
-inline void PublishReply::UnmarshalDc(const grpcdc::Bytes& data) {
+inline void PublishReply::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
     unknown_fields.clear();
     seq = 0;
-    pb_events::Reader r(data);
-    pb_events::Field field;
-    while (r.Next(field)) {
-      switch (field.number) {
+    pb_events::Reader pb_r(pb_data_);
+    pb_events::Field pb_field;
+    while (pb_r.Next(pb_field)) {
+      switch (pb_field.number) {
         case 1: {
-            seq = field.varint;
+            seq = pb_field.varint;
             break;
         }
-        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
+        default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;
       }
     }
 }
 
 inline grpcdc::Bytes SubscribeRequest::MarshalDc() const {
-    pb_events::Writer w;
-    for (const auto& x : filter) w.BytesField(1, x.MarshalDc());
-    w.Raw(unknown_fields);
-    return w.ToBytes();
+    pb_events::Writer pb_w;
+    for (const auto& pb_x : filter) pb_w.BytesField(1, pb_x.MarshalDc());
+    pb_w.Raw(unknown_fields);
+    return pb_w.ToBytes();
 }
 
-inline void SubscribeRequest::UnmarshalDc(const grpcdc::Bytes& data) {
+inline void SubscribeRequest::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
     unknown_fields.clear();
     filter = {};
-    pb_events::Reader r(data);
-    pb_events::Field field;
-    while (r.Next(field)) {
-      switch (field.number) {
+    pb_events::Reader pb_r(pb_data_);
+    pb_events::Field pb_field;
+    while (pb_r.Next(pb_field)) {
+      switch (pb_field.number) {
         case 1: {
-            TagValue item;
-            item.UnmarshalDc(field.bytes);
-            filter.push_back(item);
+            TagValue pb_item;
+            pb_item.UnmarshalDc(pb_field.bytes);
+            filter.push_back(pb_item);
             break;
         }
-        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
+        default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;
       }
     }
 }
 
 inline grpcdc::Bytes Event::MarshalDc() const {
-    pb_events::Writer w;
-    for (const auto& x : tags) w.BytesField(1, x.MarshalDc());
-    if (!payload.empty()) w.BytesField(2, payload);
-    if (seq != 0) { w.Tag(3, 0); w.Varint(static_cast<std::uint64_t>(seq)); }
-    w.StringField(4, publisher_id);
-    if (timestamp_unix_ms != 0) { w.Tag(5, 0); w.Varint(static_cast<std::uint64_t>(timestamp_unix_ms)); }
-    w.Raw(unknown_fields);
-    return w.ToBytes();
+    pb_events::Writer pb_w;
+    for (const auto& pb_x : tags) pb_w.BytesField(1, pb_x.MarshalDc());
+    if (!payload.empty()) pb_w.BytesField(2, payload);
+    if (seq != 0) { pb_w.Tag(3, 0); pb_w.Varint(static_cast<std::uint64_t>(seq)); }
+    pb_w.StringField(4, publisher_id);
+    if (timestamp_unix_ms != 0) { pb_w.Tag(5, 0); pb_w.Varint(static_cast<std::uint64_t>(timestamp_unix_ms)); }
+    pb_w.Raw(unknown_fields);
+    return pb_w.ToBytes();
 }
 
-inline void Event::UnmarshalDc(const grpcdc::Bytes& data) {
+inline void Event::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
     unknown_fields.clear();
     tags = {};
     payload = {};
     seq = 0;
     publisher_id = "";
     timestamp_unix_ms = 0;
-    pb_events::Reader r(data);
-    pb_events::Field field;
-    while (r.Next(field)) {
-      switch (field.number) {
+    pb_events::Reader pb_r(pb_data_);
+    pb_events::Field pb_field;
+    while (pb_r.Next(pb_field)) {
+      switch (pb_field.number) {
         case 1: {
-            TagValue item;
-            item.UnmarshalDc(field.bytes);
-            tags.push_back(item);
+            TagValue pb_item;
+            pb_item.UnmarshalDc(pb_field.bytes);
+            tags.push_back(pb_item);
             break;
         }
         case 2: {
-            payload = field.bytes;
+            payload = pb_field.bytes;
             break;
         }
         case 3: {
-            seq = field.varint;
+            seq = pb_field.varint;
             break;
         }
         case 4: {
-            publisher_id = std::string(field.bytes.begin(), field.bytes.end());
+            publisher_id = std::string(pb_field.bytes.begin(), pb_field.bytes.end());
             break;
         }
         case 5: {
-            timestamp_unix_ms = static_cast<std::int64_t>(field.varint);
+            timestamp_unix_ms = static_cast<std::int64_t>(pb_field.varint);
             break;
         }
-        default: unknown_fields.insert(unknown_fields.end(), field.raw.begin(), field.raw.end()); break;
+        default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;
       }
     }
 }

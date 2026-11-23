@@ -83,7 +83,9 @@ def testBddSchemas(): Unit = {
     gen.resolve("KitchenMessages.scala").toString,
     gen.resolve("FeaturesMessages.scala").toString,
     gen.resolve("Harness.scala").toString,
-    s"$rootPath/scala/grpcdc/Transport.scala"))
+    s"$rootPath/scala/grpcdc/Transport.scala",
+    s"$rootPath/scala/grpcdc/Status.scala",
+    s"$rootPath/scala/grpcdc/WireGen.scala"))
   val out = capture(List("scala", "-cp", classes.toString, "Harness"))
   check(out.contains("schemas OK"), s"schemas: $out")
   println("TestBddSchemas OK")

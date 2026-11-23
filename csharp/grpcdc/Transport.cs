@@ -32,3 +32,16 @@ public interface IUnmarshaler
 {
     void UnmarshalDc(byte[] data);
 }
+
+/// <summary>Struct-layout encoding (see Codec.StructCodecV1), implemented
+/// by messages generated with struct_codec=true.</summary>
+public interface IStructMarshaler
+{
+    byte[] MarshalStruct();
+}
+
+/// <summary>Decoding side of IStructMarshaler.</summary>
+public interface IStructUnmarshaler
+{
+    void UnmarshalStruct(byte[] data);
+}

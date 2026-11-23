@@ -26,17 +26,17 @@ public final class ProduceRequest implements grpcdc.Marshaler, grpcdc.Unmarshale
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
-        w.stringField(1, topic);
-        if (partition != 0) { w.tag(2, 0); w.varint(partition); }
-        if (records != null) for (Record x : records) w.bytesField(3, x.marshalDc());
-        if (acks != null && acks.number != 0) { w.tag(4, 0); w.varint(acks.number); }
-        if (timeoutMs != 0) { w.tag(5, 0); w.varint(timeoutMs); }
-        if (compression != null && compression.number != 0) { w.tag(6, 0); w.varint(compression.number); }
-        w.stringField(7, sessionId);
-        w.stringField(8, transactionalId);
-        w.raw(unknownFields);
-        return w.toBytes();
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
+        pbW.stringField(1, topic);
+        if (partition != 0) { pbW.tag(2, 0); pbW.varint(partition); }
+        if (records != null) for (Record pbX : records) pbW.bytesField(3, pbX.marshalDc());
+        if (acks != null && acks.number != 0) { pbW.tag(4, 0); pbW.varint(acks.number); }
+        if (timeoutMs != 0) { pbW.tag(5, 0); pbW.varint(timeoutMs); }
+        if (compression != null && compression.number != 0) { pbW.tag(6, 0); pbW.varint(compression.number); }
+        pbW.stringField(7, sessionId);
+        pbW.stringField(8, transactionalId);
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -50,37 +50,37 @@ public final class ProduceRequest implements grpcdc.Marshaler, grpcdc.Unmarshale
         compression = Compression.COMPRESSION_NONE;
         sessionId = "";
         transactionalId = "";
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    topic = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    topic = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 2 -> {
-                    partition = (int) field.varintValue;
+                    partition = (int) pbField.varintValue;
                 }
                 case 3 -> {
-                    Record item = new Record();
-                    item.unmarshalDc(field.bytesValue);
-                    records.add(item);
+                    Record pbItem = new Record();
+                    pbItem.unmarshalDc(pbField.bytesValue);
+                    records.add(pbItem);
                 }
                 case 4 -> {
-                    acks = Acks.fromNumber((int) field.varintValue);
+                    acks = Acks.fromNumber((int) pbField.varintValue);
                 }
                 case 5 -> {
-                    timeoutMs = (int) field.varintValue;
+                    timeoutMs = (int) pbField.varintValue;
                 }
                 case 6 -> {
-                    compression = Compression.fromNumber((int) field.varintValue);
+                    compression = Compression.fromNumber((int) pbField.varintValue);
                 }
                 case 7 -> {
-                    sessionId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    sessionId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 8 -> {
-                    transactionalId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    transactionalId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

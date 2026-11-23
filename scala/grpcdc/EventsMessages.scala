@@ -154,37 +154,37 @@ class TagValue(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new EventsPb.Writer()
+    val pbW = new EventsPb.Writer()
     if (tag != 0) {
-      w.tag(1, 0)
-      w.varint((tag.toLong))
+      pbW.tag(1, 0)
+      pbW.varint((tag.toLong))
     }
     if (!(intValue != 0 || doubleValue != 0 || boolValue || enumValue != 0)) {
-    w.stringField(2, stringValue)
+    pbW.stringField(2, stringValue)
     }
     if (!(doubleValue != 0 || boolValue || enumValue != 0)) {
     if (intValue != 0) {
-      w.tag(3, 0)
-      w.varint(intValue.toLong)
+      pbW.tag(3, 0)
+      pbW.varint(intValue.toLong)
     }
     }
     if (!(boolValue || enumValue != 0)) {
     if (doubleValue != 0) {
-      w.fixed(4, 1, EventsPb.int64BytesLE(java.lang.Double.doubleToRawLongBits(doubleValue)))
+      pbW.fixed(4, 1, EventsPb.int64BytesLE(java.lang.Double.doubleToRawLongBits(doubleValue)))
     }
     }
     if (!(enumValue != 0)) {
     if (boolValue) {
-      w.tag(5, 0)
-      w.varint((if (boolValue) 1L else 0L))
+      pbW.tag(5, 0)
+      pbW.varint((if (boolValue) 1L else 0L))
     }
     }
     if (enumValue != 0) {
-      w.tag(6, 0)
-      w.varint((enumValue.toLong))
+      pbW.tag(6, 0)
+      pbW.varint((enumValue.toLong))
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -195,45 +195,45 @@ class TagValue(
     doubleValue = 0.0
     boolValue = false
     enumValue = 0
-    val r = new EventsPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new EventsPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          tag = field.varintValue.toInt
+          tag = pbField.varintValue.toInt
         case 2 =>
           intValue = 0L
           doubleValue = 0.0
           boolValue = false
           enumValue = 0
-          stringValue = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          stringValue = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 3 =>
           stringValue = ""
           doubleValue = 0.0
           boolValue = false
           enumValue = 0
-          intValue = field.varintValue
+          intValue = pbField.varintValue
         case 4 =>
           stringValue = ""
           intValue = 0L
           boolValue = false
           enumValue = 0
-          doubleValue = java.lang.Double.longBitsToDouble(EventsPb.toInt64LE(field.fixedValue, 0))
+          doubleValue = java.lang.Double.longBitsToDouble(EventsPb.toInt64LE(pbField.fixedValue, 0))
         case 5 =>
           stringValue = ""
           intValue = 0L
           doubleValue = 0.0
           enumValue = 0
-          boolValue = (field.varintValue != 0L)
+          boolValue = (pbField.varintValue != 0L)
         case 6 =>
           stringValue = ""
           intValue = 0L
           doubleValue = 0.0
           boolValue = false
-          enumValue = field.varintValue.toInt
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          enumValue = pbField.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -245,16 +245,16 @@ class PublishRequest(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new EventsPb.Writer()
-    for (x <- tags) {
-      w.bytesField(1, x.marshalDc())
+    val pbW = new EventsPb.Writer()
+    for (pbX <- tags) {
+      pbW.bytesField(1, pbX.marshalDc())
     }
     if (payload.nonEmpty) {
-      w.bytesField(2, payload)
+      pbW.bytesField(2, payload)
     }
-    w.stringField(3, publisherId)
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.stringField(3, publisherId)
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -262,21 +262,21 @@ class PublishRequest(
     tags = List.empty
     payload = Array.empty[Byte]
     publisherId = ""
-    val r = new EventsPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new EventsPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          val item = new TagValue()
-          item.unmarshalDc(field.bytesValue)
-          tags = tags :+ item
+          val pbItem = new TagValue()
+          pbItem.unmarshalDc(pbField.bytesValue)
+          tags = tags :+ pbItem
         case 2 =>
-          payload = field.bytesValue
+          payload = pbField.bytesValue
         case 3 =>
-          publisherId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          publisherId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -286,27 +286,27 @@ class PublishReply(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new EventsPb.Writer()
+    val pbW = new EventsPb.Writer()
     if (seq != 0) {
-      w.tag(1, 0)
-      w.varint(seq.toLong)
+      pbW.tag(1, 0)
+      pbW.varint(seq.toLong)
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     seq = 0L
-    val r = new EventsPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new EventsPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          seq = field.varintValue
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          seq = pbField.varintValue
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -316,28 +316,28 @@ class SubscribeRequest(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new EventsPb.Writer()
-    for (x <- filter) {
-      w.bytesField(1, x.marshalDc())
+    val pbW = new EventsPb.Writer()
+    for (pbX <- filter) {
+      pbW.bytesField(1, pbX.marshalDc())
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
     unknownFields = Array.empty[Byte]
     filter = List.empty
-    val r = new EventsPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new EventsPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          val item = new TagValue()
-          item.unmarshalDc(field.bytesValue)
-          filter = filter :+ item
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          val pbItem = new TagValue()
+          pbItem.unmarshalDc(pbField.bytesValue)
+          filter = filter :+ pbItem
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }
@@ -351,24 +351,24 @@ class Event(
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
-    val w = new EventsPb.Writer()
-    for (x <- tags) {
-      w.bytesField(1, x.marshalDc())
+    val pbW = new EventsPb.Writer()
+    for (pbX <- tags) {
+      pbW.bytesField(1, pbX.marshalDc())
     }
     if (payload.nonEmpty) {
-      w.bytesField(2, payload)
+      pbW.bytesField(2, payload)
     }
     if (seq != 0) {
-      w.tag(3, 0)
-      w.varint(seq.toLong)
+      pbW.tag(3, 0)
+      pbW.varint(seq.toLong)
     }
-    w.stringField(4, publisherId)
+    pbW.stringField(4, publisherId)
     if (timestampUnixMs != 0) {
-      w.tag(5, 0)
-      w.varint(timestampUnixMs.toLong)
+      pbW.tag(5, 0)
+      pbW.varint(timestampUnixMs.toLong)
     }
-    w.raw(unknownFields)
-    w.toBytes
+    pbW.raw(unknownFields)
+    pbW.toBytes
   }
 
   def unmarshalDc(data: Array[Byte]): Unit = {
@@ -378,25 +378,25 @@ class Event(
     seq = 0L
     publisherId = ""
     timestampUnixMs = 0L
-    val r = new EventsPb.Reader(data)
-    var field = r.next()
-    while (field != null) {
-      field.number match {
+    val pbR = new EventsPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
         case 1 =>
-          val item = new TagValue()
-          item.unmarshalDc(field.bytesValue)
-          tags = tags :+ item
+          val pbItem = new TagValue()
+          pbItem.unmarshalDc(pbField.bytesValue)
+          tags = tags :+ pbItem
         case 2 =>
-          payload = field.bytesValue
+          payload = pbField.bytesValue
         case 3 =>
-          seq = field.varintValue
+          seq = pbField.varintValue
         case 4 =>
-          publisherId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+          publisherId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 5 =>
-          timestampUnixMs = field.varintValue
-        case _ => unknownFields = unknownFields ++ field.rawValue
+          timestampUnixMs = pbField.varintValue
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
-      field = r.next()
+      pbField = pbR.next()
     }
   }
 }

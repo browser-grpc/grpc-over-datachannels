@@ -14,11 +14,11 @@ public final class LoadBalancerStatsRequest implements grpcdc.Marshaler, grpcdc.
 
     @Override
     public byte[] marshalDc() {
-        MessagesPb.Writer w = new MessagesPb.Writer();
-        if (numRpcs != 0) { w.tag(1, 0); w.varint(numRpcs); }
-        if (timeoutSec != 0) { w.tag(2, 0); w.varint(timeoutSec); }
-        w.raw(unknownFields);
-        return w.toBytes();
+        MessagesPb.Writer pbW = new MessagesPb.Writer();
+        if (numRpcs != 0) { pbW.tag(1, 0); pbW.varint(numRpcs); }
+        if (timeoutSec != 0) { pbW.tag(2, 0); pbW.varint(timeoutSec); }
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -26,17 +26,17 @@ public final class LoadBalancerStatsRequest implements grpcdc.Marshaler, grpcdc.
         unknownFields = new byte[0];
         numRpcs = 0;
         timeoutSec = 0;
-        MessagesPb.Reader r = new MessagesPb.Reader(data);
-        MessagesPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        MessagesPb.Reader pbR = new MessagesPb.Reader(data);
+        MessagesPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    numRpcs = (int) field.varintValue;
+                    numRpcs = (int) pbField.varintValue;
                 }
                 case 2 -> {
-                    timeoutSec = (int) field.varintValue;
+                    timeoutSec = (int) pbField.varintValue;
                 }
-                default -> { unknownFields = MessagesPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = MessagesPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

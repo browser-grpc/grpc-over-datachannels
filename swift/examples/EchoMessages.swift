@@ -66,34 +66,44 @@ public final class EchoRequest: Marshaler, Unmarshaler {
         self.delayMs = delayMs
     }
     public func MarshalDc() -> [UInt8] {
-        let w = EchoPb.Writer()
-        w.StringField(1, message)
-        if count != 0 { w.Tag(2, 0); w.Varint(Int64(count)) }
-        if delayMs != 0 { w.Tag(3, 0); w.Varint(Int64(delayMs)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = EchoPb.Writer()
+        pbW.StringField(1, message)
+        if count != 0 { pbW.Tag(2, 0); pbW.Varint(Int64(count)) }
+        if delayMs != 0 { pbW.Tag(3, 0); pbW.Varint(Int64(delayMs)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         message = ""
         count = 0
         delayMs = 0
-        let r = EchoPb.Reader(data)
+        let pbR = EchoPb.Reader(data)
         while true {
             let next: EchoPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                message = String(decoding: field.bytesValue, as: UTF8.self)
+                message = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                count = Int32(truncatingIfNeeded: field.varintValue)
+                count = Int32(truncatingIfNeeded: pbField.varintValue)
             case 3:
-                delayMs = Int32(truncatingIfNeeded: field.varintValue)
-            default: unknownFields += field.rawValue
+                delayMs = Int32(truncatingIfNeeded: pbField.varintValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
+#if canImport(Foundation)
+    public func MarshalStruct() throws -> [UInt8] { EchoRequestStruct.Marshal(self) }
+    public func UnmarshalStruct(_ data: [UInt8]) throws {
+        let _s = EchoRequestStruct.Unmarshal(data)
+        message = _s.message
+        count = _s.count
+        delayMs = _s.delayMs
+        unknownFields = _s.unknownFields
+    }
+#endif
 }
 public final class EchoResponse: Marshaler, Unmarshaler {
     public var message: String = ""
@@ -105,28 +115,37 @@ public final class EchoResponse: Marshaler, Unmarshaler {
         self.index = index
     }
     public func MarshalDc() -> [UInt8] {
-        let w = EchoPb.Writer()
-        w.StringField(1, message)
-        if index != 0 { w.Tag(2, 0); w.Varint(Int64(index)) }
-        w.Raw(unknownFields)
-        return w.ToBytes()
+        let pbW = EchoPb.Writer()
+        pbW.StringField(1, message)
+        if index != 0 { pbW.Tag(2, 0); pbW.Varint(Int64(index)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
     }
     public func UnmarshalDc(_ data: [UInt8]) {
         unknownFields = []
         message = ""
         index = 0
-        let r = EchoPb.Reader(data)
+        let pbR = EchoPb.Reader(data)
         while true {
             let next: EchoPb.Field?
-            do { next = try r.Next() } catch { break }
-            guard let field = next else { break }
-            switch field.number {
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
             case 1:
-                message = String(decoding: field.bytesValue, as: UTF8.self)
+                message = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 2:
-                index = Int32(truncatingIfNeeded: field.varintValue)
-            default: unknownFields += field.rawValue
+                index = Int32(truncatingIfNeeded: pbField.varintValue)
+            default: unknownFields += pbField.rawValue
             }
         }
     }
+#if canImport(Foundation)
+    public func MarshalStruct() throws -> [UInt8] { EchoResponseStruct.Marshal(self) }
+    public func UnmarshalStruct(_ data: [UInt8]) throws {
+        let _s = EchoResponseStruct.Unmarshal(data)
+        message = _s.message
+        index = _s.index
+        unknownFields = _s.unknownFields
+    }
+#endif
 }

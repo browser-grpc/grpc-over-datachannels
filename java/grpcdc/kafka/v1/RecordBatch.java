@@ -18,13 +18,13 @@ public final class RecordBatch implements grpcdc.Marshaler, grpcdc.Unmarshaler {
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
-        w.stringField(1, topic);
-        if (partition != 0) { w.tag(2, 0); w.varint(partition); }
-        if (highWatermark != 0) { w.tag(3, 0); w.varint(highWatermark); }
-        if (records != null) for (FetchedRecord x : records) w.bytesField(4, x.marshalDc());
-        w.raw(unknownFields);
-        return w.toBytes();
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
+        pbW.stringField(1, topic);
+        if (partition != 0) { pbW.tag(2, 0); pbW.varint(partition); }
+        if (highWatermark != 0) { pbW.tag(3, 0); pbW.varint(highWatermark); }
+        if (records != null) for (FetchedRecord pbX : records) pbW.bytesField(4, pbX.marshalDc());
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -34,25 +34,25 @@ public final class RecordBatch implements grpcdc.Marshaler, grpcdc.Unmarshaler {
         partition = 0;
         highWatermark = 0L;
         records = new java.util.ArrayList<>();
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    topic = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    topic = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 2 -> {
-                    partition = (int) field.varintValue;
+                    partition = (int) pbField.varintValue;
                 }
                 case 3 -> {
-                    highWatermark = field.varintValue;
+                    highWatermark = pbField.varintValue;
                 }
                 case 4 -> {
-                    FetchedRecord item = new FetchedRecord();
-                    item.unmarshalDc(field.bytesValue);
-                    records.add(item);
+                    FetchedRecord pbItem = new FetchedRecord();
+                    pbItem.unmarshalDc(pbField.bytesValue);
+                    records.add(pbItem);
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

@@ -124,6 +124,7 @@ async fn next_with_deadline(
 #[derive(Clone)]
 pub struct Channel {
     ep: Arc<Endpoint>,
+    struct_codec: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Channel {
@@ -137,15 +138,29 @@ impl Channel {
     pub fn with_parity(transport: Arc<dyn DcTransport>, parity: StreamIdParity) -> Self {
         let ep = Endpoint::new(transport, parity);
         crate::spawn_task(ep.clone().run());
-        Self { ep }
+        Self { ep, struct_codec: Arc::new(std::sync::atomic::AtomicBool::new(false)) }
     }
 
     pub fn from_endpoint(ep: Arc<Endpoint>) -> Self {
-        Self { ep }
+        Self { ep, struct_codec: Arc::new(std::sync::atomic::AtomicBool::new(false)) }
     }
 
     pub fn endpoint(&self) -> Arc<Endpoint> {
         self.ep.clone()
+    }
+
+    /// Make every call on this channel request the struct codec
+    /// (HEADERS marker dc-codec: struct-v1) and encode requests
+    /// with the struct layout. Peers must negotiate it (see
+    /// Endpoint::set_struct_codec on the server side); otherwise
+    /// the call is rejected UNIMPLEMENTED. Mirrors the Go
+    /// Channel.SetStructCodec.
+    pub fn set_struct_codec(&self, enabled: bool) {
+        self.struct_codec.store(enabled, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    fn use_struct_codec(&self) -> bool {
+        self.struct_codec.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     async fn open_with_options(
@@ -161,6 +176,12 @@ impl Channel {
             Instant::now() + timeout
         });
         let mut metadata = options.metadata;
+        if self.use_struct_codec() {
+            metadata.insert(
+                crate::structdc::STRUCT_CODEC_HEADER.to_string(),
+                crate::structdc::STRUCT_CODEC_V1.to_string(),
+            );
+        }
         let mut trace_ctx = None;
         if crate::status::tracing_enabled() {
             let parent = crate::status::parse_traceparent(metadata.get("traceparent"))
@@ -189,7 +210,8 @@ impl Channel {
     }
 
     async fn send_data<Req: Message>(&self, id: u32, req: &Req) -> Result<(), Status> {
-        self.ep.send_frame(Frame::data(id, req.encode())).await
+        let bytes = if self.use_struct_codec() { req.encode_struct()? } else { req.encode() };
+        self.ep.send_frame(Frame::data(id, bytes)).await
     }
 
     async fn collect_one_with_deadline<Resp: Message>(
@@ -207,7 +229,11 @@ impl Channel {
                     fill_capture(&capture.0, &headers.metadata);
                     continue;
                 }
-                Ok(Some(StreamEvent::Data(bytes))) => match Resp::decode(&bytes) {
+                Ok(Some(StreamEvent::Data(bytes))) => match if self.use_struct_codec() {
+                    Resp::decode_struct(&bytes)
+                } else {
+                    Resp::decode(&bytes)
+                } {
                     Ok(msg) => {
                         if response.is_some() {
                             break Err(Status::internal("unary call received more than one response"));
@@ -322,7 +348,7 @@ impl Channel {
         let (id, rx, deadline, capture) = self.open_with_options(path, options).await?;
         self.send_data(id, &req).await?;
         self.ep.send_frame(Frame::half_close(id)).await?;
-        Ok(typed_response_stream(self.ep.clone(), id, rx, deadline, capture))
+        Ok(typed_response_stream(self.ep.clone(), id, rx, deadline, capture, self.use_struct_codec()))
     }
 
     // -- client-streaming ------------------------------------------------------
@@ -412,7 +438,7 @@ impl Channel {
     {
         let (id, rx, deadline, capture) = self.open_with_options(path, options).await?;
         self.spawn_pump(id, reqs);
-        Ok(typed_response_stream(self.ep.clone(), id, rx, deadline, capture))
+        Ok(typed_response_stream(self.ep.clone(), id, rx, deadline, capture, self.use_struct_codec()))
     }
 
     fn spawn_pump<Req, S>(&self, id: u32, reqs: S)
@@ -421,10 +447,19 @@ impl Channel {
         S: Stream<Item = Req> + Send + 'static,
     {
         let ep = self.ep.clone();
+        let struct_codec = self.use_struct_codec();
         crate::spawn_task(async move {
             futures_util::pin_mut!(reqs);
             while let Some(req) = reqs.next().await {
-                if ep.send_frame(Frame::data(id, req.encode())).await.is_err() {
+                let bytes = if struct_codec {
+                    match req.encode_struct() {
+                        Ok(b) => b,
+                        Err(_) => return,
+                    }
+                } else {
+                    req.encode()
+                };
+                if ep.send_frame(Frame::data(id, bytes)).await.is_err() {
                     return;
                 }
             }
@@ -486,6 +521,7 @@ fn typed_response_stream<Resp>(
     rx: UnboundedReceiver<StreamEvent>,
     deadline: Option<Instant>,
     capture: Capture,
+    struct_codec: bool,
 ) -> ResponseStream<Resp>
 where
     Resp: Message + 'static,
@@ -509,7 +545,11 @@ where
                     continue;
                 }
                 Some(StreamEvent::HalfClose) => continue,
-                Some(StreamEvent::Data(bytes)) => match Resp::decode(&bytes) {
+                Some(StreamEvent::Data(bytes)) => match if struct_codec {
+                    Resp::decode_struct(&bytes)
+                } else {
+                    Resp::decode(&bytes)
+                } {
                     Ok(msg) => return Some((Ok(msg), (guard, rx, false, capture))),
                     Err(e) => {
                         guard.disarm();

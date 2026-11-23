@@ -58,6 +58,7 @@ pub const PbReader = struct {
     }
 };
 
+const _structdc = @import("echo_struct.zig");
 pub const EchoRequest = struct {
     message: []const u8 = "",
     count: i32 = 0,
@@ -97,6 +98,15 @@ pub const EchoRequest = struct {
         }
         self.unknown_fields = unknown_fields_list.toOwnedSlice(alloc) catch &.{};
     }
+    pub fn marshalStruct(self: *const EchoRequest, alloc: std.mem.Allocator) []u8 {
+        if (@import("builtin").target.os.tag == .freestanding) @panic("struct codec unavailable on freestanding targets");
+        return _structdc.EchoRequestStruct.marshal(self, alloc) catch @panic("struct codec encode failed");
+    }
+    pub fn unmarshalStruct(self: *EchoRequest, alloc: std.mem.Allocator, data: []const u8) void {
+        if (@import("builtin").target.os.tag == .freestanding) @panic("struct codec unavailable on freestanding targets");
+        const s = _structdc.EchoRequestStruct.unmarshal(alloc, data) catch return;
+        self.* = s;
+    }
 };
 pub const EchoResponse = struct {
     message: []const u8 = "",
@@ -130,5 +140,14 @@ pub const EchoResponse = struct {
             }
         }
         self.unknown_fields = unknown_fields_list.toOwnedSlice(alloc) catch &.{};
+    }
+    pub fn marshalStruct(self: *const EchoResponse, alloc: std.mem.Allocator) []u8 {
+        if (@import("builtin").target.os.tag == .freestanding) @panic("struct codec unavailable on freestanding targets");
+        return _structdc.EchoResponseStruct.marshal(self, alloc) catch @panic("struct codec encode failed");
+    }
+    pub fn unmarshalStruct(self: *EchoResponse, alloc: std.mem.Allocator, data: []const u8) void {
+        if (@import("builtin").target.os.tag == .freestanding) @panic("struct codec unavailable on freestanding targets");
+        const s = _structdc.EchoResponseStruct.unmarshal(alloc, data) catch return;
+        self.* = s;
     }
 };

@@ -75,9 +75,10 @@ pub const OpenRcaServiceStreamCoreMetricsClient = struct {
 pub const OpenRcaServiceStreamCoreMetricsServer = struct {
     sink: server_mod.Sink,
     alloc: std.mem.Allocator,
+    struct_codec: bool = false,
 
     pub fn send(self: *OpenRcaServiceStreamCoreMetricsServer, resp: *const OrcaLoadReport) Status {
-        const payload = resp.marshalDc(self.alloc);
+        const payload = grpcdc.codec.marshalForCodec(self.alloc, self.struct_codec, resp);
         defer self.alloc.free(payload);
         return self.sink.send(payload);
     }
@@ -98,7 +99,7 @@ fn openRcaServiceStreamCoreMetricsAdapter(ctx: *anyopaque, call_ctx: *CallContex
         .end => return Status.init(wire.codeInternal, "server-streaming call closed with no request"),
         .status => |st| return st,
     }
-    var stream = OpenRcaServiceStreamCoreMetricsServer{ .sink = sink, .alloc = reqs.alloc };
+    var stream = OpenRcaServiceStreamCoreMetricsServer{ .sink = sink, .alloc = reqs.alloc, .struct_codec = call_ctx.struct_codec };
     return impl.stream_core_metrics_fn(impl.ctx, call_ctx, &req, &stream);
 }
 

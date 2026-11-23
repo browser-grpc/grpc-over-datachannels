@@ -69,23 +69,23 @@ class TagValue implements Marshaler, Unmarshaler {
   TagValue([this.tag = Tag.TAG_UNSPECIFIED, this.stringValue = '', this.intValue = 0, this.doubleValue = 0, this.boolValue = false, this.enumValue = 0]);
   @override
   Uint8List marshalDc() {
-    final w = EventsPbWriter();
-    if (tag.index != 0) { w.tag(1, 0); w.varint(tag.index); }
+    final pbW = EventsPbWriter();
+    if (tag.index != 0) { pbW.tag(1, 0); pbW.varint(tag.index); }
     if (!(intValue != 0 || doubleValue != 0 || boolValue || enumValue != 0)) {
-    w.stringField(2, stringValue);
+    pbW.stringField(2, stringValue);
     }
     if (!(doubleValue != 0 || boolValue || enumValue != 0)) {
-    if (intValue != 0) { w.tag(3, 0); w.varint(intValue); }
+    if (intValue != 0) { pbW.tag(3, 0); pbW.varint(intValue); }
     }
     if (!(boolValue || enumValue != 0)) {
-    if (doubleValue != 0) { w.tag(4, 1); w.fixedFloat64(doubleValue); }
+    if (doubleValue != 0) { pbW.tag(4, 1); pbW.fixedFloat64(doubleValue); }
     }
     if (!(enumValue != 0)) {
-    if (boolValue) { w.tag(5, 0); w.varint((boolValue ? 1 : 0)); }
+    if (boolValue) { pbW.tag(5, 0); pbW.varint((boolValue ? 1 : 0)); }
     }
-    if (enumValue != 0) { w.tag(6, 0); w.varint(enumValue); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    if (enumValue != 0) { pbW.tag(6, 0); pbW.varint(enumValue); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -96,51 +96,51 @@ class TagValue implements Marshaler, Unmarshaler {
     doubleValue = 0;
     boolValue = false;
     enumValue = 0;
-    final r = EventsPbReader(Uint8List.fromList(data));
+    final pbR = EventsPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          tag = Tag.values[(field.varintValue).toSigned(32)] ;
+          tag = Tag.values[(pbField.varintValue).toSigned(32)] ;
           break;
         case 2:
           intValue = 0;
           doubleValue = 0;
           boolValue = false;
           enumValue = 0;
-          stringValue = utf8.decode(field.bytesValue);
+          stringValue = utf8.decode(pbField.bytesValue);
           break;
         case 3:
           stringValue = '';
           doubleValue = 0;
           boolValue = false;
           enumValue = 0;
-          intValue = field.varintValue;
+          intValue = pbField.varintValue;
           break;
         case 4:
           stringValue = '';
           intValue = 0;
           boolValue = false;
           enumValue = 0;
-          doubleValue = EventsPbBitsToFloat64(field.fixedValue);
+          doubleValue = EventsPbBitsToFloat64(pbField.fixedValue);
           break;
         case 5:
           stringValue = '';
           intValue = 0;
           doubleValue = 0;
           enumValue = 0;
-          boolValue = field.varintValue != 0;
+          boolValue = pbField.varintValue != 0;
           break;
         case 6:
           stringValue = '';
           intValue = 0;
           doubleValue = 0;
           boolValue = false;
-          enumValue = (field.varintValue).toSigned(32);
+          enumValue = (pbField.varintValue).toSigned(32);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -154,12 +154,12 @@ class PublishRequest implements Marshaler, Unmarshaler {
   PublishRequest([this.publisherId = '']) : tags = [], payload = Uint8List(0);
   @override
   Uint8List marshalDc() {
-    final w = EventsPbWriter();
-    for (final x in tags) { w.bytesField(1, x.marshalDc()); }
-    if (payload.isNotEmpty) w.bytesField(2, payload);
-    w.stringField(3, publisherId);
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = EventsPbWriter();
+    for (final pbX in tags) { pbW.bytesField(1, pbX.marshalDc()); }
+    if (payload.isNotEmpty) pbW.bytesField(2, payload);
+    pbW.stringField(3, publisherId);
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -167,24 +167,24 @@ class PublishRequest implements Marshaler, Unmarshaler {
     tags = [];
     payload = Uint8List(0);
     publisherId = '';
-    final r = EventsPbReader(Uint8List.fromList(data));
+    final pbR = EventsPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
           final item = TagValue();
-          item.unmarshalDc(field.bytesValue);
+          item.unmarshalDc(pbField.bytesValue);
           tags.add(item);
           break;
         case 2:
-          payload = field.bytesValue;
+          payload = pbField.bytesValue;
           break;
         case 3:
-          publisherId = utf8.decode(field.bytesValue);
+          publisherId = utf8.decode(pbField.bytesValue);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -196,25 +196,25 @@ class PublishReply implements Marshaler, Unmarshaler {
   PublishReply([this.seq = 0]);
   @override
   Uint8List marshalDc() {
-    final w = EventsPbWriter();
-    if (seq != 0) { w.tag(1, 0); w.varint(seq); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = EventsPbWriter();
+    if (seq != 0) { pbW.tag(1, 0); pbW.varint(seq); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     seq = 0;
-    final r = EventsPbReader(Uint8List.fromList(data));
+    final pbR = EventsPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          seq = (field.varintValue).toUnsigned(64);
+          seq = (pbField.varintValue).toUnsigned(64);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -226,27 +226,27 @@ class SubscribeRequest implements Marshaler, Unmarshaler {
   SubscribeRequest() : filter = [];
   @override
   Uint8List marshalDc() {
-    final w = EventsPbWriter();
-    for (final x in filter) { w.bytesField(1, x.marshalDc()); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = EventsPbWriter();
+    for (final pbX in filter) { pbW.bytesField(1, pbX.marshalDc()); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     filter = [];
-    final r = EventsPbReader(Uint8List.fromList(data));
+    final pbR = EventsPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
           final item = TagValue();
-          item.unmarshalDc(field.bytesValue);
+          item.unmarshalDc(pbField.bytesValue);
           filter.add(item);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -262,14 +262,14 @@ class Event implements Marshaler, Unmarshaler {
   Event([this.seq = 0, this.publisherId = '', this.timestampUnixMs = 0]) : tags = [], payload = Uint8List(0);
   @override
   Uint8List marshalDc() {
-    final w = EventsPbWriter();
-    for (final x in tags) { w.bytesField(1, x.marshalDc()); }
-    if (payload.isNotEmpty) w.bytesField(2, payload);
-    if (seq != 0) { w.tag(3, 0); w.varint(seq); }
-    w.stringField(4, publisherId);
-    if (timestampUnixMs != 0) { w.tag(5, 0); w.varint(timestampUnixMs); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = EventsPbWriter();
+    for (final pbX in tags) { pbW.bytesField(1, pbX.marshalDc()); }
+    if (payload.isNotEmpty) pbW.bytesField(2, payload);
+    if (seq != 0) { pbW.tag(3, 0); pbW.varint(seq); }
+    pbW.stringField(4, publisherId);
+    if (timestampUnixMs != 0) { pbW.tag(5, 0); pbW.varint(timestampUnixMs); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -279,30 +279,30 @@ class Event implements Marshaler, Unmarshaler {
     seq = 0;
     publisherId = '';
     timestampUnixMs = 0;
-    final r = EventsPbReader(Uint8List.fromList(data));
+    final pbR = EventsPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
           final item = TagValue();
-          item.unmarshalDc(field.bytesValue);
+          item.unmarshalDc(pbField.bytesValue);
           tags.add(item);
           break;
         case 2:
-          payload = field.bytesValue;
+          payload = pbField.bytesValue;
           break;
         case 3:
-          seq = (field.varintValue).toUnsigned(64);
+          seq = (pbField.varintValue).toUnsigned(64);
           break;
         case 4:
-          publisherId = utf8.decode(field.bytesValue);
+          publisherId = utf8.decode(pbField.bytesValue);
           break;
         case 5:
-          timestampUnixMs = field.varintValue;
+          timestampUnixMs = pbField.varintValue;
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }

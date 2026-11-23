@@ -488,7 +488,7 @@ public enum KafkaGrpcDc {
             ctxRef = ctx
             self.sink = sink
         }
-        func Send(_ resp: ConsumeResponse) throws { try sink(resp.MarshalDc()) }
+        func Send(_ resp: ConsumeResponse) throws { try sink(ctxRef.EncodeMessage(resp)) }
         var context: Endpoint.CallContext { ctxRef }
     }
 
@@ -499,7 +499,7 @@ public enum KafkaGrpcDc {
             ctxRef = ctx
             self.sink = sink
         }
-        func Send(_ resp: GroupSubscribeResponse) throws { try sink(resp.MarshalDc()) }
+        func Send(_ resp: GroupSubscribeResponse) throws { try sink(ctxRef.EncodeMessage(resp)) }
         var context: Endpoint.CallContext { ctxRef }
     }
 
@@ -608,31 +608,31 @@ public enum KafkaGrpcDc {
                 let req = MetadataRequest()
                 try reqs.RecvInto(req)
                 let resp = try impl.Metadata(ctx, req)
-                try sink(resp.MarshalDc())
+                try sink(ctx.EncodeMessage(resp))
             },
             Server.Method(name: "OpenProducer", path: "/grpcdc.kafka.v1.Kafka/OpenProducer", kind: Server.KindUnary) { ctx, reqs, sink in
                 let req = OpenProducerRequest()
                 try reqs.RecvInto(req)
                 let resp = try impl.OpenProducer(ctx, req)
-                try sink(resp.MarshalDc())
+                try sink(ctx.EncodeMessage(resp))
             },
             Server.Method(name: "CloseProducer", path: "/grpcdc.kafka.v1.Kafka/CloseProducer", kind: Server.KindUnary) { ctx, reqs, sink in
                 let req = CloseProducerRequest()
                 try reqs.RecvInto(req)
                 let resp = try impl.CloseProducer(ctx, req)
-                try sink(resp.MarshalDc())
+                try sink(ctx.EncodeMessage(resp))
             },
             Server.Method(name: "EndTransaction", path: "/grpcdc.kafka.v1.Kafka/EndTransaction", kind: Server.KindUnary) { ctx, reqs, sink in
                 let req = EndTransactionRequest()
                 try reqs.RecvInto(req)
                 let resp = try impl.EndTransaction(ctx, req)
-                try sink(resp.MarshalDc())
+                try sink(ctx.EncodeMessage(resp))
             },
             Server.Method(name: "Produce", path: "/grpcdc.kafka.v1.Kafka/Produce", kind: Server.KindUnary) { ctx, reqs, sink in
                 let req = ProduceRequest()
                 try reqs.RecvInto(req)
                 let resp = try impl.Produce(ctx, req)
-                try sink(resp.MarshalDc())
+                try sink(ctx.EncodeMessage(resp))
             },
             Server.Method(name: "Consume", path: "/grpcdc.kafka.v1.Kafka/Consume", kind: Server.KindServerStreaming) { ctx, reqs, sink in
                 let req = ConsumeRequest()
@@ -648,139 +648,139 @@ public enum KafkaGrpcDc {
                 let req = ListOffsetsRequest()
                 try reqs.RecvInto(req)
                 let resp = try impl.ListOffsets(ctx, req)
-                try sink(resp.MarshalDc())
+                try sink(ctx.EncodeMessage(resp))
             },
             Server.Method(name: "CommitOffset", path: "/grpcdc.kafka.v1.Kafka/CommitOffset", kind: Server.KindUnary) { ctx, reqs, sink in
                 let req = CommitOffsetRequest()
                 try reqs.RecvInto(req)
                 let resp = try impl.CommitOffset(ctx, req)
-                try sink(resp.MarshalDc())
+                try sink(ctx.EncodeMessage(resp))
             },
             Server.Method(name: "FetchOffset", path: "/grpcdc.kafka.v1.Kafka/FetchOffset", kind: Server.KindUnary) { ctx, reqs, sink in
                 let req = FetchOffsetRequest()
                 try reqs.RecvInto(req)
                 let resp = try impl.FetchOffset(ctx, req)
-                try sink(resp.MarshalDc())
+                try sink(ctx.EncodeMessage(resp))
             },
             Server.Method(name: "CreateTopics", path: "/grpcdc.kafka.v1.Kafka/CreateTopics", kind: Server.KindUnary) { ctx, reqs, sink in
                 let req = CreateTopicsRequest()
                 try reqs.RecvInto(req)
                 let resp = try impl.CreateTopics(ctx, req)
-                try sink(resp.MarshalDc())
+                try sink(ctx.EncodeMessage(resp))
             },
             Server.Method(name: "DeleteTopics", path: "/grpcdc.kafka.v1.Kafka/DeleteTopics", kind: Server.KindUnary) { ctx, reqs, sink in
                 let req = DeleteTopicsRequest()
                 try reqs.RecvInto(req)
                 let resp = try impl.DeleteTopics(ctx, req)
-                try sink(resp.MarshalDc())
+                try sink(ctx.EncodeMessage(resp))
             },
             Server.Method(name: "DescribeConfigs", path: "/grpcdc.kafka.v1.Kafka/DescribeConfigs", kind: Server.KindUnary) { ctx, reqs, sink in
                 let req = DescribeConfigsRequest()
                 try reqs.RecvInto(req)
                 let resp = try impl.DescribeConfigs(ctx, req)
-                try sink(resp.MarshalDc())
+                try sink(ctx.EncodeMessage(resp))
             },
             Server.Method(name: "AlterConfigs", path: "/grpcdc.kafka.v1.Kafka/AlterConfigs", kind: Server.KindUnary) { ctx, reqs, sink in
                 let req = AlterConfigsRequest()
                 try reqs.RecvInto(req)
                 let resp = try impl.AlterConfigs(ctx, req)
-                try sink(resp.MarshalDc())
+                try sink(ctx.EncodeMessage(resp))
             },
             Server.Method(name: "CreatePartitions", path: "/grpcdc.kafka.v1.Kafka/CreatePartitions", kind: Server.KindUnary) { ctx, reqs, sink in
                 let req = CreatePartitionsRequest()
                 try reqs.RecvInto(req)
                 let resp = try impl.CreatePartitions(ctx, req)
-                try sink(resp.MarshalDc())
+                try sink(ctx.EncodeMessage(resp))
             },
             Server.Method(name: "DeleteRecords", path: "/grpcdc.kafka.v1.Kafka/DeleteRecords", kind: Server.KindUnary) { ctx, reqs, sink in
                 let req = DeleteRecordsRequest()
                 try reqs.RecvInto(req)
                 let resp = try impl.DeleteRecords(ctx, req)
-                try sink(resp.MarshalDc())
+                try sink(ctx.EncodeMessage(resp))
             },
             Server.Method(name: "ListGroups", path: "/grpcdc.kafka.v1.Kafka/ListGroups", kind: Server.KindUnary) { ctx, reqs, sink in
                 let req = ListGroupsRequest()
                 try reqs.RecvInto(req)
                 let resp = try impl.ListGroups(ctx, req)
-                try sink(resp.MarshalDc())
+                try sink(ctx.EncodeMessage(resp))
             },
             Server.Method(name: "DescribeGroups", path: "/grpcdc.kafka.v1.Kafka/DescribeGroups", kind: Server.KindUnary) { ctx, reqs, sink in
                 let req = DescribeGroupsRequest()
                 try reqs.RecvInto(req)
                 let resp = try impl.DescribeGroups(ctx, req)
-                try sink(resp.MarshalDc())
+                try sink(ctx.EncodeMessage(resp))
             },
             Server.Method(name: "DeleteGroups", path: "/grpcdc.kafka.v1.Kafka/DeleteGroups", kind: Server.KindUnary) { ctx, reqs, sink in
                 let req = DeleteGroupsRequest()
                 try reqs.RecvInto(req)
                 let resp = try impl.DeleteGroups(ctx, req)
-                try sink(resp.MarshalDc())
+                try sink(ctx.EncodeMessage(resp))
             },
             Server.Method(name: "DeleteGroupOffsets", path: "/grpcdc.kafka.v1.Kafka/DeleteGroupOffsets", kind: Server.KindUnary) { ctx, reqs, sink in
                 let req = DeleteGroupOffsetsRequest()
                 try reqs.RecvInto(req)
                 let resp = try impl.DeleteGroupOffsets(ctx, req)
-                try sink(resp.MarshalDc())
+                try sink(ctx.EncodeMessage(resp))
             },
             Server.Method(name: "DescribeAcls", path: "/grpcdc.kafka.v1.Kafka/DescribeAcls", kind: Server.KindUnary) { ctx, reqs, sink in
                 let req = DescribeAclsRequest()
                 try reqs.RecvInto(req)
                 let resp = try impl.DescribeAcls(ctx, req)
-                try sink(resp.MarshalDc())
+                try sink(ctx.EncodeMessage(resp))
             },
             Server.Method(name: "CreateAcls", path: "/grpcdc.kafka.v1.Kafka/CreateAcls", kind: Server.KindUnary) { ctx, reqs, sink in
                 let req = CreateAclsRequest()
                 try reqs.RecvInto(req)
                 let resp = try impl.CreateAcls(ctx, req)
-                try sink(resp.MarshalDc())
+                try sink(ctx.EncodeMessage(resp))
             },
             Server.Method(name: "DeleteAcls", path: "/grpcdc.kafka.v1.Kafka/DeleteAcls", kind: Server.KindUnary) { ctx, reqs, sink in
                 let req = DeleteAclsRequest()
                 try reqs.RecvInto(req)
                 let resp = try impl.DeleteAcls(ctx, req)
-                try sink(resp.MarshalDc())
+                try sink(ctx.EncodeMessage(resp))
             },
             Server.Method(name: "ListTransactions", path: "/grpcdc.kafka.v1.Kafka/ListTransactions", kind: Server.KindUnary) { ctx, reqs, sink in
                 let req = ListTransactionsRequest()
                 try reqs.RecvInto(req)
                 let resp = try impl.ListTransactions(ctx, req)
-                try sink(resp.MarshalDc())
+                try sink(ctx.EncodeMessage(resp))
             },
             Server.Method(name: "DescribeTransactions", path: "/grpcdc.kafka.v1.Kafka/DescribeTransactions", kind: Server.KindUnary) { ctx, reqs, sink in
                 let req = DescribeTransactionsRequest()
                 try reqs.RecvInto(req)
                 let resp = try impl.DescribeTransactions(ctx, req)
-                try sink(resp.MarshalDc())
+                try sink(ctx.EncodeMessage(resp))
             },
             Server.Method(name: "OpenShareGroup", path: "/grpcdc.kafka.v1.Kafka/OpenShareGroup", kind: Server.KindUnary) { ctx, reqs, sink in
                 let req = OpenShareGroupRequest()
                 try reqs.RecvInto(req)
                 let resp = try impl.OpenShareGroup(ctx, req)
-                try sink(resp.MarshalDc())
+                try sink(ctx.EncodeMessage(resp))
             },
             Server.Method(name: "SharePoll", path: "/grpcdc.kafka.v1.Kafka/SharePoll", kind: Server.KindUnary) { ctx, reqs, sink in
                 let req = SharePollRequest()
                 try reqs.RecvInto(req)
                 let resp = try impl.SharePoll(ctx, req)
-                try sink(resp.MarshalDc())
+                try sink(ctx.EncodeMessage(resp))
             },
             Server.Method(name: "ShareAck", path: "/grpcdc.kafka.v1.Kafka/ShareAck", kind: Server.KindUnary) { ctx, reqs, sink in
                 let req = ShareAckRequest()
                 try reqs.RecvInto(req)
                 let resp = try impl.ShareAck(ctx, req)
-                try sink(resp.MarshalDc())
+                try sink(ctx.EncodeMessage(resp))
             },
             Server.Method(name: "CloseShareGroup", path: "/grpcdc.kafka.v1.Kafka/CloseShareGroup", kind: Server.KindUnary) { ctx, reqs, sink in
                 let req = CloseShareGroupRequest()
                 try reqs.RecvInto(req)
                 let resp = try impl.CloseShareGroup(ctx, req)
-                try sink(resp.MarshalDc())
+                try sink(ctx.EncodeMessage(resp))
             },
             Server.Method(name: "DescribeShareGroups", path: "/grpcdc.kafka.v1.Kafka/DescribeShareGroups", kind: Server.KindUnary) { ctx, reqs, sink in
                 let req = DescribeShareGroupsRequest()
                 try reqs.RecvInto(req)
                 let resp = try impl.DescribeShareGroups(ctx, req)
-                try sink(resp.MarshalDc())
+                try sink(ctx.EncodeMessage(resp))
             },
         ]))
     }

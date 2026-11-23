@@ -22,15 +22,15 @@ public final class DescribedGroup implements grpcdc.Marshaler, grpcdc.Unmarshale
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
-        w.stringField(1, groupId);
-        if (errorCode != 0) { w.tag(2, 0); w.varint(errorCode); }
-        w.stringField(3, groupState);
-        w.stringField(4, protocolType);
-        w.stringField(5, protocol);
-        if (members != null) for (GroupMember x : members) w.bytesField(6, x.marshalDc());
-        w.raw(unknownFields);
-        return w.toBytes();
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
+        pbW.stringField(1, groupId);
+        if (errorCode != 0) { pbW.tag(2, 0); pbW.varint(errorCode); }
+        pbW.stringField(3, groupState);
+        pbW.stringField(4, protocolType);
+        pbW.stringField(5, protocol);
+        if (members != null) for (GroupMember pbX : members) pbW.bytesField(6, pbX.marshalDc());
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -42,31 +42,31 @@ public final class DescribedGroup implements grpcdc.Marshaler, grpcdc.Unmarshale
         protocolType = "";
         protocol = "";
         members = new java.util.ArrayList<>();
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    groupId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    groupId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 2 -> {
-                    errorCode = (int) field.varintValue;
+                    errorCode = (int) pbField.varintValue;
                 }
                 case 3 -> {
-                    groupState = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    groupState = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 4 -> {
-                    protocolType = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    protocolType = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 5 -> {
-                    protocol = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    protocol = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 6 -> {
-                    GroupMember item = new GroupMember();
-                    item.unmarshalDc(field.bytesValue);
-                    members.add(item);
+                    GroupMember pbItem = new GroupMember();
+                    pbItem.unmarshalDc(pbField.bytesValue);
+                    members.add(pbItem);
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

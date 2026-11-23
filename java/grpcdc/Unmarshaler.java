@@ -5,4 +5,9 @@ package grpcdc;
 /** Implemented by generated protobuf message pointer types. */
 public interface Unmarshaler {
     void unmarshalDc(byte[] data);
+
+    /** Decoding side of Marshaler.marshalStruct. */
+    default void unmarshalStruct(byte[] data) {
+        throw new StatusException(Wire.CODE_INTERNAL, "message has no struct codec");
+    }
 }

@@ -57,20 +57,20 @@ class Empty implements Marshaler, Unmarshaler {
   Empty();
   @override
   Uint8List marshalDc() {
-    final w = EmptyPbWriter();
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = EmptyPbWriter();
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
-    final r = EmptyPbReader(Uint8List.fromList(data));
+    final pbR = EmptyPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }

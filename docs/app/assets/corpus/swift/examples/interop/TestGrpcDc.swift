@@ -277,7 +277,7 @@ public enum TestGrpcDc {
             ctxRef = ctx
             self.sink = sink
         }
-        func Send(_ resp: StreamingOutputCallResponse) throws { try sink(resp.MarshalDc()) }
+        func Send(_ resp: StreamingOutputCallResponse) throws { try sink(ctxRef.EncodeMessage(resp)) }
         var context: Endpoint.CallContext { ctxRef }
     }
 
@@ -307,7 +307,7 @@ public enum TestGrpcDc {
             self.reqs = reqs
             self.sink = sink
         }
-        func Send(_ resp: StreamingOutputCallResponse) throws { try sink(resp.MarshalDc()) }
+        func Send(_ resp: StreamingOutputCallResponse) throws { try sink(ctxRef.EncodeMessage(resp)) }
         func Recv() throws -> StreamingOutputCallRequest {
             let req = StreamingOutputCallRequest()
             try reqs.RecvInto(req)
@@ -325,7 +325,7 @@ public enum TestGrpcDc {
             self.reqs = reqs
             self.sink = sink
         }
-        func Send(_ resp: StreamingOutputCallResponse) throws { try sink(resp.MarshalDc()) }
+        func Send(_ resp: StreamingOutputCallResponse) throws { try sink(ctxRef.EncodeMessage(resp)) }
         func Recv() throws -> StreamingOutputCallRequest {
             let req = StreamingOutputCallRequest()
             try reqs.RecvInto(req)
@@ -373,19 +373,19 @@ public enum TestGrpcDc {
                 let req = Empty()
                 try reqs.RecvInto(req)
                 let resp = try impl.EmptyCall(ctx, req)
-                try sink(resp.MarshalDc())
+                try sink(ctx.EncodeMessage(resp))
             },
             Server.Method(name: "UnaryCall", path: "/grpc.testing.TestService/UnaryCall", kind: Server.KindUnary) { ctx, reqs, sink in
                 let req = SimpleRequest()
                 try reqs.RecvInto(req)
                 let resp = try impl.UnaryCall(ctx, req)
-                try sink(resp.MarshalDc())
+                try sink(ctx.EncodeMessage(resp))
             },
             Server.Method(name: "CacheableUnaryCall", path: "/grpc.testing.TestService/CacheableUnaryCall", kind: Server.KindUnary) { ctx, reqs, sink in
                 let req = SimpleRequest()
                 try reqs.RecvInto(req)
                 let resp = try impl.CacheableUnaryCall(ctx, req)
-                try sink(resp.MarshalDc())
+                try sink(ctx.EncodeMessage(resp))
             },
             Server.Method(name: "StreamingOutputCall", path: "/grpc.testing.TestService/StreamingOutputCall", kind: Server.KindServerStreaming) { ctx, reqs, sink in
                 let req = StreamingOutputCallRequest()
@@ -398,7 +398,7 @@ public enum TestGrpcDc {
                 guard let resp = stream.resp else {
                     throw StatusException(Wire.CodeInternal, "client-streaming handler never called SendAndClose")
                 }
-                try sink(resp.MarshalDc())
+                try sink(ctx.EncodeMessage(resp))
             },
             Server.Method(name: "FullDuplexCall", path: "/grpc.testing.TestService/FullDuplexCall", kind: Server.KindBidi) { ctx, reqs, sink in
                 try impl.FullDuplexCall(TestServiceFullDuplexCallServerImpl(ctx, reqs, sink))
@@ -410,7 +410,7 @@ public enum TestGrpcDc {
                 let req = Empty()
                 try reqs.RecvInto(req)
                 let resp = try impl.UnimplementedCall(ctx, req)
-                try sink(resp.MarshalDc())
+                try sink(ctx.EncodeMessage(resp))
             },
         ]))
     }
@@ -481,7 +481,7 @@ public enum TestGrpcDc {
                 let req = Empty()
                 try reqs.RecvInto(req)
                 let resp = try impl.UnimplementedCall(ctx, req)
-                try sink(resp.MarshalDc())
+                try sink(ctx.EncodeMessage(resp))
             },
         ]))
     }
@@ -567,13 +567,13 @@ public enum TestGrpcDc {
                 let req = ReconnectParams()
                 try reqs.RecvInto(req)
                 let resp = try impl.Start(ctx, req)
-                try sink(resp.MarshalDc())
+                try sink(ctx.EncodeMessage(resp))
             },
             Server.Method(name: "Stop", path: "/grpc.testing.ReconnectService/Stop", kind: Server.KindUnary) { ctx, reqs, sink in
                 let req = Empty()
                 try reqs.RecvInto(req)
                 let resp = try impl.Stop(ctx, req)
-                try sink(resp.MarshalDc())
+                try sink(ctx.EncodeMessage(resp))
             },
         ]))
     }
@@ -659,13 +659,13 @@ public enum TestGrpcDc {
                 let req = LoadBalancerStatsRequest()
                 try reqs.RecvInto(req)
                 let resp = try impl.GetClientStats(ctx, req)
-                try sink(resp.MarshalDc())
+                try sink(ctx.EncodeMessage(resp))
             },
             Server.Method(name: "GetClientAccumulatedStats", path: "/grpc.testing.LoadBalancerStatsService/GetClientAccumulatedStats", kind: Server.KindUnary) { ctx, reqs, sink in
                 let req = LoadBalancerAccumulatedStatsRequest()
                 try reqs.RecvInto(req)
                 let resp = try impl.GetClientAccumulatedStats(ctx, req)
-                try sink(resp.MarshalDc())
+                try sink(ctx.EncodeMessage(resp))
             },
         ]))
     }
@@ -751,13 +751,13 @@ public enum TestGrpcDc {
                 let req = Empty()
                 try reqs.RecvInto(req)
                 let resp = try impl.SetServing(ctx, req)
-                try sink(resp.MarshalDc())
+                try sink(ctx.EncodeMessage(resp))
             },
             Server.Method(name: "SetNotServing", path: "/grpc.testing.XdsUpdateHealthService/SetNotServing", kind: Server.KindUnary) { ctx, reqs, sink in
                 let req = Empty()
                 try reqs.RecvInto(req)
                 let resp = try impl.SetNotServing(ctx, req)
-                try sink(resp.MarshalDc())
+                try sink(ctx.EncodeMessage(resp))
             },
         ]))
     }
@@ -828,7 +828,7 @@ public enum TestGrpcDc {
                 let req = ClientConfigureRequest()
                 try reqs.RecvInto(req)
                 let resp = try impl.Configure(ctx, req)
-                try sink(resp.MarshalDc())
+                try sink(ctx.EncodeMessage(resp))
             },
         ]))
     }

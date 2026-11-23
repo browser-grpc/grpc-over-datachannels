@@ -84,30 +84,30 @@ class Header implements Marshaler, Unmarshaler {
   Header([this.key = '']) : value = Uint8List(0);
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    w.stringField(1, key);
-    if (value.isNotEmpty) w.bytesField(2, value);
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    pbW.stringField(1, key);
+    if (value.isNotEmpty) pbW.bytesField(2, value);
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     key = '';
     value = Uint8List(0);
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          key = utf8.decode(field.bytesValue);
+          key = utf8.decode(pbField.bytesValue);
           break;
         case 2:
-          value = field.bytesValue;
+          value = pbField.bytesValue;
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -123,14 +123,14 @@ class Record implements Marshaler, Unmarshaler {
   Record([this.timestampMs = 0, this.nullKey = false]) : key = Uint8List(0), value = Uint8List(0), headers = [];
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    if (key.isNotEmpty) w.bytesField(1, key);
-    if (value.isNotEmpty) w.bytesField(2, value);
-    for (final x in headers) { w.bytesField(3, x.marshalDc()); }
-    if (timestampMs != 0) { w.tag(4, 0); w.varint(timestampMs); }
-    if (nullKey) { w.tag(5, 0); w.varint((nullKey ? 1 : 0)); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    if (key.isNotEmpty) pbW.bytesField(1, key);
+    if (value.isNotEmpty) pbW.bytesField(2, value);
+    for (final pbX in headers) { pbW.bytesField(3, pbX.marshalDc()); }
+    if (timestampMs != 0) { pbW.tag(4, 0); pbW.varint(timestampMs); }
+    if (nullKey) { pbW.tag(5, 0); pbW.varint((nullKey ? 1 : 0)); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -140,30 +140,30 @@ class Record implements Marshaler, Unmarshaler {
     headers = [];
     timestampMs = 0;
     nullKey = false;
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          key = field.bytesValue;
+          key = pbField.bytesValue;
           break;
         case 2:
-          value = field.bytesValue;
+          value = pbField.bytesValue;
           break;
         case 3:
           final item = Header();
-          item.unmarshalDc(field.bytesValue);
+          item.unmarshalDc(pbField.bytesValue);
           headers.add(item);
           break;
         case 4:
-          timestampMs = field.varintValue;
+          timestampMs = pbField.varintValue;
           break;
         case 5:
-          nullKey = field.varintValue != 0;
+          nullKey = pbField.varintValue != 0;
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -180,15 +180,15 @@ class FetchedRecord implements Marshaler, Unmarshaler {
   FetchedRecord([this.offset = 0, this.timestampMs = 0, this.keyNull = false]) : key = Uint8List(0), value = Uint8List(0), headers = [];
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    if (offset != 0) { w.tag(1, 0); w.varint(offset); }
-    if (timestampMs != 0) { w.tag(2, 0); w.varint(timestampMs); }
-    if (key.isNotEmpty) w.bytesField(3, key);
-    if (value.isNotEmpty) w.bytesField(4, value);
-    for (final x in headers) { w.bytesField(5, x.marshalDc()); }
-    if (keyNull) { w.tag(6, 0); w.varint((keyNull ? 1 : 0)); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    if (offset != 0) { pbW.tag(1, 0); pbW.varint(offset); }
+    if (timestampMs != 0) { pbW.tag(2, 0); pbW.varint(timestampMs); }
+    if (key.isNotEmpty) pbW.bytesField(3, key);
+    if (value.isNotEmpty) pbW.bytesField(4, value);
+    for (final pbX in headers) { pbW.bytesField(5, pbX.marshalDc()); }
+    if (keyNull) { pbW.tag(6, 0); pbW.varint((keyNull ? 1 : 0)); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -199,33 +199,33 @@ class FetchedRecord implements Marshaler, Unmarshaler {
     value = Uint8List(0);
     headers = [];
     keyNull = false;
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          offset = field.varintValue;
+          offset = pbField.varintValue;
           break;
         case 2:
-          timestampMs = field.varintValue;
+          timestampMs = pbField.varintValue;
           break;
         case 3:
-          key = field.bytesValue;
+          key = pbField.bytesValue;
           break;
         case 4:
-          value = field.bytesValue;
+          value = pbField.bytesValue;
           break;
         case 5:
           final item = Header();
-          item.unmarshalDc(field.bytesValue);
+          item.unmarshalDc(pbField.bytesValue);
           headers.add(item);
           break;
         case 6:
-          keyNull = field.varintValue != 0;
+          keyNull = pbField.varintValue != 0;
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -238,30 +238,30 @@ class TopicPartition implements Marshaler, Unmarshaler {
   TopicPartition([this.topic = '', this.partition = 0]);
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    w.stringField(1, topic);
-    if (partition != 0) { w.tag(2, 0); w.varint(partition); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    pbW.stringField(1, topic);
+    if (partition != 0) { pbW.tag(2, 0); pbW.varint(partition); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     topic = '';
     partition = 0;
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          topic = utf8.decode(field.bytesValue);
+          topic = utf8.decode(pbField.bytesValue);
           break;
         case 2:
-          partition = (field.varintValue).toSigned(32);
+          partition = (pbField.varintValue).toSigned(32);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -274,30 +274,30 @@ class MetadataRequest implements Marshaler, Unmarshaler {
   MetadataRequest([this.allowAutoTopicCreation = false]) : topics = [];
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    for (final x in topics) { w.bytesField(1, utf8.encode(x)); }
-    if (allowAutoTopicCreation) { w.tag(2, 0); w.varint((allowAutoTopicCreation ? 1 : 0)); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    for (final pbX in topics) { pbW.bytesField(1, utf8.encode(pbX)); }
+    if (allowAutoTopicCreation) { pbW.tag(2, 0); pbW.varint((allowAutoTopicCreation ? 1 : 0)); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     topics = [];
     allowAutoTopicCreation = false;
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          topics.add(utf8.decode(field.bytesValue));
+          topics.add(utf8.decode(pbField.bytesValue));
           break;
         case 2:
-          allowAutoTopicCreation = field.varintValue != 0;
+          allowAutoTopicCreation = pbField.varintValue != 0;
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -312,13 +312,13 @@ class BrokerMetadata implements Marshaler, Unmarshaler {
   BrokerMetadata([this.nodeId = 0, this.host = '', this.port = 0, this.rack = '']);
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    if (nodeId != 0) { w.tag(1, 0); w.varint(nodeId); }
-    w.stringField(2, host);
-    if (port != 0) { w.tag(3, 0); w.varint(port); }
-    w.stringField(4, rack);
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    if (nodeId != 0) { pbW.tag(1, 0); pbW.varint(nodeId); }
+    pbW.stringField(2, host);
+    if (port != 0) { pbW.tag(3, 0); pbW.varint(port); }
+    pbW.stringField(4, rack);
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -327,25 +327,25 @@ class BrokerMetadata implements Marshaler, Unmarshaler {
     host = '';
     port = 0;
     rack = '';
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          nodeId = (field.varintValue).toSigned(32);
+          nodeId = (pbField.varintValue).toSigned(32);
           break;
         case 2:
-          host = utf8.decode(field.bytesValue);
+          host = utf8.decode(pbField.bytesValue);
           break;
         case 3:
-          port = (field.varintValue).toSigned(32);
+          port = (pbField.varintValue).toSigned(32);
           break;
         case 4:
-          rack = utf8.decode(field.bytesValue);
+          rack = utf8.decode(pbField.bytesValue);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -362,23 +362,23 @@ class PartitionMetadata implements Marshaler, Unmarshaler {
   PartitionMetadata([this.id = 0, this.leaderId = 0, this.leaderEpoch = 0, this.errorCode = 0]) : replicas = [], isr = [];
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    if (id != 0) { w.tag(1, 0); w.varint(id); }
-    if (leaderId != 0) { w.tag(2, 0); w.varint(leaderId); }
-    if (leaderEpoch != 0) { w.tag(3, 0); w.varint(leaderEpoch); }
+    final pbW = KafkaPbWriter();
+    if (id != 0) { pbW.tag(1, 0); pbW.varint(id); }
+    if (leaderId != 0) { pbW.tag(2, 0); pbW.varint(leaderId); }
+    if (leaderEpoch != 0) { pbW.tag(3, 0); pbW.varint(leaderEpoch); }
     if (replicas.isNotEmpty) {
-        final payload = KafkaPbWriter();
-        for (final x in replicas) { payload.varint(x); }
-        w.bytesField(4, payload.toBytes());
+        final pbPayload = KafkaPbWriter();
+        for (final pbX in replicas) { pbPayload.varint(pbX); }
+        pbW.bytesField(4, pbPayload.toBytes());
     }
     if (isr.isNotEmpty) {
-        final payload = KafkaPbWriter();
-        for (final x in isr) { payload.varint(x); }
-        w.bytesField(5, payload.toBytes());
+        final pbPayload = KafkaPbWriter();
+        for (final pbX in isr) { pbPayload.varint(pbX); }
+        pbW.bytesField(5, pbPayload.toBytes());
     }
-    if (errorCode != 0) { w.tag(6, 0); w.varint(errorCode); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    if (errorCode != 0) { pbW.tag(6, 0); pbW.varint(errorCode); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -389,45 +389,45 @@ class PartitionMetadata implements Marshaler, Unmarshaler {
     replicas = [];
     isr = [];
     errorCode = 0;
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          id = (field.varintValue).toSigned(32);
+          id = (pbField.varintValue).toSigned(32);
           break;
         case 2:
-          leaderId = (field.varintValue).toSigned(32);
+          leaderId = (pbField.varintValue).toSigned(32);
           break;
         case 3:
-          leaderEpoch = (field.varintValue).toSigned(32);
+          leaderEpoch = (pbField.varintValue).toSigned(32);
           break;
         case 4:
-          if (field.wire == 2) {
-            final sub = KafkaPbReader(field.bytesValue);
-            while (!sub.done()) {
-              replicas.add((sub.varint()).toSigned(32));
+          if (pbField.wire == 2) {
+            final pbSub = KafkaPbReader(pbField.bytesValue);
+            while (!pbSub.done()) {
+              replicas.add((pbSub.varint()).toSigned(32));
             }
           } else {
-            replicas.add((field.varintValue).toSigned(32));
+            replicas.add((pbField.varintValue).toSigned(32));
           }
           break;
         case 5:
-          if (field.wire == 2) {
-            final sub = KafkaPbReader(field.bytesValue);
-            while (!sub.done()) {
-              isr.add((sub.varint()).toSigned(32));
+          if (pbField.wire == 2) {
+            final pbSub = KafkaPbReader(pbField.bytesValue);
+            while (!pbSub.done()) {
+              isr.add((pbSub.varint()).toSigned(32));
             }
           } else {
-            isr.add((field.varintValue).toSigned(32));
+            isr.add((pbField.varintValue).toSigned(32));
           }
           break;
         case 6:
-          errorCode = (field.varintValue).toSigned(32);
+          errorCode = (pbField.varintValue).toSigned(32);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -442,13 +442,13 @@ class TopicMetadata implements Marshaler, Unmarshaler {
   TopicMetadata([this.name = '', this.isInternal = false, this.errorCode = 0]) : partitions = [];
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    w.stringField(1, name);
-    if (isInternal) { w.tag(2, 0); w.varint((isInternal ? 1 : 0)); }
-    if (errorCode != 0) { w.tag(3, 0); w.varint(errorCode); }
-    for (final x in partitions) { w.bytesField(4, x.marshalDc()); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    pbW.stringField(1, name);
+    if (isInternal) { pbW.tag(2, 0); pbW.varint((isInternal ? 1 : 0)); }
+    if (errorCode != 0) { pbW.tag(3, 0); pbW.varint(errorCode); }
+    for (final pbX in partitions) { pbW.bytesField(4, pbX.marshalDc()); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -457,27 +457,27 @@ class TopicMetadata implements Marshaler, Unmarshaler {
     isInternal = false;
     errorCode = 0;
     partitions = [];
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          name = utf8.decode(field.bytesValue);
+          name = utf8.decode(pbField.bytesValue);
           break;
         case 2:
-          isInternal = field.varintValue != 0;
+          isInternal = pbField.varintValue != 0;
           break;
         case 3:
-          errorCode = (field.varintValue).toSigned(32);
+          errorCode = (pbField.varintValue).toSigned(32);
           break;
         case 4:
           final item = PartitionMetadata();
-          item.unmarshalDc(field.bytesValue);
+          item.unmarshalDc(pbField.bytesValue);
           partitions.add(item);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -493,14 +493,14 @@ class MetadataResponse implements Marshaler, Unmarshaler {
   MetadataResponse([this.throttleTimeMs = 0, this.clusterId = '', this.controllerId = 0]) : brokers = [], topics = [];
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    if (throttleTimeMs != 0) { w.tag(1, 0); w.varint(throttleTimeMs); }
-    for (final x in brokers) { w.bytesField(2, x.marshalDc()); }
-    w.stringField(3, clusterId);
-    if (controllerId != 0) { w.tag(4, 0); w.varint(controllerId); }
-    for (final x in topics) { w.bytesField(5, x.marshalDc()); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    if (throttleTimeMs != 0) { pbW.tag(1, 0); pbW.varint(throttleTimeMs); }
+    for (final pbX in brokers) { pbW.bytesField(2, pbX.marshalDc()); }
+    pbW.stringField(3, clusterId);
+    if (controllerId != 0) { pbW.tag(4, 0); pbW.varint(controllerId); }
+    for (final pbX in topics) { pbW.bytesField(5, pbX.marshalDc()); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -510,32 +510,32 @@ class MetadataResponse implements Marshaler, Unmarshaler {
     clusterId = '';
     controllerId = 0;
     topics = [];
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          throttleTimeMs = (field.varintValue).toSigned(32);
+          throttleTimeMs = (pbField.varintValue).toSigned(32);
           break;
         case 2:
           final item = BrokerMetadata();
-          item.unmarshalDc(field.bytesValue);
+          item.unmarshalDc(pbField.bytesValue);
           brokers.add(item);
           break;
         case 3:
-          clusterId = utf8.decode(field.bytesValue);
+          clusterId = utf8.decode(pbField.bytesValue);
           break;
         case 4:
-          controllerId = (field.varintValue).toSigned(32);
+          controllerId = (pbField.varintValue).toSigned(32);
           break;
         case 5:
           final item = TopicMetadata();
-          item.unmarshalDc(field.bytesValue);
+          item.unmarshalDc(pbField.bytesValue);
           topics.add(item);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -548,30 +548,30 @@ class OpenProducerRequest implements Marshaler, Unmarshaler {
   OpenProducerRequest([this.transactionalId = '', this.transactionTimeoutMs = 0]);
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    w.stringField(1, transactionalId);
-    if (transactionTimeoutMs != 0) { w.tag(2, 0); w.varint(transactionTimeoutMs); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    pbW.stringField(1, transactionalId);
+    if (transactionTimeoutMs != 0) { pbW.tag(2, 0); pbW.varint(transactionTimeoutMs); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     transactionalId = '';
     transactionTimeoutMs = 0;
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          transactionalId = utf8.decode(field.bytesValue);
+          transactionalId = utf8.decode(pbField.bytesValue);
           break;
         case 2:
-          transactionTimeoutMs = (field.varintValue).toSigned(32);
+          transactionTimeoutMs = (pbField.varintValue).toSigned(32);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -586,13 +586,13 @@ class OpenProducerResponse implements Marshaler, Unmarshaler {
   OpenProducerResponse([this.sessionId = '', this.producerId = 0, this.producerEpoch = 0, this.errorCode = 0]);
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    w.stringField(1, sessionId);
-    if (producerId != 0) { w.tag(2, 0); w.varint(producerId); }
-    if (producerEpoch != 0) { w.tag(3, 0); w.varint(producerEpoch); }
-    if (errorCode != 0) { w.tag(4, 0); w.varint(errorCode); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    pbW.stringField(1, sessionId);
+    if (producerId != 0) { pbW.tag(2, 0); pbW.varint(producerId); }
+    if (producerEpoch != 0) { pbW.tag(3, 0); pbW.varint(producerEpoch); }
+    if (errorCode != 0) { pbW.tag(4, 0); pbW.varint(errorCode); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -601,25 +601,25 @@ class OpenProducerResponse implements Marshaler, Unmarshaler {
     producerId = 0;
     producerEpoch = 0;
     errorCode = 0;
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          sessionId = utf8.decode(field.bytesValue);
+          sessionId = utf8.decode(pbField.bytesValue);
           break;
         case 2:
-          producerId = field.varintValue;
+          producerId = pbField.varintValue;
           break;
         case 3:
-          producerEpoch = (field.varintValue).toSigned(32);
+          producerEpoch = (pbField.varintValue).toSigned(32);
           break;
         case 4:
-          errorCode = (field.varintValue).toSigned(32);
+          errorCode = (pbField.varintValue).toSigned(32);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -631,25 +631,25 @@ class CloseProducerRequest implements Marshaler, Unmarshaler {
   CloseProducerRequest([this.sessionId = '']);
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    w.stringField(1, sessionId);
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    pbW.stringField(1, sessionId);
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     sessionId = '';
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          sessionId = utf8.decode(field.bytesValue);
+          sessionId = utf8.decode(pbField.bytesValue);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -661,25 +661,25 @@ class CloseProducerResponse implements Marshaler, Unmarshaler {
   CloseProducerResponse([this.errorCode = 0]);
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    if (errorCode != 0) { w.tag(1, 0); w.varint(errorCode); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    if (errorCode != 0) { pbW.tag(1, 0); pbW.varint(errorCode); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     errorCode = 0;
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          errorCode = (field.varintValue).toSigned(32);
+          errorCode = (pbField.varintValue).toSigned(32);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -692,30 +692,30 @@ class EndTransactionRequest implements Marshaler, Unmarshaler {
   EndTransactionRequest([this.sessionId = '', this.commit = false]);
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    w.stringField(1, sessionId);
-    if (commit) { w.tag(2, 0); w.varint((commit ? 1 : 0)); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    pbW.stringField(1, sessionId);
+    if (commit) { pbW.tag(2, 0); pbW.varint((commit ? 1 : 0)); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     sessionId = '';
     commit = false;
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          sessionId = utf8.decode(field.bytesValue);
+          sessionId = utf8.decode(pbField.bytesValue);
           break;
         case 2:
-          commit = field.varintValue != 0;
+          commit = pbField.varintValue != 0;
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -727,25 +727,25 @@ class EndTransactionResponse implements Marshaler, Unmarshaler {
   EndTransactionResponse([this.errorCode = 0]);
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    if (errorCode != 0) { w.tag(1, 0); w.varint(errorCode); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    if (errorCode != 0) { pbW.tag(1, 0); pbW.varint(errorCode); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     errorCode = 0;
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          errorCode = (field.varintValue).toSigned(32);
+          errorCode = (pbField.varintValue).toSigned(32);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -764,17 +764,17 @@ class ProduceRequest implements Marshaler, Unmarshaler {
   ProduceRequest([this.topic = '', this.partition = 0, this.acks = Acks.ACKS_UNSPECIFIED, this.timeoutMs = 0, this.compression = Compression.COMPRESSION_NONE, this.sessionId = '', this.transactionalId = '']) : records = [];
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    w.stringField(1, topic);
-    if (partition != 0) { w.tag(2, 0); w.varint(partition); }
-    for (final x in records) { w.bytesField(3, x.marshalDc()); }
-    if (acks.index != 0) { w.tag(4, 0); w.varint(acks.index); }
-    if (timeoutMs != 0) { w.tag(5, 0); w.varint(timeoutMs); }
-    if (compression.index != 0) { w.tag(6, 0); w.varint(compression.index); }
-    w.stringField(7, sessionId);
-    w.stringField(8, transactionalId);
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    pbW.stringField(1, topic);
+    if (partition != 0) { pbW.tag(2, 0); pbW.varint(partition); }
+    for (final pbX in records) { pbW.bytesField(3, pbX.marshalDc()); }
+    if (acks.index != 0) { pbW.tag(4, 0); pbW.varint(acks.index); }
+    if (timeoutMs != 0) { pbW.tag(5, 0); pbW.varint(timeoutMs); }
+    if (compression.index != 0) { pbW.tag(6, 0); pbW.varint(compression.index); }
+    pbW.stringField(7, sessionId);
+    pbW.stringField(8, transactionalId);
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -787,39 +787,39 @@ class ProduceRequest implements Marshaler, Unmarshaler {
     compression = Compression.COMPRESSION_NONE;
     sessionId = '';
     transactionalId = '';
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          topic = utf8.decode(field.bytesValue);
+          topic = utf8.decode(pbField.bytesValue);
           break;
         case 2:
-          partition = (field.varintValue).toSigned(32);
+          partition = (pbField.varintValue).toSigned(32);
           break;
         case 3:
           final item = Record();
-          item.unmarshalDc(field.bytesValue);
+          item.unmarshalDc(pbField.bytesValue);
           records.add(item);
           break;
         case 4:
-          acks = Acks.values[(field.varintValue).toSigned(32)] ;
+          acks = Acks.values[(pbField.varintValue).toSigned(32)] ;
           break;
         case 5:
-          timeoutMs = (field.varintValue).toSigned(32);
+          timeoutMs = (pbField.varintValue).toSigned(32);
           break;
         case 6:
-          compression = Compression.values[(field.varintValue).toSigned(32)] ;
+          compression = Compression.values[(pbField.varintValue).toSigned(32)] ;
           break;
         case 7:
-          sessionId = utf8.decode(field.bytesValue);
+          sessionId = utf8.decode(pbField.bytesValue);
           break;
         case 8:
-          transactionalId = utf8.decode(field.bytesValue);
+          transactionalId = utf8.decode(pbField.bytesValue);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -834,13 +834,13 @@ class ProduceResponse implements Marshaler, Unmarshaler {
   ProduceResponse([this.partition = 0, this.baseOffset = 0, this.logAppendTimeMs = 0, this.errorCode = 0]);
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    if (partition != 0) { w.tag(1, 0); w.varint(partition); }
-    if (baseOffset != 0) { w.tag(2, 0); w.varint(baseOffset); }
-    if (logAppendTimeMs != 0) { w.tag(3, 0); w.varint(logAppendTimeMs); }
-    if (errorCode != 0) { w.tag(4, 0); w.varint(errorCode); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    if (partition != 0) { pbW.tag(1, 0); pbW.varint(partition); }
+    if (baseOffset != 0) { pbW.tag(2, 0); pbW.varint(baseOffset); }
+    if (logAppendTimeMs != 0) { pbW.tag(3, 0); pbW.varint(logAppendTimeMs); }
+    if (errorCode != 0) { pbW.tag(4, 0); pbW.varint(errorCode); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -849,25 +849,25 @@ class ProduceResponse implements Marshaler, Unmarshaler {
     baseOffset = 0;
     logAppendTimeMs = 0;
     errorCode = 0;
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          partition = (field.varintValue).toSigned(32);
+          partition = (pbField.varintValue).toSigned(32);
           break;
         case 2:
-          baseOffset = field.varintValue;
+          baseOffset = pbField.varintValue;
           break;
         case 3:
-          logAppendTimeMs = field.varintValue;
+          logAppendTimeMs = pbField.varintValue;
           break;
         case 4:
-          errorCode = (field.varintValue).toSigned(32);
+          errorCode = (pbField.varintValue).toSigned(32);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -885,16 +885,16 @@ class ConsumeRequest implements Marshaler, Unmarshaler {
   ConsumeRequest([this.topic = '', this.partition = 0, this.offset = 0, this.maxRecords = 0, this.maxWaitMs = 0, this.minBytes = 0, this.readCommitted = false]);
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    w.stringField(1, topic);
-    if (partition != 0) { w.tag(2, 0); w.varint(partition); }
-    if (offset != 0) { w.tag(3, 0); w.varint(offset); }
-    if (maxRecords != 0) { w.tag(4, 0); w.varint(maxRecords); }
-    if (maxWaitMs != 0) { w.tag(5, 0); w.varint(maxWaitMs); }
-    if (minBytes != 0) { w.tag(6, 0); w.varint(minBytes); }
-    if (readCommitted) { w.tag(7, 0); w.varint((readCommitted ? 1 : 0)); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    pbW.stringField(1, topic);
+    if (partition != 0) { pbW.tag(2, 0); pbW.varint(partition); }
+    if (offset != 0) { pbW.tag(3, 0); pbW.varint(offset); }
+    if (maxRecords != 0) { pbW.tag(4, 0); pbW.varint(maxRecords); }
+    if (maxWaitMs != 0) { pbW.tag(5, 0); pbW.varint(maxWaitMs); }
+    if (minBytes != 0) { pbW.tag(6, 0); pbW.varint(minBytes); }
+    if (readCommitted) { pbW.tag(7, 0); pbW.varint((readCommitted ? 1 : 0)); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -906,34 +906,34 @@ class ConsumeRequest implements Marshaler, Unmarshaler {
     maxWaitMs = 0;
     minBytes = 0;
     readCommitted = false;
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          topic = utf8.decode(field.bytesValue);
+          topic = utf8.decode(pbField.bytesValue);
           break;
         case 2:
-          partition = (field.varintValue).toSigned(32);
+          partition = (pbField.varintValue).toSigned(32);
           break;
         case 3:
-          offset = field.varintValue;
+          offset = pbField.varintValue;
           break;
         case 4:
-          maxRecords = (field.varintValue).toSigned(32);
+          maxRecords = (pbField.varintValue).toSigned(32);
           break;
         case 5:
-          maxWaitMs = (field.varintValue).toSigned(32);
+          maxWaitMs = (pbField.varintValue).toSigned(32);
           break;
         case 6:
-          minBytes = (field.varintValue).toSigned(32);
+          minBytes = (pbField.varintValue).toSigned(32);
           break;
         case 7:
-          readCommitted = field.varintValue != 0;
+          readCommitted = pbField.varintValue != 0;
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -949,14 +949,14 @@ class ConsumeResponse implements Marshaler, Unmarshaler {
   ConsumeResponse([this.topic = '', this.partition = 0, this.highWatermark = 0, this.errorCode = 0]) : records = [];
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    w.stringField(1, topic);
-    if (partition != 0) { w.tag(2, 0); w.varint(partition); }
-    if (highWatermark != 0) { w.tag(3, 0); w.varint(highWatermark); }
-    if (errorCode != 0) { w.tag(4, 0); w.varint(errorCode); }
-    for (final x in records) { w.bytesField(5, x.marshalDc()); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    pbW.stringField(1, topic);
+    if (partition != 0) { pbW.tag(2, 0); pbW.varint(partition); }
+    if (highWatermark != 0) { pbW.tag(3, 0); pbW.varint(highWatermark); }
+    if (errorCode != 0) { pbW.tag(4, 0); pbW.varint(errorCode); }
+    for (final pbX in records) { pbW.bytesField(5, pbX.marshalDc()); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -966,30 +966,30 @@ class ConsumeResponse implements Marshaler, Unmarshaler {
     highWatermark = 0;
     errorCode = 0;
     records = [];
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          topic = utf8.decode(field.bytesValue);
+          topic = utf8.decode(pbField.bytesValue);
           break;
         case 2:
-          partition = (field.varintValue).toSigned(32);
+          partition = (pbField.varintValue).toSigned(32);
           break;
         case 3:
-          highWatermark = field.varintValue;
+          highWatermark = pbField.varintValue;
           break;
         case 4:
-          errorCode = (field.varintValue).toSigned(32);
+          errorCode = (pbField.varintValue).toSigned(32);
           break;
         case 5:
           final item = FetchedRecord();
-          item.unmarshalDc(field.bytesValue);
+          item.unmarshalDc(pbField.bytesValue);
           records.add(item);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -1008,17 +1008,17 @@ class GroupSubscribeRequest implements Marshaler, Unmarshaler {
   GroupSubscribeRequest([this.groupId = '', this.groupInstanceId = '', this.sessionTimeoutMs = 0, this.maxPollRecords = 0, this.autoOffsetReset = '', this.readCommitted = false, this.groupProtocol = '']) : topics = [];
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    w.stringField(1, groupId);
-    for (final x in topics) { w.bytesField(2, utf8.encode(x)); }
-    w.stringField(3, groupInstanceId);
-    if (sessionTimeoutMs != 0) { w.tag(4, 0); w.varint(sessionTimeoutMs); }
-    if (maxPollRecords != 0) { w.tag(5, 0); w.varint(maxPollRecords); }
-    w.stringField(6, autoOffsetReset);
-    if (readCommitted) { w.tag(7, 0); w.varint((readCommitted ? 1 : 0)); }
-    w.stringField(8, groupProtocol);
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    pbW.stringField(1, groupId);
+    for (final pbX in topics) { pbW.bytesField(2, utf8.encode(pbX)); }
+    pbW.stringField(3, groupInstanceId);
+    if (sessionTimeoutMs != 0) { pbW.tag(4, 0); pbW.varint(sessionTimeoutMs); }
+    if (maxPollRecords != 0) { pbW.tag(5, 0); pbW.varint(maxPollRecords); }
+    pbW.stringField(6, autoOffsetReset);
+    if (readCommitted) { pbW.tag(7, 0); pbW.varint((readCommitted ? 1 : 0)); }
+    pbW.stringField(8, groupProtocol);
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -1031,37 +1031,37 @@ class GroupSubscribeRequest implements Marshaler, Unmarshaler {
     autoOffsetReset = '';
     readCommitted = false;
     groupProtocol = '';
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          groupId = utf8.decode(field.bytesValue);
+          groupId = utf8.decode(pbField.bytesValue);
           break;
         case 2:
-          topics.add(utf8.decode(field.bytesValue));
+          topics.add(utf8.decode(pbField.bytesValue));
           break;
         case 3:
-          groupInstanceId = utf8.decode(field.bytesValue);
+          groupInstanceId = utf8.decode(pbField.bytesValue);
           break;
         case 4:
-          sessionTimeoutMs = (field.varintValue).toSigned(32);
+          sessionTimeoutMs = (pbField.varintValue).toSigned(32);
           break;
         case 5:
-          maxPollRecords = (field.varintValue).toSigned(32);
+          maxPollRecords = (pbField.varintValue).toSigned(32);
           break;
         case 6:
-          autoOffsetReset = utf8.decode(field.bytesValue);
+          autoOffsetReset = utf8.decode(pbField.bytesValue);
           break;
         case 7:
-          readCommitted = field.varintValue != 0;
+          readCommitted = pbField.varintValue != 0;
           break;
         case 8:
-          groupProtocol = utf8.decode(field.bytesValue);
+          groupProtocol = utf8.decode(pbField.bytesValue);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -1075,16 +1075,16 @@ class GroupSubscribeResponse implements Marshaler, Unmarshaler {
   GroupSubscribeResponse([this.assignment = null, this.batch = null, this.groupError = null]);
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
+    final pbW = KafkaPbWriter();
     if (!(batch != null || groupError != null)) {
-    if (assignment != null) w.bytesField(1, assignment!.marshalDc());
+    if (assignment != null) pbW.bytesField(1, assignment!.marshalDc());
     }
     if (!(groupError != null)) {
-    if (batch != null) w.bytesField(2, batch!.marshalDc());
+    if (batch != null) pbW.bytesField(2, batch!.marshalDc());
     }
-    if (groupError != null) w.bytesField(3, groupError!.marshalDc());
-    w.raw(unknownFields);
-    return w.toBytes();
+    if (groupError != null) pbW.bytesField(3, groupError!.marshalDc());
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -1092,31 +1092,31 @@ class GroupSubscribeResponse implements Marshaler, Unmarshaler {
     assignment = null;
     batch = null;
     groupError = null;
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
           batch = null;
           groupError = null;
           assignment = Assignment();
-          assignment!.unmarshalDc(field.bytesValue);
+          assignment!.unmarshalDc(pbField.bytesValue);
           break;
         case 2:
           assignment = null;
           groupError = null;
           batch = RecordBatch();
-          batch!.unmarshalDc(field.bytesValue);
+          batch!.unmarshalDc(pbField.bytesValue);
           break;
         case 3:
           assignment = null;
           batch = null;
           groupError = GroupError();
-          groupError!.unmarshalDc(field.bytesValue);
+          groupError!.unmarshalDc(pbField.bytesValue);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -1130,12 +1130,12 @@ class Assignment implements Marshaler, Unmarshaler {
   Assignment([this.generationId = 0, this.memberId = '']) : partitions = [];
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    if (generationId != 0) { w.tag(1, 0); w.varint(generationId); }
-    w.stringField(2, memberId);
-    for (final x in partitions) { w.bytesField(3, x.marshalDc()); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    if (generationId != 0) { pbW.tag(1, 0); pbW.varint(generationId); }
+    pbW.stringField(2, memberId);
+    for (final pbX in partitions) { pbW.bytesField(3, pbX.marshalDc()); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -1143,24 +1143,24 @@ class Assignment implements Marshaler, Unmarshaler {
     generationId = 0;
     memberId = '';
     partitions = [];
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          generationId = (field.varintValue).toSigned(32);
+          generationId = (pbField.varintValue).toSigned(32);
           break;
         case 2:
-          memberId = utf8.decode(field.bytesValue);
+          memberId = utf8.decode(pbField.bytesValue);
           break;
         case 3:
           final item = TopicPartition();
-          item.unmarshalDc(field.bytesValue);
+          item.unmarshalDc(pbField.bytesValue);
           partitions.add(item);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -1175,13 +1175,13 @@ class RecordBatch implements Marshaler, Unmarshaler {
   RecordBatch([this.topic = '', this.partition = 0, this.highWatermark = 0]) : records = [];
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    w.stringField(1, topic);
-    if (partition != 0) { w.tag(2, 0); w.varint(partition); }
-    if (highWatermark != 0) { w.tag(3, 0); w.varint(highWatermark); }
-    for (final x in records) { w.bytesField(4, x.marshalDc()); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    pbW.stringField(1, topic);
+    if (partition != 0) { pbW.tag(2, 0); pbW.varint(partition); }
+    if (highWatermark != 0) { pbW.tag(3, 0); pbW.varint(highWatermark); }
+    for (final pbX in records) { pbW.bytesField(4, pbX.marshalDc()); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -1190,27 +1190,27 @@ class RecordBatch implements Marshaler, Unmarshaler {
     partition = 0;
     highWatermark = 0;
     records = [];
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          topic = utf8.decode(field.bytesValue);
+          topic = utf8.decode(pbField.bytesValue);
           break;
         case 2:
-          partition = (field.varintValue).toSigned(32);
+          partition = (pbField.varintValue).toSigned(32);
           break;
         case 3:
-          highWatermark = field.varintValue;
+          highWatermark = pbField.varintValue;
           break;
         case 4:
           final item = FetchedRecord();
-          item.unmarshalDc(field.bytesValue);
+          item.unmarshalDc(pbField.bytesValue);
           records.add(item);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -1223,30 +1223,30 @@ class GroupError implements Marshaler, Unmarshaler {
   GroupError([this.errorCode = 0, this.message = '']);
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    if (errorCode != 0) { w.tag(1, 0); w.varint(errorCode); }
-    w.stringField(2, message);
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    if (errorCode != 0) { pbW.tag(1, 0); pbW.varint(errorCode); }
+    pbW.stringField(2, message);
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     errorCode = 0;
     message = '';
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          errorCode = (field.varintValue).toSigned(32);
+          errorCode = (pbField.varintValue).toSigned(32);
           break;
         case 2:
-          message = utf8.decode(field.bytesValue);
+          message = utf8.decode(pbField.bytesValue);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -1261,13 +1261,13 @@ class ListOffsetsRequest implements Marshaler, Unmarshaler {
   ListOffsetsRequest([this.topic = '', this.partition = 0, this.timestamp = 0, this.readCommitted = false]);
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    w.stringField(1, topic);
-    if (partition != 0) { w.tag(2, 0); w.varint(partition); }
-    if (timestamp != 0) { w.tag(3, 0); w.varint(timestamp); }
-    if (readCommitted) { w.tag(4, 0); w.varint((readCommitted ? 1 : 0)); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    pbW.stringField(1, topic);
+    if (partition != 0) { pbW.tag(2, 0); pbW.varint(partition); }
+    if (timestamp != 0) { pbW.tag(3, 0); pbW.varint(timestamp); }
+    if (readCommitted) { pbW.tag(4, 0); pbW.varint((readCommitted ? 1 : 0)); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -1276,25 +1276,25 @@ class ListOffsetsRequest implements Marshaler, Unmarshaler {
     partition = 0;
     timestamp = 0;
     readCommitted = false;
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          topic = utf8.decode(field.bytesValue);
+          topic = utf8.decode(pbField.bytesValue);
           break;
         case 2:
-          partition = (field.varintValue).toSigned(32);
+          partition = (pbField.varintValue).toSigned(32);
           break;
         case 3:
-          timestamp = field.varintValue;
+          timestamp = pbField.varintValue;
           break;
         case 4:
-          readCommitted = field.varintValue != 0;
+          readCommitted = pbField.varintValue != 0;
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -1308,12 +1308,12 @@ class ListOffsetsResponse implements Marshaler, Unmarshaler {
   ListOffsetsResponse([this.offset = 0, this.timestampMs = 0, this.errorCode = 0]);
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    if (offset != 0) { w.tag(1, 0); w.varint(offset); }
-    if (timestampMs != 0) { w.tag(2, 0); w.varint(timestampMs); }
-    if (errorCode != 0) { w.tag(3, 0); w.varint(errorCode); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    if (offset != 0) { pbW.tag(1, 0); pbW.varint(offset); }
+    if (timestampMs != 0) { pbW.tag(2, 0); pbW.varint(timestampMs); }
+    if (errorCode != 0) { pbW.tag(3, 0); pbW.varint(errorCode); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -1321,22 +1321,22 @@ class ListOffsetsResponse implements Marshaler, Unmarshaler {
     offset = 0;
     timestampMs = 0;
     errorCode = 0;
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          offset = field.varintValue;
+          offset = pbField.varintValue;
           break;
         case 2:
-          timestampMs = field.varintValue;
+          timestampMs = pbField.varintValue;
           break;
         case 3:
-          errorCode = (field.varintValue).toSigned(32);
+          errorCode = (pbField.varintValue).toSigned(32);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -1353,15 +1353,15 @@ class CommitOffsetRequest implements Marshaler, Unmarshaler {
   CommitOffsetRequest([this.groupId = '', this.topic = '', this.partition = 0, this.committedOffset = 0, this.metadata = '', this.sessionId = '']);
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    w.stringField(1, groupId);
-    w.stringField(2, topic);
-    if (partition != 0) { w.tag(3, 0); w.varint(partition); }
-    if (committedOffset != 0) { w.tag(4, 0); w.varint(committedOffset); }
-    w.stringField(5, metadata);
-    w.stringField(6, sessionId);
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    pbW.stringField(1, groupId);
+    pbW.stringField(2, topic);
+    if (partition != 0) { pbW.tag(3, 0); pbW.varint(partition); }
+    if (committedOffset != 0) { pbW.tag(4, 0); pbW.varint(committedOffset); }
+    pbW.stringField(5, metadata);
+    pbW.stringField(6, sessionId);
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -1372,31 +1372,31 @@ class CommitOffsetRequest implements Marshaler, Unmarshaler {
     committedOffset = 0;
     metadata = '';
     sessionId = '';
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          groupId = utf8.decode(field.bytesValue);
+          groupId = utf8.decode(pbField.bytesValue);
           break;
         case 2:
-          topic = utf8.decode(field.bytesValue);
+          topic = utf8.decode(pbField.bytesValue);
           break;
         case 3:
-          partition = (field.varintValue).toSigned(32);
+          partition = (pbField.varintValue).toSigned(32);
           break;
         case 4:
-          committedOffset = field.varintValue;
+          committedOffset = pbField.varintValue;
           break;
         case 5:
-          metadata = utf8.decode(field.bytesValue);
+          metadata = utf8.decode(pbField.bytesValue);
           break;
         case 6:
-          sessionId = utf8.decode(field.bytesValue);
+          sessionId = utf8.decode(pbField.bytesValue);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -1408,25 +1408,25 @@ class CommitOffsetResponse implements Marshaler, Unmarshaler {
   CommitOffsetResponse([this.errorCode = 0]);
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    if (errorCode != 0) { w.tag(1, 0); w.varint(errorCode); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    if (errorCode != 0) { pbW.tag(1, 0); pbW.varint(errorCode); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     errorCode = 0;
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          errorCode = (field.varintValue).toSigned(32);
+          errorCode = (pbField.varintValue).toSigned(32);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -1440,12 +1440,12 @@ class FetchOffsetRequest implements Marshaler, Unmarshaler {
   FetchOffsetRequest([this.groupId = '', this.topic = '', this.partition = 0]);
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    w.stringField(1, groupId);
-    w.stringField(2, topic);
-    if (partition != 0) { w.tag(3, 0); w.varint(partition); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    pbW.stringField(1, groupId);
+    pbW.stringField(2, topic);
+    if (partition != 0) { pbW.tag(3, 0); pbW.varint(partition); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -1453,22 +1453,22 @@ class FetchOffsetRequest implements Marshaler, Unmarshaler {
     groupId = '';
     topic = '';
     partition = 0;
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          groupId = utf8.decode(field.bytesValue);
+          groupId = utf8.decode(pbField.bytesValue);
           break;
         case 2:
-          topic = utf8.decode(field.bytesValue);
+          topic = utf8.decode(pbField.bytesValue);
           break;
         case 3:
-          partition = (field.varintValue).toSigned(32);
+          partition = (pbField.varintValue).toSigned(32);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -1482,12 +1482,12 @@ class FetchOffsetResponse implements Marshaler, Unmarshaler {
   FetchOffsetResponse([this.committedOffset = 0, this.metadata = '', this.errorCode = 0]);
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    if (committedOffset != 0) { w.tag(1, 0); w.varint(committedOffset); }
-    w.stringField(2, metadata);
-    if (errorCode != 0) { w.tag(3, 0); w.varint(errorCode); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    if (committedOffset != 0) { pbW.tag(1, 0); pbW.varint(committedOffset); }
+    pbW.stringField(2, metadata);
+    if (errorCode != 0) { pbW.tag(3, 0); pbW.varint(errorCode); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -1495,22 +1495,22 @@ class FetchOffsetResponse implements Marshaler, Unmarshaler {
     committedOffset = 0;
     metadata = '';
     errorCode = 0;
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          committedOffset = field.varintValue;
+          committedOffset = pbField.varintValue;
           break;
         case 2:
-          metadata = utf8.decode(field.bytesValue);
+          metadata = utf8.decode(pbField.bytesValue);
           break;
         case 3:
-          errorCode = (field.varintValue).toSigned(32);
+          errorCode = (pbField.varintValue).toSigned(32);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -1524,12 +1524,12 @@ class NewTopic implements Marshaler, Unmarshaler {
   NewTopic([this.name = '', this.numPartitions = 0, this.replicationFactor = 0]);
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    w.stringField(1, name);
-    if (numPartitions != 0) { w.tag(2, 0); w.varint(numPartitions); }
-    if (replicationFactor != 0) { w.tag(3, 0); w.varint(replicationFactor); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    pbW.stringField(1, name);
+    if (numPartitions != 0) { pbW.tag(2, 0); pbW.varint(numPartitions); }
+    if (replicationFactor != 0) { pbW.tag(3, 0); pbW.varint(replicationFactor); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -1537,22 +1537,22 @@ class NewTopic implements Marshaler, Unmarshaler {
     name = '';
     numPartitions = 0;
     replicationFactor = 0;
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          name = utf8.decode(field.bytesValue);
+          name = utf8.decode(pbField.bytesValue);
           break;
         case 2:
-          numPartitions = (field.varintValue).toSigned(32);
+          numPartitions = (pbField.varintValue).toSigned(32);
           break;
         case 3:
-          replicationFactor = (field.varintValue).toSigned(32);
+          replicationFactor = (pbField.varintValue).toSigned(32);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -1566,12 +1566,12 @@ class CreateTopicsRequest implements Marshaler, Unmarshaler {
   CreateTopicsRequest([this.timeoutMs = 0, this.validateOnly = false]) : topics = [];
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    for (final x in topics) { w.bytesField(1, x.marshalDc()); }
-    if (timeoutMs != 0) { w.tag(2, 0); w.varint(timeoutMs); }
-    if (validateOnly) { w.tag(3, 0); w.varint((validateOnly ? 1 : 0)); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    for (final pbX in topics) { pbW.bytesField(1, pbX.marshalDc()); }
+    if (timeoutMs != 0) { pbW.tag(2, 0); pbW.varint(timeoutMs); }
+    if (validateOnly) { pbW.tag(3, 0); pbW.varint((validateOnly ? 1 : 0)); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -1579,24 +1579,24 @@ class CreateTopicsRequest implements Marshaler, Unmarshaler {
     topics = [];
     timeoutMs = 0;
     validateOnly = false;
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
           final item = NewTopic();
-          item.unmarshalDc(field.bytesValue);
+          item.unmarshalDc(pbField.bytesValue);
           topics.add(item);
           break;
         case 2:
-          timeoutMs = (field.varintValue).toSigned(32);
+          timeoutMs = (pbField.varintValue).toSigned(32);
           break;
         case 3:
-          validateOnly = field.varintValue != 0;
+          validateOnly = pbField.varintValue != 0;
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -1609,30 +1609,30 @@ class TopicError implements Marshaler, Unmarshaler {
   TopicError([this.name = '', this.errorCode = 0]);
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    w.stringField(1, name);
-    if (errorCode != 0) { w.tag(2, 0); w.varint(errorCode); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    pbW.stringField(1, name);
+    if (errorCode != 0) { pbW.tag(2, 0); pbW.varint(errorCode); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     name = '';
     errorCode = 0;
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          name = utf8.decode(field.bytesValue);
+          name = utf8.decode(pbField.bytesValue);
           break;
         case 2:
-          errorCode = (field.varintValue).toSigned(32);
+          errorCode = (pbField.varintValue).toSigned(32);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -1644,27 +1644,27 @@ class CreateTopicsResponse implements Marshaler, Unmarshaler {
   CreateTopicsResponse() : results = [];
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    for (final x in results) { w.bytesField(1, x.marshalDc()); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    for (final pbX in results) { pbW.bytesField(1, pbX.marshalDc()); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     results = [];
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
           final item = TopicError();
-          item.unmarshalDc(field.bytesValue);
+          item.unmarshalDc(pbField.bytesValue);
           results.add(item);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -1677,30 +1677,30 @@ class DeleteTopicsRequest implements Marshaler, Unmarshaler {
   DeleteTopicsRequest([this.timeoutMs = 0]) : topics = [];
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    for (final x in topics) { w.bytesField(1, utf8.encode(x)); }
-    if (timeoutMs != 0) { w.tag(2, 0); w.varint(timeoutMs); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    for (final pbX in topics) { pbW.bytesField(1, utf8.encode(pbX)); }
+    if (timeoutMs != 0) { pbW.tag(2, 0); pbW.varint(timeoutMs); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     topics = [];
     timeoutMs = 0;
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          topics.add(utf8.decode(field.bytesValue));
+          topics.add(utf8.decode(pbField.bytesValue));
           break;
         case 2:
-          timeoutMs = (field.varintValue).toSigned(32);
+          timeoutMs = (pbField.varintValue).toSigned(32);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -1712,27 +1712,27 @@ class DeleteTopicsResponse implements Marshaler, Unmarshaler {
   DeleteTopicsResponse() : results = [];
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    for (final x in results) { w.bytesField(1, x.marshalDc()); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    for (final pbX in results) { pbW.bytesField(1, pbX.marshalDc()); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     results = [];
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
           final item = TopicError();
-          item.unmarshalDc(field.bytesValue);
+          item.unmarshalDc(pbField.bytesValue);
           results.add(item);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -1745,30 +1745,30 @@ class ConfigEntry implements Marshaler, Unmarshaler {
   ConfigEntry([this.name = '', this.value = '']);
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    w.stringField(1, name);
-    w.stringField(2, value);
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    pbW.stringField(1, name);
+    pbW.stringField(2, value);
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     name = '';
     value = '';
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          name = utf8.decode(field.bytesValue);
+          name = utf8.decode(pbField.bytesValue);
           break;
         case 2:
-          value = utf8.decode(field.bytesValue);
+          value = utf8.decode(pbField.bytesValue);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -1782,12 +1782,12 @@ class AlterConfigEntry implements Marshaler, Unmarshaler {
   AlterConfigEntry([this.name = '', this.value = '', this.op = ConfigOp.CONFIG_OP_SET]);
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    w.stringField(1, name);
-    w.stringField(2, value);
-    if (op.index != 0) { w.tag(3, 0); w.varint(op.index); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    pbW.stringField(1, name);
+    pbW.stringField(2, value);
+    if (op.index != 0) { pbW.tag(3, 0); pbW.varint(op.index); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -1795,22 +1795,22 @@ class AlterConfigEntry implements Marshaler, Unmarshaler {
     name = '';
     value = '';
     op = ConfigOp.CONFIG_OP_SET;
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          name = utf8.decode(field.bytesValue);
+          name = utf8.decode(pbField.bytesValue);
           break;
         case 2:
-          value = utf8.decode(field.bytesValue);
+          value = utf8.decode(pbField.bytesValue);
           break;
         case 3:
-          op = ConfigOp.values[(field.varintValue).toSigned(32)] ;
+          op = ConfigOp.values[(pbField.varintValue).toSigned(32)] ;
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -1825,13 +1825,13 @@ class DescribeConfigsRequest implements Marshaler, Unmarshaler {
   DescribeConfigsRequest([this.resourceType = ConfigResourceType.CONFIG_RESOURCE_UNKNOWN, this.resourceName = '', this.includeSynonyms = false]) : configKeys = [];
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    if (resourceType.index != 0) { w.tag(1, 0); w.varint(resourceType.index); }
-    w.stringField(2, resourceName);
-    for (final x in configKeys) { w.bytesField(3, utf8.encode(x)); }
-    if (includeSynonyms) { w.tag(4, 0); w.varint((includeSynonyms ? 1 : 0)); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    if (resourceType.index != 0) { pbW.tag(1, 0); pbW.varint(resourceType.index); }
+    pbW.stringField(2, resourceName);
+    for (final pbX in configKeys) { pbW.bytesField(3, utf8.encode(pbX)); }
+    if (includeSynonyms) { pbW.tag(4, 0); pbW.varint((includeSynonyms ? 1 : 0)); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -1840,25 +1840,25 @@ class DescribeConfigsRequest implements Marshaler, Unmarshaler {
     resourceName = '';
     configKeys = [];
     includeSynonyms = false;
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          resourceType = ConfigResourceType.values[(field.varintValue).toSigned(32)] ;
+          resourceType = ConfigResourceType.values[(pbField.varintValue).toSigned(32)] ;
           break;
         case 2:
-          resourceName = utf8.decode(field.bytesValue);
+          resourceName = utf8.decode(pbField.bytesValue);
           break;
         case 3:
-          configKeys.add(utf8.decode(field.bytesValue));
+          configKeys.add(utf8.decode(pbField.bytesValue));
           break;
         case 4:
-          includeSynonyms = field.varintValue != 0;
+          includeSynonyms = pbField.varintValue != 0;
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -1874,14 +1874,14 @@ class ConfigValue implements Marshaler, Unmarshaler {
   ConfigValue([this.name = '', this.value = '', this.readOnly = false, this.source = 0, this.isSensitive = false]);
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    w.stringField(1, name);
-    w.stringField(2, value);
-    if (readOnly) { w.tag(3, 0); w.varint((readOnly ? 1 : 0)); }
-    if (source != 0) { w.tag(4, 0); w.varint(source); }
-    if (isSensitive) { w.tag(5, 0); w.varint((isSensitive ? 1 : 0)); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    pbW.stringField(1, name);
+    pbW.stringField(2, value);
+    if (readOnly) { pbW.tag(3, 0); pbW.varint((readOnly ? 1 : 0)); }
+    if (source != 0) { pbW.tag(4, 0); pbW.varint(source); }
+    if (isSensitive) { pbW.tag(5, 0); pbW.varint((isSensitive ? 1 : 0)); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -1891,28 +1891,28 @@ class ConfigValue implements Marshaler, Unmarshaler {
     readOnly = false;
     source = 0;
     isSensitive = false;
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          name = utf8.decode(field.bytesValue);
+          name = utf8.decode(pbField.bytesValue);
           break;
         case 2:
-          value = utf8.decode(field.bytesValue);
+          value = utf8.decode(pbField.bytesValue);
           break;
         case 3:
-          readOnly = field.varintValue != 0;
+          readOnly = pbField.varintValue != 0;
           break;
         case 4:
-          source = (field.varintValue).toSigned(32);
+          source = (pbField.varintValue).toSigned(32);
           break;
         case 5:
-          isSensitive = field.varintValue != 0;
+          isSensitive = pbField.varintValue != 0;
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -1925,32 +1925,32 @@ class DescribeConfigsResponse implements Marshaler, Unmarshaler {
   DescribeConfigsResponse([this.errorCode = 0]) : values = [];
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    if (errorCode != 0) { w.tag(1, 0); w.varint(errorCode); }
-    for (final x in values) { w.bytesField(2, x.marshalDc()); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    if (errorCode != 0) { pbW.tag(1, 0); pbW.varint(errorCode); }
+    for (final pbX in values) { pbW.bytesField(2, pbX.marshalDc()); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     errorCode = 0;
     values = [];
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          errorCode = (field.varintValue).toSigned(32);
+          errorCode = (pbField.varintValue).toSigned(32);
           break;
         case 2:
           final item = ConfigValue();
-          item.unmarshalDc(field.bytesValue);
+          item.unmarshalDc(pbField.bytesValue);
           values.add(item);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -1965,13 +1965,13 @@ class AlterConfigsRequest implements Marshaler, Unmarshaler {
   AlterConfigsRequest([this.resourceType = ConfigResourceType.CONFIG_RESOURCE_UNKNOWN, this.resourceName = '', this.validateOnly = false]) : entries = [];
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    if (resourceType.index != 0) { w.tag(1, 0); w.varint(resourceType.index); }
-    w.stringField(2, resourceName);
-    for (final x in entries) { w.bytesField(3, x.marshalDc()); }
-    if (validateOnly) { w.tag(4, 0); w.varint((validateOnly ? 1 : 0)); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    if (resourceType.index != 0) { pbW.tag(1, 0); pbW.varint(resourceType.index); }
+    pbW.stringField(2, resourceName);
+    for (final pbX in entries) { pbW.bytesField(3, pbX.marshalDc()); }
+    if (validateOnly) { pbW.tag(4, 0); pbW.varint((validateOnly ? 1 : 0)); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -1980,27 +1980,27 @@ class AlterConfigsRequest implements Marshaler, Unmarshaler {
     resourceName = '';
     entries = [];
     validateOnly = false;
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          resourceType = ConfigResourceType.values[(field.varintValue).toSigned(32)] ;
+          resourceType = ConfigResourceType.values[(pbField.varintValue).toSigned(32)] ;
           break;
         case 2:
-          resourceName = utf8.decode(field.bytesValue);
+          resourceName = utf8.decode(pbField.bytesValue);
           break;
         case 3:
           final item = AlterConfigEntry();
-          item.unmarshalDc(field.bytesValue);
+          item.unmarshalDc(pbField.bytesValue);
           entries.add(item);
           break;
         case 4:
-          validateOnly = field.varintValue != 0;
+          validateOnly = pbField.varintValue != 0;
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -2012,25 +2012,25 @@ class AlterConfigsResponse implements Marshaler, Unmarshaler {
   AlterConfigsResponse([this.errorCode = 0]);
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    if (errorCode != 0) { w.tag(1, 0); w.varint(errorCode); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    if (errorCode != 0) { pbW.tag(1, 0); pbW.varint(errorCode); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     errorCode = 0;
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          errorCode = (field.varintValue).toSigned(32);
+          errorCode = (pbField.varintValue).toSigned(32);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -2045,13 +2045,13 @@ class CreatePartitionsRequest implements Marshaler, Unmarshaler {
   CreatePartitionsRequest([this.topic = '', this.totalCount = 0, this.validateOnly = false, this.timeoutMs = 0]);
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    w.stringField(1, topic);
-    if (totalCount != 0) { w.tag(2, 0); w.varint(totalCount); }
-    if (validateOnly) { w.tag(3, 0); w.varint((validateOnly ? 1 : 0)); }
-    if (timeoutMs != 0) { w.tag(4, 0); w.varint(timeoutMs); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    pbW.stringField(1, topic);
+    if (totalCount != 0) { pbW.tag(2, 0); pbW.varint(totalCount); }
+    if (validateOnly) { pbW.tag(3, 0); pbW.varint((validateOnly ? 1 : 0)); }
+    if (timeoutMs != 0) { pbW.tag(4, 0); pbW.varint(timeoutMs); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -2060,25 +2060,25 @@ class CreatePartitionsRequest implements Marshaler, Unmarshaler {
     totalCount = 0;
     validateOnly = false;
     timeoutMs = 0;
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          topic = utf8.decode(field.bytesValue);
+          topic = utf8.decode(pbField.bytesValue);
           break;
         case 2:
-          totalCount = (field.varintValue).toSigned(32);
+          totalCount = (pbField.varintValue).toSigned(32);
           break;
         case 3:
-          validateOnly = field.varintValue != 0;
+          validateOnly = pbField.varintValue != 0;
           break;
         case 4:
-          timeoutMs = (field.varintValue).toSigned(32);
+          timeoutMs = (pbField.varintValue).toSigned(32);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -2090,25 +2090,25 @@ class CreatePartitionsResponse implements Marshaler, Unmarshaler {
   CreatePartitionsResponse([this.errorCode = 0]);
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    if (errorCode != 0) { w.tag(1, 0); w.varint(errorCode); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    if (errorCode != 0) { pbW.tag(1, 0); pbW.varint(errorCode); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     errorCode = 0;
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          errorCode = (field.varintValue).toSigned(32);
+          errorCode = (pbField.varintValue).toSigned(32);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -2122,12 +2122,12 @@ class DeleteRecordsRequest implements Marshaler, Unmarshaler {
   DeleteRecordsRequest([this.topic = '', this.partition = 0, this.beforeOffset = 0]);
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    w.stringField(1, topic);
-    if (partition != 0) { w.tag(2, 0); w.varint(partition); }
-    if (beforeOffset != 0) { w.tag(3, 0); w.varint(beforeOffset); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    pbW.stringField(1, topic);
+    if (partition != 0) { pbW.tag(2, 0); pbW.varint(partition); }
+    if (beforeOffset != 0) { pbW.tag(3, 0); pbW.varint(beforeOffset); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -2135,22 +2135,22 @@ class DeleteRecordsRequest implements Marshaler, Unmarshaler {
     topic = '';
     partition = 0;
     beforeOffset = 0;
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          topic = utf8.decode(field.bytesValue);
+          topic = utf8.decode(pbField.bytesValue);
           break;
         case 2:
-          partition = (field.varintValue).toSigned(32);
+          partition = (pbField.varintValue).toSigned(32);
           break;
         case 3:
-          beforeOffset = field.varintValue;
+          beforeOffset = pbField.varintValue;
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -2163,30 +2163,30 @@ class DeleteRecordsResponse implements Marshaler, Unmarshaler {
   DeleteRecordsResponse([this.lowWatermark = 0, this.errorCode = 0]);
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    if (lowWatermark != 0) { w.tag(1, 0); w.varint(lowWatermark); }
-    if (errorCode != 0) { w.tag(2, 0); w.varint(errorCode); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    if (lowWatermark != 0) { pbW.tag(1, 0); pbW.varint(lowWatermark); }
+    if (errorCode != 0) { pbW.tag(2, 0); pbW.varint(errorCode); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     lowWatermark = 0;
     errorCode = 0;
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          lowWatermark = field.varintValue;
+          lowWatermark = pbField.varintValue;
           break;
         case 2:
-          errorCode = (field.varintValue).toSigned(32);
+          errorCode = (pbField.varintValue).toSigned(32);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -2197,20 +2197,20 @@ class ListGroupsRequest implements Marshaler, Unmarshaler {
   ListGroupsRequest();
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -2224,12 +2224,12 @@ class GroupListing implements Marshaler, Unmarshaler {
   GroupListing([this.groupId = '', this.protocolType = '', this.groupState = '']);
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    w.stringField(1, groupId);
-    w.stringField(2, protocolType);
-    w.stringField(3, groupState);
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    pbW.stringField(1, groupId);
+    pbW.stringField(2, protocolType);
+    pbW.stringField(3, groupState);
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -2237,22 +2237,22 @@ class GroupListing implements Marshaler, Unmarshaler {
     groupId = '';
     protocolType = '';
     groupState = '';
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          groupId = utf8.decode(field.bytesValue);
+          groupId = utf8.decode(pbField.bytesValue);
           break;
         case 2:
-          protocolType = utf8.decode(field.bytesValue);
+          protocolType = utf8.decode(pbField.bytesValue);
           break;
         case 3:
-          groupState = utf8.decode(field.bytesValue);
+          groupState = utf8.decode(pbField.bytesValue);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -2265,32 +2265,32 @@ class ListGroupsResponse implements Marshaler, Unmarshaler {
   ListGroupsResponse([this.errorCode = 0]) : groups = [];
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    if (errorCode != 0) { w.tag(1, 0); w.varint(errorCode); }
-    for (final x in groups) { w.bytesField(2, x.marshalDc()); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    if (errorCode != 0) { pbW.tag(1, 0); pbW.varint(errorCode); }
+    for (final pbX in groups) { pbW.bytesField(2, pbX.marshalDc()); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     errorCode = 0;
     groups = [];
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          errorCode = (field.varintValue).toSigned(32);
+          errorCode = (pbField.varintValue).toSigned(32);
           break;
         case 2:
           final item = GroupListing();
-          item.unmarshalDc(field.bytesValue);
+          item.unmarshalDc(pbField.bytesValue);
           groups.add(item);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -2302,25 +2302,25 @@ class DescribeGroupsRequest implements Marshaler, Unmarshaler {
   DescribeGroupsRequest() : groupIds = [];
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    for (final x in groupIds) { w.bytesField(1, utf8.encode(x)); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    for (final pbX in groupIds) { pbW.bytesField(1, utf8.encode(pbX)); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     groupIds = [];
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          groupIds.add(utf8.decode(field.bytesValue));
+          groupIds.add(utf8.decode(pbField.bytesValue));
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -2335,13 +2335,13 @@ class GroupMember implements Marshaler, Unmarshaler {
   GroupMember([this.memberId = '', this.clientId = '', this.clientHost = '']) : assignment = [];
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    w.stringField(1, memberId);
-    w.stringField(2, clientId);
-    w.stringField(3, clientHost);
-    for (final x in assignment) { w.bytesField(4, x.marshalDc()); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    pbW.stringField(1, memberId);
+    pbW.stringField(2, clientId);
+    pbW.stringField(3, clientHost);
+    for (final pbX in assignment) { pbW.bytesField(4, pbX.marshalDc()); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -2350,27 +2350,27 @@ class GroupMember implements Marshaler, Unmarshaler {
     clientId = '';
     clientHost = '';
     assignment = [];
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          memberId = utf8.decode(field.bytesValue);
+          memberId = utf8.decode(pbField.bytesValue);
           break;
         case 2:
-          clientId = utf8.decode(field.bytesValue);
+          clientId = utf8.decode(pbField.bytesValue);
           break;
         case 3:
-          clientHost = utf8.decode(field.bytesValue);
+          clientHost = utf8.decode(pbField.bytesValue);
           break;
         case 4:
           final item = TopicPartition();
-          item.unmarshalDc(field.bytesValue);
+          item.unmarshalDc(pbField.bytesValue);
           assignment.add(item);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -2387,15 +2387,15 @@ class DescribedGroup implements Marshaler, Unmarshaler {
   DescribedGroup([this.groupId = '', this.errorCode = 0, this.groupState = '', this.protocolType = '', this.protocol = '']) : members = [];
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    w.stringField(1, groupId);
-    if (errorCode != 0) { w.tag(2, 0); w.varint(errorCode); }
-    w.stringField(3, groupState);
-    w.stringField(4, protocolType);
-    w.stringField(5, protocol);
-    for (final x in members) { w.bytesField(6, x.marshalDc()); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    pbW.stringField(1, groupId);
+    if (errorCode != 0) { pbW.tag(2, 0); pbW.varint(errorCode); }
+    pbW.stringField(3, groupState);
+    pbW.stringField(4, protocolType);
+    pbW.stringField(5, protocol);
+    for (final pbX in members) { pbW.bytesField(6, pbX.marshalDc()); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -2406,33 +2406,33 @@ class DescribedGroup implements Marshaler, Unmarshaler {
     protocolType = '';
     protocol = '';
     members = [];
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          groupId = utf8.decode(field.bytesValue);
+          groupId = utf8.decode(pbField.bytesValue);
           break;
         case 2:
-          errorCode = (field.varintValue).toSigned(32);
+          errorCode = (pbField.varintValue).toSigned(32);
           break;
         case 3:
-          groupState = utf8.decode(field.bytesValue);
+          groupState = utf8.decode(pbField.bytesValue);
           break;
         case 4:
-          protocolType = utf8.decode(field.bytesValue);
+          protocolType = utf8.decode(pbField.bytesValue);
           break;
         case 5:
-          protocol = utf8.decode(field.bytesValue);
+          protocol = utf8.decode(pbField.bytesValue);
           break;
         case 6:
           final item = GroupMember();
-          item.unmarshalDc(field.bytesValue);
+          item.unmarshalDc(pbField.bytesValue);
           members.add(item);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -2444,27 +2444,27 @@ class DescribeGroupsResponse implements Marshaler, Unmarshaler {
   DescribeGroupsResponse() : groups = [];
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    for (final x in groups) { w.bytesField(1, x.marshalDc()); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    for (final pbX in groups) { pbW.bytesField(1, pbX.marshalDc()); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     groups = [];
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
           final item = DescribedGroup();
-          item.unmarshalDc(field.bytesValue);
+          item.unmarshalDc(pbField.bytesValue);
           groups.add(item);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -2476,25 +2476,25 @@ class DeleteGroupsRequest implements Marshaler, Unmarshaler {
   DeleteGroupsRequest() : groupIds = [];
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    for (final x in groupIds) { w.bytesField(1, utf8.encode(x)); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    for (final pbX in groupIds) { pbW.bytesField(1, utf8.encode(pbX)); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     groupIds = [];
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          groupIds.add(utf8.decode(field.bytesValue));
+          groupIds.add(utf8.decode(pbField.bytesValue));
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -2507,30 +2507,30 @@ class GroupErrorResult implements Marshaler, Unmarshaler {
   GroupErrorResult([this.groupId = '', this.errorCode = 0]);
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    w.stringField(1, groupId);
-    if (errorCode != 0) { w.tag(2, 0); w.varint(errorCode); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    pbW.stringField(1, groupId);
+    if (errorCode != 0) { pbW.tag(2, 0); pbW.varint(errorCode); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     groupId = '';
     errorCode = 0;
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          groupId = utf8.decode(field.bytesValue);
+          groupId = utf8.decode(pbField.bytesValue);
           break;
         case 2:
-          errorCode = (field.varintValue).toSigned(32);
+          errorCode = (pbField.varintValue).toSigned(32);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -2542,27 +2542,27 @@ class DeleteGroupsResponse implements Marshaler, Unmarshaler {
   DeleteGroupsResponse() : results = [];
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    for (final x in results) { w.bytesField(1, x.marshalDc()); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    for (final pbX in results) { pbW.bytesField(1, pbX.marshalDc()); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     results = [];
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
           final item = GroupErrorResult();
-          item.unmarshalDc(field.bytesValue);
+          item.unmarshalDc(pbField.bytesValue);
           results.add(item);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -2576,16 +2576,16 @@ class DeleteGroupOffsetsRequest implements Marshaler, Unmarshaler {
   DeleteGroupOffsetsRequest([this.groupId = '', this.topic = '']) : partitions = [];
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    w.stringField(1, groupId);
-    w.stringField(2, topic);
+    final pbW = KafkaPbWriter();
+    pbW.stringField(1, groupId);
+    pbW.stringField(2, topic);
     if (partitions.isNotEmpty) {
-        final payload = KafkaPbWriter();
-        for (final x in partitions) { payload.varint(x); }
-        w.bytesField(3, payload.toBytes());
+        final pbPayload = KafkaPbWriter();
+        for (final pbX in partitions) { pbPayload.varint(pbX); }
+        pbW.bytesField(3, pbPayload.toBytes());
     }
-    w.raw(unknownFields);
-    return w.toBytes();
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -2593,29 +2593,29 @@ class DeleteGroupOffsetsRequest implements Marshaler, Unmarshaler {
     groupId = '';
     topic = '';
     partitions = [];
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          groupId = utf8.decode(field.bytesValue);
+          groupId = utf8.decode(pbField.bytesValue);
           break;
         case 2:
-          topic = utf8.decode(field.bytesValue);
+          topic = utf8.decode(pbField.bytesValue);
           break;
         case 3:
-          if (field.wire == 2) {
-            final sub = KafkaPbReader(field.bytesValue);
-            while (!sub.done()) {
-              partitions.add((sub.varint()).toSigned(32));
+          if (pbField.wire == 2) {
+            final pbSub = KafkaPbReader(pbField.bytesValue);
+            while (!pbSub.done()) {
+              partitions.add((pbSub.varint()).toSigned(32));
             }
           } else {
-            partitions.add((field.varintValue).toSigned(32));
+            partitions.add((pbField.varintValue).toSigned(32));
           }
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -2627,25 +2627,25 @@ class DeleteGroupOffsetsResponse implements Marshaler, Unmarshaler {
   DeleteGroupOffsetsResponse([this.errorCode = 0]);
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    if (errorCode != 0) { w.tag(1, 0); w.varint(errorCode); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    if (errorCode != 0) { pbW.tag(1, 0); pbW.varint(errorCode); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     errorCode = 0;
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          errorCode = (field.varintValue).toSigned(32);
+          errorCode = (pbField.varintValue).toSigned(32);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -2663,16 +2663,16 @@ class Acl implements Marshaler, Unmarshaler {
   Acl([this.resourceType = 0, this.resourceName = '', this.patternType = 0, this.principal = '', this.host = '', this.operation = 0, this.permissionType = 0]);
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    if (resourceType != 0) { w.tag(1, 0); w.varint(resourceType); }
-    w.stringField(2, resourceName);
-    if (patternType != 0) { w.tag(3, 0); w.varint(patternType); }
-    w.stringField(4, principal);
-    w.stringField(5, host);
-    if (operation != 0) { w.tag(6, 0); w.varint(operation); }
-    if (permissionType != 0) { w.tag(7, 0); w.varint(permissionType); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    if (resourceType != 0) { pbW.tag(1, 0); pbW.varint(resourceType); }
+    pbW.stringField(2, resourceName);
+    if (patternType != 0) { pbW.tag(3, 0); pbW.varint(patternType); }
+    pbW.stringField(4, principal);
+    pbW.stringField(5, host);
+    if (operation != 0) { pbW.tag(6, 0); pbW.varint(operation); }
+    if (permissionType != 0) { pbW.tag(7, 0); pbW.varint(permissionType); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -2684,34 +2684,34 @@ class Acl implements Marshaler, Unmarshaler {
     host = '';
     operation = 0;
     permissionType = 0;
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          resourceType = (field.varintValue).toSigned(32);
+          resourceType = (pbField.varintValue).toSigned(32);
           break;
         case 2:
-          resourceName = utf8.decode(field.bytesValue);
+          resourceName = utf8.decode(pbField.bytesValue);
           break;
         case 3:
-          patternType = (field.varintValue).toSigned(32);
+          patternType = (pbField.varintValue).toSigned(32);
           break;
         case 4:
-          principal = utf8.decode(field.bytesValue);
+          principal = utf8.decode(pbField.bytesValue);
           break;
         case 5:
-          host = utf8.decode(field.bytesValue);
+          host = utf8.decode(pbField.bytesValue);
           break;
         case 6:
-          operation = (field.varintValue).toSigned(32);
+          operation = (pbField.varintValue).toSigned(32);
           break;
         case 7:
-          permissionType = (field.varintValue).toSigned(32);
+          permissionType = (pbField.varintValue).toSigned(32);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -2723,26 +2723,26 @@ class DescribeAclsRequest implements Marshaler, Unmarshaler {
   DescribeAclsRequest([this.filter = null]);
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    if (filter != null) w.bytesField(1, filter!.marshalDc());
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    if (filter != null) pbW.bytesField(1, filter!.marshalDc());
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     filter = null;
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
           filter = Acl();
-          filter!.unmarshalDc(field.bytesValue);
+          filter!.unmarshalDc(pbField.bytesValue);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -2755,32 +2755,32 @@ class DescribeAclsResponse implements Marshaler, Unmarshaler {
   DescribeAclsResponse([this.errorCode = 0]) : acls = [];
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    if (errorCode != 0) { w.tag(1, 0); w.varint(errorCode); }
-    for (final x in acls) { w.bytesField(2, x.marshalDc()); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    if (errorCode != 0) { pbW.tag(1, 0); pbW.varint(errorCode); }
+    for (final pbX in acls) { pbW.bytesField(2, pbX.marshalDc()); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     errorCode = 0;
     acls = [];
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          errorCode = (field.varintValue).toSigned(32);
+          errorCode = (pbField.varintValue).toSigned(32);
           break;
         case 2:
           final item = Acl();
-          item.unmarshalDc(field.bytesValue);
+          item.unmarshalDc(pbField.bytesValue);
           acls.add(item);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -2792,27 +2792,27 @@ class CreateAclsRequest implements Marshaler, Unmarshaler {
   CreateAclsRequest() : acls = [];
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    for (final x in acls) { w.bytesField(1, x.marshalDc()); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    for (final pbX in acls) { pbW.bytesField(1, pbX.marshalDc()); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     acls = [];
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
           final item = Acl();
-          item.unmarshalDc(field.bytesValue);
+          item.unmarshalDc(pbField.bytesValue);
           acls.add(item);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -2824,36 +2824,36 @@ class CreateAclsResponse implements Marshaler, Unmarshaler {
   CreateAclsResponse() : errorCodes = [];
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
+    final pbW = KafkaPbWriter();
     if (errorCodes.isNotEmpty) {
-        final payload = KafkaPbWriter();
-        for (final x in errorCodes) { payload.varint(x); }
-        w.bytesField(1, payload.toBytes());
+        final pbPayload = KafkaPbWriter();
+        for (final pbX in errorCodes) { pbPayload.varint(pbX); }
+        pbW.bytesField(1, pbPayload.toBytes());
     }
-    w.raw(unknownFields);
-    return w.toBytes();
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     errorCodes = [];
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          if (field.wire == 2) {
-            final sub = KafkaPbReader(field.bytesValue);
-            while (!sub.done()) {
-              errorCodes.add((sub.varint()).toSigned(32));
+          if (pbField.wire == 2) {
+            final pbSub = KafkaPbReader(pbField.bytesValue);
+            while (!pbSub.done()) {
+              errorCodes.add((pbSub.varint()).toSigned(32));
             }
           } else {
-            errorCodes.add((field.varintValue).toSigned(32));
+            errorCodes.add((pbField.varintValue).toSigned(32));
           }
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -2865,27 +2865,27 @@ class DeleteAclsRequest implements Marshaler, Unmarshaler {
   DeleteAclsRequest() : filters = [];
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    for (final x in filters) { w.bytesField(1, x.marshalDc()); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    for (final pbX in filters) { pbW.bytesField(1, pbX.marshalDc()); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     filters = [];
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
           final item = Acl();
-          item.unmarshalDc(field.bytesValue);
+          item.unmarshalDc(pbField.bytesValue);
           filters.add(item);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -2897,36 +2897,36 @@ class DeleteAclsResponse implements Marshaler, Unmarshaler {
   DeleteAclsResponse() : errorCodes = [];
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
+    final pbW = KafkaPbWriter();
     if (errorCodes.isNotEmpty) {
-        final payload = KafkaPbWriter();
-        for (final x in errorCodes) { payload.varint(x); }
-        w.bytesField(1, payload.toBytes());
+        final pbPayload = KafkaPbWriter();
+        for (final pbX in errorCodes) { pbPayload.varint(pbX); }
+        pbW.bytesField(1, pbPayload.toBytes());
     }
-    w.raw(unknownFields);
-    return w.toBytes();
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     errorCodes = [];
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          if (field.wire == 2) {
-            final sub = KafkaPbReader(field.bytesValue);
-            while (!sub.done()) {
-              errorCodes.add((sub.varint()).toSigned(32));
+          if (pbField.wire == 2) {
+            final pbSub = KafkaPbReader(pbField.bytesValue);
+            while (!pbSub.done()) {
+              errorCodes.add((pbSub.varint()).toSigned(32));
             }
           } else {
-            errorCodes.add((field.varintValue).toSigned(32));
+            errorCodes.add((pbField.varintValue).toSigned(32));
           }
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -2937,20 +2937,20 @@ class ListTransactionsRequest implements Marshaler, Unmarshaler {
   ListTransactionsRequest();
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -2964,12 +2964,12 @@ class TransactionListing implements Marshaler, Unmarshaler {
   TransactionListing([this.transactionalId = '', this.producerId = 0, this.transactionState = '']);
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    w.stringField(1, transactionalId);
-    if (producerId != 0) { w.tag(2, 0); w.varint(producerId); }
-    w.stringField(3, transactionState);
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    pbW.stringField(1, transactionalId);
+    if (producerId != 0) { pbW.tag(2, 0); pbW.varint(producerId); }
+    pbW.stringField(3, transactionState);
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -2977,22 +2977,22 @@ class TransactionListing implements Marshaler, Unmarshaler {
     transactionalId = '';
     producerId = 0;
     transactionState = '';
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          transactionalId = utf8.decode(field.bytesValue);
+          transactionalId = utf8.decode(pbField.bytesValue);
           break;
         case 2:
-          producerId = field.varintValue;
+          producerId = pbField.varintValue;
           break;
         case 3:
-          transactionState = utf8.decode(field.bytesValue);
+          transactionState = utf8.decode(pbField.bytesValue);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -3005,32 +3005,32 @@ class ListTransactionsResponse implements Marshaler, Unmarshaler {
   ListTransactionsResponse([this.errorCode = 0]) : transactions = [];
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    if (errorCode != 0) { w.tag(1, 0); w.varint(errorCode); }
-    for (final x in transactions) { w.bytesField(2, x.marshalDc()); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    if (errorCode != 0) { pbW.tag(1, 0); pbW.varint(errorCode); }
+    for (final pbX in transactions) { pbW.bytesField(2, pbX.marshalDc()); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     errorCode = 0;
     transactions = [];
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          errorCode = (field.varintValue).toSigned(32);
+          errorCode = (pbField.varintValue).toSigned(32);
           break;
         case 2:
           final item = TransactionListing();
-          item.unmarshalDc(field.bytesValue);
+          item.unmarshalDc(pbField.bytesValue);
           transactions.add(item);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -3042,25 +3042,25 @@ class DescribeTransactionsRequest implements Marshaler, Unmarshaler {
   DescribeTransactionsRequest() : transactionalIds = [];
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    for (final x in transactionalIds) { w.bytesField(1, utf8.encode(x)); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    for (final pbX in transactionalIds) { pbW.bytesField(1, utf8.encode(pbX)); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     transactionalIds = [];
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          transactionalIds.add(utf8.decode(field.bytesValue));
+          transactionalIds.add(utf8.decode(pbField.bytesValue));
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -3077,15 +3077,15 @@ class DescribedTransaction implements Marshaler, Unmarshaler {
   DescribedTransaction([this.transactionalId = '', this.errorCode = 0, this.producerId = 0, this.producerEpoch = 0, this.transactionState = '', this.lastUpdateTimestampMs = 0]);
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    w.stringField(1, transactionalId);
-    if (errorCode != 0) { w.tag(2, 0); w.varint(errorCode); }
-    if (producerId != 0) { w.tag(3, 0); w.varint(producerId); }
-    if (producerEpoch != 0) { w.tag(4, 0); w.varint(producerEpoch); }
-    w.stringField(5, transactionState);
-    if (lastUpdateTimestampMs != 0) { w.tag(6, 0); w.varint(lastUpdateTimestampMs); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    pbW.stringField(1, transactionalId);
+    if (errorCode != 0) { pbW.tag(2, 0); pbW.varint(errorCode); }
+    if (producerId != 0) { pbW.tag(3, 0); pbW.varint(producerId); }
+    if (producerEpoch != 0) { pbW.tag(4, 0); pbW.varint(producerEpoch); }
+    pbW.stringField(5, transactionState);
+    if (lastUpdateTimestampMs != 0) { pbW.tag(6, 0); pbW.varint(lastUpdateTimestampMs); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -3096,31 +3096,31 @@ class DescribedTransaction implements Marshaler, Unmarshaler {
     producerEpoch = 0;
     transactionState = '';
     lastUpdateTimestampMs = 0;
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          transactionalId = utf8.decode(field.bytesValue);
+          transactionalId = utf8.decode(pbField.bytesValue);
           break;
         case 2:
-          errorCode = (field.varintValue).toSigned(32);
+          errorCode = (pbField.varintValue).toSigned(32);
           break;
         case 3:
-          producerId = field.varintValue;
+          producerId = pbField.varintValue;
           break;
         case 4:
-          producerEpoch = (field.varintValue).toSigned(32);
+          producerEpoch = (pbField.varintValue).toSigned(32);
           break;
         case 5:
-          transactionState = utf8.decode(field.bytesValue);
+          transactionState = utf8.decode(pbField.bytesValue);
           break;
         case 6:
-          lastUpdateTimestampMs = field.varintValue;
+          lastUpdateTimestampMs = pbField.varintValue;
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -3132,27 +3132,27 @@ class DescribeTransactionsResponse implements Marshaler, Unmarshaler {
   DescribeTransactionsResponse() : transactions = [];
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    for (final x in transactions) { w.bytesField(1, x.marshalDc()); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    for (final pbX in transactions) { pbW.bytesField(1, pbX.marshalDc()); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     transactions = [];
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
           final item = DescribedTransaction();
-          item.unmarshalDc(field.bytesValue);
+          item.unmarshalDc(pbField.bytesValue);
           transactions.add(item);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -3167,13 +3167,13 @@ class OpenShareGroupRequest implements Marshaler, Unmarshaler {
   OpenShareGroupRequest([this.groupId = '', this.groupInstanceId = '', this.sessionTimeoutMs = 0]) : topics = [];
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    w.stringField(1, groupId);
-    for (final x in topics) { w.bytesField(2, utf8.encode(x)); }
-    w.stringField(3, groupInstanceId);
-    if (sessionTimeoutMs != 0) { w.tag(4, 0); w.varint(sessionTimeoutMs); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    pbW.stringField(1, groupId);
+    for (final pbX in topics) { pbW.bytesField(2, utf8.encode(pbX)); }
+    pbW.stringField(3, groupInstanceId);
+    if (sessionTimeoutMs != 0) { pbW.tag(4, 0); pbW.varint(sessionTimeoutMs); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -3182,25 +3182,25 @@ class OpenShareGroupRequest implements Marshaler, Unmarshaler {
     topics = [];
     groupInstanceId = '';
     sessionTimeoutMs = 0;
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          groupId = utf8.decode(field.bytesValue);
+          groupId = utf8.decode(pbField.bytesValue);
           break;
         case 2:
-          topics.add(utf8.decode(field.bytesValue));
+          topics.add(utf8.decode(pbField.bytesValue));
           break;
         case 3:
-          groupInstanceId = utf8.decode(field.bytesValue);
+          groupInstanceId = utf8.decode(pbField.bytesValue);
           break;
         case 4:
-          sessionTimeoutMs = (field.varintValue).toSigned(32);
+          sessionTimeoutMs = (pbField.varintValue).toSigned(32);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -3214,12 +3214,12 @@ class OpenShareGroupResponse implements Marshaler, Unmarshaler {
   OpenShareGroupResponse([this.sessionId = '', this.errorCode = 0, this.assignment = null]);
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    w.stringField(1, sessionId);
-    if (errorCode != 0) { w.tag(2, 0); w.varint(errorCode); }
-    if (assignment != null) w.bytesField(3, assignment!.marshalDc());
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    pbW.stringField(1, sessionId);
+    if (errorCode != 0) { pbW.tag(2, 0); pbW.varint(errorCode); }
+    if (assignment != null) pbW.bytesField(3, assignment!.marshalDc());
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -3227,23 +3227,23 @@ class OpenShareGroupResponse implements Marshaler, Unmarshaler {
     sessionId = '';
     errorCode = 0;
     assignment = null;
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          sessionId = utf8.decode(field.bytesValue);
+          sessionId = utf8.decode(pbField.bytesValue);
           break;
         case 2:
-          errorCode = (field.varintValue).toSigned(32);
+          errorCode = (pbField.varintValue).toSigned(32);
           break;
         case 3:
           assignment = Assignment();
-          assignment!.unmarshalDc(field.bytesValue);
+          assignment!.unmarshalDc(pbField.bytesValue);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -3257,12 +3257,12 @@ class SharePollRequest implements Marshaler, Unmarshaler {
   SharePollRequest([this.sessionId = '', this.maxRecords = 0, this.maxWaitMs = 0]);
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    w.stringField(1, sessionId);
-    if (maxRecords != 0) { w.tag(2, 0); w.varint(maxRecords); }
-    if (maxWaitMs != 0) { w.tag(3, 0); w.varint(maxWaitMs); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    pbW.stringField(1, sessionId);
+    if (maxRecords != 0) { pbW.tag(2, 0); pbW.varint(maxRecords); }
+    if (maxWaitMs != 0) { pbW.tag(3, 0); pbW.varint(maxWaitMs); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -3270,22 +3270,22 @@ class SharePollRequest implements Marshaler, Unmarshaler {
     sessionId = '';
     maxRecords = 0;
     maxWaitMs = 0;
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          sessionId = utf8.decode(field.bytesValue);
+          sessionId = utf8.decode(pbField.bytesValue);
           break;
         case 2:
-          maxRecords = (field.varintValue).toSigned(32);
+          maxRecords = (pbField.varintValue).toSigned(32);
           break;
         case 3:
-          maxWaitMs = (field.varintValue).toSigned(32);
+          maxWaitMs = (pbField.varintValue).toSigned(32);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -3305,18 +3305,18 @@ class SharePollRecord implements Marshaler, Unmarshaler {
   SharePollRecord([this.topic = '', this.partition = 0, this.offset = 0, this.timestampMs = 0, this.deliveryCount = 0, this.nullKey = false]) : key = Uint8List(0), value = Uint8List(0), headers = [];
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    w.stringField(1, topic);
-    if (partition != 0) { w.tag(2, 0); w.varint(partition); }
-    if (offset != 0) { w.tag(3, 0); w.varint(offset); }
-    if (key.isNotEmpty) w.bytesField(4, key);
-    if (value.isNotEmpty) w.bytesField(5, value);
-    for (final x in headers) { w.bytesField(6, x.marshalDc()); }
-    if (timestampMs != 0) { w.tag(7, 0); w.varint(timestampMs); }
-    if (deliveryCount != 0) { w.tag(8, 0); w.varint(deliveryCount); }
-    if (nullKey) { w.tag(9, 0); w.varint((nullKey ? 1 : 0)); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    pbW.stringField(1, topic);
+    if (partition != 0) { pbW.tag(2, 0); pbW.varint(partition); }
+    if (offset != 0) { pbW.tag(3, 0); pbW.varint(offset); }
+    if (key.isNotEmpty) pbW.bytesField(4, key);
+    if (value.isNotEmpty) pbW.bytesField(5, value);
+    for (final pbX in headers) { pbW.bytesField(6, pbX.marshalDc()); }
+    if (timestampMs != 0) { pbW.tag(7, 0); pbW.varint(timestampMs); }
+    if (deliveryCount != 0) { pbW.tag(8, 0); pbW.varint(deliveryCount); }
+    if (nullKey) { pbW.tag(9, 0); pbW.varint((nullKey ? 1 : 0)); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -3330,42 +3330,42 @@ class SharePollRecord implements Marshaler, Unmarshaler {
     timestampMs = 0;
     deliveryCount = 0;
     nullKey = false;
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          topic = utf8.decode(field.bytesValue);
+          topic = utf8.decode(pbField.bytesValue);
           break;
         case 2:
-          partition = (field.varintValue).toSigned(32);
+          partition = (pbField.varintValue).toSigned(32);
           break;
         case 3:
-          offset = field.varintValue;
+          offset = pbField.varintValue;
           break;
         case 4:
-          key = field.bytesValue;
+          key = pbField.bytesValue;
           break;
         case 5:
-          value = field.bytesValue;
+          value = pbField.bytesValue;
           break;
         case 6:
           final item = Header();
-          item.unmarshalDc(field.bytesValue);
+          item.unmarshalDc(pbField.bytesValue);
           headers.add(item);
           break;
         case 7:
-          timestampMs = field.varintValue;
+          timestampMs = pbField.varintValue;
           break;
         case 8:
-          deliveryCount = (field.varintValue).toSigned(32);
+          deliveryCount = (pbField.varintValue).toSigned(32);
           break;
         case 9:
-          nullKey = field.varintValue != 0;
+          nullKey = pbField.varintValue != 0;
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -3378,32 +3378,32 @@ class SharePollResponse implements Marshaler, Unmarshaler {
   SharePollResponse([this.errorCode = 0]) : records = [];
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    for (final x in records) { w.bytesField(1, x.marshalDc()); }
-    if (errorCode != 0) { w.tag(2, 0); w.varint(errorCode); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    for (final pbX in records) { pbW.bytesField(1, pbX.marshalDc()); }
+    if (errorCode != 0) { pbW.tag(2, 0); pbW.varint(errorCode); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     records = [];
     errorCode = 0;
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
           final item = SharePollRecord();
-          item.unmarshalDc(field.bytesValue);
+          item.unmarshalDc(pbField.bytesValue);
           records.add(item);
           break;
         case 2:
-          errorCode = (field.varintValue).toSigned(32);
+          errorCode = (pbField.varintValue).toSigned(32);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -3418,13 +3418,13 @@ class ShareAckEntry implements Marshaler, Unmarshaler {
   ShareAckEntry([this.topic = '', this.partition = 0, this.offset = 0, this.ackType = 0]);
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    w.stringField(1, topic);
-    if (partition != 0) { w.tag(2, 0); w.varint(partition); }
-    if (offset != 0) { w.tag(3, 0); w.varint(offset); }
-    if (ackType != 0) { w.tag(4, 0); w.varint(ackType); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    pbW.stringField(1, topic);
+    if (partition != 0) { pbW.tag(2, 0); pbW.varint(partition); }
+    if (offset != 0) { pbW.tag(3, 0); pbW.varint(offset); }
+    if (ackType != 0) { pbW.tag(4, 0); pbW.varint(ackType); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -3433,25 +3433,25 @@ class ShareAckEntry implements Marshaler, Unmarshaler {
     partition = 0;
     offset = 0;
     ackType = 0;
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          topic = utf8.decode(field.bytesValue);
+          topic = utf8.decode(pbField.bytesValue);
           break;
         case 2:
-          partition = (field.varintValue).toSigned(32);
+          partition = (pbField.varintValue).toSigned(32);
           break;
         case 3:
-          offset = field.varintValue;
+          offset = pbField.varintValue;
           break;
         case 4:
-          ackType = (field.varintValue).toSigned(32);
+          ackType = (pbField.varintValue).toSigned(32);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -3464,32 +3464,32 @@ class ShareAckRequest implements Marshaler, Unmarshaler {
   ShareAckRequest([this.sessionId = '']) : entries = [];
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    w.stringField(1, sessionId);
-    for (final x in entries) { w.bytesField(2, x.marshalDc()); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    pbW.stringField(1, sessionId);
+    for (final pbX in entries) { pbW.bytesField(2, pbX.marshalDc()); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     sessionId = '';
     entries = [];
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          sessionId = utf8.decode(field.bytesValue);
+          sessionId = utf8.decode(pbField.bytesValue);
           break;
         case 2:
           final item = ShareAckEntry();
-          item.unmarshalDc(field.bytesValue);
+          item.unmarshalDc(pbField.bytesValue);
           entries.add(item);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -3501,25 +3501,25 @@ class ShareAckResponse implements Marshaler, Unmarshaler {
   ShareAckResponse([this.errorCode = 0]);
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    if (errorCode != 0) { w.tag(1, 0); w.varint(errorCode); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    if (errorCode != 0) { pbW.tag(1, 0); pbW.varint(errorCode); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     errorCode = 0;
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          errorCode = (field.varintValue).toSigned(32);
+          errorCode = (pbField.varintValue).toSigned(32);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -3531,25 +3531,25 @@ class CloseShareGroupRequest implements Marshaler, Unmarshaler {
   CloseShareGroupRequest([this.sessionId = '']);
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    w.stringField(1, sessionId);
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    pbW.stringField(1, sessionId);
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     sessionId = '';
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          sessionId = utf8.decode(field.bytesValue);
+          sessionId = utf8.decode(pbField.bytesValue);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -3561,25 +3561,25 @@ class CloseShareGroupResponse implements Marshaler, Unmarshaler {
   CloseShareGroupResponse([this.errorCode = 0]);
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    if (errorCode != 0) { w.tag(1, 0); w.varint(errorCode); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    if (errorCode != 0) { pbW.tag(1, 0); pbW.varint(errorCode); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     errorCode = 0;
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          errorCode = (field.varintValue).toSigned(32);
+          errorCode = (pbField.varintValue).toSigned(32);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -3596,15 +3596,15 @@ class ShareGroupMember implements Marshaler, Unmarshaler {
   ShareGroupMember([this.memberId = '', this.memberEpoch = 0, this.clientId = '', this.clientHost = '']) : subscribedTopics = [], assignment = [];
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    w.stringField(1, memberId);
-    if (memberEpoch != 0) { w.tag(2, 0); w.varint(memberEpoch); }
-    w.stringField(3, clientId);
-    w.stringField(4, clientHost);
-    for (final x in subscribedTopics) { w.bytesField(5, utf8.encode(x)); }
-    for (final x in assignment) { w.bytesField(6, x.marshalDc()); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    pbW.stringField(1, memberId);
+    if (memberEpoch != 0) { pbW.tag(2, 0); pbW.varint(memberEpoch); }
+    pbW.stringField(3, clientId);
+    pbW.stringField(4, clientHost);
+    for (final pbX in subscribedTopics) { pbW.bytesField(5, utf8.encode(pbX)); }
+    for (final pbX in assignment) { pbW.bytesField(6, pbX.marshalDc()); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -3615,33 +3615,33 @@ class ShareGroupMember implements Marshaler, Unmarshaler {
     clientHost = '';
     subscribedTopics = [];
     assignment = [];
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          memberId = utf8.decode(field.bytesValue);
+          memberId = utf8.decode(pbField.bytesValue);
           break;
         case 2:
-          memberEpoch = (field.varintValue).toSigned(32);
+          memberEpoch = (pbField.varintValue).toSigned(32);
           break;
         case 3:
-          clientId = utf8.decode(field.bytesValue);
+          clientId = utf8.decode(pbField.bytesValue);
           break;
         case 4:
-          clientHost = utf8.decode(field.bytesValue);
+          clientHost = utf8.decode(pbField.bytesValue);
           break;
         case 5:
-          subscribedTopics.add(utf8.decode(field.bytesValue));
+          subscribedTopics.add(utf8.decode(pbField.bytesValue));
           break;
         case 6:
           final item = TopicPartition();
-          item.unmarshalDc(field.bytesValue);
+          item.unmarshalDc(pbField.bytesValue);
           assignment.add(item);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -3658,15 +3658,15 @@ class ShareGroupDescription implements Marshaler, Unmarshaler {
   ShareGroupDescription([this.groupId = '', this.errorCode = 0, this.state = '', this.groupEpoch = 0, this.assignmentEpoch = 0]) : members = [];
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    w.stringField(1, groupId);
-    if (errorCode != 0) { w.tag(2, 0); w.varint(errorCode); }
-    w.stringField(3, state);
-    if (groupEpoch != 0) { w.tag(4, 0); w.varint(groupEpoch); }
-    if (assignmentEpoch != 0) { w.tag(5, 0); w.varint(assignmentEpoch); }
-    for (final x in members) { w.bytesField(6, x.marshalDc()); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    pbW.stringField(1, groupId);
+    if (errorCode != 0) { pbW.tag(2, 0); pbW.varint(errorCode); }
+    pbW.stringField(3, state);
+    if (groupEpoch != 0) { pbW.tag(4, 0); pbW.varint(groupEpoch); }
+    if (assignmentEpoch != 0) { pbW.tag(5, 0); pbW.varint(assignmentEpoch); }
+    for (final pbX in members) { pbW.bytesField(6, pbX.marshalDc()); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
@@ -3677,33 +3677,33 @@ class ShareGroupDescription implements Marshaler, Unmarshaler {
     groupEpoch = 0;
     assignmentEpoch = 0;
     members = [];
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          groupId = utf8.decode(field.bytesValue);
+          groupId = utf8.decode(pbField.bytesValue);
           break;
         case 2:
-          errorCode = (field.varintValue).toSigned(32);
+          errorCode = (pbField.varintValue).toSigned(32);
           break;
         case 3:
-          state = utf8.decode(field.bytesValue);
+          state = utf8.decode(pbField.bytesValue);
           break;
         case 4:
-          groupEpoch = (field.varintValue).toSigned(32);
+          groupEpoch = (pbField.varintValue).toSigned(32);
           break;
         case 5:
-          assignmentEpoch = (field.varintValue).toSigned(32);
+          assignmentEpoch = (pbField.varintValue).toSigned(32);
           break;
         case 6:
           final item = ShareGroupMember();
-          item.unmarshalDc(field.bytesValue);
+          item.unmarshalDc(pbField.bytesValue);
           members.add(item);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -3715,25 +3715,25 @@ class DescribeShareGroupsRequest implements Marshaler, Unmarshaler {
   DescribeShareGroupsRequest() : groupIds = [];
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    for (final x in groupIds) { w.bytesField(1, utf8.encode(x)); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    for (final pbX in groupIds) { pbW.bytesField(1, utf8.encode(pbX)); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     groupIds = [];
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
-          groupIds.add(utf8.decode(field.bytesValue));
+          groupIds.add(utf8.decode(pbField.bytesValue));
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }
@@ -3746,32 +3746,32 @@ class DescribeShareGroupsResponse implements Marshaler, Unmarshaler {
   DescribeShareGroupsResponse([this.errorCode = 0]) : groups = [];
   @override
   Uint8List marshalDc() {
-    final w = KafkaPbWriter();
-    for (final x in groups) { w.bytesField(1, x.marshalDc()); }
-    if (errorCode != 0) { w.tag(2, 0); w.varint(errorCode); }
-    w.raw(unknownFields);
-    return w.toBytes();
+    final pbW = KafkaPbWriter();
+    for (final pbX in groups) { pbW.bytesField(1, pbX.marshalDc()); }
+    if (errorCode != 0) { pbW.tag(2, 0); pbW.varint(errorCode); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
   }
   @override
   void unmarshalDc(List<int> data) {
     unknownFields = Uint8List(0);
     groups = [];
     errorCode = 0;
-    final r = KafkaPbReader(Uint8List.fromList(data));
+    final pbR = KafkaPbReader(Uint8List.fromList(data));
     while (true) {
-      final field = r.next();
-      if (field == null) break;
-      switch (field.number) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
         case 1:
           final item = ShareGroupDescription();
-          item.unmarshalDc(field.bytesValue);
+          item.unmarshalDc(pbField.bytesValue);
           groups.add(item);
           break;
         case 2:
-          errorCode = (field.varintValue).toSigned(32);
+          errorCode = (pbField.varintValue).toSigned(32);
           break;
         default:
-          unknownFields = Uint8List.fromList([...unknownFields, ...field.rawValue]);
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
           break;
       }
     }

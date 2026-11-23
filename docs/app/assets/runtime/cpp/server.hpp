@@ -23,8 +23,9 @@ class Server {
   /// Reads request messages of one inbound call.
   class RequestStream {
    public:
-    explicit RequestStream(std::shared_ptr<Endpoint::StreamInput> input)
-        : input_(std::move(input)) {}
+    explicit RequestStream(std::shared_ptr<Endpoint::StreamInput> input,
+                           bool struct_codec = false)
+        : input_(std::move(input)), struct_codec_(struct_codec) {}
 
     /// Next request payload; EndOfStream at half-close.
     Bytes RecvRaw() {
@@ -49,10 +50,13 @@ class Server {
     }
 
     /// Decode the next request message into req.
-    void RecvInto(Unmarshaler& req) { req.UnmarshalDc(RecvRaw()); }
+    void RecvInto(Unmarshaler& req) {
+      UnmarshalForCodec(struct_codec_, RecvRaw(), req);
+    }
 
    private:
     std::shared_ptr<Endpoint::StreamInput> input_;
+    bool struct_codec_ = false;
   };
 
   /// Sends response payloads of one inbound call.
@@ -104,7 +108,18 @@ class Server {
   /// handlers stay valid as long as the endpoint lives.
   struct Shared {
     std::map<std::string, Method> methods;
+    bool struct_codec = false;
   };
+
+ public:
+  /// Enable the struct codec on this server: a call carrying
+  /// HEADERS dc-codec: struct-v1 is decoded with the struct codec
+  /// and answered in kind. A struct-v1 request to a server without
+  /// it enabled fails Unimplemented, as does any other dc-codec
+  /// value. Mirrors the Go Server.SetStructCodec.
+  void SetStructCodec(bool enabled) { shared_->struct_codec = enabled; }
+
+ private:
 
   static StatusException Dispatch(
       const std::shared_ptr<Shared>& shared, const Endpoint::CallContext& ctx,
@@ -116,6 +131,18 @@ class Server {
       return StatusException(wire::kCodeUnimplemented,
                              "unknown method " + headers.path);
     }
+    // Struct codec negotiation: an explicit dc-codec marker
+    // must be struct-v1 and enabled here, else Unimplemented.
+    bool use_struct = false;
+    auto codec_it = headers.metadata.find(Codec::kStructCodecHeader);
+    if (codec_it != headers.metadata.end()) {
+      if (codec_it->second != Codec::kStructCodecV1 || !shared->struct_codec) {
+        return StatusException(wire::kCodeUnimplemented,
+                               "struct codec not enabled");
+      }
+      use_struct = true;
+    }
+    ctx.struct_codec = use_struct;
     auto trace_it = headers.metadata.find("traceparent");
     auto trace_ctx = Tracing::TraceStart(
         "server", headers.path,
@@ -125,7 +152,7 @@ class Server {
     ctx.trace_context = trace_ctx;
     StatusException result(wire::kCodeOk, "");
     try {
-      RequestStream reqs(input);
+      RequestStream reqs(input, use_struct);
       ServerSink sink_fn = [&sink](const Bytes& payload) { sink.Send(payload); };
       it->second.handler(ctx, reqs, sink_fn);
     } catch (...) {

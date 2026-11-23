@@ -12,9 +12,11 @@ public final class Server {
     /// Reads request messages of one inbound call.
     public final class RequestStream {
         private let input: Endpoint.StreamInput
+        private let structCodec: Bool
 
-        public init(_ input: Endpoint.StreamInput) {
+        public init(_ input: Endpoint.StreamInput, _ structCodec: Bool = false) {
             self.input = input
+            self.structCodec = structCodec
         }
 
         /// Next request payload; EndOfStreamError at half-close.
@@ -38,7 +40,7 @@ public final class Server {
 
         /// Decode the next request message into req.
         public func RecvInto(_ req: Unmarshaler) throws {
-            try req.UnmarshalDc(RecvRaw())
+            try Codec.UnmarshalForCodec(structCodec, RecvRaw(), req)
         }
     }
 
@@ -76,6 +78,16 @@ public final class Server {
     /// handlers stay valid as long as the endpoint lives.
     public final class Shared {
         public var methods: [String: Method] = [:]
+        public var structCodec: Bool = false
+    }
+
+    /// Enable the struct codec on this server: a call carrying
+    /// HEADERS dc-codec: struct-v1 is decoded with the struct codec
+    /// and answered in kind. A struct-v1 request to a server without
+    /// it enabled fails Unimplemented, as does any other dc-codec
+    /// value. Mirrors the Go Server.SetStructCodec.
+    public func SetStructCodec(_ enabled: Bool) {
+        shared.structCodec = enabled
     }
 
     private let shared = Shared()
@@ -112,11 +124,21 @@ public final class Server {
         guard let path = headers.path, let method = shared.methods[path] else {
             return StatusException(Wire.CodeUnimplemented, "unknown method \(headers.path ?? "")")
         }
+        // Struct codec negotiation: an explicit dc-codec marker
+        // must be struct-v1 and enabled here, else Unimplemented.
+        var useStruct = false
+        if let marker = headers.metadata[Codec.StructCodecHeader] {
+            if marker != Codec.StructCodecV1 || !shared.structCodec {
+                return StatusException(Wire.CodeUnimplemented, "struct codec not enabled")
+            }
+            useStruct = true
+        }
+        ctx.structCodec = useStruct
         let traceCtx = Tracing.TraceStart("server", path, Tracing.ParseTraceparent(headers.metadata["traceparent"]))
         ctx.traceContext = traceCtx
         var result = StatusException(Wire.CodeOk, "")
         do {
-            let reqs = RequestStream(input)
+            let reqs = RequestStream(input, useStruct)
             try method.handler(ctx, reqs) { payload in
                 try sink.Send(payload)
             }

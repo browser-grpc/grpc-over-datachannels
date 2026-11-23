@@ -18,13 +18,13 @@ public final class GroupMember implements grpcdc.Marshaler, grpcdc.Unmarshaler {
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
-        w.stringField(1, memberId);
-        w.stringField(2, clientId);
-        w.stringField(3, clientHost);
-        if (assignment != null) for (TopicPartition x : assignment) w.bytesField(4, x.marshalDc());
-        w.raw(unknownFields);
-        return w.toBytes();
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
+        pbW.stringField(1, memberId);
+        pbW.stringField(2, clientId);
+        pbW.stringField(3, clientHost);
+        if (assignment != null) for (TopicPartition pbX : assignment) pbW.bytesField(4, pbX.marshalDc());
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -34,25 +34,25 @@ public final class GroupMember implements grpcdc.Marshaler, grpcdc.Unmarshaler {
         clientId = "";
         clientHost = "";
         assignment = new java.util.ArrayList<>();
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    memberId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    memberId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 2 -> {
-                    clientId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    clientId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 3 -> {
-                    clientHost = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    clientHost = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 4 -> {
-                    TopicPartition item = new TopicPartition();
-                    item.unmarshalDc(field.bytesValue);
-                    assignment.add(item);
+                    TopicPartition pbItem = new TopicPartition();
+                    pbItem.unmarshalDc(pbField.bytesValue);
+                    assignment.add(pbItem);
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

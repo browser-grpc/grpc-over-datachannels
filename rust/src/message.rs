@@ -14,6 +14,19 @@ use bytes::Bytes;
 pub trait Message: Sized + Send {
     fn encode(&self) -> Vec<u8>;
     fn decode(bytes: &[u8]) -> Result<Self, Status>;
+
+    /// Struct-layout encoding (see crate::structdc). Messages
+    /// without a struct codec inherit this error, mirroring the
+    /// Go runtime's "message has no struct codec" failure.
+    fn encode_struct(&self) -> Result<Vec<u8>, Status> {
+        Err(Status::internal("message has no struct codec"))
+    }
+
+    /// Decoding side of `encode_struct`.
+    fn decode_struct(bytes: &[u8]) -> Result<Self, Status> {
+        let _ = bytes;
+        Err(Status::internal("message has no struct codec"))
+    }
 }
 
 impl Message for Bytes {
@@ -23,6 +36,12 @@ impl Message for Bytes {
     fn decode(bytes: &[u8]) -> Result<Self, Status> {
         Ok(Bytes::copy_from_slice(bytes))
     }
+    fn encode_struct(&self) -> Result<Vec<u8>, Status> {
+        Ok(self.to_vec())
+    }
+    fn decode_struct(bytes: &[u8]) -> Result<Self, Status> {
+        Ok(Bytes::copy_from_slice(bytes))
+    }
 }
 
 impl Message for Vec<u8> {
@@ -30,6 +49,12 @@ impl Message for Vec<u8> {
         self.clone()
     }
     fn decode(bytes: &[u8]) -> Result<Self, Status> {
+        Ok(bytes.to_vec())
+    }
+    fn encode_struct(&self) -> Result<Vec<u8>, Status> {
+        Ok(self.clone())
+    }
+    fn decode_struct(bytes: &[u8]) -> Result<Self, Status> {
         Ok(bytes.to_vec())
     }
 }

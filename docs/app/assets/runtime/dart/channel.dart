@@ -22,6 +22,7 @@ class ClientStream {
   String? tracePath;
   bool _traceEnded = false;
   bool _terminated = false;
+  bool structCodec = false;
 
   ClientStream(this.streamId, this._endpoint, this._input);
 
@@ -34,8 +35,8 @@ class ClientStream {
 
   /// Send one request message on an open stream (no half-close).
   void send(Marshaler msg) {
-    _endpoint.sendFrame(
-        Codec.encodeFrame(Wire.frameData, streamId, msg.marshalDc()));
+    _endpoint.sendFrame(Codec.encodeFrame(
+        Wire.frameData, streamId, Codec.marshalForCodec(structCodec, msg)));
   }
 
   /// Half-close an open stream (no more requests).
@@ -86,7 +87,7 @@ class ClientStream {
           headers = event.headers;
           break;
         case EventKind.data:
-          resp.unmarshalDc(event.payload!);
+          Codec.unmarshalForCodec(structCodec, event.payload!, resp);
           return;
         case EventKind.trailers:
           _terminated = true;
@@ -115,12 +116,26 @@ class ClientStream {
 class Channel {
   final Endpoint endpoint;
   TraceContext? _traceContext;
+  bool _structCodec = false;
+
+  /// Make every call on this channel request the struct codec
+  /// (HEADERS marker dc-codec: struct-v1) and encode requests /
+  /// decode responses with it. The server must enable it too
+  /// (see Server.setStructCodec); otherwise calls fail
+  /// UNIMPLEMENTED. Mirrors the Go Channel.SetStructCodec.
+  void setStructCodec(bool enabled) {
+    _structCodec = enabled;
+  }
+
+  /// Whether this channel requests the struct codec on every call.
+  bool get structCodec => _structCodec;
 
   /// A Channel view sharing this endpoint whose outbound spans
   /// are parented to ctx. Explicit call metadata still wins.
   Channel withTraceContext(TraceContext? ctx) {
     final ch = Channel.fromEndpoint(endpoint);
     ch._traceContext = ctx;
+    ch._structCodec = _structCodec;
     return ch;
   }
 
@@ -138,8 +153,11 @@ class Channel {
       {Duration? timeout}) async {
     DateTime? deadline;
     TraceContext? traceCtx;
-    if (timeout != null || tracingEnabled) {
+    if (timeout != null || tracingEnabled || _structCodec) {
       metadata = {if (metadata != null) ...metadata};
+      if (_structCodec) {
+        metadata[Codec.structCodecHeader] = Codec.structCodecV1;
+      }
       if (timeout != null) {
         deadline = DateTime.now().add(timeout);
         metadata['grpc-timeout'] = Codec.encodeTimeout(timeout);
@@ -162,6 +180,7 @@ class Channel {
       rethrow;
     }
     final stream = ClientStream(opened.id, endpoint, opened.input);
+    stream.structCodec = _structCodec;
     stream.deadline = deadline;
     stream.traceCtx = traceCtx;
     stream.tracePath = path;
@@ -169,8 +188,8 @@ class Channel {
   }
 
   void _sendMessage(ClientStream stream, Marshaler msg) {
-    endpoint.sendFrame(
-        Codec.encodeFrame(Wire.frameData, stream.streamId, msg.marshalDc()));
+    endpoint.sendFrame(Codec.encodeFrame(Wire.frameData, stream.streamId,
+        Codec.marshalForCodec(stream.structCodec, msg)));
   }
 
   void _halfClose(ClientStream stream) {

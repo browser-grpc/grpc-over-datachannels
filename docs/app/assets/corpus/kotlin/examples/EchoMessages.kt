@@ -58,34 +58,42 @@ object EchoPb {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = EchoPb.Writer()
-        w.stringField(1, message)
-        if (count != 0) { w.tag(2, 0); w.varint(count.toLong()) }
-        if (delayMs != 0) { w.tag(3, 0); w.varint(delayMs.toLong()) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = EchoPb.Writer()
+        pbW.stringField(1, message)
+        if (count != 0) { pbW.tag(2, 0); pbW.varint(count.toLong()) }
+        if (delayMs != 0) { pbW.tag(3, 0); pbW.varint(delayMs.toLong()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         message = ""
         count = 0
         delayMs = 0
-        val r = EchoPb.Reader(data)
+        val pbR = EchoPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    message = String(field.bytesValue, Charsets.UTF_8)
+                    message = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    count = field.varintValue.toInt()
+                    count = pbField.varintValue.toInt()
                 }
                 3 -> {
-                    delayMs = field.varintValue.toInt()
+                    delayMs = pbField.varintValue.toInt()
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
+    }
+    override fun marshalStruct(): ByteArray = EchoRequestStruct.marshal(this)
+    override fun unmarshalStruct(data: ByteArray) {
+        val _s = EchoRequestStruct.unmarshal(data)
+        message = _s.message
+        count = _s.count
+        delayMs = _s.delayMs
+        unknownFields = _s.unknownFields
     }
 }
  class EchoResponse(
@@ -94,28 +102,35 @@ object EchoPb {
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
-        val w = EchoPb.Writer()
-        w.stringField(1, message)
-        if (index != 0) { w.tag(2, 0); w.varint(index.toLong()) }
-        w.raw(unknownFields)
-        return w.toBytes()
+        val pbW = EchoPb.Writer()
+        pbW.stringField(1, message)
+        if (index != 0) { pbW.tag(2, 0); pbW.varint(index.toLong()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
     }
     override fun unmarshalDc(data: ByteArray) {
         unknownFields = ByteArray(0)
         message = ""
         index = 0
-        val r = EchoPb.Reader(data)
+        val pbR = EchoPb.Reader(data)
         while (true) {
-            val field = r.next() ?: break
-            when (field.number) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
                 1 -> {
-                    message = String(field.bytesValue, Charsets.UTF_8)
+                    message = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 2 -> {
-                    index = field.varintValue.toInt()
+                    index = pbField.varintValue.toInt()
                 }
-                else -> { unknownFields = unknownFields + field.rawValue }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
             }
         }
+    }
+    override fun marshalStruct(): ByteArray = EchoResponseStruct.marshal(this)
+    override fun unmarshalStruct(data: ByteArray) {
+        val _s = EchoResponseStruct.unmarshal(data)
+        message = _s.message
+        index = _s.index
+        unknownFields = _s.unknownFields
     }
 }

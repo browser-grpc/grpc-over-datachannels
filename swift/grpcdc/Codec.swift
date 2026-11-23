@@ -8,6 +8,24 @@ public enum Codec {
     public static let HeaderLen = 9
     public static let MaxDataPayload = 16 * 1024 * 1024
 
+    /// HEADERS metadata key a client sends to request the struct codec for a call.
+    public static let StructCodecHeader = "dc-codec"
+    public static let StructCodecV1 = "struct-v1"
+
+    /// Marshal msg with the codec selected for a call (struct layout when negotiated).
+    public static func MarshalForCodec(_ structCodec: Bool, _ msg: Marshaler) throws -> [UInt8] {
+        structCodec ? try msg.MarshalStruct() : msg.MarshalDc()
+    }
+
+    /// Decode data into msg with the codec selected for a call.
+    public static func UnmarshalForCodec(_ structCodec: Bool, _ data: [UInt8], _ msg: Unmarshaler) throws {
+        if structCodec {
+            try msg.UnmarshalStruct(data)
+        } else {
+            msg.UnmarshalDc(data)
+        }
+    }
+
     /// One parsed frame.
     public struct Frame {
         public let type: Int

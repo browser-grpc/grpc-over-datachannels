@@ -16,12 +16,12 @@ public final class CreateTopicsRequest implements grpcdc.Marshaler, grpcdc.Unmar
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
-        if (topics != null) for (NewTopic x : topics) w.bytesField(1, x.marshalDc());
-        if (timeoutMs != 0) { w.tag(2, 0); w.varint(timeoutMs); }
-        if (validateOnly) { w.tag(3, 0); w.varint((validateOnly ? 1 : 0)); }
-        w.raw(unknownFields);
-        return w.toBytes();
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
+        if (topics != null) for (NewTopic pbX : topics) pbW.bytesField(1, pbX.marshalDc());
+        if (timeoutMs != 0) { pbW.tag(2, 0); pbW.varint(timeoutMs); }
+        if (validateOnly) { pbW.tag(3, 0); pbW.varint((validateOnly ? 1 : 0)); }
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -30,22 +30,22 @@ public final class CreateTopicsRequest implements grpcdc.Marshaler, grpcdc.Unmar
         topics = new java.util.ArrayList<>();
         timeoutMs = 0;
         validateOnly = false;
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    NewTopic item = new NewTopic();
-                    item.unmarshalDc(field.bytesValue);
-                    topics.add(item);
+                    NewTopic pbItem = new NewTopic();
+                    pbItem.unmarshalDc(pbField.bytesValue);
+                    topics.add(pbItem);
                 }
                 case 2 -> {
-                    timeoutMs = (int) field.varintValue;
+                    timeoutMs = (int) pbField.varintValue;
                 }
                 case 3 -> {
-                    validateOnly = field.varintValue != 0;
+                    validateOnly = pbField.varintValue != 0;
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

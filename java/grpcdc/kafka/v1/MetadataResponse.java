@@ -20,14 +20,14 @@ public final class MetadataResponse implements grpcdc.Marshaler, grpcdc.Unmarsha
 
     @Override
     public byte[] marshalDc() {
-        KafkaPb.Writer w = new KafkaPb.Writer();
-        if (throttleTimeMs != 0) { w.tag(1, 0); w.varint(throttleTimeMs); }
-        if (brokers != null) for (BrokerMetadata x : brokers) w.bytesField(2, x.marshalDc());
-        w.stringField(3, clusterId);
-        if (controllerId != 0) { w.tag(4, 0); w.varint(controllerId); }
-        if (topics != null) for (TopicMetadata x : topics) w.bytesField(5, x.marshalDc());
-        w.raw(unknownFields);
-        return w.toBytes();
+        KafkaPb.Writer pbW = new KafkaPb.Writer();
+        if (throttleTimeMs != 0) { pbW.tag(1, 0); pbW.varint(throttleTimeMs); }
+        if (brokers != null) for (BrokerMetadata pbX : brokers) pbW.bytesField(2, pbX.marshalDc());
+        pbW.stringField(3, clusterId);
+        if (controllerId != 0) { pbW.tag(4, 0); pbW.varint(controllerId); }
+        if (topics != null) for (TopicMetadata pbX : topics) pbW.bytesField(5, pbX.marshalDc());
+        pbW.raw(unknownFields);
+        return pbW.toBytes();
     }
 
     @Override
@@ -38,30 +38,30 @@ public final class MetadataResponse implements grpcdc.Marshaler, grpcdc.Unmarsha
         clusterId = "";
         controllerId = 0;
         topics = new java.util.ArrayList<>();
-        KafkaPb.Reader r = new KafkaPb.Reader(data);
-        KafkaPb.Field field;
-        while ((field = r.next()) != null) {
-            switch (field.number) {
+        KafkaPb.Reader pbR = new KafkaPb.Reader(data);
+        KafkaPb.Field pbField;
+        while ((pbField = pbR.next()) != null) {
+            switch (pbField.number) {
                 case 1 -> {
-                    throttleTimeMs = (int) field.varintValue;
+                    throttleTimeMs = (int) pbField.varintValue;
                 }
                 case 2 -> {
-                    BrokerMetadata item = new BrokerMetadata();
-                    item.unmarshalDc(field.bytesValue);
-                    brokers.add(item);
+                    BrokerMetadata pbItem = new BrokerMetadata();
+                    pbItem.unmarshalDc(pbField.bytesValue);
+                    brokers.add(pbItem);
                 }
                 case 3 -> {
-                    clusterId = new String(field.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                    clusterId = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 case 4 -> {
-                    controllerId = (int) field.varintValue;
+                    controllerId = (int) pbField.varintValue;
                 }
                 case 5 -> {
-                    TopicMetadata item = new TopicMetadata();
-                    item.unmarshalDc(field.bytesValue);
-                    topics.add(item);
+                    TopicMetadata pbItem = new TopicMetadata();
+                    pbItem.unmarshalDc(pbField.bytesValue);
+                    topics.add(pbItem);
                 }
-                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, field.rawValue); }
+                default -> { unknownFields = KafkaPb.concatBytes(unknownFields, pbField.rawValue); }
             }
         }
     }

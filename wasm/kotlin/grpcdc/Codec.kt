@@ -13,6 +13,19 @@ object Codec {
     const val HEADER_LEN = 9
     const val MAX_DATA_PAYLOAD = 16 * 1024 * 1024
 
+    /** HEADERS metadata key a client sends to request the struct codec for a call. */
+    const val STRUCT_CODEC_HEADER = "dc-codec"
+    const val STRUCT_CODEC_V1 = "struct-v1"
+
+    /** Marshal msg with the codec selected for a call (struct layout when negotiated). */
+    fun marshalForCodec(structCodec: Boolean, msg: Marshaler): ByteArray =
+        if (structCodec) msg.marshalStruct() else msg.marshalDc()
+
+    /** Decode data into msg with the codec selected for a call. */
+    fun unmarshalForCodec(structCodec: Boolean, data: ByteArray, msg: Unmarshaler) {
+        if (structCodec) msg.unmarshalStruct(data) else msg.unmarshalDc(data)
+    }
+
     /** One parsed frame. */
     class Frame(val type: Int, val streamId: Long, val payload: ByteArray)
 
