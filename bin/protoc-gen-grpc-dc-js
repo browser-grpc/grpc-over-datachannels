@@ -2143,10 +2143,23 @@
       (call jsPbEncodeField)))
     "    putRaw(out, msg.unknownFields);\n    return new Uint8Array(out);\n  }\n"
     (fmt
-     "  static decode(bytes) {\n    const msg = new ~a();\n    ~a._fill(msg, bytes);\n    return msg;\n  }\n  static decodeInto(msg, bytes) {\n    msg._reset();\n    ~a._fill(msg, bytes);\n    return msg;\n  }\n  static _fill(msg, bytes) {\n"
+     "  static decode(bytes) {\n    const msg = new ~a();\n    ~a._fill(msg, bytes);\n    return msg;\n  }\n  static decodeInto(msg, bytes) {\n    msg._reset();\n    ~a._fill(msg, bytes);\n    return msg;\n  }\n"
      (flat)
      (flat)
      (flat))
+    (if (struct-codec)
+      (then
+       (if (ref map-entry)
+         (then "")
+         (else
+          (fmt
+           "  static encodeStruct(msg) {\n    return _grpcdcTranscode(_structdcDescriptor, \"~a\", ~a.encode(msg), true);\n  }\n  static decodeStruct(bytes) {\n    return ~a.decode(_grpcdcTranscode(_structdcDescriptor, \"~a\", bytes, false));\n  }\n"
+           (ref full-name)
+           (flat)
+           (flat)
+           (ref full-name)))))
+      (else ""))
+    "  static _fill(msg, bytes) {\n"
     "    const reader = new Reader(bytes);\n    let f;\n    while ((f = reader.field()) !== null) {\n      const [num, wire, value, raw] = f;\n      switch (num) {\n"
     (each fields (call jsPbDecodeCase))
     "        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;\n      }\n    }\n    return msg;\n  }\n  _reset() {\n"
@@ -17074,6 +17087,8 @@
 (define (js-service svc)
   (run-segments js-service-program svc (hash-ref svc 'name)))
 
+(define js-structdc-import (make-parameter "../src/structdc.js"))
+
 (define js-pb-preamble
   (string-append
    "function varintBytes(value) {\n  let n = BigInt.asUintN(64, BigInt(value));\n  const out = [];\n  while (n > 0x7fn) {\n    out.push(Number((n & 0x7fn) | 0x80n));\n    n >>= 7n;\n  }\n  out.push(Number(n));\n  return out;\n}\n\n"
@@ -17223,6 +17238,19 @@
            (path->string
             (path-replace-extension (file-name-from-path dep) ""))))
          (when (positive? (hash-count imports)) (fprintf out "\n"))
+         (when (seg-struct-codec)
+           (fprintf
+            out
+            "import { transcodeStruct as _grpcdcTranscode } from \"~a\";\n\n"
+            (js-structdc-import))
+           (fprintf
+            out
+            "const _structdcDescriptor = new Uint8Array([~a]);\n\n"
+            (string-join
+             (map
+              number->string
+              (bytes->list (hash-ref file-model 'descriptor-set #"")))
+             ",")))
          (display js-pb-preamble out)
          (define exported (mutable-set))
          (define enum-entries '())
@@ -17344,7 +17372,12 @@
          (string-join types ", ")
          pb-import))
       (apply string-append (map js-service (hash-ref file-model 'services))))))
-  (define pb-file (emit-js-pb-file file-model))
+  (define pb-file
+    (parameterize
+     ((seg-struct-codec (equal? (hash-ref params 'struct_codec #f) "true"))
+      (js-structdc-import
+       (hash-ref params 'structdc_import "../src/structdc.js")))
+     (emit-js-pb-file file-model)))
   (if pb-file (list stub pb-file) stub))
 
 (define (plugin-main)

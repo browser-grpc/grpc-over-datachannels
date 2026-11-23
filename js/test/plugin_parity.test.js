@@ -88,6 +88,38 @@ test("node plugin shim matches racket plugins byte-for-byte", () => {
   }
 });
 
+test("js plugin struct_codec output is byte-identical (racket vs node)", () => {
+  const work = mkdtempSync(join(tmpdir(), "grpc-dc-plugin-jsstruct-"));
+  try {
+    const outs = {};
+    for (const [key, src] of [["racket", join(ROOT, "bin", "protoc-gen-grpc-dc-js")], ["node", SHIM]]) {
+      const binDir = join(work, "bin-" + key);
+      mkdirSync(binDir);
+      const plugin = join(binDir, "protoc-gen-grpc-dc-js");
+      symlinkSync(src, plugin);
+      const out = join(work, key);
+      mkdirSync(out, { recursive: true });
+      execFileSync(
+        "protoc",
+        [
+          `--plugin=protoc-gen-grpc-dc-js=${plugin}`,
+          `--grpc-dc-js_out=${out}`,
+          "--grpc-dc-js_opt=struct_codec=true",
+          "-I", "proto", "proto/echo.proto",
+        ],
+        { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"] },
+      );
+      outs[key] = tree(out);
+    }
+    assert.deepEqual([...outs.node.keys()].sort(), [...outs.racket.keys()].sort(), "js struct: file sets differ");
+    for (const [name, bytes] of outs.racket) {
+      assert.ok(bytes.equals(outs.node.get(name)), `js struct: ${name} differs`);
+    }
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
+});
+
 test("node plugin shim rejects struct_codec=true instead of silently emitting protobuf", () => {
   const work = mkdtempSync(join(tmpdir(), "grpc-dc-plugin-struct-"));
   try {

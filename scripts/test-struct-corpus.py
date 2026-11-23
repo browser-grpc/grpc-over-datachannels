@@ -12,7 +12,7 @@ CORPUS = os.path.join(ROOT, "conformance", "struct")
 PROTO = os.path.join(CORPUS, "msgs.proto")
 GOLDEN = open(os.path.join(CORPUS, "golden.hex")).read().strip()
 
-ADMITTED = ["go", "rust", "rust-shared", "java", "kotlin", "scala", "swift", "dart", "csharp", "c", "cpp", "zig"]
+ADMITTED = ["go", "rust", "rust-shared", "java", "kotlin", "scala", "swift", "dart", "csharp", "c", "cpp", "zig", "js"]
 
 
 def run(*args, **kw):
@@ -166,6 +166,16 @@ def check_dart(tmp):
                           "GRPCDC_STRUCTDC_LIB": os.path.join(lib, "libgrpc_dc.so")})
 
 
+def check_js(tmp):
+    gen = os.path.join(tmp, "gen"); protoc("js", gen)
+    src = os.path.join(tmp, "src"); os.makedirs(src)
+    for n in ["structdc.js", "dynamic.js", "codec.js"]:
+        shutil.copy(os.path.join(ROOT, "js", "src", n), src)
+    shutil.copy(os.path.join(ROOT, "js", "wire_gen.js"), tmp)
+    shutil.copy(os.path.join(CORPUS, "drivers", "js", "main.mjs"), gen)
+    run("node", os.path.join(gen, "main.mjs"), GOLDEN)
+
+
 def check_csharp(tmp):
     d = os.path.join(tmp, "csharp"); protoc("csharp", d)
     shutil.copy(os.path.join(CORPUS, "drivers", "csharp", "Program.cs"), d)
@@ -239,7 +249,7 @@ def check_rust_shared(tmp):
 
 CHECKS = {"go": check_go, "rust": check_rust, "rust-shared": check_rust_shared, "java": check_java,
           "kotlin": check_kotlin, "scala": check_scala, "swift": check_swift,
-          "dart": check_dart, "csharp": check_csharp, "c": check_c,
+          "dart": check_dart, "csharp": check_csharp, "c": check_c, "js": check_js,
           "cpp": check_cpp, "zig": check_zig}
 
 

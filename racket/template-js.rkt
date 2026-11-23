@@ -17,6 +17,8 @@
   (run-segments js-method-table-entry-program m ""))
 (define (js-service svc)
   (run-segments js-service-program svc (hash-ref svc 'name)))
+(define js-structdc-import (make-parameter "../src/structdc.js"))
+
 (define js-pb-preamble
   (string-append
    "function varintBytes(value) {\n  let n = BigInt.asUintN(64, BigInt(value));\n  const out = [];\n  while (n > 0x7fn) {\n    out.push(Number((n & 0x7fn) | 0x80n));\n    n >>= 7n;\n  }\n  out.push(Number(n));\n  return out;\n}\n\n"
@@ -128,6 +130,14 @@
                     (string-join (sort (set->list (hash-ref imports dep)) string<?) ", ")
                     (path->string (path-replace-extension (file-name-from-path dep) ""))))
          (when (positive? (hash-count imports)) (fprintf out "\n"))
+         (when (seg-struct-codec)
+           (fprintf out "import { transcodeStruct as _grpcdcTranscode } from \"~a\";\n\n"
+                    (js-structdc-import))
+           (fprintf out "const _structdcDescriptor = new Uint8Array([~a]);\n\n"
+                    (string-join
+                     (map number->string
+                          (bytes->list (hash-ref file-model 'descriptor-set #"")))
+                     ",")))
          (display js-pb-preamble out)
          (define exported (mutable-set))
          (define enum-entries '())
@@ -206,5 +216,7 @@
                (format "import { ~a } from ~s;\n\n" (string-join types ", ") pb-import))
            (apply string-append
                   (map js-service (hash-ref file-model 'services))))))
-  (define pb-file (emit-js-pb-file file-model))
+  (define pb-file (parameterize ([seg-struct-codec (equal? (hash-ref params 'struct_codec #f) "true")]
+                                 [js-structdc-import (hash-ref params 'structdc_import "../src/structdc.js")])
+                    (emit-js-pb-file file-model)))
   (if pb-file (list stub pb-file) stub))

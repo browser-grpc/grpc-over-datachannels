@@ -2143,10 +2143,23 @@
       (call jsPbEncodeField)))
     "    putRaw(out, msg.unknownFields);\n    return new Uint8Array(out);\n  }\n"
     (fmt
-     "  static decode(bytes) {\n    const msg = new ~a();\n    ~a._fill(msg, bytes);\n    return msg;\n  }\n  static decodeInto(msg, bytes) {\n    msg._reset();\n    ~a._fill(msg, bytes);\n    return msg;\n  }\n  static _fill(msg, bytes) {\n"
+     "  static decode(bytes) {\n    const msg = new ~a();\n    ~a._fill(msg, bytes);\n    return msg;\n  }\n  static decodeInto(msg, bytes) {\n    msg._reset();\n    ~a._fill(msg, bytes);\n    return msg;\n  }\n"
      (flat)
      (flat)
      (flat))
+    (if (struct-codec)
+      (then
+       (if (ref map-entry)
+         (then "")
+         (else
+          (fmt
+           "  static encodeStruct(msg) {\n    return _grpcdcTranscode(_structdcDescriptor, \"~a\", ~a.encode(msg), true);\n  }\n  static decodeStruct(bytes) {\n    return ~a.decode(_grpcdcTranscode(_structdcDescriptor, \"~a\", bytes, false));\n  }\n"
+           (ref full-name)
+           (flat)
+           (flat)
+           (ref full-name)))))
+      (else ""))
+    "  static _fill(msg, bytes) {\n"
     "    const reader = new Reader(bytes);\n    let f;\n    while ((f = reader.field()) !== null) {\n      const [num, wire, value, raw] = f;\n      switch (num) {\n"
     (each fields (call jsPbDecodeCase))
     "        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;\n      }\n    }\n    return msg;\n  }\n  _reset() {\n"

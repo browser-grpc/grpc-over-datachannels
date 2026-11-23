@@ -27,7 +27,7 @@ stubs: eventbus-stubs kafka-stubs
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-rust=bin/protoc-gen-grpc-dc-rust \
 		--grpc-dc-rust_out=rust/gen --grpc-dc-rust_opt=struct_codec=true -I proto proto/echo.proto
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-js=bin/protoc-gen-grpc-dc-js \
-		--grpc-dc-js_out=js/examples -I proto proto/echo.proto
+		--grpc-dc-js_out=js/examples --grpc-dc-js_opt=struct_codec=true -I proto proto/echo.proto
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-go=bin/protoc-gen-grpc-dc-go \
 		--grpc-dc-go_out=go/examples --grpc-dc-go_opt=struct_codec=true -I proto proto/echo.proto
 	gofmt -w go/examples/echo_grpc_dc.go go/examples/echo_pb.go
