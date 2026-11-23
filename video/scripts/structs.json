@@ -24,7 +24,7 @@
    "kind": "title",
    "heading": "Packed structs, now in the browser",
    "sub": "Cap'n-Proto-style gRPC, protobuf at the edges",
-   "say": "Version 0.46 of grpc-over-datachannels brings the packed struct codec to every browser language. Same gRPC, same DataChannel, a faster wire format where you want it."
+   "say": "What if gRPC had a faster wire format for the paths that need it? This release brings the packed struct codec to every browser language. Same gRPC, same data channel, less time spent encoding."
   },
   {
    "kind": "bullets",
