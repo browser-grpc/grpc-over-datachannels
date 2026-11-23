@@ -87,7 +87,7 @@ class SendStream
 
     public function send(object $resp): void
     {
-        $this->sink->send($resp->marshalDc());
+        $this->sink->send($this->context->encodeMessage($resp));
     }
 }
 
@@ -136,7 +136,7 @@ class BidiStream
 
     public function send(object $resp): void
     {
-        $this->sink->send($resp->marshalDc());
+        $this->sink->send($this->context->encodeMessage($resp));
     }
 
     public function recv(): object
@@ -289,7 +289,7 @@ function registerEventBusServer(\Grpcdc\Server $server, object $impl): void
     $publishHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
         $req = $reqs->recvInto(new \EventsPb\PublishRequest());
         $resp = $impl->Publish($ctx, $req);
-        $sink->send($resp->marshalDc());
+        $sink->send($ctx->encodeMessage($resp));
     };
 
     $subscribeHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {

@@ -4,6 +4,10 @@
 
 namespace EchoPb;
 
+require_once __DIR__ . "/../grpcdc.php";
+
+const STRUCTDC_DESCRIPTOR = "CsEJCgplY2hvLnByb3RvEgRlY2hvIlgKC0VjaG9SZXF1ZXN0EhgKB21lc3NhZ2UYASABKAlSB21lc3NhZ2USFAoFY291bnQYAiABKAVSBWNvdW50EhkKCGRlbGF5X21zGAMgASgFUgdkZWxheU1zIj4KDEVjaG9SZXNwb25zZRIYCgdtZXNzYWdlGAEgASgJUgdtZXNzYWdlEhQKBWluZGV4GAIgASgFUgVpbmRleDLbAQoERWNobxIuCgVVbmFyeRIRLmVjaG8uRWNob1JlcXVlc3QaEi5lY2hvLkVjaG9SZXNwb25zZRI3CgxTZXJ2ZXJTdHJlYW0SES5lY2hvLkVjaG9SZXF1ZXN0GhIuZWNoby5FY2hvUmVzcG9uc2UwARI3CgxDbGllbnRTdHJlYW0SES5lY2hvLkVjaG9SZXF1ZXN0GhIuZWNoby5FY2hvUmVzcG9uc2UoARIxCgRCaWRpEhEuZWNoby5FY2hvUmVxdWVzdBoSLmVjaG8uRWNob1Jlc3BvbnNlKAEwAUqsBgoGEgQAABUBCggKAQwSAwAAEgoICgECEgMCAA0KCgoCBAASBAQACAEKCgoDBAABEgMECBMKCwoEBAACABIDBQIVCgwKBQQAAgAFEgMFAggKDAoFBAACAAESAwUJEAoMCgUEAAIAAxIDBRMUCj8KBAQAAgESAwYCEiIyIHNlcnZlci1zdHJlYW1pbmc6IG51bWJlciBvZiByZXNwb25zZXMgdG8gcHJvZHVjZQoKDAoFBAACAQUSAwYCBwoMCgUEAAIBARIDBggNCgwKBQQAAgEDEgMGEBEKOQoEBAACAhIDBwIVIiwgaWdub3JlZCBieSB0aGUgcmVmZXJlbmNlIHNlcnZlcnM7IHJlc2VydmVkCgoMCgUEAAICBRIDBwIHCgwKBQQAAgIBEgMHCBAKDAoFBAACAgMSAwcTFAoKCgIEARIECgANAQoKCgMEAQESAwoIFAoLCgQEAQIAEgMLAhUKDAoFBAECAAUSAwsCCAoMCgUEAQIAARIDCwkQCgwKBQQBAgADEgMLExQKCwoEBAECARIDDAISCgwKBQQBAgEFEgMMAgcKDAoFBAECAQESAwwIDQoMCgUEAQIBAxIDDBARCkkKAgYAEgQQABUBGj0gRXhlcmNpc2VzIGFsbCBmb3VyIGdSUEMgbWV0aG9kIHNoYXBlcyBvdmVyIG9uZSBEYXRhQ2hhbm5lbC4KCgoKAwYAARIDEAgMCgsKBAYAAgASAxECMAoMCgUGAAIAARIDEQYLCgwKBQYAAgACEgMRDBcKDAoFBgACAAMSAxEiLgoLCgQGAAIBEgMSAj4KDAoFBgACAQESAxIGEgoMCgUGAAIBAhIDEhMeCgwKBQYAAgEGEgMSKS8KDAoFBgACAQMSAxIwPAoLCgQGAAICEgMTAj4KDAoFBgACAgESAxMGEgoMCgUGAAICBRIDExMZCgwKBQYAAgICEgMTGiUKDAoFBgACAgMSAxMwPAoLCgQGAAIDEgMUAj0KDAoFBgACAwESAxQGCgoMCgUGAAIDBRIDFAsRCgwKBQYAAgMCEgMUEh0KDAoFBgACAwYSAxQoLgoMCgUGAAIDAxIDFC87YgZwcm90bzM=";
+
 function pbVarintBytes(int $value): string
 {
     $out = "";
@@ -200,6 +204,21 @@ class EchoRequest
         return $this;
     }
 
+    public function marshalStruct(): string
+    {
+        return EchoRequestStruct::marshal($this);
+    }
+
+    public function unmarshalStruct(string $data): self
+    {
+        $_s = EchoRequestStruct::unmarshal($data);
+        $this->message = $_s->message;
+        $this->count = $_s->count;
+        $this->delayMs = $_s->delayMs;
+        $this->unknownFields = $_s->unknownFields;
+        return $this;
+    }
+
     public function equals(?object $other): bool
     {
         return $other instanceof EchoRequest
@@ -256,11 +275,55 @@ class EchoResponse
         return $this;
     }
 
+    public function marshalStruct(): string
+    {
+        return EchoResponseStruct::marshal($this);
+    }
+
+    public function unmarshalStruct(string $data): self
+    {
+        $_s = EchoResponseStruct::unmarshal($data);
+        $this->message = $_s->message;
+        $this->index = $_s->index;
+        $this->unknownFields = $_s->unknownFields;
+        return $this;
+    }
+
     public function equals(?object $other): bool
     {
         return $other instanceof EchoResponse
             && $this->message === $other->message
             && $this->index === $other->index;
+    }
+}
+
+final class EchoRequestStruct
+{
+    public static function marshal(EchoRequest $m): string
+    {
+        return \Grpcdc\Structdc::transcodeStruct(\base64_decode(STRUCTDC_DESCRIPTOR), "echo.EchoRequest", $m->marshalDc(), true);
+    }
+
+    public static function unmarshal(string $data): EchoRequest
+    {
+        $m = new EchoRequest();
+        $m->unmarshalDc(\Grpcdc\Structdc::transcodeStruct(\base64_decode(STRUCTDC_DESCRIPTOR), "echo.EchoRequest", $data, false));
+        return $m;
+    }
+}
+
+final class EchoResponseStruct
+{
+    public static function marshal(EchoResponse $m): string
+    {
+        return \Grpcdc\Structdc::transcodeStruct(\base64_decode(STRUCTDC_DESCRIPTOR), "echo.EchoResponse", $m->marshalDc(), true);
+    }
+
+    public static function unmarshal(string $data): EchoResponse
+    {
+        $m = new EchoResponse();
+        $m->unmarshalDc(\Grpcdc\Structdc::transcodeStruct(\base64_decode(STRUCTDC_DESCRIPTOR), "echo.EchoResponse", $data, false));
+        return $m;
     }
 }
 

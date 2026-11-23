@@ -158,7 +158,17 @@ class CallContext
     public array $responseTrailers = [];
     /** This call's server span context (null when dormant). */
     public ?array $traceContext = null;
+    /** Whether this call negotiated the struct codec
+     *  (HEADERS dc-codec: struct-v1). */
+    public bool $structCodec = false;
     public ?float $deadline;
+
+    /** Marshal a response message with this call's negotiated
+     *  codec (generated server code calls this). */
+    public function encodeMessage(object $msg): string
+    {
+        return Codec::marshalForCodec($this->structCodec, $msg);
+    }
 
     /** Record response initial metadata (sent lazily, before the first response message). */
     public function setHeaders(array $md): void

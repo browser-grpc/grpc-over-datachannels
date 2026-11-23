@@ -668,7 +668,7 @@ test-ruby:
 PHP ?= php
 
 test-php:
-	PHP=$(PHP) $(PHP) php/tests/main.php TestCodec \
+	PHP=$(PHP) $(PHP) php/tests/main.php TestStructCodec && $(PHP) php/tests/main.php TestCodec \
 		&& PHP=$(PHP) $(PHP) php/tests/main.php TestEcho \
 		&& PHP=$(PHP) $(PHP) php/tests/main.php TestInterop \
 		&& PHP=$(PHP) $(PHP) php/tests/main.php TestInteropOracle \

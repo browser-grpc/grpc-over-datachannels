@@ -87,7 +87,7 @@ class SendStream
 
     public function send(object $resp): void
     {
-        $this->sink->send($resp->marshalDc());
+        $this->sink->send($this->context->encodeMessage($resp));
     }
 }
 
@@ -136,7 +136,7 @@ class BidiStream
 
     public function send(object $resp): void
     {
-        $this->sink->send($resp->marshalDc());
+        $this->sink->send($this->context->encodeMessage($resp));
     }
 
     public function recv(): object
@@ -571,31 +571,31 @@ function registerKafkaServer(\Grpcdc\Server $server, object $impl): void
     $metadataHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
         $req = $reqs->recvInto(new \KafkaPb\MetadataRequest());
         $resp = $impl->Metadata($ctx, $req);
-        $sink->send($resp->marshalDc());
+        $sink->send($ctx->encodeMessage($resp));
     };
 
     $open_producerHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
         $req = $reqs->recvInto(new \KafkaPb\OpenProducerRequest());
         $resp = $impl->OpenProducer($ctx, $req);
-        $sink->send($resp->marshalDc());
+        $sink->send($ctx->encodeMessage($resp));
     };
 
     $close_producerHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
         $req = $reqs->recvInto(new \KafkaPb\CloseProducerRequest());
         $resp = $impl->CloseProducer($ctx, $req);
-        $sink->send($resp->marshalDc());
+        $sink->send($ctx->encodeMessage($resp));
     };
 
     $end_transactionHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
         $req = $reqs->recvInto(new \KafkaPb\EndTransactionRequest());
         $resp = $impl->EndTransaction($ctx, $req);
-        $sink->send($resp->marshalDc());
+        $sink->send($ctx->encodeMessage($resp));
     };
 
     $produceHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
         $req = $reqs->recvInto(new \KafkaPb\ProduceRequest());
         $resp = $impl->Produce($ctx, $req);
-        $sink->send($resp->marshalDc());
+        $sink->send($ctx->encodeMessage($resp));
     };
 
     $consumeHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
@@ -611,139 +611,139 @@ function registerKafkaServer(\Grpcdc\Server $server, object $impl): void
     $list_offsetsHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
         $req = $reqs->recvInto(new \KafkaPb\ListOffsetsRequest());
         $resp = $impl->ListOffsets($ctx, $req);
-        $sink->send($resp->marshalDc());
+        $sink->send($ctx->encodeMessage($resp));
     };
 
     $commit_offsetHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
         $req = $reqs->recvInto(new \KafkaPb\CommitOffsetRequest());
         $resp = $impl->CommitOffset($ctx, $req);
-        $sink->send($resp->marshalDc());
+        $sink->send($ctx->encodeMessage($resp));
     };
 
     $fetch_offsetHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
         $req = $reqs->recvInto(new \KafkaPb\FetchOffsetRequest());
         $resp = $impl->FetchOffset($ctx, $req);
-        $sink->send($resp->marshalDc());
+        $sink->send($ctx->encodeMessage($resp));
     };
 
     $create_topicsHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
         $req = $reqs->recvInto(new \KafkaPb\CreateTopicsRequest());
         $resp = $impl->CreateTopics($ctx, $req);
-        $sink->send($resp->marshalDc());
+        $sink->send($ctx->encodeMessage($resp));
     };
 
     $delete_topicsHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
         $req = $reqs->recvInto(new \KafkaPb\DeleteTopicsRequest());
         $resp = $impl->DeleteTopics($ctx, $req);
-        $sink->send($resp->marshalDc());
+        $sink->send($ctx->encodeMessage($resp));
     };
 
     $describe_configsHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
         $req = $reqs->recvInto(new \KafkaPb\DescribeConfigsRequest());
         $resp = $impl->DescribeConfigs($ctx, $req);
-        $sink->send($resp->marshalDc());
+        $sink->send($ctx->encodeMessage($resp));
     };
 
     $alter_configsHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
         $req = $reqs->recvInto(new \KafkaPb\AlterConfigsRequest());
         $resp = $impl->AlterConfigs($ctx, $req);
-        $sink->send($resp->marshalDc());
+        $sink->send($ctx->encodeMessage($resp));
     };
 
     $create_partitionsHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
         $req = $reqs->recvInto(new \KafkaPb\CreatePartitionsRequest());
         $resp = $impl->CreatePartitions($ctx, $req);
-        $sink->send($resp->marshalDc());
+        $sink->send($ctx->encodeMessage($resp));
     };
 
     $delete_recordsHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
         $req = $reqs->recvInto(new \KafkaPb\DeleteRecordsRequest());
         $resp = $impl->DeleteRecords($ctx, $req);
-        $sink->send($resp->marshalDc());
+        $sink->send($ctx->encodeMessage($resp));
     };
 
     $list_groupsHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
         $req = $reqs->recvInto(new \KafkaPb\ListGroupsRequest());
         $resp = $impl->ListGroups($ctx, $req);
-        $sink->send($resp->marshalDc());
+        $sink->send($ctx->encodeMessage($resp));
     };
 
     $describe_groupsHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
         $req = $reqs->recvInto(new \KafkaPb\DescribeGroupsRequest());
         $resp = $impl->DescribeGroups($ctx, $req);
-        $sink->send($resp->marshalDc());
+        $sink->send($ctx->encodeMessage($resp));
     };
 
     $delete_groupsHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
         $req = $reqs->recvInto(new \KafkaPb\DeleteGroupsRequest());
         $resp = $impl->DeleteGroups($ctx, $req);
-        $sink->send($resp->marshalDc());
+        $sink->send($ctx->encodeMessage($resp));
     };
 
     $delete_group_offsetsHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
         $req = $reqs->recvInto(new \KafkaPb\DeleteGroupOffsetsRequest());
         $resp = $impl->DeleteGroupOffsets($ctx, $req);
-        $sink->send($resp->marshalDc());
+        $sink->send($ctx->encodeMessage($resp));
     };
 
     $describe_aclsHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
         $req = $reqs->recvInto(new \KafkaPb\DescribeAclsRequest());
         $resp = $impl->DescribeAcls($ctx, $req);
-        $sink->send($resp->marshalDc());
+        $sink->send($ctx->encodeMessage($resp));
     };
 
     $create_aclsHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
         $req = $reqs->recvInto(new \KafkaPb\CreateAclsRequest());
         $resp = $impl->CreateAcls($ctx, $req);
-        $sink->send($resp->marshalDc());
+        $sink->send($ctx->encodeMessage($resp));
     };
 
     $delete_aclsHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
         $req = $reqs->recvInto(new \KafkaPb\DeleteAclsRequest());
         $resp = $impl->DeleteAcls($ctx, $req);
-        $sink->send($resp->marshalDc());
+        $sink->send($ctx->encodeMessage($resp));
     };
 
     $list_transactionsHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
         $req = $reqs->recvInto(new \KafkaPb\ListTransactionsRequest());
         $resp = $impl->ListTransactions($ctx, $req);
-        $sink->send($resp->marshalDc());
+        $sink->send($ctx->encodeMessage($resp));
     };
 
     $describe_transactionsHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
         $req = $reqs->recvInto(new \KafkaPb\DescribeTransactionsRequest());
         $resp = $impl->DescribeTransactions($ctx, $req);
-        $sink->send($resp->marshalDc());
+        $sink->send($ctx->encodeMessage($resp));
     };
 
     $open_share_groupHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
         $req = $reqs->recvInto(new \KafkaPb\OpenShareGroupRequest());
         $resp = $impl->OpenShareGroup($ctx, $req);
-        $sink->send($resp->marshalDc());
+        $sink->send($ctx->encodeMessage($resp));
     };
 
     $share_pollHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
         $req = $reqs->recvInto(new \KafkaPb\SharePollRequest());
         $resp = $impl->SharePoll($ctx, $req);
-        $sink->send($resp->marshalDc());
+        $sink->send($ctx->encodeMessage($resp));
     };
 
     $share_ackHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
         $req = $reqs->recvInto(new \KafkaPb\ShareAckRequest());
         $resp = $impl->ShareAck($ctx, $req);
-        $sink->send($resp->marshalDc());
+        $sink->send($ctx->encodeMessage($resp));
     };
 
     $close_share_groupHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
         $req = $reqs->recvInto(new \KafkaPb\CloseShareGroupRequest());
         $resp = $impl->CloseShareGroup($ctx, $req);
-        $sink->send($resp->marshalDc());
+        $sink->send($ctx->encodeMessage($resp));
     };
 
     $describe_share_groupsHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
         $req = $reqs->recvInto(new \KafkaPb\DescribeShareGroupsRequest());
         $resp = $impl->DescribeShareGroups($ctx, $req);
-        $sink->send($resp->marshalDc());
+        $sink->send($ctx->encodeMessage($resp));
     };
 
     $server->registerService(new \Grpcdc\ServiceDesc(

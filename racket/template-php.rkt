@@ -79,7 +79,7 @@
    "    public function __construct(\\Grpcdc\\CallContext $ctx, \\Grpcdc\\ResponseSink $sink)\n"
    "    {\n        $this->context = $ctx;\n        $this->sink = $sink;\n    }\n\n"
    "    public function send(object $resp): void\n"
-   "    {\n        $this->sink->send($resp->marshalDc());\n    }\n"
+   "    {\n        $this->sink->send($this->context->encodeMessage($resp));\n    }\n"
    "}\n\n"
    "// Client-streaming stream passed to service implementations.\n"
    "class ClientStreamImpl\n"
@@ -105,7 +105,7 @@
    "    public function __construct(\\Grpcdc\\CallContext $ctx, \\Grpcdc\\RequestStream $reqs, \\Grpcdc\\ResponseSink $sink, string $reqClass)\n"
    "    {\n        $this->context = $ctx;\n        $this->reqs = $reqs;\n        $this->sink = $sink;\n        $this->reqClass = $reqClass;\n    }\n\n"
    "    public function send(object $resp): void\n"
-   "    {\n        $this->sink->send($resp->marshalDc());\n    }\n\n"
+   "    {\n        $this->sink->send($this->context->encodeMessage($resp));\n    }\n\n"
    "    public function recv(): object\n"
    "    {\n        $cls = $this->reqClass;\n        return $this->reqs->recvInto(new $cls());\n    }\n"
    "}\n\n"
@@ -201,6 +201,20 @@
           "try" "unset" "use" "var" "while" "xor" "yield" "int" "float"
           "bool" "string" "true" "false" "null" "void" "iterable" "object"
           "mixed" "never" "resource" "numeric"))))
+
+(define (php-base64 b)
+  (define alphabet "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/")
+  (define n (bytes-length b))
+  (apply string-append
+         (for/list ([i (in-range 0 n 3)])
+           (define b0 (bytes-ref b i))
+           (define b1 (if (< (+ i 1) n) (bytes-ref b (+ i 1)) 0))
+           (define b2 (if (< (+ i 2) n) (bytes-ref b (+ i 2)) 0))
+           (define v (+ (arithmetic-shift b0 16) (arithmetic-shift b1 8) b2))
+           (string (string-ref alphabet (bitwise-and (arithmetic-shift v -18) 63))
+                   (string-ref alphabet (bitwise-and (arithmetic-shift v -12) 63))
+                   (if (< (+ i 1) n) (string-ref alphabet (bitwise-and (arithmetic-shift v -6) 63)) #\=)
+                   (if (< (+ i 2) n) (string-ref alphabet (bitwise-and v 63)) #\=)))))
 
 (define (php-pb-flat pkg full)
   (define rel (if (and pkg (not (string=? pkg "")) (string-prefix? full (string-append pkg ".")))
@@ -359,12 +373,28 @@
             (apply string-append
                    (map (lambda (d) (format "require_once __DIR__ . \"/~a_pb.php\";\n" d)) dep-modules))
             (if (null? dep-modules) "" "\n")
+            (if (seg-struct-codec)
+                (string-append
+                 "require_once __DIR__ . \"/../grpcdc.php\";\n\n"
+                 (format "const STRUCTDC_DESCRIPTOR = \"~a\";\n\n"
+                         (php-base64 (hash-ref file-model 'descriptor-set #""))))
+                "")
             php-pb-support
             (apply string-append (map (lambda (e) (php-pb-enum file-model e)) enums))
             (apply string-append
                    (map (lambda (m) (php-pb-message-class file-model m))
                         (filter (lambda (m) (not (hash-ref m 'map-entry))) messages)))
-            (apply string-append (reverse helpers))))
+            (apply string-append (reverse helpers))
+            (if (seg-struct-codec)
+                (let ([out (open-output-string)])
+                  (define (emit-companion msg)
+                    (unless (hash-ref msg 'map-entry)
+                      (define flat (php-pb-flat pkg (hash-ref msg 'full-name)))
+                      (fprintf out "final class ~aStruct\n{\n    public static function marshal(~a $m): string\n    {\n        return \\Grpcdc\\Structdc::transcodeStruct(\\base64_decode(STRUCTDC_DESCRIPTOR), \"~a\", $m->marshalDc(), true);\n    }\n\n    public static function unmarshal(string $data): ~a\n    {\n        $m = new ~a();\n        $m->unmarshalDc(\\Grpcdc\\Structdc::transcodeStruct(\\base64_decode(STRUCTDC_DESCRIPTOR), \"~a\", $data, false));\n        return $m;\n    }\n}\n\n" flat flat (hash-ref msg 'full-name) flat flat (hash-ref msg 'full-name)))
+                    (for ([n (in-list (hash-ref msg 'nested))]) (emit-companion n)))
+                  (for ([m (in-list messages)]) (emit-companion m))
+                  (get-output-string out))
+                "")))
          (cons (string-append base "_pb.php") content))))
 
 (define (emit-php-file file-model params)
@@ -394,5 +424,6 @@
          (apply string-append
                 (map (lambda (svc) (php-service file-model svc))
                      (hash-ref file-model 'services))))))
-  (define pb-file (emit-php-pb-file file-model))
+  (define pb-file (parameterize ([seg-struct-codec (equal? (hash-ref params 'struct_codec #f) "true")])
+                    (emit-php-pb-file file-model)))
   (if pb-file (list stub pb-file) stub))

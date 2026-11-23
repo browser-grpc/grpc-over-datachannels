@@ -140,11 +140,13 @@ class MessageModel
     public array $fields;
     /** @var array<string, FieldModel> */
     public array $byName = [];
+    public bool $mapEntry;
 
-    public function __construct(string $fullName, array $fields)
+    public function __construct(string $fullName, array $fields, bool $mapEntry = false)
     {
         $this->fullName = $fullName;
         $this->fields = $fields;
+        $this->mapEntry = $mapEntry;
         $this->refreshByName();
     }
 
@@ -553,11 +555,26 @@ final class Dyn
         }
     }
 
+    /** MessageOptions.map_entry (field 7) marks map entries. */
+    private static function parseMapEntry(?string $options): bool
+    {
+        if ($options === null) {
+            return false;
+        }
+        foreach ((new PbReader($options))->fields() as [$fnum, $w, $fval]) {
+            if ($fnum === 7 && $fval !== 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static function parseMessage(string $package, string $data, FileModel $fileModel): MessageModel
     {
         $name = "";
         $rawFields = [];
         $nested = [];
+        $options = null;
         foreach ((new PbReader($data))->fields() as [$fnum, $w, $fval]) {
             if ($fnum === 1) {
                 $name = $fval;
@@ -565,14 +582,16 @@ final class Dyn
                 $rawFields[] = $fval;
             } elseif ($fnum === 3) {
                 $nested[] = $fval;
+            } elseif ($fnum === 7) {
+                $options = $fval;
             }
         }
         $fullName = $package === "" ? $name : $package . "." . $name;
         $fields = [];
-        $model = new MessageModel($fullName, $fields);
+        $model = new MessageModel($fullName, $fields, self::parseMapEntry($options));
         $fileModel->messages["." . $fullName] = $model;
         foreach ($nested as $bytes) {
-            self::parseNested($package, $name, $bytes, $fileModel);
+            self::parseNested($fullName, $bytes, $fileModel);
         }
         foreach ($rawFields as $fieldBytes) {
             $field = self::parseField($fieldBytes);
@@ -583,21 +602,30 @@ final class Dyn
         return $model;
     }
 
-    private static function parseNested(string $package, string $outer, string $data, FileModel $fileModel): MessageModel
+    private static function parseNested(string $outerFull, string $data, FileModel $fileModel): MessageModel
     {
         $name = "";
         $rawFields = [];
+        $nested = [];
+        $options = null;
         foreach ((new PbReader($data))->fields() as [$fnum, $w, $fval]) {
             if ($fnum === 1) {
                 $name = $fval;
             } elseif ($fnum === 2) {
                 $rawFields[] = $fval;
+            } elseif ($fnum === 3) {
+                $nested[] = $fval;
+            } elseif ($fnum === 7) {
+                $options = $fval;
             }
         }
-        $fullName = $package === "" ? $outer . "." . $name : $package . "." . $outer . "." . $name;
+        $fullName = $outerFull . "." . $name;
         $fields = [];
-        $model = new MessageModel($fullName, $fields);
+        $model = new MessageModel($fullName, $fields, self::parseMapEntry($options));
         $fileModel->messages["." . $fullName] = $model;
+        foreach ($nested as $bytes) {
+            self::parseNested($fullName, $bytes, $fileModel);
+        }
         foreach ($rawFields as $fieldBytes) {
             $field = self::parseField($fieldBytes);
             $fields[$field->number] = $field;
