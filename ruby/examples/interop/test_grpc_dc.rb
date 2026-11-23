@@ -68,7 +68,7 @@ module TestGrpcDc
     end
 
     def send(resp)
-      @sink.send(resp.marshal_dc)
+      @sink.send(@context.encode_message(resp))
     end
   end
 
@@ -104,7 +104,7 @@ module TestGrpcDc
     end
 
     def send(resp)
-      @sink.send(resp.marshal_dc)
+      @sink.send(@context.encode_message(resp))
     end
 
     def recv
@@ -266,19 +266,19 @@ module TestGrpcDc
     empty_call_handler = lambda do |ctx, reqs, sink|
       req = reqs.recv_into(EmptyPb::Empty.new)
       resp = impl.EmptyCall(ctx, req)
-      sink.send(resp.marshal_dc)
+      sink.send(ctx.encode_message(resp))
     end
 
     unary_call_handler = lambda do |ctx, reqs, sink|
       req = reqs.recv_into(MessagesPb::SimpleRequest.new)
       resp = impl.UnaryCall(ctx, req)
-      sink.send(resp.marshal_dc)
+      sink.send(ctx.encode_message(resp))
     end
 
     cacheable_unary_call_handler = lambda do |ctx, reqs, sink|
       req = reqs.recv_into(MessagesPb::SimpleRequest.new)
       resp = impl.CacheableUnaryCall(ctx, req)
-      sink.send(resp.marshal_dc)
+      sink.send(ctx.encode_message(resp))
     end
 
     streaming_output_call_handler = lambda do |ctx, reqs, sink|
@@ -292,7 +292,7 @@ module TestGrpcDc
       if stream.resp.nil?
         raise Grpcdc::StatusError.new(Grpcdc::CODE_INTERNAL, "client-streaming handler never called SendAndClose")
       end
-      sink.send(stream.resp.marshal_dc)
+      sink.send(ctx.encode_message(stream.resp))
     end
 
     full_duplex_call_handler = lambda do |ctx, reqs, sink|
@@ -306,7 +306,7 @@ module TestGrpcDc
     unimplemented_call_handler = lambda do |ctx, reqs, sink|
       req = reqs.recv_into(EmptyPb::Empty.new)
       resp = impl.UnimplementedCall(ctx, req)
-      sink.send(resp.marshal_dc)
+      sink.send(ctx.encode_message(resp))
     end
 
     server.register_service(Grpcdc::ServiceDesc.new(
@@ -350,7 +350,7 @@ module TestGrpcDc
     unimplemented_call_handler = lambda do |ctx, reqs, sink|
       req = reqs.recv_into(EmptyPb::Empty.new)
       resp = impl.UnimplementedCall(ctx, req)
-      sink.send(resp.marshal_dc)
+      sink.send(ctx.encode_message(resp))
     end
 
     server.register_service(Grpcdc::ServiceDesc.new(
@@ -395,13 +395,13 @@ module TestGrpcDc
     start_handler = lambda do |ctx, reqs, sink|
       req = reqs.recv_into(MessagesPb::ReconnectParams.new)
       resp = impl.Start(ctx, req)
-      sink.send(resp.marshal_dc)
+      sink.send(ctx.encode_message(resp))
     end
 
     stop_handler = lambda do |ctx, reqs, sink|
       req = reqs.recv_into(EmptyPb::Empty.new)
       resp = impl.Stop(ctx, req)
-      sink.send(resp.marshal_dc)
+      sink.send(ctx.encode_message(resp))
     end
 
     server.register_service(Grpcdc::ServiceDesc.new(
@@ -447,13 +447,13 @@ module TestGrpcDc
     get_client_stats_handler = lambda do |ctx, reqs, sink|
       req = reqs.recv_into(MessagesPb::LoadBalancerStatsRequest.new)
       resp = impl.GetClientStats(ctx, req)
-      sink.send(resp.marshal_dc)
+      sink.send(ctx.encode_message(resp))
     end
 
     get_client_accumulated_stats_handler = lambda do |ctx, reqs, sink|
       req = reqs.recv_into(MessagesPb::LoadBalancerAccumulatedStatsRequest.new)
       resp = impl.GetClientAccumulatedStats(ctx, req)
-      sink.send(resp.marshal_dc)
+      sink.send(ctx.encode_message(resp))
     end
 
     server.register_service(Grpcdc::ServiceDesc.new(
@@ -499,13 +499,13 @@ module TestGrpcDc
     set_serving_handler = lambda do |ctx, reqs, sink|
       req = reqs.recv_into(EmptyPb::Empty.new)
       resp = impl.SetServing(ctx, req)
-      sink.send(resp.marshal_dc)
+      sink.send(ctx.encode_message(resp))
     end
 
     set_not_serving_handler = lambda do |ctx, reqs, sink|
       req = reqs.recv_into(EmptyPb::Empty.new)
       resp = impl.SetNotServing(ctx, req)
-      sink.send(resp.marshal_dc)
+      sink.send(ctx.encode_message(resp))
     end
 
     server.register_service(Grpcdc::ServiceDesc.new(
@@ -543,7 +543,7 @@ module TestGrpcDc
     configure_handler = lambda do |ctx, reqs, sink|
       req = reqs.recv_into(MessagesPb::ClientConfigureRequest.new)
       resp = impl.Configure(ctx, req)
-      sink.send(resp.marshal_dc)
+      sink.send(ctx.encode_message(resp))
     end
 
     server.register_service(Grpcdc::ServiceDesc.new(

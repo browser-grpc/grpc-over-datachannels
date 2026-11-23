@@ -165,6 +165,34 @@ module Grpcdc
   module Codec
     module_function
 
+    # HEADERS metadata key/value a client sends to request the
+    # struct codec for a call (see SPEC.md struct codec).
+    STRUCT_CODEC_HEADER = "dc-codec"
+    STRUCT_CODEC_V1 = "struct-v1"
+
+    # Marshal msg with the codec selected for a call
+    # (struct layout when negotiated).
+    def marshal_for_codec(struct_codec, msg)
+      return msg.marshal_dc unless struct_codec
+      unless msg.respond_to?(:marshal_struct)
+        raise StatusError.new(CODE_INTERNAL, "message has no struct codec")
+      end
+      msg.marshal_struct
+    end
+
+    # Decode data into msg with the codec selected for a call.
+    def unmarshal_for_codec(struct_codec, data, msg)
+      if struct_codec
+        unless msg.respond_to?(:unmarshal_struct)
+          raise StatusError.new(CODE_INTERNAL, "message has no struct codec")
+        end
+        msg.unmarshal_struct(data)
+      else
+        msg.unmarshal_dc(data)
+      end
+      msg
+    end
+
     # Build one DataChannel message: header + payload.
     def encode_frame(frame_type, stream_id, payload)
       unless FRAME_NAMES.value?(frame_type)

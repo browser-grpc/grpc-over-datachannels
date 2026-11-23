@@ -181,6 +181,34 @@ module Grpcdc
   module Codec
     module_function
 
+    # HEADERS metadata key/value a client sends to request the
+    # struct codec for a call (see SPEC.md struct codec).
+    STRUCT_CODEC_HEADER = "dc-codec"
+    STRUCT_CODEC_V1 = "struct-v1"
+
+    # Marshal msg with the codec selected for a call
+    # (struct layout when negotiated).
+    def marshal_for_codec(struct_codec, msg)
+      return msg.marshal_dc unless struct_codec
+      unless msg.respond_to?(:marshal_struct)
+        raise StatusError.new(CODE_INTERNAL, "message has no struct codec")
+      end
+      msg.marshal_struct
+    end
+
+    # Decode data into msg with the codec selected for a call.
+    def unmarshal_for_codec(struct_codec, data, msg)
+      if struct_codec
+        unless msg.respond_to?(:unmarshal_struct)
+          raise StatusError.new(CODE_INTERNAL, "message has no struct codec")
+        end
+        msg.unmarshal_struct(data)
+      else
+        msg.unmarshal_dc(data)
+      end
+      msg
+    end
+
     # Build one DataChannel message: header + payload.
     def encode_frame(frame_type, stream_id, payload)
       unless FRAME_NAMES.value?(frame_type)
@@ -445,6 +473,15 @@ module Grpcdc
     attr_reader :metadata, :deadline, :response_headers, :response_trailers
     # This call's server span context (nil when dormant).
     attr_accessor :trace_context
+    # Whether this call negotiated the struct codec
+    # (HEADERS dc-codec: struct-v1).
+    attr_accessor :struct_codec
+
+    # Marshal a response message with this call's negotiated
+    # codec (generated server code calls this).
+    def encode_message(msg)
+      Codec.marshal_for_codec(@struct_codec, msg)
+    end
 
     # Record response initial metadata (sent lazily, before
     # the first response message).
@@ -462,6 +499,7 @@ module Grpcdc
       @metadata = metadata || {}
       @response_headers = {}
       @response_trailers = {}
+      @struct_codec = false
       remaining = Codec.parse_timeout(@metadata["grpc-timeout"])
       @deadline = remaining.nil? ? nil : Process.clock_gettime(Process::CLOCK_MONOTONIC) + remaining
     end
@@ -709,7 +747,21 @@ module Grpcdc
     def initialize(transport = nil, endpoint: nil)
       @endpoint = endpoint || Endpoint.new(transport, creator: true)
       @trace_context = nil
+      @struct_codec = false
       @endpoint.start
+    end
+
+    # Make every call on this channel request the struct codec
+    # (HEADERS marker dc-codec: struct-v1) and encode requests /
+    # decode responses with it. The server must enable it too
+    # (see Server#set_struct_codec); otherwise calls fail
+    # UNIMPLEMENTED. Mirrors the Go Channel.SetStructCodec.
+    def set_struct_codec(enabled)
+      @struct_codec = !!enabled
+    end
+
+    def struct_codec
+      @struct_codec
     end
 
     # Parent this channel's outbound spans to ctx (usually
@@ -719,6 +771,7 @@ module Grpcdc
       ch = Channel.allocate
       ch.instance_variable_set(:@endpoint, @endpoint)
       ch.instance_variable_set(:@trace_context, ctx)
+      ch.instance_variable_set(:@struct_codec, @struct_codec)
       ch
     end
 
@@ -797,8 +850,9 @@ module Grpcdc
     def open_call(path, metadata, timeout = nil)
       deadline = nil
       trace_ctx = nil
-      unless timeout.nil? && Grpcdc.tracer.nil?
+      unless timeout.nil? && Grpcdc.tracer.nil? && !@struct_codec
         metadata = (metadata || {}).dup
+        metadata[Codec::STRUCT_CODEC_HEADER] = Codec::STRUCT_CODEC_V1 if @struct_codec
         unless timeout.nil?
           deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + timeout
           metadata["grpc-timeout"] = Codec.encode_timeout(timeout)
@@ -820,6 +874,7 @@ module Grpcdc
         raise
       end
       stream = ClientStream.new(@endpoint, stream_id, stream_input)
+      stream.struct_codec = @struct_codec
       stream.deadline = deadline
       stream.trace_ctx = trace_ctx
       stream.trace_path = path
@@ -827,7 +882,7 @@ module Grpcdc
     end
 
     def send_message(stream, msg)
-      @endpoint.send_frame(Codec.encode_frame(FRAME_DATA, stream.stream_id, msg.marshal_dc))
+      @endpoint.send_frame(Codec.encode_frame(FRAME_DATA, stream.stream_id, Codec.marshal_for_codec(stream.struct_codec, msg)))
     end
     public :send_message
 
@@ -846,7 +901,7 @@ module Grpcdc
   class ClientStream
     attr_reader :stream_id, :headers, :trailers, :endpoint
 
-    attr_accessor :deadline, :trace_ctx, :trace_path
+    attr_accessor :deadline, :trace_ctx, :trace_path, :struct_codec
 
     def initialize(endpoint, stream_id, stream_input)
       @endpoint = endpoint
@@ -857,6 +912,7 @@ module Grpcdc
       @deadline = nil
       @trace_ctx = nil
       @trace_path = nil
+      @struct_codec = false
       @trace_ended = false
       @terminated = false
       # Abandoning the stream object without break/close (a dropped
@@ -930,7 +986,7 @@ module Grpcdc
         when EVENT_HEADERS
           @headers = event.headers
         when EVENT_DATA
-          return resp.unmarshal_dc(event.payload)
+          return Codec.unmarshal_for_codec(@struct_codec, event.payload, resp)
         when EVENT_TRAILERS
           mark_terminated
           @trailers = event.status.trailers
@@ -1015,6 +1071,10 @@ module Grpcdc
       @channel.endpoint
     end
 
+    def set_struct_codec(enabled)
+      @channel.set_struct_codec(enabled)
+    end
+
     def unary(path, req, resp, metadata = nil, timeout: nil)
       Fiber.new { @channel.unary(path, req, resp, metadata, timeout: timeout) }.resume
     end
@@ -1051,8 +1111,11 @@ module Grpcdc
 
   # Reads request messages of one inbound call.
   class RequestStream
-    def initialize(stream_input)
+    attr_reader :struct_codec
+
+    def initialize(stream_input, struct_codec = false)
       @input = stream_input
+      @struct_codec = struct_codec
     end
 
     # Next request payload; EOFError at half-close.
@@ -1073,8 +1136,7 @@ module Grpcdc
     end
 
     def recv_into(req)
-      req.unmarshal_dc(recv_raw)
-      req
+      Codec.unmarshal_for_codec(@struct_codec, recv_raw, req)
     end
   end
 
@@ -1103,6 +1165,16 @@ module Grpcdc
   class Server
     def initialize
       @methods = {}
+      @struct_codec = false
+    end
+
+    # Enable the struct codec on this server: a call carrying
+    # HEADERS dc-codec: struct-v1 is decoded with the struct
+    # codec and answered in kind. A struct-v1 request to a server
+    # without it enabled fails UNIMPLEMENTED, as does any other
+    # dc-codec value. Mirrors the Go Server.SetStructCodec.
+    def set_struct_codec(enabled)
+      @struct_codec = !!enabled
     end
 
     def register_service(desc)
@@ -1129,11 +1201,22 @@ module Grpcdc
         return StatusError.new(CODE_UNIMPLEMENTED, "unknown method #{headers.path}")
       end
 
+      # Struct codec negotiation: an explicit dc-codec marker
+      # must be struct-v1 and enabled here, else UNIMPLEMENTED.
+      use_struct = false
+      marker = (headers.metadata || {})[Codec::STRUCT_CODEC_HEADER]
+      unless marker.nil?
+        if marker != Codec::STRUCT_CODEC_V1 || !@struct_codec
+          return StatusError.new(CODE_UNIMPLEMENTED, "struct codec not enabled")
+        end
+        use_struct = true
+      end
+      ctx.struct_codec = use_struct
       trace_ctx = Grpcdc.trace_start("server", headers.path, Grpcdc.parse_traceparent((headers.metadata || {})["traceparent"]))
       ctx.trace_context = trace_ctx
       result = nil
       begin
-        method.handler.call(ctx, RequestStream.new(stream_input), sink)
+        method.handler.call(ctx, RequestStream.new(stream_input, use_struct), sink)
       rescue StandardError => e # StatusError passes through via to_status
         result = Grpcdc.to_status(e)
       end
@@ -1607,13 +1690,18 @@ module Grpcdc
   end
 
   class MessageModel
-    attr_reader :full_name, :fields, :by_name
+    attr_reader :full_name, :fields, :by_name, :map_entry
 
-    def initialize(full_name, fields)
+    def initialize(full_name, fields, map_entry = false)
       @full_name = full_name
       @fields = fields # number -> FieldModel
+      @map_entry = map_entry
       @by_name = {}
       fields.each_value { |f| @by_name[f.name] = f }
+    end
+
+    def map_entry?
+      @map_entry
     end
 
     def refresh_by_name
@@ -1892,22 +1980,34 @@ module Grpcdc
       end
     end
 
+    # MessageOptions.map_entry (field 7) marks map entries.
+    def parse_map_entry(options)
+      return false if options.nil?
+
+      PbReader.new(options).each_field do |fnum, _w, fval|
+        return true if fnum == 7 && fval != 0
+      end
+      false
+    end
+
     def parse_message(package, data, file_model)
       name = ""
       raw_fields = []
       nested = []
+      options = nil
       PbReader.new(data).each_field do |fnum, _w, fval|
         case fnum
         when 1 then name = fval.dup.force_encoding(Encoding::UTF_8)
         when 2 then raw_fields << fval
         when 3 then nested << fval
+        when 7 then options = fval
         end
       end
       full_name = package.empty? ? name : "#{package}.#{name}"
       fields = {}
-      model = MessageModel.new(full_name, fields)
+      model = MessageModel.new(full_name, fields, parse_map_entry(options))
       file_model.messages["." + full_name] = model
-      nested.each { |bytes| parse_nested(package, name, bytes, file_model) }
+      nested.each { |bytes| parse_nested(full_name, bytes, file_model) }
       raw_fields.each do |field_bytes|
         field = parse_field(field_bytes)
         fields[field.number] = field
@@ -1916,19 +2016,24 @@ module Grpcdc
       model
     end
 
-    def parse_nested(package, outer, data, file_model)
+    def parse_nested(outer_full, data, file_model)
       name = ""
       raw_fields = []
+      nested = []
+      options = nil
       PbReader.new(data).each_field do |fnum, _w, fval|
         case fnum
         when 1 then name = fval.dup.force_encoding(Encoding::UTF_8)
         when 2 then raw_fields << fval
+        when 3 then nested << fval
+        when 7 then options = fval
         end
       end
-      full_name = package.empty? ? "#{outer}.#{name}" : "#{package}.#{outer}.#{name}"
+      full_name = "#{outer_full}.#{name}"
       fields = {}
-      model = MessageModel.new(full_name, fields)
+      model = MessageModel.new(full_name, fields, parse_map_entry(options))
       file_model.messages["." + full_name] = model
+      nested.each { |bytes| parse_nested(full_name, bytes, file_model) }
       raw_fields.each do |field_bytes|
         field = parse_field(field_bytes)
         fields[field.number] = field
@@ -2156,6 +2261,7 @@ require_relative "grpcdc/server"
 require_relative "grpcdc/loopback"
 require_relative "grpcdc/sidecar"
 require_relative "grpcdc/dynamic"
+require_relative "grpcdc/structdc"
 GRPC_RUNTIME_EOF
 )
 
@@ -2190,4 +2296,504 @@ GRPC_RUNTIME_EOF
    (cons "grpcdc/loopback.rb" ruby-loopback-body)
    (cons "grpcdc/sidecar.rb" ruby-sidecar-body)
    (cons "grpcdc/kafka_native.rb" ruby-kafka-native-body)
-   (cons "grpcdc/dynamic.rb" ruby-dynamic-body)))
+   (cons "grpcdc/dynamic.rb" ruby-dynamic-body)
+   (cons "grpcdc/structdc.rb" ruby-structdc-body)))
+
+(define ruby-structdc-body
+#<<GRPC_RUNTIME_EOF
+# Descriptor-driven struct codec (layout v1, DCS1): the packed
+# struct format from SPEC.md, implemented over the dynamic
+# model (dynamic.rb) so browser-tier runtimes transcode
+# protobuf <-> struct without a native bridge. Byte-identical
+# to the shared Rust implementation (conformance/struct).
+
+require_relative "codec"
+require_relative "dynamic"
+require_relative "wire_gen"
+
+module Grpcdc
+  module Structdc
+    module_function
+
+    MASK64 = (1 << 64) - 1
+    FIXED32_TYPES = [TYPE_FLOAT, TYPE_FIXED32, TYPE_SFIXED32].freeze
+
+    def fail_with(msg)
+      StatusError.new(CODE_INVALID_ARGUMENT, msg)
+    end
+
+    def fingerprint(full_name)
+      h = 2166136261
+      full_name.each_byte { |b| h = ((h ^ b) * 16777619) & 0xFFFFFFFF }
+      h
+    end
+
+    def slot_size(f)
+      FIXED32_TYPES.include?(f.type) ? 4 : 8
+    end
+
+    def s32(v)
+      v &= 0xFFFFFFFF
+      v >= 0x80000000 ? v - 0x100000000 : v
+    end
+
+    def s64(v)
+      v &= MASK64
+      v >= (1 << 63) ? v - (1 << 64) : v
+    end
+
+    def as_i64(v)
+      return v ? 1 : 0 if v == true || v == false
+
+      v.to_i
+    end
+
+    def bytes_of(f, v)
+      return v.b if v.is_a?(String)
+
+      raise fail_with("value does not match field #{f.name} type #{f.type}")
+    end
+
+    def nonzero(f, v)
+      case f.type
+      when TYPE_STRING, TYPE_BYTES then !v.to_s.empty?
+      when TYPE_MESSAGE then v.is_a?(GenericMessage)
+      when TYPE_BOOL then v == true || as_i64(v) != 0
+      when TYPE_FLOAT, TYPE_DOUBLE then v.to_f != 0.0
+      else as_i64(v) != 0
+      end
+    end
+
+    def sorted_fields(model)
+      model.fields.keys.sort.map { |n| model.fields[n] }
+    end
+
+    def map_model(f, fm)
+      return nil unless f.type == TYPE_MESSAGE && f.repeated?
+
+      m = fm.messages[f.type_name]
+      (m && m.map_entry?) ? m : nil
+    end
+
+    def map?(f, fm)
+      !map_model(f, fm).nil?
+    end
+
+    def default_value(f)
+      case f.type
+      when TYPE_STRING, TYPE_BYTES then "".b
+      when TYPE_BOOL then false
+      when TYPE_FLOAT, TYPE_DOUBLE then 0.0
+      when TYPE_MESSAGE then GenericMessage.new
+      else 0
+      end
+    end
+
+    def key_cmp(kf, a, b)
+      return (a.to_s <=> b.to_s) if kf.type == TYPE_STRING
+
+      if [TYPE_BOOL, TYPE_UINT32, TYPE_UINT64, TYPE_FIXED32, TYPE_FIXED64].include?(kf.type)
+        (as_i64(a) & MASK64) <=> (as_i64(b) & MASK64)
+      else
+        as_i64(a) <=> as_i64(b)
+      end
+    end
+
+    def map_entries(f, values, entry_model)
+      kf = entry_model.fields[1]
+      vf = entry_model.fields[2]
+      entries = values.map do |entry|
+        key = entry.get(1)
+        raise fail_with("map field #{f.name} entry missing key") if key.nil?
+
+        [key, entry.get(2, default_value(vf))]
+      end
+      entries.sort { |x, y| key_cmp(kf, x[0], y[0]) }
+    end
+
+    def value_size(f, v, fm)
+      case f.type
+      when TYPE_STRING, TYPE_BYTES then bytes_of(f, v).bytesize
+      when TYPE_MESSAGE then encode_struct(fm.messages.fetch(f.type_name), v, fm).bytesize
+      else FIXED32_TYPES.include?(f.type) ? 4 : 8
+      end
+    end
+
+    def field_present(f, msg, fm)
+      values = msg.get_all(f.number)
+      return !values.empty? if map?(f, fm) || f.repeated?
+
+      !values.empty? && nonzero(f, values[0])
+    end
+
+    def struct_size(model, msg, fm)
+      fields = sorted_fields(model)
+      words = [1, (fields.length + 31) / 32].max
+      size = 12 + 4 * words + fields.sum { |f| slot_size(f) }
+      fields.each do |f|
+        values = msg.get_all(f.number)
+        if map?(f, fm)
+          entry_model = map_model(f, fm)
+          kf = entry_model.fields[1]
+          vf = entry_model.fields[2]
+          map_entries(f, values, entry_model).each do |k, v|
+            size += 8 + value_size(kf, k, fm) + value_size(vf, v, fm)
+          end
+        elsif f.repeated?
+          next if values.empty?
+
+          size += 8 * values.length if [TYPE_STRING, TYPE_BYTES, TYPE_MESSAGE].include?(f.type)
+          values.each { |v| size += value_size(f, v, fm) }
+        elsif [TYPE_STRING, TYPE_BYTES, TYPE_MESSAGE].include?(f.type) && field_present(f, msg, fm)
+          size += value_size(f, values[0], fm)
+        end
+      end
+      msg.unknown.each { |c| size += c.bytesize }
+      size
+    end
+
+    def put_u32(buf, off, v)
+      buf[off, 4] = [v & 0xFFFFFFFF].pack("V")
+    end
+
+    def put_u64(buf, off, v)
+      buf[off, 8] = [v & MASK64].pack("Q<")
+    end
+
+    def get_u32(data, off)
+      raise fail_with("struct codec: out of bounds") if off + 4 > data.bytesize
+
+      data.byteslice(off, 4).unpack1("V")
+    end
+
+    def get_u64(data, off)
+      raise fail_with("struct codec: out of bounds") if off + 8 > data.bytesize
+
+      data.byteslice(off, 8).unpack1("Q<")
+    end
+
+    def write_scalar(buf, off, f, v)
+      case f.type
+      when TYPE_FLOAT then buf[off, 4] = [v.to_f].pack("e")
+      when TYPE_FIXED32 then put_u32(buf, off, as_i64(v))
+      when TYPE_SFIXED32 then put_u32(buf, off, s32(as_i64(v)))
+      when TYPE_DOUBLE then buf[off, 8] = [v.to_f].pack("E")
+      when TYPE_FIXED64, TYPE_SFIXED64 then put_u64(buf, off, as_i64(v))
+      when TYPE_BOOL then buf.setbyte(off, as_i64(v) != 0 ? 1 : 0)
+      else put_u64(buf, off, as_i64(v))
+      end
+    end
+
+    def write_value(buf, off, f, v, fm)
+      case f.type
+      when TYPE_STRING, TYPE_BYTES
+        b = bytes_of(f, v)
+        buf[off, b.bytesize] = b
+      when TYPE_MESSAGE
+        enc = encode_struct(fm.messages.fetch(f.type_name), v, fm)
+        buf[off, enc.bytesize] = enc
+      else
+        write_scalar(buf, off, f, v)
+      end
+    end
+
+    def encode_struct(model, msg, fm)
+      fields = sorted_fields(model)
+      words = [1, (fields.length + 31) / 32].max
+      header = 12 + 4 * words
+      offsets = []
+      cursor = header
+      fields.each do |f|
+        offsets << cursor
+        cursor += slot_size(f)
+      end
+      fixed_end = cursor
+      buf = "\0".b * struct_size(model, msg, fm)
+      buf[0, 4] = "DCS1".b
+      put_u32(buf, 4, buf.bytesize)
+      put_u32(buf, 8, fingerprint(model.full_name))
+      fields.each_with_index do |f, i|
+        next unless field_present(f, msg, fm)
+
+        at = 12 + 4 * (i / 32)
+        put_u32(buf, at, get_u32(buf, at) | (1 << (i % 32)))
+      end
+      vp = fixed_end
+      fields.each_with_index do |f, i|
+        off = offsets[i]
+        values = msg.get_all(f.number)
+        if map?(f, fm)
+          next if values.empty?
+
+          entry_model = map_model(f, fm)
+          kf = entry_model.fields[1]
+          vf = entry_model.fields[2]
+          put_u32(buf, off, vp)
+          put_u32(buf, off + 4, values.length)
+          map_entries(f, values, entry_model).each do |k, v|
+            klen = value_size(kf, k, fm)
+            vlen = value_size(vf, v, fm)
+            put_u32(buf, vp, klen)
+            put_u32(buf, vp + 4, vlen)
+            vp += 8
+            write_value(buf, vp, kf, k, fm)
+            vp += klen
+            write_value(buf, vp, vf, v, fm)
+            vp += vlen
+          end
+        elsif f.repeated?
+          next if values.empty?
+
+          put_u32(buf, off, vp)
+          put_u32(buf, off + 4, values.length)
+          if [TYPE_STRING, TYPE_BYTES, TYPE_MESSAGE].include?(f.type)
+            doff = vp + 8 * values.length
+            values.each do |v|
+              put_u32(buf, vp, doff)
+              put_u32(buf, vp + 4, value_size(f, v, fm))
+              doff += value_size(f, v, fm)
+              vp += 8
+            end
+            values.each do |v|
+              write_value(buf, vp, f, v, fm)
+              vp += value_size(f, v, fm)
+            end
+          else
+            values.each do |v|
+              write_scalar(buf, vp, f, v)
+              vp += slot_size(f)
+            end
+          end
+        elsif [TYPE_STRING, TYPE_BYTES, TYPE_MESSAGE].include?(f.type)
+          next unless field_present(f, msg, fm)
+
+          put_u32(buf, off, vp)
+          put_u32(buf, off + 4, value_size(f, values[0], fm))
+          write_value(buf, vp, f, values[0], fm)
+          vp += value_size(f, values[0], fm)
+        elsif field_present(f, msg, fm)
+          write_scalar(buf, off, f, values[0])
+        end
+      end
+      msg.unknown.each do |chunk|
+        buf[vp, chunk.bytesize] = chunk
+        vp += chunk.bytesize
+      end
+      buf
+    end
+
+    def read_scalar(data, off, f)
+      case f.type
+      when TYPE_FLOAT then data.byteslice(off, 4).unpack1("e")
+      when TYPE_FIXED32 then get_u32(data, off)
+      when TYPE_SFIXED32 then s32(get_u32(data, off))
+      when TYPE_DOUBLE then data.byteslice(off, 8).unpack1("E")
+      when TYPE_FIXED64 then get_u64(data, off)
+      when TYPE_SFIXED64 then s64(get_u64(data, off))
+      when TYPE_BOOL then data.getbyte(off) != 0
+      when TYPE_ENUM, TYPE_INT32, TYPE_SINT32 then s32(get_u64(data, off))
+      when TYPE_INT64, TYPE_SINT64 then s64(get_u64(data, off))
+      when TYPE_UINT32 then get_u64(data, off) & 0xFFFFFFFF
+      else get_u64(data, off)
+      end
+    end
+
+    def read_value(data, off, len, f, fm)
+      raise fail_with("struct codec: out of bounds") if off + len > data.bytesize
+
+      raw = data.byteslice(off, len)
+      case f.type
+      when TYPE_STRING then raw.dup.force_encoding(Encoding::UTF_8)
+      when TYPE_BYTES then raw
+      when TYPE_MESSAGE
+        return GenericMessage.new if len.zero?
+
+        decode_struct(fm.messages.fetch(f.type_name), raw, fm)
+      else
+        read_scalar(data, off, f)
+      end
+    end
+
+    def decode_struct(model, data, fm)
+      fields = sorted_fields(model)
+      words = [1, (fields.length + 31) / 32].max
+      header = 12 + 4 * words
+      if data.bytesize < header || data.byteslice(0, 4) != "DCS1".b
+        raise fail_with("struct codec: bad header")
+      end
+      if get_u32(data, 8) != fingerprint(model.full_name)
+        raise fail_with("struct codec: schema fingerprint mismatch")
+      end
+      raise fail_with("struct codec: length mismatch") if get_u32(data, 4) != data.bytesize
+
+      offsets = []
+      cursor = header
+      fields.each do |f|
+        offsets << cursor
+        cursor += slot_size(f)
+      end
+      msg = GenericMessage.new(model)
+      vend = cursor
+      fields.each_with_index do |f, i|
+        next if (get_u32(data, 12 + 4 * (i / 32)) & (1 << (i % 32))).zero?
+
+        off = offsets[i]
+        if map?(f, fm)
+          entry_model = map_model(f, fm)
+          kf = entry_model.fields[1]
+          vf = entry_model.fields[2]
+          base = get_u32(data, off)
+          n = get_u32(data, off + 4)
+          pos = base
+          n.times do
+            kl = get_u32(data, pos)
+            vl = get_u32(data, pos + 4)
+            pos += 8
+            key = read_value(data, pos, kl, kf, fm)
+            val = read_value(data, pos + kl, vl, vf, fm)
+            entry = GenericMessage.new(entry_model)
+            entry.set(1, key)
+            entry.set(2, val)
+            msg.add(f.number, entry)
+            pos += kl + vl
+          end
+          vend = [vend, pos].max
+        elsif f.repeated?
+          base = get_u32(data, off)
+          n = get_u32(data, off + 4)
+          if [TYPE_STRING, TYPE_BYTES, TYPE_MESSAGE].include?(f.type)
+            n.times do |j|
+              eo = get_u32(data, base + 8 * j)
+              el = get_u32(data, base + 8 * j + 4)
+              msg.add(f.number, read_value(data, eo, el, f, fm)) if el > 0 || f.type != TYPE_MESSAGE
+              vend = [vend, eo + el].max
+            end
+          else
+            n.times do |j|
+              msg.add(f.number, read_scalar(data, base + j * slot_size(f), f))
+            end
+            vend = [vend, base + n * slot_size(f)].max
+          end
+        elsif [TYPE_STRING, TYPE_BYTES, TYPE_MESSAGE].include?(f.type)
+          base = get_u32(data, off)
+          len = get_u32(data, off + 4)
+          msg.add(f.number, read_value(data, base, len, f, fm))
+          vend = [vend, base + len].max
+        else
+          msg.add(f.number, read_scalar(data, off, f))
+        end
+      end
+      msg.unknown << data.byteslice(vend..-1) if vend < data.bytesize
+      msg
+    end
+
+    def zigzag_decode(v)
+      (v >> 1) ^ -(v & 1)
+    end
+
+    def decode_value_s(f, wire, raw, fm)
+      case wire
+      when 0
+        case f.type
+        when TYPE_BOOL then raw != 0
+        when TYPE_SINT32, TYPE_SINT64 then zigzag_decode(raw)
+        when TYPE_INT32, TYPE_ENUM then s32(raw)
+        when TYPE_INT64 then s64(raw)
+        when TYPE_UINT32 then raw & 0xFFFFFFFF
+        else raw & MASK64
+        end
+      when 1
+        case f.type
+        when TYPE_DOUBLE then raw.unpack1("E")
+        when TYPE_SFIXED64 then raw.unpack1("q<")
+        else raw.unpack1("Q<")
+        end
+      when 5
+        case f.type
+        when TYPE_FLOAT then raw.unpack1("e")
+        when TYPE_SFIXED32 then raw.unpack1("l<")
+        else raw.unpack1("V")
+        end
+      else
+        case f.type
+        when TYPE_STRING then raw.dup.force_encoding(Encoding::UTF_8)
+        when TYPE_MESSAGE then decode_generic_s(fm.messages.fetch(f.type_name), raw, fm)
+        else raw.b
+        end
+      end
+    end
+
+    def decode_packed(f, data, fm)
+      out = []
+      case f.type
+      when TYPE_DOUBLE, TYPE_FIXED64, TYPE_SFIXED64
+        i = 0
+        while i + 8 <= data.bytesize
+          out << decode_value_s(f, 1, data.byteslice(i, 8), fm)
+          i += 8
+        end
+      when TYPE_FLOAT, TYPE_FIXED32, TYPE_SFIXED32
+        i = 0
+        while i + 4 <= data.bytesize
+          out << decode_value_s(f, 5, data.byteslice(i, 4), fm)
+          i += 4
+        end
+      else
+        reader = PbReader.new(data)
+        begin
+          while true
+            out << decode_value_s(f, 0, reader.varint, fm)
+          end
+        rescue ArgumentError
+          # end of packed varints
+        end
+      end
+      out
+    end
+
+    def decode_generic_s(model, data, fm)
+      msg = GenericMessage.new(model)
+      reader = PbReader.new(data)
+      begin
+        reader.each_field do |number, wire, raw|
+          f = model.fields[number]
+          if f.nil?
+            msg.unknown << reader.last_chunk
+            next
+          end
+          if f.repeated? && wire == 2 && ![TYPE_STRING, TYPE_BYTES, TYPE_MESSAGE, TYPE_GROUP].include?(f.type)
+            decode_packed(f, raw, fm).each { |v| msg.add(number, v) }
+            next
+          end
+          msg.add(number, decode_value_s(f, wire, raw, fm))
+        end
+      rescue ArgumentError => e
+        raise fail_with(e.message)
+      end
+      msg
+    end
+
+    @cache = {}
+
+    # Transcode protobuf <-> struct bytes for type_name under
+    # the FileDescriptorSet bytes +descriptor+.
+    def transcode_struct(descriptor, type_name, data, encode)
+      key = descriptor.hash
+      fm = @cache[key]
+      if fm.nil?
+        fm = Grpcdc.parse_descriptor_set(descriptor)
+        @cache[key] = fm
+      end
+      model = fm.messages[type_name] || fm.messages["." + type_name]
+      raise fail_with("unknown message type #{type_name}") if model.nil?
+
+      if encode
+        encode_struct(model, decode_generic_s(model, data, fm), fm)
+      else
+        Grpcdc.encode_generic(model, decode_struct(model, data, fm), fm)
+      end
+    end
+  end
+end
+GRPC_RUNTIME_EOF
+)

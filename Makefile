@@ -649,7 +649,7 @@ test-lua-wasm-browser:
 RUBY ?= ruby
 
 test-ruby:
-	RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestCodec \
+	RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestStructCodec && $(RUBY) ruby/tests/main.rb TestCodec \
 		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestEcho \
 		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestInterop \
 		&& RUBY=$(RUBY) $(RUBY) ruby/tests/main.rb TestInteropOracle \

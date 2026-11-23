@@ -92,7 +92,7 @@
    "      @sink = sink\n"
    "    end\n\n"
    "    def send(resp)\n"
-   "      @sink.send(resp.marshal_dc)\n"
+   "      @sink.send(@context.encode_message(resp))\n"
    "    end\n"
    "  end\n\n"
    "  # Client-streaming stream passed to service implementations.\n"
@@ -121,7 +121,7 @@
    "      @req_cls = req_cls\n"
    "    end\n\n"
    "    def send(resp)\n"
-   "      @sink.send(resp.marshal_dc)\n"
+   "      @sink.send(@context.encode_message(resp))\n"
    "    end\n\n"
    "    def recv\n"
    "      @reqs.recv_into(@req_cls.new)\n"
@@ -188,6 +188,20 @@
 ;; type -> (size pack-format) ; pack: e/E float/double, V/Q< unsigned
 ;; fixed, l</q< signed fixed.
 (define rb-pb-fixed (fixed-scalar-table 'ruby))
+
+(define (rb-base64 b)
+  (define alphabet "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/")
+  (define n (bytes-length b))
+  (apply string-append
+         (for/list ([i (in-range 0 n 3)])
+           (define b0 (bytes-ref b i))
+           (define b1 (if (< (+ i 1) n) (bytes-ref b (+ i 1)) 0))
+           (define b2 (if (< (+ i 2) n) (bytes-ref b (+ i 2)) 0))
+           (define v (+ (arithmetic-shift b0 16) (arithmetic-shift b1 8) b2))
+           (string (string-ref alphabet (bitwise-and (arithmetic-shift v -18) 63))
+                   (string-ref alphabet (bitwise-and (arithmetic-shift v -12) 63))
+                   (if (< (+ i 1) n) (string-ref alphabet (bitwise-and (arithmetic-shift v -6) 63)) #\=)
+                   (if (< (+ i 2) n) (string-ref alphabet (bitwise-and v 63)) #\=)))))
 
 (define (rb-pb-flat pkg full)
   (define rel (if (and pkg (not (string=? pkg "")) (string-prefix? full (string-append pkg ".")))
@@ -343,12 +357,26 @@
                    (map (lambda (d) (format "require_relative \"~a_pb\"\n" d)) dep-modules))
             (if (null? dep-modules) "" "\n")
             (format "module ~aPb\n" pb)
+            (if (seg-struct-codec)
+                (format "  STRUCTDC_DESCRIPTOR = \"~a\".freeze\n\n"
+                        (rb-base64 (hash-ref file-model 'descriptor-set #"")))
+                "")
             (rb-pb-support pb)
             (apply string-append (map (lambda (e) (rb-pb-enum file-model e)) enums))
             (apply string-append
                    (map (lambda (m) (rb-pb-message-class file-model pb m))
                         (filter (lambda (m) (not (hash-ref m 'map-entry))) messages)))
             (apply string-append (reverse helpers))
+            (if (seg-struct-codec)
+                (let ([out (open-output-string)])
+                  (define (emit-companion msg)
+                    (unless (hash-ref msg 'map-entry)
+                      (define flat (rb-pb-flat pkg (hash-ref msg 'full-name)))
+                      (fprintf out "  class ~aStruct\n    def self.marshal(m)\n      Grpcdc::Structdc.transcode_struct(STRUCTDC_DESCRIPTOR.unpack1(\"m\"), \"~a\", m.marshal_dc, true)\n    end\n\n    def self.unmarshal(data)\n      m = ~a.new\n      m.unmarshal_dc(Grpcdc::Structdc.transcode_struct(STRUCTDC_DESCRIPTOR.unpack1(\"m\"), \"~a\", data, false))\n      m\n    end\n  end\n\n" flat (hash-ref msg 'full-name) flat (hash-ref msg 'full-name)))
+                    (for ([n (in-list (hash-ref msg 'nested))]) (emit-companion n)))
+                  (for ([m (in-list messages)]) (emit-companion m))
+                  (get-output-string out))
+                "")
             "end\n"))
          (cons (string-append base "_pb.rb") content))))
 
@@ -380,5 +408,6 @@
                 (map (lambda (svc) (rb-service file-model svc))
                      (hash-ref file-model 'services)))
          "end\n")))
-  (define pb-file (emit-ruby-pb-file file-model))
+  (define pb-file (parameterize ([seg-struct-codec (equal? (hash-ref params 'struct_codec #f) "true")])
+                    (emit-ruby-pb-file file-model)))
   (if pb-file (list stub pb-file) stub))

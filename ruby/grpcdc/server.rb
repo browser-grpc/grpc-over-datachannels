@@ -14,8 +14,11 @@ module Grpcdc
 
   # Reads request messages of one inbound call.
   class RequestStream
-    def initialize(stream_input)
+    attr_reader :struct_codec
+
+    def initialize(stream_input, struct_codec = false)
       @input = stream_input
+      @struct_codec = struct_codec
     end
 
     # Next request payload; EOFError at half-close.
@@ -36,8 +39,7 @@ module Grpcdc
     end
 
     def recv_into(req)
-      req.unmarshal_dc(recv_raw)
-      req
+      Codec.unmarshal_for_codec(@struct_codec, recv_raw, req)
     end
   end
 
@@ -66,6 +68,16 @@ module Grpcdc
   class Server
     def initialize
       @methods = {}
+      @struct_codec = false
+    end
+
+    # Enable the struct codec on this server: a call carrying
+    # HEADERS dc-codec: struct-v1 is decoded with the struct
+    # codec and answered in kind. A struct-v1 request to a server
+    # without it enabled fails UNIMPLEMENTED, as does any other
+    # dc-codec value. Mirrors the Go Server.SetStructCodec.
+    def set_struct_codec(enabled)
+      @struct_codec = !!enabled
     end
 
     def register_service(desc)
@@ -92,11 +104,22 @@ module Grpcdc
         return StatusError.new(CODE_UNIMPLEMENTED, "unknown method #{headers.path}")
       end
 
+      # Struct codec negotiation: an explicit dc-codec marker
+      # must be struct-v1 and enabled here, else UNIMPLEMENTED.
+      use_struct = false
+      marker = (headers.metadata || {})[Codec::STRUCT_CODEC_HEADER]
+      unless marker.nil?
+        if marker != Codec::STRUCT_CODEC_V1 || !@struct_codec
+          return StatusError.new(CODE_UNIMPLEMENTED, "struct codec not enabled")
+        end
+        use_struct = true
+      end
+      ctx.struct_codec = use_struct
       trace_ctx = Grpcdc.trace_start("server", headers.path, Grpcdc.parse_traceparent((headers.metadata || {})["traceparent"]))
       ctx.trace_context = trace_ctx
       result = nil
       begin
-        method.handler.call(ctx, RequestStream.new(stream_input), sink)
+        method.handler.call(ctx, RequestStream.new(stream_input, use_struct), sink)
       rescue StandardError => e # StatusError passes through via to_status
         result = Grpcdc.to_status(e)
       end

@@ -1789,9 +1789,9 @@
 
 (define rb-server-handler-program
   '((kind-case
-     (unary (fmt "    ~a = lambda do |ctx, reqs, sink|\n      req = reqs.recv_into(~a.new)\n      resp = impl.~a(ctx, req)\n      sink.send(resp.marshal_dc)\n    end\n\n" (fmt "~a_handler" (rb-snake (ref name))) (stub-ref input-full) (ref impl-name)))
+     (unary (fmt "    ~a = lambda do |ctx, reqs, sink|\n      req = reqs.recv_into(~a.new)\n      resp = impl.~a(ctx, req)\n      sink.send(ctx.encode_message(resp))\n    end\n\n" (fmt "~a_handler" (rb-snake (ref name))) (stub-ref input-full) (ref impl-name)))
      (server-streaming (fmt "    ~a = lambda do |ctx, reqs, sink|\n      req = reqs.recv_into(~a.new)\n      impl.~a(req, SendStream.new(ctx, sink))\n    end\n\n" (fmt "~a_handler" (rb-snake (ref name))) (stub-ref input-full) (ref impl-name)))
-     (client-streaming (fmt "    ~a = lambda do |ctx, reqs, sink|\n      stream = ClientStreamImpl.new(ctx, reqs, ~a)\n      impl.~a(stream)\n      if stream.resp.nil?\n        raise Grpcdc::StatusError.new(Grpcdc::CODE_INTERNAL, \"client-streaming handler never called SendAndClose\")\n      end\n      sink.send(stream.resp.marshal_dc)\n    end\n\n" (fmt "~a_handler" (rb-snake (ref name))) (stub-ref input-full) (ref impl-name)))
+     (client-streaming (fmt "    ~a = lambda do |ctx, reqs, sink|\n      stream = ClientStreamImpl.new(ctx, reqs, ~a)\n      impl.~a(stream)\n      if stream.resp.nil?\n        raise Grpcdc::StatusError.new(Grpcdc::CODE_INTERNAL, \"client-streaming handler never called SendAndClose\")\n      end\n      sink.send(ctx.encode_message(stream.resp))\n    end\n\n" (fmt "~a_handler" (rb-snake (ref name))) (stub-ref input-full) (ref impl-name)))
      (bidi (fmt "    ~a = lambda do |ctx, reqs, sink|\n      impl.~a(BidiStream.new(ctx, reqs, sink, ~a))\n    end\n\n" (fmt "~a_handler" (rb-snake (ref name))) (ref impl-name) (stub-ref input-full))))))
 
 (define rb-method-entry-program
@@ -1995,6 +1995,11 @@
               (each fields (call rbPbDecodeCase))
               "        else\n          @unknown_fields = @unknown_fields + raw_value\n        end\n"))
     "      end\n      self\n    end\n\n"
+    (if (struct-codec)
+        (then (if (ref map-entry) (then "") (else (fmt "    def marshal_struct\n      ~aStruct.marshal(self)\n    end\n\n    def unmarshal_struct(data)\n      _s = ~aStruct.unmarshal(data)\n" (flat) (flat))))
+              (if (ref map-entry) (then "") (else (each fields (fmt "      @~a = _s.~a\n" (ref name) (ref name)))))
+              (if (ref map-entry) (then "") (else "      @unknown_fields = _s.unknown_fields\n      self\n    end\n\n")))
+        (else ""))
     (fmt "    def ==(other)\n      other.is_a?(~a) && ~a\n    end\n  end\n\n"
          (flat)
          (if (no-fields)

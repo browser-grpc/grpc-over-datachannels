@@ -15,6 +15,9 @@ end
 
 begin
   case name
+  when "TestStructCodec"
+    require_relative "test_struct_codec"
+    TestStructCodec.run
   when "TestCodec"
     require_relative "test_codec"
     TestCodec.run
