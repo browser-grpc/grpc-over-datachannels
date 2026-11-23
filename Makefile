@@ -562,6 +562,7 @@ test-lua-wasm-browser:
 	  grpcdc.codec=lua/grpcdc/codec.lua grpcdc.transport=lua/grpcdc/transport.lua \
 	  grpcdc.endpoint=lua/grpcdc/endpoint.lua grpcdc.channel=lua/grpcdc/channel.lua \
 	  grpcdc.server=lua/grpcdc/server.lua grpcdc.memory_transport=lua/grpcdc/memory_transport.lua \
+	  grpcdc.structdc=lua/grpcdc/structdc.lua grpcdc.dynamic=lua/grpcdc/dynamic.lua \
 	  examples.pb=lua/examples/pb.lua examples.echo_messages=lua/examples/echo_messages.lua \
 	  examples.echo_grpc_dc=lua/examples/echo_grpc_dc.lua \
 	  examples.echo_service_impl=lua/examples/echo_service_impl.lua \
@@ -579,6 +580,7 @@ test-lua-wasm-browser:
 	  grpcdc.codec=lua/grpcdc/codec.lua grpcdc.transport=lua/grpcdc/transport.lua \
 	  grpcdc.endpoint=lua/grpcdc/endpoint.lua grpcdc.channel=lua/grpcdc/channel.lua \
 	  grpcdc.server=lua/grpcdc/server.lua grpcdc.memory_transport=lua/grpcdc/memory_transport.lua \
+	  grpcdc.structdc=lua/grpcdc/structdc.lua grpcdc.dynamic=lua/grpcdc/dynamic.lua \
 	  examples.pb=lua/examples/pb.lua examples.echo_messages=lua/examples/echo_messages.lua \
 	  examples.echo_grpc_dc=lua/examples/echo_grpc_dc.lua \
 	  examples.echo_service_impl=lua/examples/echo_service_impl.lua \
@@ -596,6 +598,7 @@ test-lua-wasm-browser:
 	  grpcdc.codec=lua/grpcdc/codec.lua grpcdc.transport=lua/grpcdc/transport.lua \
 	  grpcdc.endpoint=lua/grpcdc/endpoint.lua grpcdc.channel=lua/grpcdc/channel.lua \
 	  grpcdc.server=lua/grpcdc/server.lua grpcdc.memory_transport=lua/grpcdc/memory_transport.lua \
+	  grpcdc.structdc=lua/grpcdc/structdc.lua grpcdc.dynamic=lua/grpcdc/dynamic.lua \
 	  examples.pb=lua/examples/pb.lua examples.echo_messages=lua/examples/echo_messages.lua \
 	  examples.echo_grpc_dc=lua/examples/echo_grpc_dc.lua \
 	  examples.echo_service_impl=lua/examples/echo_service_impl.lua \
@@ -613,6 +616,7 @@ test-lua-wasm-browser:
 	  grpcdc.codec=lua/grpcdc/codec.lua grpcdc.transport=lua/grpcdc/transport.lua \
 	  grpcdc.endpoint=lua/grpcdc/endpoint.lua grpcdc.channel=lua/grpcdc/channel.lua \
 	  grpcdc.server=lua/grpcdc/server.lua grpcdc.memory_transport=lua/grpcdc/memory_transport.lua \
+	  grpcdc.structdc=lua/grpcdc/structdc.lua grpcdc.dynamic=lua/grpcdc/dynamic.lua \
 	  examples.pb=lua/examples/pb.lua examples.echo_messages=lua/examples/echo_messages.lua \
 	  examples.echo_grpc_dc=lua/examples/echo_grpc_dc.lua \
 	  examples.echo_service_impl=lua/examples/echo_service_impl.lua \
@@ -630,6 +634,7 @@ test-lua-wasm-browser:
 	  grpcdc.codec=lua/grpcdc/codec.lua grpcdc.transport=lua/grpcdc/transport.lua \
 	  grpcdc.endpoint=lua/grpcdc/endpoint.lua grpcdc.channel=lua/grpcdc/channel.lua \
 	  grpcdc.server=lua/grpcdc/server.lua grpcdc.memory_transport=lua/grpcdc/memory_transport.lua \
+	  grpcdc.structdc=lua/grpcdc/structdc.lua grpcdc.dynamic=lua/grpcdc/dynamic.lua \
 	  examples.pb=lua/examples/pb.lua examples.echo_messages=lua/examples/echo_messages.lua \
 	  examples.echo_grpc_dc=lua/examples/echo_grpc_dc.lua \
 	  examples.echo_service_impl=lua/examples/echo_service_impl.lua \
