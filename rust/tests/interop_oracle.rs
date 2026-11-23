@@ -7,7 +7,8 @@
 //! empty/large unary, orca_per_rpc, orca_oob.
 //! Server direction: official grpc-java client (and the
 //! grpc-go client for ORCA, which the Java client cannot
-//! grade) -> bridge (http2-to-dc) -> Rust interop server:
+//! grade, and the grpc-dart client over the shared cases)
+//! -> bridge (http2-to-dc) -> Rust interop server:
 //! the four compressed cases plus sanity cases.
 //!
 //! Skips when the oracle binaries are not built (Dockerfile.ci
@@ -272,7 +273,8 @@ fn java_classpath() -> Option<String> {
 fn run_case(client_cmd: &[&str], case: &str) {
     let mut cmd = Command::new(client_cmd[0]);
     cmd.args(&client_cmd[1..]);
-    // The Java client spells it --test_case=, the Go client -test_case=.
+    // The Java client spells it --test_case=, the Go and Dart
+    // clients -test_case <case>.
     if client_cmd[0] == "java" {
         cmd.arg(format!("--test_case={case}"));
     } else {
@@ -293,6 +295,14 @@ fn run_case(client_cmd: &[&str], case: &str) {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr),
     );
+    if client_cmd[0].contains("dart-interop") {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.contains("Test completed."),
+            "dart case {case}: unexpected output: {stdout}\n{}",
+            String::from_utf8_lossy(&output.stderr),
+        );
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -358,6 +368,39 @@ async fn official_clients_call_rust_server() {
         let go_refs = go;
         for case in ["orca_per_rpc", "orca_oob"] {
             run_case(&go_refs, case);
+        }
+    }
+
+    let dart_client = format!("{root}/oracle/dart-interop/interop-client");
+    if !std::path::Path::new(&dart_client).exists() {
+        oracle_skip("dart interop client not built (oracle/dart-interop)");
+    } else {
+        let port_arg = port.to_string();
+        let dart: Vec<&str> = vec![
+            dart_client.as_str(),
+            "-server_host",
+            "127.0.0.1",
+            "-server_port",
+            &port_arg,
+        ];
+        let dart_refs = dart;
+        for case in [
+            "empty_unary",
+            "large_unary",
+            "client_streaming",
+            "server_streaming",
+            "ping_pong",
+            "empty_stream",
+            "custom_metadata",
+            "status_code_and_message",
+            "special_status_message",
+            "unimplemented_method",
+            "unimplemented_service",
+            "cancel_after_begin",
+            "cancel_after_first_response",
+            "timeout_on_sleeping_server",
+        ] {
+            run_case(&dart_refs, case);
         }
     }
 }
