@@ -163,12 +163,12 @@ end
 local TestServiceStreamingOutputCallServer = {}
 TestServiceStreamingOutputCallServer.__index = TestServiceStreamingOutputCallServer
 
-function TestServiceStreamingOutputCallServer.new(sink)
-  return setmetatable({ sink = sink }, TestServiceStreamingOutputCallServer)
+function TestServiceStreamingOutputCallServer.new(ctx, sink)
+  return setmetatable({ ctx = ctx, sink = sink }, TestServiceStreamingOutputCallServer)
 end
 
 function TestServiceStreamingOutputCallServer:send(resp)
-  self.sink(resp:marshalDc())
+  self.sink(self.ctx.encodeMessage(resp))
 end
 
 --- Client-streaming stream passed to service implementations.
@@ -193,12 +193,12 @@ end
 local TestServiceFullDuplexCallServer = {}
 TestServiceFullDuplexCallServer.__index = TestServiceFullDuplexCallServer
 
-function TestServiceFullDuplexCallServer.new(reqs, sink)
-  return setmetatable({ reqs = reqs, sink = sink }, TestServiceFullDuplexCallServer)
+function TestServiceFullDuplexCallServer.new(ctx, reqs, sink)
+  return setmetatable({ ctx = ctx, reqs = reqs, sink = sink }, TestServiceFullDuplexCallServer)
 end
 
 function TestServiceFullDuplexCallServer:send(resp)
-  self.sink(resp:marshalDc())
+  self.sink(self.ctx.encodeMessage(resp))
 end
 
 function TestServiceFullDuplexCallServer:recv()
@@ -211,12 +211,12 @@ end
 local TestServiceHalfDuplexCallServer = {}
 TestServiceHalfDuplexCallServer.__index = TestServiceHalfDuplexCallServer
 
-function TestServiceHalfDuplexCallServer.new(reqs, sink)
-  return setmetatable({ reqs = reqs, sink = sink }, TestServiceHalfDuplexCallServer)
+function TestServiceHalfDuplexCallServer.new(ctx, reqs, sink)
+  return setmetatable({ ctx = ctx, reqs = reqs, sink = sink }, TestServiceHalfDuplexCallServer)
 end
 
 function TestServiceHalfDuplexCallServer:send(resp)
-  self.sink(resp:marshalDc())
+  self.sink(self.ctx.encodeMessage(resp))
 end
 
 function TestServiceHalfDuplexCallServer:recv()
@@ -676,7 +676,7 @@ local function registerTestServiceServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = Empty.new()
           reqs:recvInto(req)
-          sink(impl:emptyCall(ctx, req):marshalDc())
+          sink(ctx.encodeMessage(impl:emptyCall(ctx, req)))
         end,
       },
       {
@@ -686,7 +686,7 @@ local function registerTestServiceServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = SimpleRequest.new()
           reqs:recvInto(req)
-          sink(impl:unaryCall(ctx, req):marshalDc())
+          sink(ctx.encodeMessage(impl:unaryCall(ctx, req)))
         end,
       },
       {
@@ -696,7 +696,7 @@ local function registerTestServiceServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = SimpleRequest.new()
           reqs:recvInto(req)
-          sink(impl:cacheableUnaryCall(ctx, req):marshalDc())
+          sink(ctx.encodeMessage(impl:cacheableUnaryCall(ctx, req)))
         end,
       },
       {
@@ -706,7 +706,7 @@ local function registerTestServiceServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = StreamingOutputCallRequest.new()
           reqs:recvInto(req)
-          impl:streamingOutputCall(ctx, req, TestServiceStreamingOutputCallServer.new(sink))
+          impl:streamingOutputCall(ctx, req, TestServiceStreamingOutputCallServer.new(ctx, sink))
         end,
       },
       {
@@ -721,7 +721,7 @@ local function registerTestServiceServer(server, impl)
             error(Status.new(wire.CODE_INTERNAL,
               "client-streaming handler never called sendAndClose"), 0)
           end
-          sink(resp:marshalDc())
+          sink(ctx.encodeMessage(resp))
         end,
       },
       {
@@ -729,7 +729,7 @@ local function registerTestServiceServer(server, impl)
         path = "/grpc.testing.TestService/FullDuplexCall",
         kind = Server.KIND_BIDI,
         handler = function(ctx, reqs, sink)
-          impl:fullDuplexCall(ctx, TestServiceFullDuplexCallServer.new(reqs, sink))
+          impl:fullDuplexCall(ctx, TestServiceFullDuplexCallServer.new(ctx, reqs, sink))
         end,
       },
       {
@@ -737,7 +737,7 @@ local function registerTestServiceServer(server, impl)
         path = "/grpc.testing.TestService/HalfDuplexCall",
         kind = Server.KIND_BIDI,
         handler = function(ctx, reqs, sink)
-          impl:halfDuplexCall(ctx, TestServiceHalfDuplexCallServer.new(reqs, sink))
+          impl:halfDuplexCall(ctx, TestServiceHalfDuplexCallServer.new(ctx, reqs, sink))
         end,
       },
       {
@@ -747,7 +747,7 @@ local function registerTestServiceServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = Empty.new()
           reqs:recvInto(req)
-          sink(impl:unimplementedCall(ctx, req):marshalDc())
+          sink(ctx.encodeMessage(impl:unimplementedCall(ctx, req)))
         end,
       },
     },
@@ -768,7 +768,7 @@ local function registerUnimplementedServiceServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = Empty.new()
           reqs:recvInto(req)
-          sink(impl:unimplementedCall(ctx, req):marshalDc())
+          sink(ctx.encodeMessage(impl:unimplementedCall(ctx, req)))
         end,
       },
     },
@@ -789,7 +789,7 @@ local function registerReconnectServiceServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = ReconnectParams.new()
           reqs:recvInto(req)
-          sink(impl:start(ctx, req):marshalDc())
+          sink(ctx.encodeMessage(impl:start(ctx, req)))
         end,
       },
       {
@@ -799,7 +799,7 @@ local function registerReconnectServiceServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = Empty.new()
           reqs:recvInto(req)
-          sink(impl:stop(ctx, req):marshalDc())
+          sink(ctx.encodeMessage(impl:stop(ctx, req)))
         end,
       },
     },
@@ -820,7 +820,7 @@ local function registerLoadBalancerStatsServiceServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = LoadBalancerStatsRequest.new()
           reqs:recvInto(req)
-          sink(impl:getClientStats(ctx, req):marshalDc())
+          sink(ctx.encodeMessage(impl:getClientStats(ctx, req)))
         end,
       },
       {
@@ -830,7 +830,7 @@ local function registerLoadBalancerStatsServiceServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = LoadBalancerAccumulatedStatsRequest.new()
           reqs:recvInto(req)
-          sink(impl:getClientAccumulatedStats(ctx, req):marshalDc())
+          sink(ctx.encodeMessage(impl:getClientAccumulatedStats(ctx, req)))
         end,
       },
     },
@@ -851,7 +851,7 @@ local function registerXdsUpdateHealthServiceServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = Empty.new()
           reqs:recvInto(req)
-          sink(impl:setServing(ctx, req):marshalDc())
+          sink(ctx.encodeMessage(impl:setServing(ctx, req)))
         end,
       },
       {
@@ -861,7 +861,7 @@ local function registerXdsUpdateHealthServiceServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = Empty.new()
           reqs:recvInto(req)
-          sink(impl:setNotServing(ctx, req):marshalDc())
+          sink(ctx.encodeMessage(impl:setNotServing(ctx, req)))
         end,
       },
     },
@@ -882,7 +882,7 @@ local function registerXdsUpdateClientConfigureServiceServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = ClientConfigureRequest.new()
           reqs:recvInto(req)
-          sink(impl:configure(ctx, req):marshalDc())
+          sink(ctx.encodeMessage(impl:configure(ctx, req)))
         end,
       },
     },

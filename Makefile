@@ -60,13 +60,13 @@ stubs: eventbus-stubs kafka-stubs
 		--grpc-dc-c_out=c/examples --grpc-dc-c_opt=struct_codec=true -I proto proto/echo.proto
 	mkdir -p lua/examples
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-lua=bin/protoc-gen-grpc-dc-lua \
-		--grpc-dc-lua_out=lua/examples -I proto proto/echo.proto
+		--grpc-dc-lua_out=lua/examples --grpc-dc-lua_opt=struct_codec=true -I proto proto/echo.proto
 	mkdir -p ruby/examples
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-ruby=bin/protoc-gen-grpc-dc-ruby \
-		--grpc-dc-ruby_out=ruby/examples -I proto proto/echo.proto
+		--grpc-dc-ruby_out=ruby/examples --grpc-dc-ruby_opt=struct_codec=true -I proto proto/echo.proto
 	mkdir -p php/examples
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-php=bin/protoc-gen-grpc-dc-php \
-		--grpc-dc-php_out=php/examples -I proto proto/echo.proto
+		--grpc-dc-php_out=php/examples --grpc-dc-php_opt=struct_codec=true -I proto proto/echo.proto
 	mkdir -p scala/examples
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-scala=bin/protoc-gen-grpc-dc-scala \
 		--grpc-dc-scala_out=scala/examples --grpc-dc-scala_opt=struct_codec=true -I proto proto/echo.proto
@@ -530,7 +530,7 @@ test-c:
 LUA ?= lua
 
 test-lua:
-	LUA=$(LUA) $(LUA) lua/tests/main.lua TestCodec \
+	LUA=$(LUA) $(LUA) lua/tests/main.lua TestStructCodec && $(LUA) lua/tests/main.lua TestCodec \
 		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestEcho \
 		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestInterop \
 		&& LUA=$(LUA) $(LUA) lua/tests/main.lua TestInteropOracle \

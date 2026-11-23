@@ -65,12 +65,12 @@ end
 local EventBusSubscribeServer = {}
 EventBusSubscribeServer.__index = EventBusSubscribeServer
 
-function EventBusSubscribeServer.new(sink)
-  return setmetatable({ sink = sink }, EventBusSubscribeServer)
+function EventBusSubscribeServer.new(ctx, sink)
+  return setmetatable({ ctx = ctx, sink = sink }, EventBusSubscribeServer)
 end
 
 function EventBusSubscribeServer:send(resp)
-  self.sink(resp:marshalDc())
+  self.sink(self.ctx.encodeMessage(resp))
 end
 
 --- Client for grpcdc.events.v1.EventBus.
@@ -178,7 +178,7 @@ local function registerEventBusServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = PublishRequest.new()
           reqs:recvInto(req)
-          sink(impl:publish(ctx, req):marshalDc())
+          sink(ctx.encodeMessage(impl:publish(ctx, req)))
         end,
       },
       {
@@ -188,7 +188,7 @@ local function registerEventBusServer(server, impl)
         handler = function(ctx, reqs, sink)
           local req = SubscribeRequest.new()
           reqs:recvInto(req)
-          impl:subscribe(ctx, req, EventBusSubscribeServer.new(sink))
+          impl:subscribe(ctx, req, EventBusSubscribeServer.new(ctx, sink))
         end,
       },
     },

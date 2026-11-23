@@ -4118,11 +4118,11 @@
   '((kind-case
      (unary "")
      (server-streaming
-      (fmt "--- Server-streaming sink passed to service implementations.\nlocal ~a~aServer = {}\n~a~aServer.__index = ~a~aServer\n\nfunction ~a~aServer.new(sink)\n  return setmetatable({ sink = sink }, ~a~aServer)\nend\n\nfunction ~a~aServer:send(resp)\n  self.sink(resp:marshalDc())\nend\n\n" (svc) (ref name) (svc) (ref name) (svc) (ref name) (svc) (ref name) (svc) (ref name) (svc) (ref name)))
+      (fmt "--- Server-streaming sink passed to service implementations.\nlocal ~a~aServer = {}\n~a~aServer.__index = ~a~aServer\n\nfunction ~a~aServer.new(ctx, sink)\n  return setmetatable({ ctx = ctx, sink = sink }, ~a~aServer)\nend\n\nfunction ~a~aServer:send(resp)\n  self.sink(self.ctx.encodeMessage(resp))\nend\n\n" (svc) (ref name) (svc) (ref name) (svc) (ref name) (svc) (ref name) (svc) (ref name) (svc) (ref name)))
      (client-streaming
       (fmt "--- Client-streaming stream passed to service implementations.\nlocal ~a~aServer = {}\n~a~aServer.__index = ~a~aServer\n\nfunction ~a~aServer.new(reqs)\n  return setmetatable({ reqs = reqs, resp = nil }, ~a~aServer)\nend\n\nfunction ~a~aServer:recv()\n  local req = ~a.new()\n  self.reqs:recvInto(req)\n  return req\nend\n\nfunction ~a~aServer:sendAndClose(resp)\n  self.resp = resp\nend\n\n" (svc) (ref name) (svc) (ref name) (svc) (ref name) (svc) (ref name) (svc) (ref name) (svc) (ref name) (ref input) (svc) (ref name)))
      (bidi
-      (fmt "--- Bidi stream passed to service implementations.\nlocal ~a~aServer = {}\n~a~aServer.__index = ~a~aServer\n\nfunction ~a~aServer.new(reqs, sink)\n  return setmetatable({ reqs = reqs, sink = sink }, ~a~aServer)\nend\n\nfunction ~a~aServer:send(resp)\n  self.sink(resp:marshalDc())\nend\n\nfunction ~a~aServer:recv()\n  local req = ~a.new()\n  self.reqs:recvInto(req)\n  return req\nend\n\n" (svc) (ref name) (svc) (ref name) (svc) (ref name) (svc) (ref name) (svc) (ref name) (svc) (ref name) (svc) (ref name) (ref input))))))
+      (fmt "--- Bidi stream passed to service implementations.\nlocal ~a~aServer = {}\n~a~aServer.__index = ~a~aServer\n\nfunction ~a~aServer.new(ctx, reqs, sink)\n  return setmetatable({ ctx = ctx, reqs = reqs, sink = sink }, ~a~aServer)\nend\n\nfunction ~a~aServer:send(resp)\n  self.sink(self.ctx.encodeMessage(resp))\nend\n\nfunction ~a~aServer:recv()\n  local req = ~a.new()\n  self.reqs:recvInto(req)\n  return req\nend\n\n" (svc) (ref name) (svc) (ref name) (svc) (ref name) (svc) (ref name) (svc) (ref name) (svc) (ref name) (svc) (ref name) (ref input))))))
 
 (define lua-register-method-program
   (let ([kind-const '(case-on (ref kind)
@@ -4133,13 +4133,13 @@
     (list
      (list 'kind-case
            (list 'unary
-                 (list 'fmt "      {\n        name = ~s,\n        path = ~s,\n        kind = Server.~a,\n        handler = function(ctx, reqs, sink)\n          local req = ~a.new()\n          reqs:recvInto(req)\n          sink(impl:~a(ctx, req):marshalDc())\n        end,\n      },\n" '(ref name) '(ref path) kind-const '(ref input) (list 'lower-first '(ref impl-name))))
+                 (list 'fmt "      {\n        name = ~s,\n        path = ~s,\n        kind = Server.~a,\n        handler = function(ctx, reqs, sink)\n          local req = ~a.new()\n          reqs:recvInto(req)\n          sink(ctx.encodeMessage(impl:~a(ctx, req)))\n        end,\n      },\n" '(ref name) '(ref path) kind-const '(ref input) (list 'lower-first '(ref impl-name))))
            (list 'server-streaming
-                 (list 'fmt "      {\n        name = ~s,\n        path = ~s,\n        kind = Server.~a,\n        handler = function(ctx, reqs, sink)\n          local req = ~a.new()\n          reqs:recvInto(req)\n          impl:~a(ctx, req, ~a~aServer.new(sink))\n        end,\n      },\n" '(ref name) '(ref path) kind-const '(ref input) (list 'lower-first '(ref impl-name)) '(svc) '(ref name)))
+                 (list 'fmt "      {\n        name = ~s,\n        path = ~s,\n        kind = Server.~a,\n        handler = function(ctx, reqs, sink)\n          local req = ~a.new()\n          reqs:recvInto(req)\n          impl:~a(ctx, req, ~a~aServer.new(ctx, sink))\n        end,\n      },\n" '(ref name) '(ref path) kind-const '(ref input) (list 'lower-first '(ref impl-name)) '(svc) '(ref name)))
            (list 'client-streaming
-                 (list 'fmt "      {\n        name = ~s,\n        path = ~s,\n        kind = Server.~a,\n        handler = function(ctx, reqs, sink)\n          local stream = ~a~aServer.new(reqs)\n          impl:~a(ctx, stream)\n          local resp = stream.resp\n          if resp == nil then\n            error(Status.new(wire.CODE_INTERNAL,\n              \"client-streaming handler never called sendAndClose\"), 0)\n          end\n          sink(resp:marshalDc())\n        end,\n      },\n" '(ref name) '(ref path) kind-const '(svc) '(ref name) (list 'lower-first '(ref impl-name))))
+                 (list 'fmt "      {\n        name = ~s,\n        path = ~s,\n        kind = Server.~a,\n        handler = function(ctx, reqs, sink)\n          local stream = ~a~aServer.new(reqs)\n          impl:~a(ctx, stream)\n          local resp = stream.resp\n          if resp == nil then\n            error(Status.new(wire.CODE_INTERNAL,\n              \"client-streaming handler never called sendAndClose\"), 0)\n          end\n          sink(ctx.encodeMessage(resp))\n        end,\n      },\n" '(ref name) '(ref path) kind-const '(svc) '(ref name) (list 'lower-first '(ref impl-name))))
            (list 'bidi
-                 (list 'fmt "      {\n        name = ~s,\n        path = ~s,\n        kind = Server.~a,\n        handler = function(ctx, reqs, sink)\n          impl:~a(ctx, ~a~aServer.new(reqs, sink))\n        end,\n      },\n" '(ref name) '(ref path) kind-const (list 'lower-first '(ref impl-name)) '(svc) '(ref name)))))))
+                 (list 'fmt "      {\n        name = ~s,\n        path = ~s,\n        kind = Server.~a,\n        handler = function(ctx, reqs, sink)\n          impl:~a(ctx, ~a~aServer.new(ctx, reqs, sink))\n        end,\n      },\n" '(ref name) '(ref path) kind-const (list 'lower-first '(ref impl-name)) '(svc) '(ref name)))))))
 
 (define lua-service-program
   '((each methods (call luaClientStreamClass))

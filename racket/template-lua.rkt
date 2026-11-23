@@ -276,17 +276,52 @@
          (define content
            (string-append
             lua-pb-support
+            (if (seg-struct-codec)
+                (string-append
+                 "local Structdc = require(\"grpcdc.structdc\")\n\n"
+                 (format "local _STRUCTDC_DESCRIPTOR = ~a\n\n"
+                         (let ([nums (map number->string
+                                          (bytes->list (hash-ref file-model 'descriptor-set #"")))])
+                           ;; Chunked: one huge string.char(...) call
+                           ;; exceeds Lua's register limit.
+                           (string-join
+                            (let loop ([xs nums] [acc '()])
+                              (if (null? xs)
+                                  (reverse acc)
+                                  (let ([n (min 100 (length xs))])
+                                    (loop (drop xs n)
+                                          (cons (format "string.char(~a)"
+                                                        (string-join (take xs n) ","))
+                                                acc)))))
+                            " .. "))))
+                "")
             dep-requires
             (if (string=? dep-requires "") "" "\n")
             (apply string-append
                    (map (lambda (n) (format "local ~a\n" n)) (reverse helper-names)))
             (apply string-append
-                   (map (lambda (n) (format "local ~a\n" n)) (append-map all-msg-names messages)))
+                   (map (lambda (n) (format "local ~a\n" n))
+                        (append-map all-msg-names messages)))
+            (if (seg-struct-codec)
+                (apply string-append
+                       (map (lambda (n) (format "local ~aStruct\n" n))
+                            (append-map all-msg-names messages)))
+                "")
             (apply string-append (map (lambda (e) (lua-pb-enum file-model e)) enums))
             (apply string-append
                    (map (lambda (m) (lua-pb-message-class file-model m))
                         (filter (lambda (m) (not (hash-ref m 'map-entry))) messages)))
             (apply string-append (reverse helpers))
+            (if (seg-struct-codec)
+                (let ([out (open-output-string)])
+                  (define (emit-companion msg)
+                    (unless (hash-ref msg 'map-entry)
+                      (define flat (lua-pb-flat pkg (hash-ref msg 'full-name)))
+                      (fprintf out "~aStruct = {}\nfunction ~aStruct.marshal(m)\n  return Structdc.transcodeStruct(_STRUCTDC_DESCRIPTOR, \"~a\", m:marshalDc(), true)\nend\nfunction ~aStruct.unmarshal(data)\n  local m = ~a.new()\n  m:unmarshalDc(Structdc.transcodeStruct(_STRUCTDC_DESCRIPTOR, \"~a\", data, false))\n  return m\nend\n\n" flat flat (hash-ref msg 'full-name) flat flat (hash-ref msg 'full-name)))
+                    (for ([n (in-list (hash-ref msg 'nested))]) (emit-companion n)))
+                  (for ([m (in-list messages)]) (emit-companion m))
+                  (get-output-string out))
+                "")
             "return {\n"
             (apply string-append
                    (map (lambda (m)
@@ -387,5 +422,6 @@
                         (format "  register~aServer = register~aServer,\n" sname sname)))
                      (hash-ref file-model 'services)))
          "}\n")))
-  (define pb-file (emit-lua-pb-file file-model))
+  (define pb-file (parameterize ([seg-struct-codec (equal? (hash-ref params 'struct_codec #f) "true")])
+                    (emit-lua-pb-file file-model)))
   (if pb-file (list stub pb-file) stub))

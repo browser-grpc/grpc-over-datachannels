@@ -482,6 +482,38 @@ function Codec.parseStatus(payload)
   return Status.new(wire.CODE_UNKNOWN, "malformed trailers")
 end
 
+--- HEADERS metadata key/value a client sends to request the
+--- struct codec for a call (see SPEC.md struct codec).
+Codec.STRUCT_CODEC_HEADER = "dc-codec"
+Codec.STRUCT_CODEC_V1 = "struct-v1"
+
+--- Marshal msg with the codec selected for a call (struct
+--- layout when negotiated).
+function Codec.marshalForCodec(structCodec, msg)
+  if structCodec then
+    local fn = msg.marshalStruct
+    if fn == nil then
+      raise(Status.new(wire.CODE_INTERNAL, "message has no struct codec"))
+    end
+    return fn(msg)
+  end
+  return msg:marshalDc()
+end
+
+--- Decode data into msg with the codec selected for a call.
+function Codec.unmarshalForCodec(structCodec, data, msg)
+  if structCodec then
+    local fn = msg.unmarshalStruct
+    if fn == nil then
+      raise(Status.new(wire.CODE_INTERNAL, "message has no struct codec"))
+    end
+    fn(msg, data)
+  else
+    msg:unmarshalDc(data)
+  end
+  return msg
+end
+
 return Codec
 GRPC_RUNTIME_EOF
 )
@@ -857,6 +889,7 @@ function ClientStream.new(endpoint, streamId, input)
     tracePath = nil,
     traceEnded = false,
     terminated = false,
+    structCodec = false,
   }, ClientStream)
 end
 
@@ -912,7 +945,7 @@ function ClientStream:recv(resp)
     if event.kind == "headers" then
       self.headers = event.headers
     elseif event.kind == "data" then
-      resp:unmarshalDc(event.payload)
+      Codec.unmarshalForCodec(self.structCodec, event.payload, resp)
       return
     elseif event.kind == "trailers" then
       self.terminated = true
@@ -971,13 +1004,25 @@ function Channel:setTraceContext(ctx)
   self.traceContext = ctx
 end
 
+--- Make every call on this channel request the struct codec
+--- (HEADERS marker dc-codec: struct-v1) and encode requests /
+--- decode responses with it. The server must enable it too
+--- (see Server.setStructCodec); otherwise calls fail
+--- UNIMPLEMENTED. Mirrors the Go Channel.SetStructCodec.
+function Channel:setStructCodec(enabled)
+  self.structCodec = enabled and true or false
+end
+
 function Channel:open(path, metadata, timeout)
   local deadline = nil
   local traceCtx = nil
-  if timeout ~= nil or statusModule.tracer() ~= nil then
+  if timeout ~= nil or statusModule.tracer() ~= nil or self.structCodec then
     local merged = {}
     if metadata ~= nil then
       for k, v in pairs(metadata) do merged[k] = v end
+    end
+    if self.structCodec then
+      merged[Codec.STRUCT_CODEC_HEADER] = Codec.STRUCT_CODEC_V1
     end
     if timeout ~= nil then
       local now = Endpoint.nowSeconds()
@@ -1004,6 +1049,7 @@ function Channel:open(path, metadata, timeout)
     error(err, 0)
   end
   local stream = ClientStream.new(self.endpoint, id, input)
+  stream.structCodec = self.structCodec
   stream.deadline = deadline
   stream.traceCtx = traceCtx
   stream.tracePath = path
@@ -1011,7 +1057,7 @@ function Channel:open(path, metadata, timeout)
 end
 
 function Channel:sendMessage(stream, msg)
-  self.endpoint:sendFrame(Codec.encodeFrame(wire.FRAME_DATA, stream.streamId, msg:marshalDc()))
+  self.endpoint:sendFrame(Codec.encodeFrame(wire.FRAME_DATA, stream.streamId, Codec.marshalForCodec(stream.structCodec, msg)))
 end
 
 function Channel:halfClose(stream)
@@ -1206,6 +1252,7 @@ GRPC_RUNTIME_EOF
 (define lua-server-body
 #<<GRPC_RUNTIME_EOF
 local wire = require("grpcdc.wire")
+local Codec = require("grpcdc.codec")
 local endpointModule = require("grpcdc.endpoint")
 local statusModule = require("grpcdc.status")
 
@@ -1218,8 +1265,8 @@ local Endpoint = endpointModule.Endpoint
 local RequestStream = {}
 RequestStream.__index = RequestStream
 
-function RequestStream.new(endpoint, input)
-  return setmetatable({ endpoint = endpoint, input = input }, RequestStream)
+function RequestStream.new(endpoint, input, structCodec)
+  return setmetatable({ endpoint = endpoint, input = input, structCodec = structCodec }, RequestStream)
 end
 
 --- Next request payload; raises EndOfStream at half-close. Pumps the
@@ -1248,7 +1295,7 @@ end
 
 --- Decode the next request message into req.
 function RequestStream:recvInto(req)
-  req:unmarshalDc(self:recvRaw())
+  Codec.unmarshalForCodec(self.structCodec, self:recvRaw(), req)
 end
 
 --- Server: dispatches inbound calls to registered methods.
@@ -1261,7 +1308,16 @@ Server.KIND_CLIENT_STREAMING = "client-streaming"
 Server.KIND_BIDI = "bidi"
 
 function Server.new()
-  return setmetatable({ methods = {}, endpointRef = nil }, Server)
+  return setmetatable({ methods = {}, endpointRef = nil, structCodec = false }, Server)
+end
+
+--- Enable the struct codec on this server: a call carrying
+--- HEADERS dc-codec: struct-v1 is decoded with the struct codec
+--- and answered in kind. A struct-v1 request to a server without
+--- it enabled fails UNIMPLEMENTED, as does any other dc-codec
+--- value. Mirrors the Go Server.SetStructCodec.
+function Server:setStructCodec(enabled)
+  self.structCodec = enabled and true or false
 end
 
 --- The endpoint this server is attached to.
@@ -1298,9 +1354,21 @@ function Server:dispatch(endpoint, ctx, headers, input, sink)
   if method == nil then
     return Status.new(wire.CODE_UNIMPLEMENTED, "unknown method " .. tostring(headers.path))
   end
+  -- Struct codec negotiation: an explicit dc-codec marker
+  -- must be struct-v1 and enabled here, else UNIMPLEMENTED.
+  local useStruct = false
+  local marker = (headers.metadata or {})[Codec.STRUCT_CODEC_HEADER]
+  if marker ~= nil then
+    if marker ~= Codec.STRUCT_CODEC_V1 or not self.structCodec then
+      return Status.new(wire.CODE_UNIMPLEMENTED, "struct codec not enabled")
+    end
+    useStruct = true
+  end
+  ctx.structCodec = useStruct
+  ctx.encodeMessage = function(resp) return Codec.marshalForCodec(useStruct, resp) end
   local traceCtx = statusModule.traceStart("server", headers.path, statusModule.parseTraceparent((headers.metadata or {})["traceparent"]))
   ctx.traceContext = traceCtx
-  local reqs = RequestStream.new(endpoint, input)
+  local reqs = RequestStream.new(endpoint, input, useStruct)
   local ok, err = pcall(method.handler, ctx, reqs, function(payload)
     sink:send(payload)
   end)
@@ -1374,6 +1442,466 @@ return {
 }
 GRPC_RUNTIME_EOF
 )
+
+(define lua-structdc-body
+#<<GRPC_RUNTIME_EOF
+-- @generated by grpc-dc codegen. DO NOT EDIT.
+-- SPDX-License-Identifier: Apache-2.0
+-- Descriptor-driven struct codec (layout v1, DCS1): the packed
+-- struct format from SPEC.md, implemented over the dynamic
+-- model so browser-tier runtimes transcode protobuf <-> struct
+-- without a native bridge. Byte-identical to the shared Rust
+-- implementation (conformance/struct).
+local wire = require("grpcdc.wire")
+local statusModule = require("grpcdc.status")
+local dyn = require("grpcdc.dynamic")
+
+local Status = statusModule.Status
+local raise = statusModule.raise
+local GenericMessage = dyn.GenericMessage
+
+local TYPE_DOUBLE = dyn.TYPE_DOUBLE
+local TYPE_FLOAT = dyn.TYPE_FLOAT
+local TYPE_INT64 = dyn.TYPE_INT64
+local TYPE_UINT64 = dyn.TYPE_UINT64
+local TYPE_INT32 = dyn.TYPE_INT32
+local TYPE_FIXED64 = dyn.TYPE_FIXED64
+local TYPE_FIXED32 = dyn.TYPE_FIXED32
+local TYPE_BOOL = dyn.TYPE_BOOL
+local TYPE_STRING = dyn.TYPE_STRING
+local TYPE_GROUP = dyn.TYPE_GROUP
+local TYPE_MESSAGE = dyn.TYPE_MESSAGE
+local TYPE_BYTES = dyn.TYPE_BYTES
+local TYPE_UINT32 = dyn.TYPE_UINT32
+local TYPE_ENUM = dyn.TYPE_ENUM
+local TYPE_SFIXED32 = dyn.TYPE_SFIXED32
+local TYPE_SFIXED64 = dyn.TYPE_SFIXED64
+local TYPE_SINT32 = dyn.TYPE_SINT32
+local TYPE_SINT64 = dyn.TYPE_SINT64
+
+local function fail(msg)
+  raise(Status.new(wire.CODE_INVALID_ARGUMENT, msg))
+end
+
+local function fingerprint(fullName)
+  local h = 2166136261
+  for i = 1, #fullName do
+    h = ((h ~ fullName:byte(i)) * 16777619) & 0xffffffff
+  end
+  return h
+end
+
+local function isFixed32(t)
+  return t == TYPE_FLOAT or t == TYPE_FIXED32 or t == TYPE_SFIXED32
+end
+
+local function slotSize(field)
+  return isFixed32(field.type) and 4 or 8
+end
+
+local function s32(v)
+  v = v & 0xffffffff
+  if v >= 0x80000000 then return v - 0x100000000 end
+  return v
+end
+
+local function s64(v)
+  -- Lua integers are already signed 64-bit; bit pattern is the value.
+  return v
+end
+
+local function asInt(v)
+  if type(v) == "boolean" then return v and 1 or 0 end
+  if type(v) == "number" then return math.tointeger(v) or math.floor(v) end
+  return 0
+end
+
+local function sortedFields(model)
+  local numbers = {}
+  for n in pairs(model.fields) do numbers[#numbers + 1] = n end
+  table.sort(numbers)
+  local out = {}
+  for _, n in ipairs(numbers) do out[#out + 1] = model.fields[n] end
+  return out
+end
+
+local function mapModel(field, file)
+  if field.type ~= TYPE_MESSAGE or not field.repeated then return nil end
+  local model = file.messages[field.typeName]
+  if model ~= nil and model.mapEntry then return model end
+  return nil
+end
+
+local function isMap(field, file)
+  return mapModel(field, file) ~= nil
+end
+
+local function defaultValue(field)
+  local t = field.type
+  if t == TYPE_STRING or t == TYPE_BYTES then return ""
+  elseif t == TYPE_BOOL then return false
+  elseif t == TYPE_FLOAT or t == TYPE_DOUBLE then return 0.0
+  elseif t == TYPE_MESSAGE then return GenericMessage.new(nil)
+  end
+  return 0
+end
+
+local function nonzero(field, value)
+  local t = field.type
+  if t == TYPE_STRING or t == TYPE_BYTES then return #value > 0
+  elseif t == TYPE_MESSAGE then return type(value) == "table"
+  elseif t == TYPE_BOOL then return value == true or asInt(value) ~= 0
+  elseif t == TYPE_FLOAT or t == TYPE_DOUBLE then return (type(value) == "number" and value or 0) ~= 0
+  end
+  return asInt(value) ~= 0
+end
+
+local function allValues(msg, number)
+  return msg.values[number] or {}
+end
+
+local function fieldPresent(field, msg, file)
+  local values = allValues(msg, field.number)
+  if isMap(field, file) or field.repeated then return #values > 0 end
+  return #values > 0 and nonzero(field, values[1])
+end
+
+local function keyLess(kf, a, b)
+  if kf.type == TYPE_STRING then return a < b end
+  if kf.type == TYPE_BOOL or kf.type == TYPE_UINT32 or kf.type == TYPE_UINT64
+      or kf.type == TYPE_FIXED32 or kf.type == TYPE_FIXED64 then
+    -- unsigned compare via sign flip
+    return (a ~ (-1 << 63)) < (b ~ (-1 << 63))
+  end
+  return a < b
+end
+
+local valueSize, encodeStruct, decodeStruct
+
+local function mapEntries(field, values, entryModel)
+  local kf = entryModel.fields[1]
+  local vf = entryModel.fields[2]
+  local entries = {}
+  for _, entry in ipairs(values) do
+    local key = entry:get(1)
+    if key == nil then fail("map field " .. field.name .. " entry missing key") end
+    local val = entry:get(2)
+    if val == nil then val = defaultValue(vf) end
+    entries[#entries + 1] = { key, val }
+  end
+  table.sort(entries, function(x, y) return keyLess(kf, x[1], y[1]) end)
+  return entries
+end
+
+valueSize = function(field, value, file)
+  local t = field.type
+  if t == TYPE_STRING or t == TYPE_BYTES then return #value
+  elseif t == TYPE_MESSAGE then
+    return #encodeStruct(file.messages[field.typeName], value, file)
+  end
+  return isFixed32(t) and 4 or 8
+end
+
+local function structSize(model, msg, file)
+  local fields = sortedFields(model)
+  local words = math.max(1, (math.floor((#fields + 31) / 32)))
+  local size = 12 + 4 * words
+  for _, f in ipairs(fields) do size = size + slotSize(f) end
+  for _, field in ipairs(fields) do
+    local values = allValues(msg, field.number)
+    if isMap(field, file) then
+      local entryModel = mapModel(field, file)
+      local kf, vf = entryModel.fields[1], entryModel.fields[2]
+      for _, kv in ipairs(mapEntries(field, values, entryModel)) do
+        size = size + 8 + valueSize(kf, kv[1], file) + valueSize(vf, kv[2], file)
+      end
+    elseif field.repeated then
+      if #values > 0 then
+        if field.type == TYPE_STRING or field.type == TYPE_BYTES or field.type == TYPE_MESSAGE then
+          size = size + 8 * #values
+        end
+        for _, v in ipairs(values) do size = size + valueSize(field, v, file) end
+      end
+    elseif (field.type == TYPE_STRING or field.type == TYPE_BYTES or field.type == TYPE_MESSAGE)
+        and fieldPresent(field, msg, file) then
+      size = size + valueSize(field, values[1], file)
+    end
+  end
+  for _, chunk in ipairs(msg.unknown or {}) do size = size + #chunk end
+  return size
+end
+
+local function putU32(parts, buf, off, v)
+  buf[off] = string.pack("<I4", v & 0xffffffff)
+end
+
+local function getU32(data, off)
+  if off + 4 > #data + 1 then fail("struct codec: out of bounds") end
+  return (string.unpack("<I4", data, off))
+end
+
+local function getU64(data, off)
+  local lo = getU32(data, off)
+  local hi = getU32(data, off + 4)
+  return lo | (hi << 32)
+end
+
+local function writeScalar(buf, off, field, value)
+  local t = field.type
+  if t == TYPE_FLOAT then buf[off] = string.pack("<f", type(value) == "number" and value or 0)
+  elseif t == TYPE_FIXED32 then buf[off] = string.pack("<I4", asInt(value) & 0xffffffff)
+  elseif t == TYPE_SFIXED32 then buf[off] = string.pack("<i4", s32(asInt(value)))
+  elseif t == TYPE_DOUBLE then buf[off] = string.pack("<d", type(value) == "number" and value or 0)
+  elseif t == TYPE_FIXED64 or t == TYPE_SFIXED64 then buf[off] = string.pack("<I8", asInt(value))
+  elseif t == TYPE_BOOL then buf[off] = string.char(asInt(value) ~= 0 and 1 or 0)
+  else buf[off] = string.pack("<I8", asInt(value)) end
+end
+
+local function writeValue(buf, off, field, value, file)
+  local t = field.type
+  if t == TYPE_STRING or t == TYPE_BYTES then buf[off] = value
+  elseif t == TYPE_MESSAGE then
+    buf[off] = encodeStruct(file.messages[field.typeName], value, file)
+  else
+    writeScalar(buf, off, field, value)
+  end
+end
+
+encodeStruct = function(model, message, file)
+  local fields = sortedFields(model)
+  local words = math.max(1, math.floor((#fields + 31) / 32))
+  local header = 12 + 4 * words
+  local offsets = {}
+  local cursor = header + 1 -- Lua 1-based positions
+  for _, f in ipairs(fields) do
+    offsets[#offsets + 1] = cursor
+    cursor = cursor + slotSize(f)
+  end
+  local fixedEnd = cursor
+  local buf = {}
+  local function setChunk(off, chunk) buf[off] = chunk end
+  setChunk(1, "DCS1")
+  local total = structSize(model, message, file)
+  local tail = string.pack("<I4", total) .. string.pack("<I4", fingerprint(model.fullName))
+  -- bitmap words appended after fingerprint below via slot writes
+  local bitmap = {}
+  for i, f in ipairs(fields) do
+    if fieldPresent(f, message, file) then
+      local w = math.floor((i - 1) / 32)
+      bitmap[w] = (bitmap[w] or 0) | (1 << ((i - 1) % 32))
+    end
+  end
+  local head = { "DCS1", string.pack("<I4", total), string.pack("<I4", fingerprint(model.fullName)) }
+  for w = 0, words - 1 do head[#head + 1] = string.pack("<I4", bitmap[w] or 0) end
+  buf[1] = table.concat(head)
+  local vp = fixedEnd
+  local function put32(off, v) buf[off] = string.pack("<I4", v & 0xffffffff) end
+  for i, field in ipairs(fields) do
+    local off = offsets[i]
+    local values = allValues(message, field.number)
+    if isMap(field, file) then
+      if #values > 0 then
+        local entryModel = mapModel(field, file)
+        local kf, vf = entryModel.fields[1], entryModel.fields[2]
+        put32(off, vp - 1)
+        put32(off + 4, #values)
+        for _, kv in ipairs(mapEntries(field, values, entryModel)) do
+          local klen = valueSize(kf, kv[1], file)
+          local vlen = valueSize(vf, kv[2], file)
+          put32(vp, klen)
+          put32(vp + 4, vlen)
+          vp = vp + 8
+          writeValue(buf, vp, kf, kv[1], file)
+          vp = vp + klen
+          writeValue(buf, vp, vf, kv[2], file)
+          vp = vp + vlen
+        end
+      end
+    elseif field.repeated then
+      if #values > 0 then
+        put32(off, vp - 1)
+        put32(off + 4, #values)
+        if field.type == TYPE_STRING or field.type == TYPE_BYTES or field.type == TYPE_MESSAGE then
+          local doff = vp + 8 * #values
+          for _, v in ipairs(values) do
+            put32(vp, doff - 1)
+            put32(vp + 4, valueSize(field, v, file))
+            doff = doff + valueSize(field, v, file)
+            vp = vp + 8
+          end
+          for _, v in ipairs(values) do
+            writeValue(buf, vp, field, v, file)
+            vp = vp + valueSize(field, v, file)
+          end
+        else
+          for _, v in ipairs(values) do
+            writeScalar(buf, vp, field, v)
+            vp = vp + slotSize(field)
+          end
+        end
+      end
+    elseif field.type == TYPE_STRING or field.type == TYPE_BYTES or field.type == TYPE_MESSAGE then
+      if fieldPresent(field, message, file) then
+        put32(off, vp - 1)
+        put32(off + 4, valueSize(field, values[1], file))
+        writeValue(buf, vp, field, values[1], file)
+        vp = vp + valueSize(field, values[1], file)
+      end
+    elseif fieldPresent(field, message, file) then
+      writeScalar(buf, off, field, values[1])
+    end
+  end
+  -- Assemble chunks by absolute position, zero-filling gaps.
+  local keys = {}
+  for k in pairs(buf) do keys[#keys + 1] = k end
+  table.sort(keys)
+  local parts = {}
+  local expect = 1
+  for _, k in ipairs(keys) do
+    local chunk = buf[k]
+    if k > expect then parts[#parts + 1] = string.rep("\0", k - expect) end
+    parts[#parts + 1] = chunk
+    expect = math.max(expect, k + #chunk)
+  end
+  if expect <= total then parts[#parts + 1] = string.rep("\0", total - expect + 1) end
+  local _ = tail
+  return table.concat(parts)
+end
+
+local function readScalar(data, off, field)
+  local t = field.type
+  if t == TYPE_FLOAT then return (string.unpack("<f", data, off))
+  elseif t == TYPE_FIXED32 then return (string.unpack("<I4", data, off))
+  elseif t == TYPE_SFIXED32 then return (string.unpack("<i4", data, off))
+  elseif t == TYPE_DOUBLE then return (string.unpack("<d", data, off))
+  elseif t == TYPE_FIXED64 then return getU64(data, off)
+  elseif t == TYPE_SFIXED64 then return getU64(data, off)
+  elseif t == TYPE_BOOL then return data:byte(off) ~= 0
+  elseif t == TYPE_ENUM or t == TYPE_INT32 or t == TYPE_SINT32 then return s32(getU64(data, off))
+  elseif t == TYPE_INT64 or t == TYPE_SINT64 then return getU64(data, off)
+  elseif t == TYPE_UINT32 then return getU64(data, off) & 0xffffffff
+  end
+  return getU64(data, off)
+end
+
+local function readValue(data, off, len, field, file)
+  if off + len > #data + 1 then fail("struct codec: out of bounds") end
+  local raw = data:sub(off, off + len - 1)
+  local t = field.type
+  if t == TYPE_STRING or t == TYPE_BYTES then return raw
+  elseif t == TYPE_MESSAGE then
+    if len == 0 then return GenericMessage.new(nil) end
+    return decodeStruct(file.messages[field.typeName], raw, file)
+  end
+  return readScalar(data, off, field)
+end
+
+decodeStruct = function(model, data, file)
+  local fields = sortedFields(model)
+  local words = math.max(1, math.floor((#fields + 31) / 32))
+  local header = 12 + 4 * words
+  if #data < header or data:sub(1, 4) ~= "DCS1" then
+    fail("struct codec: bad header")
+  end
+  if getU32(data, 9) ~= fingerprint(model.fullName) then
+    fail("struct codec: schema fingerprint mismatch")
+  end
+  if getU32(data, 5) ~= #data then
+    fail("struct codec: length mismatch")
+  end
+  local offsets = {}
+  local cursor = header + 1
+  for _, f in ipairs(fields) do
+    offsets[#offsets + 1] = cursor
+    cursor = cursor + slotSize(f)
+  end
+  local message = GenericMessage.new(model)
+  local vend = cursor
+  for i, field in ipairs(fields) do
+    local wi = math.floor((i - 1) / 32)
+    if (getU32(data, 13 + 4 * wi) & (1 << ((i - 1) % 32))) ~= 0 then
+      local off = offsets[i]
+      if isMap(field, file) then
+        local entryModel = mapModel(field, file)
+        local kf, vf = entryModel.fields[1], entryModel.fields[2]
+        local base = getU32(data, off) + 1
+        local n = getU32(data, off + 4)
+        local p = base
+        for _ = 1, n do
+          local kl = getU32(data, p)
+          local vl = getU32(data, p + 4)
+          p = p + 8
+          local key = readValue(data, p, kl, kf, file)
+          local val = readValue(data, p + kl, vl, vf, file)
+          local entry = GenericMessage.new(entryModel)
+          entry:set(1, key)
+          entry:set(2, val)
+          message:add(field.number, entry)
+          p = p + kl + vl
+        end
+        if p > vend then vend = p end
+      elseif field.repeated then
+        local base = getU32(data, off) + 1
+        local n = getU32(data, off + 4)
+        if field.type == TYPE_STRING or field.type == TYPE_BYTES or field.type == TYPE_MESSAGE then
+          for j = 0, n - 1 do
+            local eo = getU32(data, base + 8 * j) + 1
+            local el = getU32(data, base + 8 * j + 4)
+            if el > 0 or field.type ~= TYPE_MESSAGE then
+              message:add(field.number, readValue(data, eo, el, field, file))
+            end
+            if eo + el > vend then vend = eo + el end
+          end
+        else
+          for j = 0, n - 1 do
+            message:add(field.number, readScalar(data, base + j * slotSize(field), field))
+          end
+          if base + n * slotSize(field) > vend then vend = base + n * slotSize(field) end
+        end
+      elseif field.type == TYPE_STRING or field.type == TYPE_BYTES or field.type == TYPE_MESSAGE then
+        local base = getU32(data, off) + 1
+        local len = getU32(data, off + 4)
+        message:add(field.number, readValue(data, base, len, field, file))
+        if base + len > vend then vend = base + len end
+      else
+        message:add(field.number, readScalar(data, off, field))
+      end
+    end
+  end
+  if vend <= #data then
+    message.unknown[#message.unknown + 1] = data:sub(vend)
+  end
+  return message
+end
+
+local descriptorCache = {}
+
+--- Transcode between protobuf bytes and struct-layout bytes
+--- for typeName under the FileDescriptorSet bytes `descriptor`.
+local function transcodeStruct(descriptor, typeName, data, encode)
+  local fileModel = descriptorCache[descriptor]
+  if fileModel == nil then
+    fileModel = dyn.parseDescriptorSet(descriptor)
+    descriptorCache[descriptor] = fileModel
+  end
+  local model = fileModel.messages[typeName] or fileModel.messages["." .. typeName]
+  if model == nil then fail("unknown message type " .. typeName) end
+  if encode then
+    return encodeStruct(model, dyn.decodeGeneric(model, data, fileModel), fileModel)
+  end
+  return dyn.encodeGeneric(model, decodeStruct(model, data, fileModel), fileModel)
+end
+
+return {
+  transcodeStruct = transcodeStruct,
+  encodeStruct = encodeStruct,
+  decodeStruct = decodeStruct,
+  STRUCT_CODEC_HEADER = "dc-codec",
+  STRUCT_CODEC_V1 = "struct-v1",
+}
+GRPC_RUNTIME_EOF
+)
+
 
 (define lua-dynamic-body
 #<<GRPC_RUNTIME_EOF
@@ -1591,7 +2119,7 @@ local function encodeVarint(parts, value)
   parts[#parts + 1] = string.char(v & 0xff)
 end
 
-local function zigzagEncode(v) return (v << 1) ~ (v >> 63) end
+local function zigzagEncode(v) return (v << 1) ~ -(v >> 63) end
 local function zigzagDecode(v) return (v >> 1) ~ -(v & 1) end
 
 local function valueAsInt(value)
@@ -1678,6 +2206,33 @@ encodeValue = function(parts, field, value, file)
 end
 
 local decodeValue
+local function decodePackedWire(field, bytes)
+  local values = {}
+  local wire = wireTypeOf(field.type)
+  if wire == 0 then
+    local reader = PbReader.new(bytes)
+    while reader.pos <= #bytes do
+      values[#values + 1] = reader:varint()
+    end
+  elseif wire == 1 then
+    for i = 1, #bytes - 7, 8 do values[#values + 1] = bytes:sub(i, i + 7) end
+  else
+    for i = 1, #bytes - 3, 4 do values[#values + 1] = bytes:sub(i, i + 3) end
+  end
+  return values, wire
+end
+
+local function decodePacked(field, bytes, file, add)
+  local raws, wire = decodePackedWire(field, bytes)
+  for _, rawv in ipairs(raws) do
+    local raw
+    if wire == 0 then raw = { number = field.number, wire = 0, varint = rawv, bytes = "" }
+    elseif wire == 1 then raw = { number = field.number, wire = 1, varint = 0, bytes = rawv }
+    else raw = { number = field.number, wire = 5, varint = 0, bytes = rawv } end
+    add(decodeValue(field, raw, file))
+  end
+end
+
 local function decodeGeneric(model, data, file)
   local message = GenericMessage.new(model)
   local reader = PbReader.new(data)
@@ -1688,12 +2243,17 @@ local function decodeGeneric(model, data, file)
     if field == nil then
       -- Unknown field: retain the raw encoded chunk verbatim.
       message.unknown[#message.unknown + 1] = raw.chunk
+    elseif field.repeated and raw.wire == 2
+        and field.type ~= TYPE_STRING and field.type ~= TYPE_BYTES
+        and field.type ~= TYPE_MESSAGE and field.type ~= TYPE_GROUP then
+      decodePacked(field, raw.bytes, file, function(v) message:add(raw.number, v) end)
     else
       message:add(raw.number, decodeValue(field, raw, file))
     end
   end
   return message
 end
+
 
 decodeValue = function(field, raw, file)
   if raw.wire == 0 then
@@ -1787,8 +2347,26 @@ parseMessage = function(prefix, data, file)
       nested[#nested + 1] = f.bytes
     end
   end
+  local options = nil
+  do
+    local reader2 = PbReader.new(data)
+    while true do
+      local f = reader2:next()
+      if f == nil then break end
+      if f.number == 7 then options = f.bytes end
+    end
+  end
+  local mapEntry = false
+  if options ~= nil then
+    local or_ = PbReader.new(options)
+    while true do
+      local f = or_:next()
+      if f == nil then break end
+      if f.number == 7 and f.varint ~= 0 then mapEntry = true end
+    end
+  end
   local fullName = (prefix == "") and name or (prefix .. "." .. name)
-  local model = { fullName = fullName, fields = {}, byName = {} }
+  local model = { fullName = fullName, fields = {}, byName = {}, mapEntry = mapEntry }
   for _, fieldBytes in ipairs(rawFields) do
     local field = { number = 0, name = "", type = 0, repeated = false, typeName = "" }
     local fr = PbReader.new(fieldBytes)
@@ -2149,4 +2727,5 @@ GRPC_RUNTIME_EOF
    (cons "grpcdc/server.lua" lua-server-body)
    (cons "grpcdc/memory_transport.lua" lua-memory-body)
    (cons "grpcdc/sidecar_transport.lua" lua-sidecar-body)
+   (cons "grpcdc/structdc.lua" lua-structdc-body)
    (cons "grpcdc/dynamic.lua" lua-dynamic-body)))
