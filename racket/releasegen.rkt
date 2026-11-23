@@ -1393,7 +1393,7 @@
 (define docker-specs
   (list
    (list "rust" "rust:1-bookworm"
-         '("RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler nodejs && rm -rf /var/lib/apt/lists/*" "COPY rust ./rust" "COPY crates/kafka-native ./crates/kafka-native" "COPY webrtc/rust ./webrtc/rust" "COPY fixtures ./fixtures" "COPY bin ./bin" "COPY webapp/testdata ./webapp/testdata" "COPY docs/app/protoc-gen-grpc-dc.mjs ./docs/app/protoc-gen-grpc-dc.mjs" "COPY docs/app/gen ./docs/app/gen" "COPY proto ./proto"
+         '("RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler nodejs && rm -rf /var/lib/apt/lists/*" "COPY rust ./rust" "COPY conformance ./conformance" "COPY crates/kafka-native ./crates/kafka-native" "COPY webrtc/rust ./webrtc/rust" "COPY fixtures ./fixtures" "COPY bin ./bin" "COPY webapp/testdata ./webapp/testdata" "COPY docs/app/protoc-gen-grpc-dc.mjs ./docs/app/protoc-gen-grpc-dc.mjs" "COPY docs/app/gen ./docs/app/gen" "COPY proto ./proto"
            "RUN cd rust && cargo fetch --locked && cargo test --locked --no-run")
          "cd rust && cargo test --locked -- --skip official_clients_call_rust_server")
    (list "go" "golang:1.24-bookworm"
