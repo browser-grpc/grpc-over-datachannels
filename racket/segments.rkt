@@ -2257,6 +2257,9 @@
     "        $r = new Reader($data);\n        while (($item = $r->field()) !== null) {\n            [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;\n            switch ($num) {\n"
     (each fields (call phpPbDecodeCase))
     "                default:\n                    $this->unknownFields .= $rawValue;\n                    break;\n            }\n        }\n        return $this;\n    }\n\n"
+    (if (struct-codec)
+        (then (if (ref map-entry) (then "") (else (fmt "    public function marshalStruct(): string\n    {\n        return ~aStruct::marshal($this);\n    }\n\n    public function unmarshalStruct(string $data): self\n    {\n        $_s = ~aStruct::unmarshal($data);\n" (php-flat-of (ref full-name)) (php-flat-of (ref full-name))) (each fields (fmt "        $this->~a = $_s->~a;\n" (php-field-name) (php-field-name))) (fmt "        $this->unknownFields = $_s->unknownFields;\n        return $this;\n    }\n\n"))))
+        (else ""))
     (fmt "    public function equals(?object $other): bool\n    {\n        return $other instanceof ~a~a;\n    }\n}\n\n"
          (php-flat-of (ref full-name))
          (if (no-fields)
@@ -4374,6 +4377,11 @@
     "  local r = Reader.new(data)\n  while true do\n    local field = r:next()\n    if field == nil then break end\n    if false then\n"
     (each fields (call luaPbDecodeCase))
     "    else\n      self.unknownFields = self.unknownFields .. field.rawValue\n    end\n  end\nend\n\n"
+    (if (struct-codec)
+        (then (if (ref map-entry) (then "") (else (fmt "function ~a:marshalStruct()\n  return ~aStruct.marshal(self)\nend\n\nfunction ~a:unmarshalStruct(data)\n  local _s = ~aStruct.unmarshal(data)\n" (flat) (flat) (flat) (flat))
+              (each fields (fmt "  self.~a = _s.~a\n" (lua-field-name) (lua-field-name)))
+              "  self.unknownFields = _s.unknownFields\nend\n\n")))
+        (else ""))
     (each nested (call luaPbMessage))))
 
 (define lua-pb-enum-program
