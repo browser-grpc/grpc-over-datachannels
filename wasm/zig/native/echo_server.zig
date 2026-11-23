@@ -15,7 +15,7 @@ const stubs = @import("echo_stub");
 const dc_transport = @import("./dc_transport.zig");
 
 // Pure struct-codec ABI (grpcdc_struct_*) for Wasm struct calls.
-const _structdc_abi = @import("../structdc_wasm.zig");
+const _structdc_abi = @import("structdc_wasm");
 comptime {
     _ = _structdc_abi.grpcdc_struct_encode;
     _ = _structdc_abi.grpcdc_struct_decode;
