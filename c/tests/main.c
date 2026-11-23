@@ -1251,8 +1251,13 @@ static void test_oracle(void) {
            oracle_cases_count);
 }
 /* ---- TestInteropOracle: the generated interop case table
-   (interop_cases.h) against the official grpc-java
-   TestServiceServer, driven from main() only by name. ---- */
+   (interop_cases.h) against the official grpc-go
+   TestServiceServer, and then against google's grpc-dart server
+   (oracle/dart-interop/interop-server), driven from main() only
+   by name. The grpc-dart leg runs only the canonical table: that
+   server implements no ORCA service and does not grade
+   compression, so run_compression_cases/run_orca_cases stay
+   go-only. ---- */
 static Payload *ic_payload(int size) {
     Payload *p = (Payload *)calloc(1, sizeof(Payload));
     Payload_init(p);
@@ -1840,6 +1845,77 @@ static void test_interop_oracle(void) {
     run_orca_cases(&client, &channel);
     kill_child(&br);
     kill_child(&server);
+
+    /* Direction-A grpc-dart leg: same canonical table against
+       google's grpc-dart server (direct HTTP/2, bridged the same
+       way). The dart server spells its flag --port (the Go server
+       uses -port). */
+    {
+        char dart_bin[1024];
+        snprintf(dart_bin, sizeof(dart_bin),
+                 "%s/oracle/dart-interop/interop-server", root);
+        if (!file_exists(dart_bin)) {
+            printf("TestInteropOracle DART SKIP (dart interop server not built)\n");
+            printf("TestInteropOracle OK\n");
+            return;
+        }
+        printf("TestInteropOracle DART (grpc-dart server)\n");
+        int dart_port = free_port();
+        char dart_port_str[16];
+        snprintf(dart_port_str, sizeof(dart_port_str), "%d", dart_port);
+        char *dart_server_argv[] = {dart_bin, "--port", dart_port_str, NULL};
+        child_proc dart_server = {-1, -1, -1, -1};
+        child_proc dart_br = {-1, -1, -1, -1};
+        if (spawn_child(dart_server_argv, &dart_server) != 0) {
+            kill_child(&dart_server);
+            printf("TestInteropOracle DART SKIP (dart server did not start)\n");
+            printf("TestInteropOracle OK\n");
+            return;
+        }
+        int dart_ready = 0;
+        for (int i = 0; i < 300 && !dart_ready; i++) {
+            int s = socket(AF_INET, SOCK_STREAM, 0);
+            struct sockaddr_in addr;
+            memset(&addr, 0, sizeof(addr));
+            addr.sin_family = AF_INET;
+            addr.sin_port = htons((uint16_t)dart_port);
+            addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+            if (connect(s, (struct sockaddr *)&addr, sizeof(addr)) == 0)
+                dart_ready = 1;
+            close(s);
+            if (!dart_ready) usleep(100 * 1000);
+        }
+        if (!dart_ready) {
+            kill_child(&dart_server);
+            printf("TestInteropOracle DART SKIP (dart server did not start)\n");
+            printf("TestInteropOracle OK\n");
+            return;
+        }
+        char dart_grpc_addr[64];
+        snprintf(dart_grpc_addr, sizeof(dart_grpc_addr), "127.0.0.1:%d",
+                 dart_port);
+        char *dart_bridge_argv[] = {"node", bridge, "dc-to-http2", "--grpc",
+                                    dart_grpc_addr, NULL};
+        if (spawn_child(dart_bridge_argv, &dart_br) != 0) {
+            kill_child(&dart_server);
+            printf("TestInteropOracle DART SKIP (bridge did not start)\n");
+            printf("TestInteropOracle OK\n");
+            return;
+        }
+        stdio_transport dart_transport;
+        stdio_transport_init(&dart_transport, dart_br.stdout_fd,
+                             dart_br.stdin_fd);
+        grpcdc_transport dart_iface = stdio_transport_iface(&dart_transport);
+        grpcdc_channel dart_channel;
+        grpcdc_channel_init(&dart_channel, &dart_iface);
+        TestServiceClient dart_client;
+        dart_client.channel = &dart_channel;
+        UnimplementedServiceClient dart_unimpl;
+        dart_unimpl.channel = &dart_channel;
+        run_interop_cases(&dart_client, &dart_unimpl);
+        kill_child(&dart_br);
+        kill_child(&dart_server);
+    }
     printf("TestInteropOracle OK\n");
 }
 

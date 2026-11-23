@@ -25,9 +25,14 @@ import java.util.Base64
  * Interop client grading: the generated Kotlin TestService client
  * runs the canonical grpc interop cases (generated table:
  * InteropCases) against the official grpc-go TestServiceServer,
- * through the bridge (dc-to-http2, stdio = DataChannel). Mirrors
- * the Java/C#/JS/Python/Go/Rust interop oracle suites. Skips when
- * the oracle server binary is not built (Dockerfile.ci builds it).
+ * and then against google's grpc-dart server
+ * (oracle/dart-interop/interop-server), each through the bridge
+ * (dc-to-http2, stdio = DataChannel). Mirrors the
+ * Java/C#/JS/Python/Go/Rust interop oracle suites. Each leg skips
+ * when its oracle server binary is not built (Dockerfile.ci
+ * builds them). The grpc-dart leg runs only the canonical table:
+ * that server implements no ORCA service and does not grade
+ * compression, so runCompressionCases/runOrcaCases stay go-only.
  */
 
 private fun interopPayload(size: Int): Payload = Payload(body = ByteArray(size))
@@ -355,6 +360,61 @@ fun testInteropOracle() {
         }
     } finally {
         server.destroyForcibly()
+    }
+
+    // Direction-A grpc-dart leg: same canonical table against
+    // google's grpc-dart server (direct HTTP/2, bridged the same
+    // way). The dart server spells its flag --port (the Go server
+    // uses -port).
+    val dartBin = File(root, "oracle/dart-interop/interop-server")
+    if (!dartBin.canExecute()) {
+        println("TestInteropOracle DART SKIP (dart interop server not built)")
+        println("TestInteropOracle OK")
+        return
+    }
+    println("TestInteropOracle DART (grpc-dart server)")
+    val dartPort = ServerSocket(0).use { it.localPort }
+    val dartServer = ProcessBuilder(dartBin.path, "--port", dartPort.toString())
+        .redirectErrorStream(true)
+        .start()
+    try {
+        dartServer.inputStream.bufferedReader().let { reader ->
+            Thread {
+                while (reader.readLine() != null) {
+                    // discard
+                }
+            }.apply { isDaemon = true }.start()
+        }
+        val dartDeadline = System.currentTimeMillis() + 30000
+        var dartReady = false
+        while (System.currentTimeMillis() < dartDeadline) {
+            try {
+                java.net.Socket("127.0.0.1", dartPort).close()
+                dartReady = true
+                break
+            } catch (e: Exception) {
+                Thread.sleep(100)
+            }
+        }
+        check(dartReady, "dart interop server did not start")
+
+        val dartBridge = ProcessBuilder("node", File(root, "oracle/bridge.mjs").path,
+            "dc-to-http2", "--grpc", "127.0.0.1:$dartPort")
+            .redirectErrorStream(false)
+            .start()
+        try {
+            Thread {
+                BufferedReader(InputStreamReader(dartBridge.errorStream)).forEachLine { }
+            }.apply { isDaemon = true }.start()
+            val dartTransport = StdioTransport(dartBridge.outputStream, dartBridge.inputStream)
+            val dartChannel = Channel(dartTransport)
+            val dartClient = TestGrpcDc.TestServiceClient(dartChannel)
+            runInteropCases(dartChannel, dartClient, TestGrpcDc.UnimplementedServiceClient(dartChannel))
+        } finally {
+            dartBridge.destroyForcibly()
+        }
+    } finally {
+        dartServer.destroyForcibly()
     }
     println("TestInteropOracle OK")
 }

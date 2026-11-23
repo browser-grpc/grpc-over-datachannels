@@ -7,9 +7,14 @@ import Glibc
 /// Interop client grading: the generated Swift TestService client
 /// runs the canonical grpc interop cases (generated table:
 /// InteropCases) against the official grpc-go TestServiceServer,
-/// through the bridge (dc-to-http2, stdio = DataChannel). Mirrors
-/// the Java/C#/Kotlin/Scala/Dart interop oracle suites. Skips when
-/// the oracle server binary is not built (Dockerfile.ci builds it).
+/// and then against google's grpc-dart server
+/// (oracle/dart-interop/interop-server), each through the bridge
+/// (dc-to-http2, stdio = DataChannel). Mirrors the
+/// Java/C#/Kotlin/Scala/Dart interop oracle suites. Each leg skips
+/// when its oracle server binary is not built (Dockerfile.ci
+/// builds them). The grpc-dart leg runs only the canonical table:
+/// that server implements no ORCA service and does not grade
+/// compression, so runCompressionCases/runOrcaCases stay go-only.
 
 private func interopPayload(_ size: Int) -> Payload {
     let p = Payload()
@@ -338,6 +343,55 @@ func TestInteropOracle() throws {
     try runInteropCases(channel, client, TestGrpcDc.UnimplementedServiceClient(channel))
     try runCompressionCases(client)
     try runOrcaCases(channel, client)
+
+    // Direction-A grpc-dart leg: same canonical table against
+    // google's grpc-dart server (direct HTTP/2, bridged the same
+    // way). The dart server spells its flag --port (the Go server
+    // uses -port).
+    let dartBin = "\(root)/oracle/dart-interop/interop-server"
+    if !FileManager.default.isExecutableFile(atPath: dartBin) {
+        print("TestInteropOracle DART SKIP (dart interop server not built)")
+        print("TestInteropOracle OK")
+        return
+    }
+    print("TestInteropOracle DART (grpc-dart server)")
+    let dartPort = try freePort()
+    let dartServer = Process()
+    dartServer.executableURL = URL(fileURLWithPath: dartBin)
+    dartServer.arguments = ["--port", "\(dartPort)"]
+    dartServer.standardOutput = Pipe()
+    dartServer.standardError = Pipe()
+    try dartServer.run()
+    defer { dartServer.terminate() }
+
+    let dartDeadline = Date().addingTimeInterval(30)
+    var dartReady = false
+    while Date() < dartDeadline {
+        if tcpConnectable(dartPort) {
+            dartReady = true
+            break
+        }
+        Thread.sleep(forTimeInterval: 0.1)
+    }
+    try Check(dartReady, "dart interop server did not start")
+
+    let dartBridge = Process()
+    dartBridge.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    dartBridge.arguments = ["node", "\(root)/oracle/bridge.mjs", "dc-to-http2", "--grpc", "127.0.0.1:\(dartPort)"]
+    let dartBridgeIn = Pipe()
+    let dartBridgeOut = Pipe()
+    dartBridge.standardInput = dartBridgeIn
+    dartBridge.standardOutput = dartBridgeOut
+    dartBridge.standardError = Pipe()
+    try dartBridge.run()
+    defer { dartBridge.terminate() }
+
+    let dartTransport = StdioTransport(
+        writerFd: dartBridgeIn.fileHandleForWriting.fileDescriptor,
+        readerFd: dartBridgeOut.fileHandleForReading.fileDescriptor)
+    let dartChannel = Channel(dartTransport)
+    let dartClient = TestGrpcDc.TestServiceClient(dartChannel)
+    try runInteropCases(dartChannel, dartClient, TestGrpcDc.UnimplementedServiceClient(dartChannel))
     print("TestInteropOracle OK")
 }
 
