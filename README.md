@@ -194,7 +194,7 @@ table runs natively in every language above and in real browsers.
 
 ## Provenance
 
-Exported from source commit `7af21f9a550c07f8063dceab8ea3848e78423956` by the project's
+Exported from source commit `b15b1910487974e6fe090ccee41ea6194991dd59` by the project's
 code generator. This tree contains no build system: each language
 directory carries its runtime, generated stubs, examples, and
 tests in that language's usual layout.

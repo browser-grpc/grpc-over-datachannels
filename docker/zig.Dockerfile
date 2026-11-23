@@ -7,11 +7,13 @@
 #   docker run --rm grpc-dc-zig
 FROM debian:bookworm-slim
 WORKDIR /src
-RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler nodejs && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler nodejs build-essential && rm -rf /var/lib/apt/lists/*
 RUN apt-get update && apt-get install -y curl xz-utils ca-certificates && case "$(uname -m)" in x86_64) A=x86_64 ;; aarch64) A=aarch64 ;; esac && curl -fsSL "https://ziglang.org/download/0.15.1/zig-${A}-linux-0.15.1.tar.xz" -o /tmp/zig.tar.xz && mkdir -p /opt/zig && tar -xJf /tmp/zig.tar.xz -C /opt/zig --strip-components=1 && rm /tmp/zig.tar.xz
 ENV PATH="/opt/zig:${PATH}"
 COPY zig ./zig
 COPY rust ./rust
+COPY webrtc/rust ./webrtc/rust
+COPY crates/kafka-native ./crates/kafka-native
 COPY fixtures ./fixtures
 COPY bin ./bin
 COPY webapp/testdata ./webapp/testdata

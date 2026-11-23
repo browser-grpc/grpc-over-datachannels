@@ -10,6 +10,8 @@ WORKDIR /src
 RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler nodejs curl ca-certificates && rm -rf /var/lib/apt/lists/*
 COPY swift ./swift
 COPY rust ./rust
+COPY webrtc/rust ./webrtc/rust
+COPY crates/kafka-native ./crates/kafka-native
 RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable && export PATH="$HOME/.cargo/bin:$PATH" && cd rust && cargo build --release
 COPY fixtures ./fixtures
 COPY bin ./bin
