@@ -956,8 +956,10 @@ test-swift-wasm-browser:
 		-enable-experimental-feature Embedded \
 		-enable-experimental-feature Extern -wmo -O \
 		-c wasm/swift/bridge.swift wasm/swift/EchoWasmGrpcDc.swift \
-		swift/grpcdc/Wire.swift swift/examples/Pb.swift \
-		swift/examples/EchoMessages.swift wasm/swift/echo_client.swift \
+		swift/grpcdc/Wire.swift swift/grpcdc/structdc.swift swift/examples/Pb.swift \
+		swift/examples/EchoMessages.swift swift/examples/EchoRequestStruct.swift \
+		swift/examples/EchoResponseStruct.swift swift/examples/StructDcBridgePure.swift \
+		wasm/swift/echo_client.swift \
 		-o wasm/swift/build/echo_swift.o
 	$(WASM_LD) --no-entry --allow-undefined \
 		--export=run_echo_client --export=wasm_alloc --export=wasm_free \
@@ -986,6 +988,8 @@ test-swift-wasm-native-browser:
 		swift/grpcdc/Endpoint.swift swift/grpcdc/Channel.swift \
 		swift/grpcdc/Server.swift swift/grpcdc/MemoryTransport.swift \
 		swift/examples/Pb.swift swift/examples/EchoMessages.swift \
+		swift/grpcdc/structdc.swift swift/examples/EchoRequestStruct.swift \
+		swift/examples/EchoResponseStruct.swift swift/examples/StructDcBridgePure.swift \
 		swift/examples/EchoGrpcDc.swift swift/examples/EchoServiceImpl.swift \
 		wasm/swift/native/dc_transport.swift \
 		wasm/swift/native/echo_client.swift \
