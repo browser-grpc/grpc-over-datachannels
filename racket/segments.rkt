@@ -2294,9 +2294,9 @@
 
 (define py-server-handler-program
   '((kind-case
-     (unary (fmt "    def _~a_handler(ctx, reqs, sink):\n        req = reqs.recv_into(~a.~a())\n        resp = impl.~a(ctx, req)\n        sink.send(resp.marshal_dc())\n\n" (ref name) (arg 0) (ref input) (ref impl-name)))
+     (unary (fmt "    def _~a_handler(ctx, reqs, sink):\n        req = reqs.recv_into(~a.~a())\n        resp = impl.~a(ctx, req)\n        sink.send(ctx.encode_message(resp))\n\n" (ref name) (arg 0) (ref input) (ref impl-name)))
      (server-streaming (fmt "    def _~a_handler(ctx, reqs, sink):\n        req = reqs.recv_into(~a.~a())\n        impl.~a(req, _SendStream(ctx, sink))\n\n" (ref name) (arg 0) (ref input) (ref impl-name)))
-     (client-streaming (fmt "    def _~a_handler(ctx, reqs, sink):\n        stream = _ClientStreamImpl(ctx, reqs, ~a.~a)\n        impl.~a(stream)\n        if stream.resp is None:\n            raise grpcdc.StatusError(grpcdc.CODE_INTERNAL, \"client-streaming handler never called SendAndClose\")\n        sink.send(stream.resp.marshal_dc())\n\n" (ref name) (arg 0) (ref input) (ref impl-name)))
+     (client-streaming (fmt "    def _~a_handler(ctx, reqs, sink):\n        stream = _ClientStreamImpl(ctx, reqs, ~a.~a)\n        impl.~a(stream)\n        if stream.resp is None:\n            raise grpcdc.StatusError(grpcdc.CODE_INTERNAL, \"client-streaming handler never called SendAndClose\")\n        sink.send(ctx.encode_message(stream.resp))\n\n" (ref name) (arg 0) (ref input) (ref impl-name)))
      (bidi (fmt "    def _~a_handler(ctx, reqs, sink):\n        impl.~a(_BidiStream(ctx, reqs, sink, ~a.~a))\n\n" (ref name) (ref impl-name) (arg 0) (ref input))))))
 
 (define py-method-entry-program
@@ -2483,6 +2483,11 @@
     (if (no-fields)
         (then "")
         (else "            else:\n                self.unknown_fields = self.unknown_fields + raw\n"))
+    (if (struct-codec)
+        (then (if (ref map-entry) (then "") (else (fmt "\n    def marshal_struct(self):\n        return ~aStruct.marshal(self)\n\n    def unmarshal_struct(self, data):\n        _s = ~aStruct.unmarshal(data)\n" (flat) (flat))
+              (each fields (fmt "        self.~a = _s.~a\n" (ref name) (ref name)))
+              "        self.unknown_fields = _s.unknown_fields\n        return self\n")))
+        (else ""))
     (fmt "\n    def __eq__(self, other):\n        return isinstance(other, ~a) and self.__dict__ == other.__dict__\n" (flat))
     (fmt "\n    def __repr__(self):\n        return f\"~a(~a)\"\n\n\n"
          (flat) (each-sep ", " fields (fmt "~a={self.~a!r}" (ref name) (ref name))))))

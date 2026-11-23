@@ -40,6 +40,34 @@ from .wire_gen import (
 HEADER_LEN = 9
 MAX_DATA_PAYLOAD = 16 * 1024 * 1024
 
+# HEADERS metadata key/value a client sends to request the
+# struct codec for a call (see SPEC.md struct codec).
+STRUCT_CODEC_HEADER = "dc-codec"
+STRUCT_CODEC_V1 = "struct-v1"
+
+
+def marshal_for_codec(struct_codec, msg):
+    """Marshal msg with the codec selected for a call
+    (struct layout when negotiated)."""
+    if not struct_codec:
+        return msg.marshal_dc()
+    fn = getattr(msg, "marshal_struct", None)
+    if fn is None:
+        raise StatusError(CODE_INTERNAL, "message has no struct codec")
+    return fn()
+
+
+def unmarshal_for_codec(struct_codec, data, msg):
+    """Decode data into msg with the codec selected for a call."""
+    if struct_codec:
+        fn = getattr(msg, "unmarshal_struct", None)
+        if fn is None:
+            raise StatusError(CODE_INTERNAL, "message has no struct codec")
+        fn(data)
+    else:
+        msg.unmarshal_dc(data)
+    return msg
+
 
 def status_name(code):
     """Canonical status name (CODE_N for unknown codes)."""
@@ -488,6 +516,9 @@ class CallContext:
         self.response_headers = {}
         self.response_trailers = {}
         self.trace_context = None
+        # Whether this call negotiated the struct codec
+        # (HEADERS dc-codec: struct-v1).
+        self.struct_codec = False
         self.deadline = None
         remaining = parse_timeout(self.metadata.get("grpc-timeout"))
         if remaining is not None:
@@ -500,6 +531,13 @@ class CallContext:
     def set_trailers(self, md):
         """Record response trailing metadata (dict update)."""
         self.response_trailers.update(md)
+
+    def encode_message(self, msg):
+        """Marshal a response message with this call's
+        negotiated codec (generated server code calls this)."""
+        from .codec import marshal_for_codec
+
+        return marshal_for_codec(self.struct_codec, msg)
 
     def time_remaining(self):
         """Seconds until the deadline (may be negative), or None
@@ -716,6 +754,8 @@ GRPC_RUNTIME_EOF
 import asyncio
 
 from .codec import (
+    STRUCT_CODEC_HEADER,
+    STRUCT_CODEC_V1,
     StatusError,
     encode_frame,
     encode_timeout,
@@ -724,9 +764,11 @@ from .codec import (
     headers_frame,
     _trace_parent,
     current_trace_context,
+    marshal_for_codec,
     parse_traceparent,
     status_name,
     trace_end,
+    unmarshal_for_codec,
     trace_start,
 )
 from .endpoint import (
@@ -756,7 +798,17 @@ class Channel:
         else:
             self.endpoint = Endpoint(transport, creator=True)
         self._trace_context = None
+        self._struct_codec = False
         self.endpoint.start()
+
+    def set_struct_codec(self, enabled):
+        """Make every call on this channel request the struct
+        codec (HEADERS marker dc-codec: struct-v1) and encode
+        requests / decode responses with it. The server must
+        enable it too (see Server.set_struct_codec); otherwise
+        calls fail UNIMPLEMENTED. Mirrors the Go
+        Channel.SetStructCodec."""
+        self._struct_codec = bool(enabled)
 
     def with_trace_context(self, ctx):
         """A Channel view sharing this endpoint, whose outbound
@@ -765,13 +817,16 @@ class Channel:
         ch = Channel.__new__(Channel)
         ch.endpoint = self.endpoint
         ch._trace_context = ctx
+        ch._struct_codec = self._struct_codec
         return ch
 
     def _open(self, path, metadata, timeout=None):
         deadline = None
         trace_ctx = None
-        if timeout is not None or get_tracer() is not None:
+        if timeout is not None or get_tracer() is not None or self._struct_codec:
             merged = dict(metadata) if metadata else {}
+            if self._struct_codec:
+                merged[STRUCT_CODEC_HEADER] = STRUCT_CODEC_V1
             if timeout is not None:
                 deadline = _monotonic() + timeout
                 merged["grpc-timeout"] = encode_timeout(timeout)
@@ -796,6 +851,7 @@ class Channel:
             trace_end("client", path, trace_ctx, "UNAVAILABLE")
             raise
         stream = ClientStream(self.endpoint, stream_id, stream_input)
+        stream.struct_codec = self._struct_codec
         stream.deadline = deadline
         stream.trace_ctx = trace_ctx
         stream.trace_path = path
@@ -803,7 +859,7 @@ class Channel:
 
     def _send_message(self, stream, msg):
         self.endpoint.send_frame(
-            encode_frame(FRAME_DATA, stream.stream_id, msg.marshal_dc())
+            encode_frame(FRAME_DATA, stream.stream_id, marshal_for_codec(stream.struct_codec, msg))
         )
 
     def _half_close(self, stream):
@@ -910,6 +966,7 @@ class ClientStream:
         self.trace_path = None
         self._trace_ended = False
         self._terminated = False
+        self.struct_codec = False
 
     def _end_trace(self, status):
         if not self._trace_ended:
@@ -950,7 +1007,7 @@ class ClientStream:
             if event.kind == EVENT_HEADERS:
                 self.headers = event.headers
             elif event.kind == EVENT_DATA:
-                resp.unmarshal_dc(event.payload)
+                unmarshal_for_codec(self.struct_codec, event.payload, resp)
                 return resp
             elif event.kind == EVENT_TRAILERS:
                 self._terminated = True
@@ -1022,6 +1079,9 @@ class AsyncChannel:
     def channel(self):
         return self._channel
 
+    def set_struct_codec(self, enabled):
+        self._channel.set_struct_codec(enabled)
+
     @property
     def endpoint(self):
         return self._channel.endpoint
@@ -1060,11 +1120,16 @@ GRPC_RUNTIME_EOF
 """Server: dispatches inbound calls to registered methods."""
 
 from .codec import (
+    STRUCT_CODEC_HEADER,
+    STRUCT_CODEC_V1,
+    StatusError,
+    marshal_for_codec,
     parse_traceparent,
     status_name,
     to_status,
     trace_end,
     trace_start,
+    unmarshal_for_codec,
     with_trace_context,
 )
 from .endpoint import (
@@ -1085,8 +1150,9 @@ KIND_BIDI = "bidi"
 class RequestStream:
     """Reads request messages of one inbound call."""
 
-    def __init__(self, stream_input):
+    def __init__(self, stream_input, struct_codec=False):
         self._input = stream_input
+        self.struct_codec = struct_codec
 
     def recv_raw(self):
         """Next request payload; EOFError at half-close."""
@@ -1104,7 +1170,7 @@ class RequestStream:
                 raise event.status
 
     def recv_into(self, req):
-        req.unmarshal_dc(self.recv_raw())
+        unmarshal_for_codec(self.struct_codec, self.recv_raw(), req)
         return req
 
 
@@ -1127,6 +1193,16 @@ class Server:
 
     def __init__(self):
         self._methods = {}
+        self._struct_codec = False
+
+    def set_struct_codec(self, enabled):
+        """Enable the struct codec on this server: a call
+        carrying HEADERS dc-codec: struct-v1 is decoded with the
+        struct codec and answered in kind. A struct-v1 request
+        to a server without it enabled fails UNIMPLEMENTED, as
+        does any other dc-codec value. Mirrors the Go
+        Server.SetStructCodec."""
+        self._struct_codec = bool(enabled)
 
     def register_service(self, desc):
         for method in desc.methods:
@@ -1145,18 +1221,25 @@ class Server:
     def _dispatch(self, ctx, headers, stream_input, sink):
         method = self._methods.get(headers.path)
         if method is None:
-            from .codec import StatusError
-
             return StatusError(
                 CODE_UNIMPLEMENTED, f"unknown method {headers.path}"
             )
+        # Struct codec negotiation: an explicit dc-codec marker
+        # must be struct-v1 and enabled here, else UNIMPLEMENTED.
+        use_struct = False
+        marker = (headers.metadata or {}).get(STRUCT_CODEC_HEADER)
+        if marker is not None:
+            if marker != STRUCT_CODEC_V1 or not self._struct_codec:
+                return StatusError(CODE_UNIMPLEMENTED, "struct codec not enabled")
+            use_struct = True
+        ctx.struct_codec = use_struct
         parent = parse_traceparent((headers.metadata or {}).get("traceparent"))
         trace_ctx = trace_start("server", headers.path, parent)
         ctx.trace_context = trace_ctx
         result = None
         try:
             with with_trace_context(trace_ctx):
-                method.handler(ctx, RequestStream(stream_input), sink)
+                method.handler(ctx, RequestStream(stream_input, use_struct), sink)
         except Exception as e:  # StatusError passes through via to_status
             result = to_status(e)
         status = status_name(result.code) if result is not None else "OK"
@@ -1749,7 +1832,679 @@ GRPC_RUNTIME_EOF
    (cons "grpcdc/loopback.py" python-loopback-body)
    (cons "grpcdc/sidecar.py" python-sidecar-body)
    (cons "grpcdc/kafka_native.py" python-kafka-native-body)
-   (cons "grpcdc/dynamic.py" python-dynamic-body)))
+   (cons "grpcdc/dynamic.py" python-dynamic-body)
+   (cons "grpcdc/structdc.py" python-structdc-body)))
+
+(define python-structdc-body
+#<<GRPC_RUNTIME_EOF
+"""Descriptor-driven struct codec (layout v1, DCS1): the
+packed struct format from SPEC.md, implemented over the
+dynamic model (dynamic.py) so browser-tier runtimes transcode
+protobuf <-> struct without a native bridge. Byte-identical
+to the shared Rust implementation (conformance/struct).
+"""
+
+import struct as _struct
+
+from .codec import StatusError
+from .dynamic import (
+    TYPE_BOOL,
+    TYPE_BYTES,
+    TYPE_DOUBLE,
+    TYPE_ENUM,
+    TYPE_FIXED32,
+    TYPE_FIXED64,
+    TYPE_FLOAT,
+    TYPE_INT32,
+    TYPE_INT64,
+    TYPE_MESSAGE,
+    TYPE_SFIXED32,
+    TYPE_SFIXED64,
+    TYPE_SINT32,
+    TYPE_SINT64,
+    TYPE_STRING,
+    TYPE_UINT32,
+    TYPE_UINT64,
+    GenericMessage,
+    parse_descriptor_set,
+)
+from .wire_gen import CODE_INTERNAL, CODE_INVALID_ARGUMENT
+
+STRUCT_CODEC_HEADER = "dc-codec"
+STRUCT_CODEC_V1 = "struct-v1"
+
+_FIXED32 = (TYPE_FLOAT, TYPE_FIXED32, TYPE_SFIXED32)
+_MASK64 = (1 << 64) - 1
+
+
+def _fail(msg):
+    return StatusError(CODE_INVALID_ARGUMENT, msg)
+
+
+def _fingerprint(full_name):
+    h = 2166136261
+    for b in full_name.encode("utf-8"):
+        h = ((h ^ b) * 16777619) & 0xFFFFFFFF
+    return h
+
+
+def _slot_size(field):
+    return 4 if field.type in _FIXED32 else 8
+
+
+def _s64(v):
+    v &= _MASK64
+    return v - (1 << 64) if v >= (1 << 63) else v
+
+
+def _s32(v):
+    v &= 0xFFFFFFFF
+    return v - (1 << 32) if v >= (1 << 31) else v
+
+
+def _as_i64(v):
+    if isinstance(v, bool):
+        return 1 if v else 0
+    return int(v)
+
+
+def _bytes_of(field, value):
+    if field.type == TYPE_STRING and isinstance(value, str):
+        return value.encode("utf-8")
+    if isinstance(value, (bytes, bytearray)):
+        return bytes(value)
+    if isinstance(value, str):
+        return value.encode("utf-8")
+    raise _fail(f"value does not match field {field.name} type {field.type}")
+
+
+def _nonzero(field, value):
+    t = field.type
+    if t in (TYPE_STRING, TYPE_BYTES):
+        return len(value) > 0
+    if t == TYPE_MESSAGE:
+        return isinstance(value, GenericMessage)
+    if t == TYPE_BOOL:
+        return value is True or _as_i64(value) != 0
+    if t in (TYPE_FLOAT, TYPE_DOUBLE):
+        return float(value) != 0.0
+    return _as_i64(value) != 0
+
+
+def _sorted_fields(model):
+    return [model.fields[n] for n in sorted(model.fields)]
+
+
+def _map_model(field, file_model):
+    if field.type != TYPE_MESSAGE or not field.repeated:
+        return None
+    model = file_model.messages.get(field.type_name)
+    return model if model is not None and getattr(model, "map_entry", False) else None
+
+
+def _is_map(field, file_model):
+    return _map_model(field, file_model) is not None
+
+
+def _default_value(field):
+    t = field.type
+    if t == TYPE_STRING:
+        return ""
+    if t == TYPE_BYTES:
+        return b""
+    if t == TYPE_BOOL:
+        return False
+    if t in (TYPE_FLOAT, TYPE_DOUBLE):
+        return 0.0
+    if t == TYPE_MESSAGE:
+        return GenericMessage()
+    return 0
+
+
+def _key_cmp(kf, a, b):
+    if kf.type == TYPE_STRING:
+        return (a > b) - (a < b)
+    if kf.type in (TYPE_BOOL, TYPE_UINT32, TYPE_UINT64, TYPE_FIXED32, TYPE_FIXED64):
+        av, bv = _as_i64(a) & _MASK64, _as_i64(b) & _MASK64
+    else:
+        av, bv = _as_i64(a), _as_i64(b)
+    return (av > bv) - (av < bv)
+
+
+def _map_entries(field, values, entry_model):
+    kf = entry_model.fields[1]
+    vf = entry_model.fields[2]
+    entries = []
+    for entry in values:
+        key = entry.get(1)
+        if key is None:
+            raise _fail(f"map field {field.name} entry missing key")
+        entries.append((key, entry.get(2, _default_value(vf))))
+    from functools import cmp_to_key
+
+    entries.sort(key=cmp_to_key(lambda x, y: _key_cmp(kf, x[0], y[0])))
+    return entries
+
+
+def _value_size(field, value, file_model):
+    t = field.type
+    if t in (TYPE_STRING, TYPE_BYTES):
+        return len(_bytes_of(field, value))
+    if t == TYPE_MESSAGE:
+        nested = file_model.messages[field.type_name]
+        return len(encode_struct(nested, value, file_model))
+    return 4 if t in _FIXED32 else 8
+
+
+def _field_present(field, msg, file_model):
+    values = msg.get_all(field.number)
+    if _is_map(field, file_model) or field.repeated:
+        return len(values) > 0
+    return len(values) > 0 and _nonzero(field, values[0])
+
+
+def _struct_size(model, msg, file_model):
+    fields = _sorted_fields(model)
+    words = max(1, (len(fields) + 31) // 32)
+    size = 12 + 4 * words + sum(_slot_size(f) for f in fields)
+    for field in fields:
+        values = msg.get_all(field.number)
+        if _is_map(field, file_model):
+            entry_model = _map_model(field, file_model)
+            kf, vf = entry_model.fields[1], entry_model.fields[2]
+            for k, v in _map_entries(field, values, entry_model):
+                size += 8 + _value_size(kf, k, file_model) + _value_size(vf, v, file_model)
+        elif field.repeated:
+            if not values:
+                continue
+            if field.type in (TYPE_STRING, TYPE_BYTES, TYPE_MESSAGE):
+                size += 8 * len(values)
+            for v in values:
+                size += _value_size(field, v, file_model)
+        elif field.type in (TYPE_STRING, TYPE_BYTES, TYPE_MESSAGE) and _field_present(
+            field, msg, file_model
+        ):
+            size += _value_size(field, values[0], file_model)
+    for chunk in getattr(msg, "unknown", []):
+        size += len(chunk)
+    return size
+
+
+def _put_u32(buf, off, v):
+    _struct.pack_into("<I", buf, off, v & 0xFFFFFFFF)
+
+
+def _put_u64(buf, off, v):
+    _struct.pack_into("<Q", buf, off, v & _MASK64)
+
+
+def _get_u32(data, off):
+    if off + 4 > len(data):
+        raise _fail("struct codec: out of bounds")
+    return _struct.unpack_from("<I", data, off)[0]
+
+
+def _get_u64(data, off):
+    return _get_u32(data, off) | (_get_u32(data, off + 4) << 32)
+
+
+def _write_scalar(buf, off, field, value):
+    t = field.type
+    if t == TYPE_FLOAT:
+        _struct.pack_into("<f", buf, off, float(value))
+    elif t == TYPE_FIXED32:
+        _struct.pack_into("<I", buf, off, _as_i64(value) & 0xFFFFFFFF)
+    elif t == TYPE_SFIXED32:
+        _struct.pack_into("<i", buf, off, _s32(_as_i64(value)))
+    elif t == TYPE_DOUBLE:
+        _struct.pack_into("<d", buf, off, float(value))
+    elif t == TYPE_FIXED64:
+        _put_u64(buf, off, _as_i64(value))
+    elif t == TYPE_SFIXED64:
+        _put_u64(buf, off, _as_i64(value))
+    elif t == TYPE_BOOL:
+        buf[off] = 1 if _as_i64(value) != 0 else 0
+    else:
+        _put_u64(buf, off, _as_i64(value))
+
+
+def _write_value(buf, off, field, value, file_model):
+    t = field.type
+    if t in (TYPE_STRING, TYPE_BYTES):
+        b = _bytes_of(field, value)
+        buf[off : off + len(b)] = b
+    elif t == TYPE_MESSAGE:
+        nested = file_model.messages[field.type_name]
+        enc = encode_struct(nested, value, file_model)
+        buf[off : off + len(enc)] = enc
+    else:
+        _write_scalar(buf, off, field, value)
+
+
+def encode_struct(model, message, file_model):
+    fields = _sorted_fields(model)
+    words = max(1, (len(fields) + 31) // 32)
+    header = 12 + 4 * words
+    offsets = []
+    cursor = header
+    for f in fields:
+        offsets.append(cursor)
+        cursor += _slot_size(f)
+    fixed_end = cursor
+    buf = bytearray(_struct_size(model, message, file_model))
+    buf[0:4] = b"DCS1"
+    _put_u32(buf, 4, len(buf))
+    _put_u32(buf, 8, _fingerprint(model.full_name))
+    for i, f in enumerate(fields):
+        if _field_present(f, message, file_model):
+            at = 12 + 4 * (i // 32)
+            _put_u32(buf, at, _get_u32(buf, at) | (1 << (i % 32)))
+    vp = fixed_end
+    for i, field in enumerate(fields):
+        off = offsets[i]
+        values = message.get_all(field.number)
+        if _is_map(field, file_model):
+            if not values:
+                continue
+            entry_model = _map_model(field, file_model)
+            kf, vf = entry_model.fields[1], entry_model.fields[2]
+            _put_u32(buf, off, vp)
+            _put_u32(buf, off + 4, len(values))
+            for k, v in _map_entries(field, values, entry_model):
+                klen = _value_size(kf, k, file_model)
+                vlen = _value_size(vf, v, file_model)
+                _put_u32(buf, vp, klen)
+                _put_u32(buf, vp + 4, vlen)
+                vp += 8
+                _write_value(buf, vp, kf, k, file_model)
+                vp += klen
+                _write_value(buf, vp, vf, v, file_model)
+                vp += vlen
+        elif field.repeated:
+            if not values:
+                continue
+            _put_u32(buf, off, vp)
+            _put_u32(buf, off + 4, len(values))
+            if field.type in (TYPE_STRING, TYPE_BYTES, TYPE_MESSAGE):
+                doff = vp + 8 * len(values)
+                for v in values:
+                    _put_u32(buf, vp, doff)
+                    _put_u32(buf, vp + 4, _value_size(field, v, file_model))
+                    doff += _value_size(field, v, file_model)
+                    vp += 8
+                for v in values:
+                    _write_value(buf, vp, field, v, file_model)
+                    vp += _value_size(field, v, file_model)
+            else:
+                for v in values:
+                    _write_scalar(buf, vp, field, v)
+                    vp += _slot_size(field)
+        elif field.type in (TYPE_STRING, TYPE_BYTES, TYPE_MESSAGE):
+            if not _field_present(field, message, file_model):
+                continue
+            _put_u32(buf, off, vp)
+            _put_u32(buf, off + 4, _value_size(field, values[0], file_model))
+            _write_value(buf, vp, field, values[0], file_model)
+            vp += _value_size(field, values[0], file_model)
+        elif _field_present(field, message, file_model):
+            _write_scalar(buf, off, field, values[0])
+    for chunk in getattr(message, "unknown", []):
+        buf[vp : vp + len(chunk)] = chunk
+        vp += len(chunk)
+    return bytes(buf)
+
+
+def _read_scalar(data, off, field):
+    t = field.type
+    if t == TYPE_FLOAT:
+        return _struct.unpack_from("<f", data, off)[0]
+    if t == TYPE_FIXED32:
+        return _struct.unpack_from("<I", data, off)[0]
+    if t == TYPE_SFIXED32:
+        return _struct.unpack_from("<i", data, off)[0]
+    if t == TYPE_DOUBLE:
+        return _struct.unpack_from("<d", data, off)[0]
+    if t == TYPE_FIXED64:
+        return _get_u64(data, off)
+    if t == TYPE_SFIXED64:
+        return _s64(_get_u64(data, off))
+    if t == TYPE_BOOL:
+        return data[off] != 0
+    if t in (TYPE_ENUM, TYPE_INT32, TYPE_SINT32):
+        return _s32(_get_u64(data, off))
+    if t in (TYPE_INT64, TYPE_SINT64):
+        return _s64(_get_u64(data, off))
+    if t == TYPE_UINT32:
+        return _get_u64(data, off) & 0xFFFFFFFF
+    return _get_u64(data, off)
+
+
+def _read_value(data, off, length, field, file_model):
+    if off + length > len(data):
+        raise _fail("struct codec: out of bounds")
+    raw = data[off : off + length]
+    t = field.type
+    if t == TYPE_STRING:
+        return raw.decode("utf-8")
+    if t == TYPE_BYTES:
+        return bytes(raw)
+    if t == TYPE_MESSAGE:
+        if length == 0:
+            return GenericMessage()
+        nested = file_model.messages[field.type_name]
+        return decode_struct(nested, raw, file_model)
+    return _read_scalar(data, off, field)
+
+
+def decode_struct(model, data, file_model):
+    fields = _sorted_fields(model)
+    words = max(1, (len(fields) + 31) // 32)
+    header = 12 + 4 * words
+    if len(data) < header or data[0:4] != b"DCS1":
+        raise _fail("struct codec: bad header")
+    if _get_u32(data, 8) != _fingerprint(model.full_name):
+        raise _fail("struct codec: schema fingerprint mismatch")
+    if _get_u32(data, 4) != len(data):
+        raise _fail("struct codec: length mismatch")
+    offsets = []
+    cursor = header
+    for f in fields:
+        offsets.append(cursor)
+        cursor += _slot_size(f)
+    message = GenericMessage(model)
+    vend = cursor
+    for i, field in enumerate(fields):
+        if (_get_u32(data, 12 + 4 * (i // 32)) & (1 << (i % 32))) == 0:
+            continue
+        off = offsets[i]
+        if _is_map(field, file_model):
+            entry_model = _map_model(field, file_model)
+            kf, vf = entry_model.fields[1], entry_model.fields[2]
+            base = _get_u32(data, off)
+            n = _get_u32(data, off + 4)
+            p = base
+            for _ in range(n):
+                kl = _get_u32(data, p)
+                vl = _get_u32(data, p + 4)
+                p += 8
+                key = _read_value(data, p, kl, kf, file_model)
+                val = _read_value(data, p + kl, vl, vf, file_model)
+                entry = GenericMessage(entry_model)
+                entry.set(1, key)
+                entry.set(2, val)
+                message.add(field.number, entry)
+                p += kl + vl
+            vend = max(vend, p)
+        elif field.repeated:
+            base = _get_u32(data, off)
+            n = _get_u32(data, off + 4)
+            if field.type in (TYPE_STRING, TYPE_BYTES, TYPE_MESSAGE):
+                for j in range(n):
+                    eo = _get_u32(data, base + 8 * j)
+                    el = _get_u32(data, base + 8 * j + 4)
+                    if el > 0 or field.type != TYPE_MESSAGE:
+                        message.add(field.number, _read_value(data, eo, el, field, file_model))
+                    vend = max(vend, eo + el)
+            else:
+                for j in range(n):
+                    message.add(field.number, _read_scalar(data, base + j * _slot_size(field), field))
+                vend = max(vend, base + n * _slot_size(field))
+        elif field.type in (TYPE_STRING, TYPE_BYTES, TYPE_MESSAGE):
+            base = _get_u32(data, off)
+            length = _get_u32(data, off + 4)
+            message.add(field.number, _read_value(data, base, length, field, file_model))
+            vend = max(vend, base + length)
+        else:
+            message.add(field.number, _read_scalar(data, off, field))
+    if vend < len(data):
+        message.unknown.append(bytes(data[vend:]))
+    return message
+
+
+class _Reader:
+    def __init__(self, data):
+        self.buf = data
+        self.pos = 0
+
+    def varint(self):
+        result = 0
+        shift = 0
+        while True:
+            if self.pos >= len(self.buf):
+                raise _fail("truncated varint")
+            b = self.buf[self.pos]
+            self.pos += 1
+            result |= (b & 0x7F) << shift
+            if not (b & 0x80):
+                return result
+            shift += 7
+            if shift >= 70:
+                raise _fail("varint too long")
+
+    def take(self, n):
+        if self.pos + n > len(self.buf):
+            raise _fail("truncated field")
+        out = self.buf[self.pos : self.pos + n]
+        self.pos += n
+        return out
+
+    def fields(self):
+        while self.pos < len(self.buf):
+            start = self.pos
+            tag = self.varint()
+            number, wire = tag >> 3, tag & 7
+            if wire == 0:
+                value = self.varint()
+            elif wire == 2:
+                value = self.take(self.varint())
+            elif wire == 1:
+                value = self.take(8)
+            elif wire == 5:
+                value = self.take(4)
+            elif wire == 3:
+                inner_start = self.pos
+                depth = 1
+                end = None
+                scan = _Reader(self.buf)
+                scan.pos = self.pos
+                while scan.pos < len(self.buf):
+                    tag_start = scan.pos
+                    t = scan.varint()
+                    w = t & 7
+                    if w == 0:
+                        scan.varint()
+                    elif w == 2:
+                        scan.take(scan.varint())
+                    elif w == 1:
+                        scan.take(8)
+                    elif w == 5:
+                        scan.take(4)
+                    elif w == 3:
+                        depth += 1
+                    elif w == 4:
+                        depth -= 1
+                        if depth == 0:
+                            end = tag_start
+                            self.pos = scan.pos
+                            break
+                    else:
+                        raise _fail(f"unsupported wire type {w}")
+                if end is None:
+                    raise _fail("unterminated group")
+                value = self.buf[inner_start:end]
+                wire = 2
+            elif wire == 4:
+                raise _fail("unexpected end-group tag")
+            else:
+                raise _fail(f"unsupported wire type {wire}")
+            yield number, wire, value, self.buf[start : self.pos]
+
+
+def _zigzag_decode(v):
+    return (v >> 1) ^ -(v & 1)
+
+
+def _decode_value(field, wire, raw, file_model):
+    t = field.type
+    if wire == 0:
+        if t == TYPE_BOOL:
+            return raw != 0
+        if t in (TYPE_SINT32, TYPE_SINT64):
+            return _zigzag_decode(raw)
+        if t in (TYPE_INT32, TYPE_ENUM):
+            return _s32(raw)
+        if t == TYPE_INT64:
+            return _s64(raw)
+        return raw & _MASK64
+    if wire == 1:
+        if t == TYPE_DOUBLE:
+            return _struct.unpack("<d", raw)[0]
+        if t == TYPE_SFIXED64:
+            return _struct.unpack("<q", raw)[0]
+        return _struct.unpack("<Q", raw)[0]
+    if wire == 5:
+        if t == TYPE_FLOAT:
+            return _struct.unpack("<f", raw)[0]
+        if t == TYPE_SFIXED32:
+            return _struct.unpack("<i", raw)[0]
+        return _struct.unpack("<I", raw)[0]
+    if t == TYPE_STRING:
+        return raw.decode("utf-8")
+    if t == TYPE_MESSAGE:
+        return decode_generic_s(file_model.messages[field.type_name], raw, file_model)
+    return bytes(raw)
+
+
+def _decode_packed(field, data, file_model):
+    out = []
+    t = field.type
+    if t in (TYPE_DOUBLE, TYPE_FIXED64, TYPE_SFIXED64):
+        for i in range(0, len(data) - 7, 8):
+            out.append(_decode_value(field, 1, data[i : i + 8], file_model))
+    elif t in (TYPE_FLOAT, TYPE_FIXED32, TYPE_SFIXED32):
+        for i in range(0, len(data) - 3, 4):
+            out.append(_decode_value(field, 5, data[i : i + 4], file_model))
+    else:
+        reader = _Reader(data)
+        while reader.pos < len(data):
+            out.append(_decode_value(field, 0, reader.varint(), file_model))
+    return out
+
+
+def decode_generic_s(model, data, file_model):
+    message = GenericMessage(model)
+    for number, wire, raw, chunk in _Reader(data).fields():
+        field = model.fields.get(number)
+        if field is None:
+            message.unknown.append(chunk)
+            continue
+        if (
+            field.repeated
+            and wire == 2
+            and field.type not in (TYPE_STRING, TYPE_BYTES, TYPE_MESSAGE, 10)
+        ):
+            for v in _decode_packed(field, raw, file_model):
+                message.add(number, v)
+            continue
+        message.add(number, _decode_value(field, wire, raw, file_model))
+    return message
+
+
+def _encode_varint(v):
+    out = bytearray()
+    x = v & _MASK64
+    while x > 0x7F:
+        out.append((x & 0x7F) | 0x80)
+        x >>= 7
+    out.append(x)
+    return bytes(out)
+
+
+def _wire_type(t):
+    if t in (TYPE_INT64, TYPE_UINT64, TYPE_INT32, TYPE_BOOL, TYPE_UINT32, TYPE_ENUM, TYPE_SINT32, TYPE_SINT64):
+        return 0
+    if t in (TYPE_FIXED64, TYPE_SFIXED64, TYPE_DOUBLE):
+        return 1
+    if t in (TYPE_STRING, TYPE_MESSAGE, TYPE_BYTES, 10):
+        return 2
+    return 5
+
+
+def _encode_value(field, value, file_model):
+    wire = _wire_type(field.type)
+    out = bytearray(_encode_varint((field.number << 3) | wire))
+    t = field.type
+    if wire == 0:
+        if t == TYPE_SINT32:
+            sv = _s32(_as_i64(value))
+            out += _encode_varint(((sv << 1) ^ (sv >> 31)) & 0xFFFFFFFF)
+        elif t == TYPE_SINT64:
+            sv = _as_i64(value)
+            out += _encode_varint((sv << 1) ^ (sv >> 63))
+        elif t == TYPE_BOOL:
+            out += _encode_varint(1 if (value is True or _as_i64(value) != 0) else 0)
+        else:
+            out += _encode_varint(_as_i64(value))
+    elif wire == 1:
+        if t == TYPE_DOUBLE:
+            out += _struct.pack("<d", float(value))
+        else:
+            out += _struct.pack("<Q", _as_i64(value) & _MASK64)
+    elif wire == 5:
+        if t == TYPE_FLOAT:
+            out += _struct.pack("<f", float(value))
+        else:
+            out += _struct.pack("<I", _as_i64(value) & 0xFFFFFFFF)
+    else:
+        if t == TYPE_STRING:
+            data = value.encode("utf-8")
+        elif t == TYPE_MESSAGE:
+            data = encode_generic_s(file_model.messages[field.type_name], value, file_model)
+        else:
+            data = bytes(value)
+        out += _encode_varint(len(data))
+        out += data
+    return bytes(out)
+
+
+def encode_generic_s(model, message, file_model):
+    out = bytearray()
+    for number in sorted(message.values):
+        field = model.fields.get(number)
+        if field is None:
+            raise _fail(f"unknown field {number} for {model.full_name}")
+        values = message.values[number]
+        if field.repeated:
+            for v in values:
+                out += _encode_value(field, v, file_model)
+        elif values:
+            out += _encode_value(field, values[0], file_model)
+    for chunk in getattr(message, "unknown", []):
+        out += chunk
+    return bytes(out)
+
+
+_descriptor_cache = {}
+
+
+def transcode_struct(descriptor, type_name, data, encode):
+    """Transcode protobuf <-> struct bytes for type_name under
+    the FileDescriptorSet bytes `descriptor`."""
+    key = id(descriptor)
+    file_model = _descriptor_cache.get(key)
+    if file_model is None:
+        file_model = parse_descriptor_set(descriptor)
+        _descriptor_cache[key] = file_model
+    model = file_model.messages.get(type_name) or file_model.messages.get("." + type_name)
+    if model is None:
+        raise _fail(f"unknown message type {type_name}")
+    if encode:
+        return encode_struct(model, decode_generic_s(model, data, file_model), file_model)
+    return encode_generic_s(model, decode_struct(model, data, file_model), file_model)
+
+GRPC_RUNTIME_EOF
+)
+
 
 (define python-dynamic-body
 #<<GRPC_RUNTIME_EOF
@@ -1883,10 +2638,11 @@ class FieldModel:
 
 
 class MessageModel:
-    def __init__(self, full_name, fields):
+    def __init__(self, full_name, fields, map_entry=False):
         self.full_name = full_name
         self.fields = fields  # number -> FieldModel
         self.by_name = {f.name: f for f in fields.values()}
+        self.map_entry = map_entry
 
 
 class MethodModel:
@@ -2104,10 +2860,11 @@ def parse_descriptor_set(data):
     return file_model
 
 
-def _parse_message(package, data, file_model):
+def _parse_message(package, data, file_model, outer=None):
     name = ""
     raw_fields = []
     nested = []
+    map_entry = False
     for fnum, _w, fval in _PbReader(data).fields():
         if fnum == 1:
             name = fval.decode("utf-8")
@@ -2115,31 +2872,21 @@ def _parse_message(package, data, file_model):
             raw_fields.append(fval)
         elif fnum == 3:
             nested.append(fval)
-    full_name = f"{package}.{name}" if package else name
+        elif fnum == 7:
+            # MessageOptions.map_entry (field 7) marks map entries.
+            for onum, _ow, oval in _PbReader(fval).fields():
+                if onum == 7 and oval != 0:
+                    map_entry = True
+    if outer:
+        full_name = f"{package}.{outer}.{name}" if package else f"{outer}.{name}"
+    else:
+        full_name = f"{package}.{name}" if package else name
     fields = {}
-    model = MessageModel(full_name, fields)
+    model = MessageModel(full_name, fields, map_entry)
     file_model.messages["." + full_name] = model
     for nested_bytes in nested:
-        # Nested types register as package.Outer.Inner.
-        _parse_nested(package, name, nested_bytes, file_model)
-    for field_bytes in raw_fields:
-        field = _parse_field(field_bytes)
-        fields[field.number] = field
-    return model
-
-
-def _parse_nested(package, outer, data, file_model):
-    name = ""
-    raw_fields = []
-    for fnum, _w, fval in _PbReader(data).fields():
-        if fnum == 1:
-            name = fval.decode("utf-8")
-        elif fnum == 2:
-            raw_fields.append(fval)
-    full_name = f"{package}.{outer}.{name}" if package else f"{outer}.{name}"
-    fields = {}
-    model = MessageModel(full_name, fields)
-    file_model.messages["." + full_name] = model
+        # Nested types register recursively as package.Outer.Inner.
+        _parse_message(package, nested_bytes, file_model, outer=f"{outer}.{name}" if outer else name)
     for field_bytes in raw_fields:
         field = _parse_field(field_bytes)
         fields[field.number] = field

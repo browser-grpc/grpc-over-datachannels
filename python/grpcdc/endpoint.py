@@ -146,6 +146,9 @@ class CallContext:
         self.response_headers = {}
         self.response_trailers = {}
         self.trace_context = None
+        # Whether this call negotiated the struct codec
+        # (HEADERS dc-codec: struct-v1).
+        self.struct_codec = False
         self.deadline = None
         remaining = parse_timeout(self.metadata.get("grpc-timeout"))
         if remaining is not None:
@@ -158,6 +161,13 @@ class CallContext:
     def set_trailers(self, md):
         """Record response trailing metadata (dict update)."""
         self.response_trailers.update(md)
+
+    def encode_message(self, msg):
+        """Marshal a response message with this call's
+        negotiated codec (generated server code calls this)."""
+        from .codec import marshal_for_codec
+
+        return marshal_for_codec(self.struct_codec, msg)
 
     def time_remaining(self):
         """Seconds until the deadline (may be negative), or None

@@ -33,7 +33,7 @@ stubs: eventbus-stubs kafka-stubs
 	gofmt -w go/examples/echo_grpc_dc.go go/examples/echo_pb.go
 	mkdir -p python/examples
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-python=bin/protoc-gen-grpc-dc-python \
-		--grpc-dc-python_out=python/examples -I proto proto/echo.proto
+		--grpc-dc-python_out=python/examples --grpc-dc-python_opt=struct_codec=true -I proto proto/echo.proto
 	mkdir -p java/examples
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-java=bin/protoc-gen-grpc-dc-java \
 		--grpc-dc-java_out=java/examples --grpc-dc-java_opt=struct_codec=true -I proto proto/echo.proto

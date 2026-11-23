@@ -24,6 +24,34 @@ from .wire_gen import (
 HEADER_LEN = 9
 MAX_DATA_PAYLOAD = 16 * 1024 * 1024
 
+# HEADERS metadata key/value a client sends to request the
+# struct codec for a call (see SPEC.md struct codec).
+STRUCT_CODEC_HEADER = "dc-codec"
+STRUCT_CODEC_V1 = "struct-v1"
+
+
+def marshal_for_codec(struct_codec, msg):
+    """Marshal msg with the codec selected for a call
+    (struct layout when negotiated)."""
+    if not struct_codec:
+        return msg.marshal_dc()
+    fn = getattr(msg, "marshal_struct", None)
+    if fn is None:
+        raise StatusError(CODE_INTERNAL, "message has no struct codec")
+    return fn()
+
+
+def unmarshal_for_codec(struct_codec, data, msg):
+    """Decode data into msg with the codec selected for a call."""
+    if struct_codec:
+        fn = getattr(msg, "unmarshal_struct", None)
+        if fn is None:
+            raise StatusError(CODE_INTERNAL, "message has no struct codec")
+        fn(data)
+    else:
+        msg.unmarshal_dc(data)
+    return msg
+
 
 def status_name(code):
     """Canonical status name (CODE_N for unknown codes)."""
