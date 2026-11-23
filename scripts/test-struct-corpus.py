@@ -12,7 +12,7 @@ CORPUS = os.path.join(ROOT, "conformance", "struct")
 PROTO = os.path.join(CORPUS, "msgs.proto")
 GOLDEN = open(os.path.join(CORPUS, "golden.hex")).read().strip()
 
-ADMITTED = ["go", "rust", "rust-shared", "java", "kotlin", "scala", "swift", "dart", "csharp", "c", "cpp", "zig", "js", "python", "lua", "php", "ruby", "dart-pure", "scala-pure"]
+ADMITTED = ["go", "rust", "rust-shared", "java", "kotlin", "scala", "swift", "dart", "csharp", "c", "cpp", "zig", "js", "python", "lua", "php", "ruby", "dart-pure", "scala-pure", "kotlin-pure"]
 
 
 def run(*args, **kw):
@@ -103,6 +103,28 @@ def check_java(tmp):
     run("javac", "-encoding", "UTF-8", "-d", classes,
         "-sourcepath", os.path.join(ROOT, "java"), *files)
     run("java", "-cp", classes, "StructDriver", GOLDEN, cwd=d, env=jvm_env())
+
+
+def check_kotlin_pure(tmp):
+    # The Kotlin/Wasm (no-JNI) StructDc: pure transcoder against
+    # the Go golden, compiled and run on the JVM.
+    d = os.path.join(tmp, "kotlin"); protoc("kotlin", d)
+    shutil.copy(os.path.join(CORPUS, "drivers", "kotlin-pure", "Main.kt"), d)
+    files = []
+    for dirpath, _dirs, names in os.walk(d):
+        for n in names:
+            if n.endswith(".kt") and "GrpcDc" not in n:
+                files.append(os.path.join(dirpath, n))
+    jar = os.path.join(tmp, "kotlin.jar")
+    run("kotlinc", "-include-runtime",
+        os.path.join(ROOT, "kotlin", "grpcdc", "Status.kt"),
+        os.path.join(ROOT, "kotlin", "grpcdc", "Wire.kt"),
+        os.path.join(ROOT, "kotlin", "grpcdc", "Transport.kt"),
+        os.path.join(ROOT, "kotlin", "grpcdc", "Codec.kt"),
+        os.path.join(ROOT, "wasm", "kotlin", "grpcdc", "StructDc.kt"),
+        os.path.join(ROOT, "kotlin", "examples", "Pb.kt"),
+        *files, "-d", jar)
+    run("java", "-jar", jar, GOLDEN, env=jvm_env())
 
 
 def check_kotlin(tmp):
@@ -321,7 +343,7 @@ def check_rust_shared(tmp):
 CHECKS = {"go": check_go, "rust": check_rust, "rust-shared": check_rust_shared, "java": check_java,
           "kotlin": check_kotlin, "scala": check_scala, "swift": check_swift,
           "dart": check_dart, "csharp": check_csharp, "c": check_c, "js": check_js, "python": check_python,
-          "cpp": check_cpp, "zig": check_zig, "lua": check_lua, "php": check_php, "ruby": check_ruby, "dart-pure": check_dart_pure, "scala-pure": check_scala_pure}
+          "cpp": check_cpp, "zig": check_zig, "lua": check_lua, "php": check_php, "ruby": check_ruby, "dart-pure": check_dart_pure, "scala-pure": check_scala_pure, "kotlin-pure": check_kotlin_pure}
 
 
 def main():

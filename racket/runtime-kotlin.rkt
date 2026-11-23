@@ -2284,6 +2284,729 @@ object StructDc {
 GRPC_RUNTIME_EOF
 )
 
+
+(define kotlin-structdc-pure-body
+#<<GRPC_RUNTIME_EOF
+package grpcdc
+
+/**
+ * Struct codec for Kotlin/Wasm: a pure, descriptor-driven
+ * DCS1 transcoder over a minimal internal dynamic model (the
+ * JNI-backed StructDc used on the JVM is unavailable on
+ * Wasm). Byte-identical to the shared Rust implementation
+ * (conformance/struct).
+ */
+object StructDc {
+    /** Protobuf bytes -> struct-layout bytes for `type`. */
+    fun encode(descriptor: ByteArray, type: String, pb: ByteArray): ByteArray =
+        StructdcPure.transcode(descriptor, type, pb, true)
+
+    /** Struct-layout bytes -> protobuf bytes for `type`. */
+    fun decode(descriptor: ByteArray, type: String, data: ByteArray): ByteArray =
+        StructdcPure.transcode(descriptor, type, data, false)
+}
+
+private object StructdcPure {
+    private const val T_DOUBLE = 1
+    private const val T_FLOAT = 2
+    private const val T_INT64 = 3
+    private const val T_UINT64 = 4
+    private const val T_INT32 = 5
+    private const val T_FIXED64 = 6
+    private const val T_FIXED32 = 7
+    private const val T_BOOL = 8
+    private const val T_STRING = 9
+    private const val T_GROUP = 10
+    private const val T_MESSAGE = 11
+    private const val T_BYTES = 12
+    private const val T_UINT32 = 13
+    private const val T_ENUM = 14
+    private const val T_SFIXED32 = 15
+    private const val T_SFIXED64 = 16
+    private const val T_SINT32 = 17
+    private const val T_SINT64 = 18
+
+    private fun fail(msg: String): StatusException =
+        StatusException(Wire.CODE_INVALID_ARGUMENT, msg)
+
+    private class FieldM(
+        var number: Int = 0,
+        var name: String = "",
+        var ftype: Int = 0,
+        var repeated: Boolean = false,
+        var typeName: String = ""
+    )
+
+    private class MsgM(val fullName: String) {
+        val fields = mutableMapOf<Int, FieldM>()
+        var mapEntry: Boolean = false
+    }
+
+    private class FileM {
+        val messages = mutableMapOf<String, MsgM>()
+    }
+
+    private class Generic(val model: MsgM?) {
+        val values = mutableMapOf<Int, MutableList<Any?>>()
+        val unknown = mutableListOf<ByteArray>()
+        fun add(number: Int, value: Any?) {
+            values.getOrPut(number) { mutableListOf() }.add(value)
+        }
+        fun set(number: Int, value: Any?) {
+            values[number] = mutableListOf(value)
+        }
+        fun get(number: Int): Any? {
+            val l = values[number]
+            return if (l == null || l.isEmpty()) null else l[0]
+        }
+        fun getAll(number: Int): List<Any?> = values[number] ?: emptyList()
+    }
+
+    private class Reader(val buf: ByteArray) {
+        var pos: Int = 0
+        fun varint(): Long {
+            var result = 0L
+            var shift = 0
+            while (true) {
+                if (pos >= buf.size) throw fail("truncated varint")
+                val b = buf[pos].toInt() and 0xff
+                pos += 1
+                result = result or ((b and 0x7f).toLong() shl shift)
+                if (b and 0x80 == 0) return result
+                shift += 7
+                if (shift >= 70) throw fail("varint too long")
+            }
+        }
+        fun take(n: Int): ByteArray {
+            if (pos + n > buf.size) throw fail("truncated field")
+            val out = buf.copyOfRange(pos, pos + n)
+            pos += n
+            return out
+        }
+        fun bytesField(): ByteArray = take(varint().toInt())
+    }
+
+    private fun parseField(data: ByteArray): FieldM {
+        val f = FieldM()
+        val r = Reader(data)
+        while (r.pos < data.size) {
+            val tag = r.varint()
+            val num = (tag shr 3).toInt()
+            when (tag.toInt() and 7) {
+                0 -> {
+                    val v = r.varint()
+                    when (num) {
+                        3 -> f.number = v.toInt()
+                        4 -> f.repeated = v == 3L
+                        5 -> f.ftype = v.toInt()
+                    }
+                }
+                2 -> {
+                    val v = r.bytesField()
+                    when (num) {
+                        1 -> f.name = v.decodeToString()
+                        6 -> f.typeName = v.decodeToString()
+                    }
+                }
+                1 -> r.take(8)
+                5 -> r.take(4)
+                else -> throw fail("unsupported wire type")
+            }
+        }
+        return f
+    }
+
+    private fun parseMessage(prefix: String, data: ByteArray, fm: FileM) {
+        var name = ""
+        var options: ByteArray? = null
+        val rawFields = mutableListOf<ByteArray>()
+        val nested = mutableListOf<ByteArray>()
+        val r = Reader(data)
+        while (r.pos < data.size) {
+            val tag = r.varint()
+            val num = (tag shr 3).toInt()
+            when (tag.toInt() and 7) {
+                0 -> r.varint()
+                2 -> {
+                    val v = r.bytesField()
+                    when (num) {
+                        1 -> name = v.decodeToString()
+                        2 -> rawFields.add(v)
+                        3 -> nested.add(v)
+                        7 -> options = v
+                    }
+                }
+                1 -> r.take(8)
+                5 -> r.take(4)
+                else -> throw fail("unsupported wire type")
+            }
+        }
+        val fullName = if (prefix.isEmpty()) name else "$prefix.$name"
+        val model = MsgM(fullName)
+        if (options != null) {
+            val ordr = Reader(options)
+            while (ordr.pos < options.size) {
+                val tag = ordr.varint()
+                val num = (tag shr 3).toInt()
+                when (tag.toInt() and 7) {
+                    0 -> if (num == 7 && ordr.varint() != 0L) model.mapEntry = true
+                    2 -> ordr.bytesField()
+                    1 -> ordr.take(8)
+                    5 -> ordr.take(4)
+                    else -> throw fail("unsupported wire type")
+                }
+            }
+        }
+        fm.messages["." + fullName] = model
+        for (b in rawFields) {
+            val f = parseField(b)
+            model.fields[f.number] = f
+        }
+        for (b in nested) parseMessage(fullName, b, fm)
+    }
+
+    private fun parseDescriptorSet(data: ByteArray): FileM {
+        val fm = FileM()
+        val r = Reader(data)
+        while (r.pos < data.size) {
+            val tag = r.varint()
+            val num = (tag shr 3).toInt()
+            when (tag.toInt() and 7) {
+                0 -> r.varint()
+                2 -> {
+                    val fileBytes = r.bytesField()
+                    if (num == 1) {
+                        var pkg = ""
+                        val msgs = mutableListOf<ByteArray>()
+                        val fr = Reader(fileBytes)
+                        while (fr.pos < fileBytes.size) {
+                            val t2 = fr.varint()
+                            val n2 = (t2 shr 3).toInt()
+                            when (t2.toInt() and 7) {
+                                0 -> fr.varint()
+                                2 -> {
+                                    val v = fr.bytesField()
+                                    if (n2 == 2) pkg = v.decodeToString()
+                                    else if (n2 == 4) msgs.add(v)
+                                }
+                                1 -> fr.take(8)
+                                5 -> fr.take(4)
+                                else -> throw fail("unsupported wire type")
+                            }
+                        }
+                        for (m in msgs) parseMessage(pkg, m, fm)
+                    }
+                }
+                1 -> r.take(8)
+                5 -> r.take(4)
+                else -> throw fail("unsupported wire type")
+            }
+        }
+        return fm
+    }
+
+    private fun zigzagDecode(v: Long): Long = (v shr 1) xor -(v and 1L)
+
+    private fun u32(b: ByteArray, off: Int): Long {
+        if (off + 4 > b.size) throw fail("struct codec: out of bounds")
+        return ((b[off].toInt() and 0xff).toLong()) or
+            (((b[off + 1].toInt() and 0xff).toLong()) shl 8) or
+            (((b[off + 2].toInt() and 0xff).toLong()) shl 16) or
+            (((b[off + 3].toInt() and 0xff).toLong()) shl 24)
+    }
+
+    private fun u64(b: ByteArray, off: Int): Long {
+        if (off + 8 > b.size) throw fail("struct codec: out of bounds")
+        var v = 0L
+        for (i in 0 until 8) v = v or (((b[off + i].toInt() and 0xff).toLong()) shl (8 * i))
+        return v
+    }
+
+    private fun decodeValueS(f: FieldM, wire: Int, raw: Any?, fm: FileM): Any? {
+        return when (wire) {
+            0 -> {
+                val v = raw as Long
+                when (f.ftype) {
+                    T_BOOL -> v != 0L
+                    T_SINT32, T_SINT64 -> zigzagDecode(v)
+                    T_INT32, T_ENUM -> v.toInt().toLong()
+                    else -> v
+                }
+            }
+            1 -> {
+                val b = raw as ByteArray
+                if (f.ftype == T_DOUBLE) Double.fromBits(u64(b, 0)) else u64(b, 0)
+            }
+            5 -> {
+                val b = raw as ByteArray
+                when (f.ftype) {
+                    T_FLOAT -> Float.fromBits(u32(b, 0).toInt()).toDouble()
+                    T_SFIXED32 -> u32(b, 0).toInt().toLong()
+                    else -> u32(b, 0)
+                }
+            }
+            else -> {
+                val b = raw as ByteArray
+                when (f.ftype) {
+                    T_STRING -> b.decodeToString()
+                    T_MESSAGE -> decodeGenericS(fm.messages[f.typeName]!!, b, fm)
+                    else -> b
+                }
+            }
+        }
+    }
+
+    private fun decodePacked(f: FieldM, data: ByteArray, fm: FileM): List<Any?> {
+        val out = mutableListOf<Any?>()
+        when (f.ftype) {
+            T_DOUBLE, T_FIXED64, T_SFIXED64 -> {
+                var i = 0
+                while (i + 8 <= data.size) { out.add(decodeValueS(f, 1, data.copyOfRange(i, i + 8), fm)); i += 8 }
+            }
+            T_FLOAT, T_FIXED32, T_SFIXED32 -> {
+                var i = 0
+                while (i + 4 <= data.size) { out.add(decodeValueS(f, 5, data.copyOfRange(i, i + 4), fm)); i += 4 }
+            }
+            else -> {
+                val r = Reader(data)
+                while (r.pos < data.size) out.add(decodeValueS(f, 0, r.varint(), fm))
+            }
+        }
+        return out
+    }
+
+    private fun decodeGenericS(model: MsgM, data: ByteArray, fm: FileM): Generic {
+        val msg = Generic(model)
+        val r = Reader(data)
+        while (r.pos < data.size) {
+            val start = r.pos
+            val tag = r.varint()
+            val num = (tag shr 3).toInt()
+            val wire = tag.toInt() and 7
+            var raw: Any? = null
+            when (wire) {
+                0 -> raw = r.varint()
+                2 -> raw = r.bytesField()
+                1 -> raw = r.take(8)
+                5 -> raw = r.take(4)
+                else -> throw fail("unsupported wire type $wire")
+            }
+            val chunk = data.copyOfRange(start, r.pos)
+            val f = model.fields[num]
+            if (f == null) msg.unknown.add(chunk)
+            else if (f.repeated && wire == 2 && f.ftype != T_STRING && f.ftype != T_BYTES &&
+                f.ftype != T_MESSAGE && f.ftype != T_GROUP) {
+                for (v in decodePacked(f, raw as ByteArray, fm)) msg.add(num, v)
+            } else msg.add(num, decodeValueS(f, wire, raw, fm))
+        }
+        return msg
+    }
+
+    private class Out {
+        private var buf = ByteArray(64)
+        private var len = 0
+        private fun ensure(n: Int) {
+            if (len + n > buf.size) {
+                var cap = buf.size * 2
+                while (cap < len + n) cap *= 2
+                buf = buf.copyOf(cap)
+            }
+        }
+        fun byte(v: Int) { ensure(1); buf[len] = v.toByte(); len += 1 }
+        fun bytes(b: ByteArray) { ensure(b.size); b.copyInto(buf, len); len += b.size }
+        fun toByteArray(): ByteArray = buf.copyOf(len)
+    }
+
+    private fun encodeVarint(out: Out, value: Long) {
+        var v = value
+        while (v and 0x7fL.inv() != 0L) {
+            out.byte(((v and 0x7f) or 0x80).toInt())
+            v = v ushr 7
+        }
+        out.byte((v and 0xff).toInt())
+    }
+
+    private fun wireType(t: Int): Int = when (t) {
+        T_INT64, T_UINT64, T_INT32, T_BOOL, T_UINT32, T_ENUM, T_SINT32, T_SINT64 -> 0
+        T_FIXED64, T_SFIXED64, T_DOUBLE -> 1
+        T_STRING, T_MESSAGE, T_BYTES, T_GROUP -> 2
+        else -> 5
+    }
+
+    private fun asLong(v: Any?): Long = when (v) {
+        is Boolean -> if (v) 1L else 0L
+        is Number -> v.toLong()
+        else -> 0L
+    }
+
+    private fun putU32(out: Out, v: Long) {
+        out.byte((v and 0xff).toInt()); out.byte(((v shr 8) and 0xff).toInt())
+        out.byte(((v shr 16) and 0xff).toInt()); out.byte(((v shr 24) and 0xff).toInt())
+    }
+
+    private fun putU64(out: Out, v: Long) {
+        for (i in 0 until 8) out.byte(((v shr (8 * i)) and 0xff).toInt())
+    }
+
+    private fun encodeValue(out: Out, f: FieldM, v: Any?, fm: FileM) {
+        val wire = wireType(f.ftype)
+        encodeVarint(out, ((f.number shl 3) or wire).toLong())
+        when (wire) {
+            0 -> when (f.ftype) {
+                T_SINT32 -> {
+                    val sv = asLong(v).toInt()
+                    encodeVarint(out, ((sv shl 1) xor (sv shr 31)).toLong() and 0xffffffffL)
+                }
+                T_SINT64 -> {
+                    val sv = asLong(v)
+                    encodeVarint(out, (sv shl 1) xor (sv shr 63))
+                }
+                T_BOOL -> encodeVarint(out, if (asLong(v) != 0L) 1L else 0L)
+                else -> encodeVarint(out, asLong(v))
+            }
+            1 -> if (f.ftype == T_DOUBLE) putU64(out, (v as Number).toDouble().toBits())
+                 else putU64(out, asLong(v))
+            5 -> if (f.ftype == T_FLOAT) putU32(out, (v as Number).toFloat().toBits().toLong() and 0xffffffffL)
+                 else putU32(out, asLong(v) and 0xffffffffL)
+            else -> {
+                val data: ByteArray = when (f.ftype) {
+                    T_STRING -> (v as String).encodeToByteArray()
+                    T_MESSAGE -> encodeGeneric(fm.messages[f.typeName]!!, v as Generic, fm)
+                    else -> v as ByteArray
+                }
+                encodeVarint(out, data.size.toLong())
+                out.bytes(data)
+            }
+        }
+    }
+
+    private fun encodeGeneric(model: MsgM, msg: Generic, fm: FileM): ByteArray {
+        val out = Out()
+        for (num in msg.values.keys.sorted()) {
+            val f = model.fields[num] ?: throw fail("unknown field $num for ${model.fullName}")
+            val values = msg.values[num]!!
+            if (f.repeated) for (v in values) encodeValue(out, f, v, fm)
+            else if (values.isNotEmpty()) encodeValue(out, f, values[0], fm)
+        }
+        for (c in msg.unknown) out.bytes(c)
+        return out.toByteArray()
+    }
+
+    private fun fingerprint(fullName: String): Long {
+        var h = 2166136261L
+        for (b in fullName.encodeToByteArray()) h = ((h xor (b.toInt() and 0xff).toLong()) * 16777619L) and 0xffffffffL
+        return h
+    }
+
+    private fun isFixed32(f: FieldM): Boolean =
+        f.ftype == T_FLOAT || f.ftype == T_FIXED32 || f.ftype == T_SFIXED32
+
+    private fun slotSize(f: FieldM): Int = if (isFixed32(f)) 4 else 8
+
+    private fun s32(v: Long): Long {
+        val x = v and 0xffffffffL
+        return if (x >= 0x80000000L) x - 0x100000000L else x
+    }
+
+    private fun bytesOf(f: FieldM, v: Any?): ByteArray = when (v) {
+        is String -> v.encodeToByteArray()
+        is ByteArray -> v
+        else -> throw fail("value does not match field ${f.name} type ${f.ftype}")
+    }
+
+    private fun nonzero(f: FieldM, v: Any?): Boolean = when (f.ftype) {
+        T_STRING -> (v as String).isNotEmpty()
+        T_BYTES -> (v as ByteArray).isNotEmpty()
+        T_MESSAGE -> v is Generic
+        T_BOOL -> v == true || asLong(v) != 0L
+        T_FLOAT, T_DOUBLE -> (v as Number).toDouble() != 0.0
+        else -> asLong(v) != 0L
+    }
+
+    private fun sortedFields(model: MsgM): List<FieldM> =
+        model.fields.keys.sorted().map { model.fields[it]!! }
+
+    private fun mapModel(f: FieldM, fm: FileM): MsgM? {
+        if (f.ftype != T_MESSAGE || !f.repeated) return null
+        val m = fm.messages[f.typeName]
+        return if (m != null && m.mapEntry) m else null
+    }
+
+    private fun defaultValue(f: FieldM): Any? = when (f.ftype) {
+        T_STRING -> ""
+        T_BYTES -> ByteArray(0)
+        T_BOOL -> false
+        T_FLOAT, T_DOUBLE -> 0.0
+        T_MESSAGE -> Generic(null)
+        else -> 0L
+    }
+
+    private fun keyCmp(kf: FieldM, a: Any?, b: Any?): Int {
+        if (kf.ftype == T_STRING) return (a as String).compareTo(b as String)
+        if (kf.ftype == T_BOOL || kf.ftype == T_UINT32 || kf.ftype == T_UINT64 ||
+            kf.ftype == T_FIXED32 || kf.ftype == T_FIXED64) {
+            val av = asLong(a) xor Long.MIN_VALUE
+            val bv = asLong(b) xor Long.MIN_VALUE
+            return av.compareTo(bv)
+        }
+        return asLong(a).compareTo(asLong(b))
+    }
+
+    private fun mapEntries(f: FieldM, values: List<Any?>, em: MsgM): List<Pair<Any?, Any?>> {
+        val kf = em.fields[1]!!
+        val vf = em.fields[2]!!
+        val entries = values.map { e ->
+            val entry = e as Generic
+            val key = entry.get(1) ?: throw fail("map field ${f.name} entry missing key")
+            val v = entry.get(2)
+            Pair<Any?, Any?>(key, v ?: defaultValue(vf))
+        }
+        return entries.sortedWith(Comparator { x, y -> keyCmp(kf, x.first, y.first) })
+    }
+
+    private fun valueSize(f: FieldM, v: Any?, fm: FileM): Int = when (f.ftype) {
+        T_STRING, T_BYTES -> bytesOf(f, v).size
+        T_MESSAGE -> encodeStruct(fm.messages[f.typeName]!!, v as Generic, fm).size
+        else -> if (isFixed32(f)) 4 else 8
+    }
+
+    private fun fieldPresent(f: FieldM, msg: Generic, fm: FileM): Boolean {
+        val values = msg.getAll(f.number)
+        if (mapModel(f, fm) != null || f.repeated) return values.isNotEmpty()
+        return values.isNotEmpty() && nonzero(f, values[0])
+    }
+
+    private fun structSize(model: MsgM, msg: Generic, fm: FileM): Int {
+        val fields = sortedFields(model)
+        val words = maxOf(1, (fields.size + 31) / 32)
+        var size = 12 + 4 * words + fields.sumOf { slotSize(it) }
+        for (f in fields) {
+            val values = msg.getAll(f.number)
+            val em = mapModel(f, fm)
+            if (em != null) {
+                val kf = em.fields[1]!!
+                val vf = em.fields[2]!!
+                for ((k, v) in mapEntries(f, values, em))
+                    size += 8 + valueSize(kf, k, fm) + valueSize(vf, v, fm)
+            } else if (f.repeated) {
+                if (values.isNotEmpty()) {
+                    if (f.ftype == T_STRING || f.ftype == T_BYTES || f.ftype == T_MESSAGE)
+                        size += 8 * values.size
+                    for (v in values) size += valueSize(f, v, fm)
+                }
+            } else if ((f.ftype == T_STRING || f.ftype == T_BYTES || f.ftype == T_MESSAGE) &&
+                fieldPresent(f, msg, fm)) {
+                size += valueSize(f, values[0], fm)
+            }
+        }
+        for (c in msg.unknown) size += c.size
+        return size
+    }
+
+    private fun putU32o(buf: ByteArray, off: Int, v: Long) {
+        buf[off] = (v and 0xff).toByte()
+        buf[off + 1] = ((v shr 8) and 0xff).toByte()
+        buf[off + 2] = ((v shr 16) and 0xff).toByte()
+        buf[off + 3] = ((v shr 24) and 0xff).toByte()
+    }
+
+    private fun putU64o(buf: ByteArray, off: Int, v: Long) {
+        for (i in 0 until 8) buf[off + i] = ((v shr (8 * i)) and 0xff).toByte()
+    }
+
+    private fun writeScalar(buf: ByteArray, off: Int, f: FieldM, v: Any?) {
+        when (f.ftype) {
+            T_FLOAT -> putU32o(buf, off, (v as Number).toFloat().toBits().toLong() and 0xffffffffL)
+            T_FIXED32 -> putU32o(buf, off, asLong(v))
+            T_SFIXED32 -> putU32o(buf, off, s32(asLong(v)))
+            T_DOUBLE -> putU64o(buf, off, (v as Number).toDouble().toBits())
+            T_FIXED64, T_SFIXED64 -> putU64o(buf, off, asLong(v))
+            T_BOOL -> buf[off] = (if (asLong(v) != 0L) 1 else 0).toByte()
+            else -> putU64o(buf, off, asLong(v))
+        }
+    }
+
+    private fun writeValue(buf: ByteArray, off: Int, f: FieldM, v: Any?, fm: FileM) {
+        when (f.ftype) {
+            T_STRING, T_BYTES -> {
+                val b = bytesOf(f, v); b.copyInto(buf, off)
+            }
+            T_MESSAGE -> {
+                val enc = encodeStruct(fm.messages[f.typeName]!!, v as Generic, fm)
+                enc.copyInto(buf, off)
+            }
+            else -> writeScalar(buf, off, f, v)
+        }
+    }
+
+    private fun encodeStruct(model: MsgM, msg: Generic, fm: FileM): ByteArray {
+        val fields = sortedFields(model)
+        val words = maxOf(1, (fields.size + 31) / 32)
+        val header = 12 + 4 * words
+        val offsets = IntArray(fields.size)
+        var cursor = header
+        for (i in fields.indices) { offsets[i] = cursor; cursor += slotSize(fields[i]) }
+        val fixedEnd = cursor
+        val buf = ByteArray(structSize(model, msg, fm))
+        "DCS1".encodeToByteArray().copyInto(buf, 0)
+        putU32o(buf, 4, buf.size.toLong())
+        putU32o(buf, 8, fingerprint(model.fullName))
+        for (i in fields.indices) {
+            if (fieldPresent(fields[i], msg, fm)) {
+                val at = 12 + 4 * (i / 32)
+                putU32o(buf, at, u32(buf, at) or (1L shl (i % 32)))
+            }
+        }
+        var vp = fixedEnd
+        for (i in fields.indices) {
+            val f = fields[i]
+            val off = offsets[i]
+            val values = msg.getAll(f.number)
+            val em = mapModel(f, fm)
+            if (em != null) {
+                if (values.isNotEmpty()) {
+                    val kf = em.fields[1]!!
+                    val vf = em.fields[2]!!
+                    putU32o(buf, off, vp.toLong())
+                    putU32o(buf, off + 4, values.size.toLong())
+                    for ((k, v) in mapEntries(f, values, em)) {
+                        val klen = valueSize(kf, k, fm)
+                        val vlen = valueSize(vf, v, fm)
+                        putU32o(buf, vp, klen.toLong()); putU32o(buf, vp + 4, vlen.toLong()); vp += 8
+                        writeValue(buf, vp, kf, k, fm); vp += klen
+                        writeValue(buf, vp, vf, v, fm); vp += vlen
+                    }
+                }
+            } else if (f.repeated) {
+                if (values.isNotEmpty()) {
+                    putU32o(buf, off, vp.toLong())
+                    putU32o(buf, off + 4, values.size.toLong())
+                    if (f.ftype == T_STRING || f.ftype == T_BYTES || f.ftype == T_MESSAGE) {
+                        var doff = vp + 8 * values.size
+                        for (v in values) {
+                            putU32o(buf, vp, doff.toLong()); putU32o(buf, vp + 4, valueSize(f, v, fm).toLong())
+                            doff += valueSize(f, v, fm); vp += 8
+                        }
+                        for (v in values) { writeValue(buf, vp, f, v, fm); vp += valueSize(f, v, fm) }
+                    } else {
+                        for (v in values) { writeScalar(buf, vp, f, v); vp += slotSize(f) }
+                    }
+                }
+            } else if (f.ftype == T_STRING || f.ftype == T_BYTES || f.ftype == T_MESSAGE) {
+                if (fieldPresent(f, msg, fm)) {
+                    putU32o(buf, off, vp.toLong())
+                    putU32o(buf, off + 4, valueSize(f, values[0], fm).toLong())
+                    writeValue(buf, vp, f, values[0], fm)
+                    vp += valueSize(f, values[0], fm)
+                }
+            } else if (fieldPresent(f, msg, fm)) {
+                writeScalar(buf, off, f, values[0])
+            }
+        }
+        for (chunk in msg.unknown) {
+            chunk.copyInto(buf, vp); vp += chunk.size
+        }
+        return buf
+    }
+
+    private fun readScalar(data: ByteArray, off: Int, f: FieldM): Any? = when (f.ftype) {
+        T_FLOAT -> Float.fromBits(u32(data, off).toInt()).toDouble()
+        T_FIXED32 -> u32(data, off)
+        T_SFIXED32 -> u32(data, off).toInt().toLong()
+        T_DOUBLE -> Double.fromBits(u64(data, off))
+        T_FIXED64, T_SFIXED64 -> u64(data, off)
+        T_BOOL -> data[off].toInt() != 0
+        T_ENUM, T_INT32, T_SINT32 -> s32(u64(data, off))
+        T_INT64, T_SINT64 -> u64(data, off)
+        T_UINT32 -> u64(data, off) and 0xffffffffL
+        else -> u64(data, off)
+    }
+
+    private fun readValue(data: ByteArray, off: Int, len: Int, f: FieldM, fm: FileM): Any? {
+        if (off + len > data.size) throw fail("struct codec: out of bounds")
+        return when (f.ftype) {
+            T_STRING -> data.copyOfRange(off, off + len).decodeToString()
+            T_BYTES -> data.copyOfRange(off, off + len)
+            T_MESSAGE -> {
+                if (len == 0) Generic(null)
+                else decodeStruct(fm.messages[f.typeName]!!, data.copyOfRange(off, off + len), fm)
+            }
+            else -> readScalar(data, off, f)
+        }
+    }
+
+    private fun decodeStruct(model: MsgM, data: ByteArray, fm: FileM): Generic {
+        val fields = sortedFields(model)
+        val words = maxOf(1, (fields.size + 31) / 32)
+        val header = 12 + 4 * words
+        if (data.size < header || data.copyOfRange(0, 4).decodeToString() != "DCS1")
+            throw fail("struct codec: bad header")
+        if (u32(data, 8) != fingerprint(model.fullName)) throw fail("struct codec: schema fingerprint mismatch")
+        if (u32(data, 4) != data.size.toLong()) throw fail("struct codec: length mismatch")
+        val offsets = IntArray(fields.size)
+        var cursor = header
+        for (i in fields.indices) { offsets[i] = cursor; cursor += slotSize(fields[i]) }
+        val msg = Generic(model)
+        var vend = cursor
+        for (i in fields.indices) {
+            if (u32(data, 12 + 4 * (i / 32)) and (1L shl (i % 32)) == 0L) continue
+            val f = fields[i]
+            val off = offsets[i]
+            val em = mapModel(f, fm)
+            if (em != null) {
+                val kf = em.fields[1]!!
+                val vf = em.fields[2]!!
+                val base = u32(data, off).toInt()
+                val n = u32(data, off + 4).toInt()
+                var p = base
+                for (j in 0 until n) {
+                    val kl = u32(data, p).toInt(); val vl = u32(data, p + 4).toInt(); p += 8
+                    val key = readValue(data, p, kl, kf, fm)
+                    val v = readValue(data, p + kl, vl, vf, fm)
+                    val entry = Generic(em); entry.set(1, key); entry.set(2, v)
+                    msg.add(f.number, entry)
+                    p += kl + vl
+                }
+                vend = maxOf(vend, p)
+            } else if (f.repeated) {
+                val base = u32(data, off).toInt()
+                val n = u32(data, off + 4).toInt()
+                if (f.ftype == T_STRING || f.ftype == T_BYTES || f.ftype == T_MESSAGE) {
+                    for (j in 0 until n) {
+                        val eo = u32(data, base + 8 * j).toInt(); val el = u32(data, base + 8 * j + 4).toInt()
+                        if (el > 0 || f.ftype != T_MESSAGE) msg.add(f.number, readValue(data, eo, el, f, fm))
+                        vend = maxOf(vend, eo + el)
+                    }
+                } else {
+                    for (j in 0 until n) msg.add(f.number, readScalar(data, base + j * slotSize(f), f))
+                    vend = maxOf(vend, base + n * slotSize(f))
+                }
+            } else if (f.ftype == T_STRING || f.ftype == T_BYTES || f.ftype == T_MESSAGE) {
+                val base = u32(data, off).toInt(); val len = u32(data, off + 4).toInt()
+                msg.add(f.number, readValue(data, base, len, f, fm))
+                vend = maxOf(vend, base + len)
+            } else {
+                msg.add(f.number, readScalar(data, off, f))
+            }
+        }
+        if (vend < data.size) msg.unknown.add(data.copyOfRange(vend, data.size))
+        return msg
+    }
+
+    private val cache = mutableMapOf<List<Byte>, FileM>()
+
+    fun transcode(descriptor: ByteArray, typeName: String, data: ByteArray, encode: Boolean): ByteArray {
+        val key = descriptor.toList()
+        val fm = cache.getOrPut(key) { parseDescriptorSet(descriptor) }
+        val model = fm.messages[typeName] ?: fm.messages["." + typeName]
+            ?: throw fail("unknown message type $typeName")
+        return if (encode) encodeStruct(model, decodeGenericS(model, data, fm), fm)
+        else encodeGeneric(model, decodeStruct(model, data, fm), fm)
+    }
+}
+GRPC_RUNTIME_EOF
+)
+
 (define (emit-kotlin-runtime-files)
   (list
    (cons "grpcdc/Status.kt" kotlin-status-body)
@@ -2445,4 +3168,5 @@ class GrpcdcQueue<T> {
              (cons "import java.io.EOFException\nimport java.util.concurrent.LinkedBlockingQueue\n" "")
              (cons "@Volatile\n" "")
              (cons "data.clone()" "data.copyOf()")
-             (cons "LinkedBlockingQueue<Any>" "GrpcdcQueue<Any>"))))))
+             (cons "LinkedBlockingQueue<Any>" "GrpcdcQueue<Any>"))))
+   (cons "grpcdc/StructDc.kt" kotlin-structdc-pure-body)))

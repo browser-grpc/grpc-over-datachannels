@@ -1004,7 +1004,7 @@ test-kotlin-wasm-browser:
 		-ir-output-dir wasm/kotlin/build -ir-output-name echo_kotlin \
 		-module-kind es -target es2015 -main noCall -Xir-produce-klib-file \
 		wasm/kotlin/bridge.kt wasm/kotlin/Pb.kt \
-		wasm/kotlin/grpcdc/Transport.kt wasm/kotlin/grpcdc/Status.kt wasm/kotlin/grpcdc/Wire.kt \
+		wasm/kotlin/grpcdc/Transport.kt wasm/kotlin/grpcdc/Status.kt wasm/kotlin/grpcdc/Wire.kt wasm/kotlin/grpcdc/StructDc.kt \
 		wasm/kotlin/EchoMessages.kt wasm/kotlin/EchoWasmGrpcDc.kt \
 		wasm/kotlin/echo_client.kt wasm/kotlin/echo_server_facade.kt
 	$(KOTLINC_JS) -Xwasm -Xwasm-target=wasm-js \
