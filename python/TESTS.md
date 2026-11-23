@@ -37,6 +37,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`test_pb_messages.py`](tests/test_pb_messages.py) — Generated suite/example
 - [`test_sidecar_direct.py`](tests/test_sidecar_direct.py) — WebRTC-Direct example/test
 - [`test_sidecar_multi.py`](tests/test_sidecar_multi.py) — Sidecar transport
+- [`test_struct_codec.py`](tests/test_struct_codec.py) — Wire codec vectors
 - [`test_trace_option.py`](tests/test_trace_option.py) — Tracing: traceparent propagation, span observers, nested calls
 - [`test_tracing.py`](tests/test_tracing.py) — Tracing: traceparent propagation, span observers, nested calls
 

@@ -12,7 +12,7 @@ CORPUS = os.path.join(ROOT, "conformance", "struct")
 PROTO = os.path.join(CORPUS, "msgs.proto")
 GOLDEN = open(os.path.join(CORPUS, "golden.hex")).read().strip()
 
-ADMITTED = ["go", "rust", "rust-shared", "java", "kotlin", "scala", "swift", "dart", "csharp", "c", "cpp", "zig", "js", "python", "lua", "php", "ruby"]
+ADMITTED = ["go", "rust", "rust-shared", "java", "kotlin", "scala", "swift", "dart", "csharp", "c", "cpp", "zig", "js", "python", "lua", "php", "ruby", "dart-pure"]
 
 
 def run(*args, **kw):
@@ -151,6 +151,19 @@ def check_swift(tmp):
     run(out, GOLDEN)
 
 
+def check_dart_pure(tmp):
+    # The Wasm (no-FFI) Dart engine: stub companions over
+    # grpcdc/structdc.dart, byte-identical to the Go golden.
+    gen = os.path.join(tmp, "gen"); protoc("dart", gen)
+    app = os.path.join(tmp, "app"); os.makedirs(app)
+    for n in os.listdir(gen):
+        if n.endswith(".dart") and "grpc_dc" not in n:
+            shutil.copy(os.path.join(gen, n), app)
+    shutil.copy(os.path.join(CORPUS, "drivers", "dart-pure", "main.dart"), app)
+    os.symlink(os.path.join(ROOT, "dart", "grpcdc"), os.path.join(tmp, "grpcdc"))
+    run("dart", os.path.join(app, "main.dart"), GOLDEN)
+
+
 def check_dart(tmp):
     gen = os.path.join(tmp, "gen"); protoc("dart", gen)
     app = os.path.join(tmp, "app"); os.makedirs(app)
@@ -285,7 +298,7 @@ def check_rust_shared(tmp):
 CHECKS = {"go": check_go, "rust": check_rust, "rust-shared": check_rust_shared, "java": check_java,
           "kotlin": check_kotlin, "scala": check_scala, "swift": check_swift,
           "dart": check_dart, "csharp": check_csharp, "c": check_c, "js": check_js, "python": check_python,
-          "cpp": check_cpp, "zig": check_zig, "lua": check_lua, "php": check_php, "ruby": check_ruby}
+          "cpp": check_cpp, "zig": check_zig, "lua": check_lua, "php": check_php, "ruby": check_ruby, "dart-pure": check_dart_pure}
 
 
 def main():

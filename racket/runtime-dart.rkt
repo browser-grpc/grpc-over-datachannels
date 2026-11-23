@@ -1343,6 +1343,7 @@ class MessageModel {
   final String fullName;
   final fields = <int, FieldModel>{};
   final byName = <String, int>{};
+  bool mapEntry = false;
 
   MessageModel(this.fullName);
 }
@@ -1551,9 +1552,11 @@ int _wireType(int type) {
 
 void _encodeVarint(BytesBuilder out, int value) {
   var v = value;
+  // Unsigned shift: a signed (negative) value must still
+  // terminate, emitting the 10-byte two's-complement varint.
   while ((v & ~0x7f) != 0) {
     out.addByte((v & 0x7f) | 0x80);
-    v >>= 7;
+    v >>>= 7;
   }
   out.addByte(v & 0xff);
 }
@@ -1764,10 +1767,23 @@ FileModel parseDescriptorSet(List<int> data) {
   return file;
 }
 
+bool _parseMapEntry(Uint8List? options) {
+  if (options == null) return false;
+  final reader = _PbReader(options);
+  while (true) {
+    final f = reader.next();
+    if (f == null) break;
+    // MessageOptions.map_entry (field 7) marks map entries.
+    if (f.number == 7 && f.varint != 0) return true;
+  }
+  return false;
+}
+
 void _parseMessage(String prefix, Uint8List data, FileModel file) {
   var name = '';
   final rawFields = <Uint8List>[];
   final nested = <Uint8List>[];
+  Uint8List? options;
   final reader = _PbReader(data);
   while (true) {
     final f = reader.next();
@@ -1782,10 +1798,14 @@ void _parseMessage(String prefix, Uint8List data, FileModel file) {
       case 3:
         nested.add(f.bytes);
         break;
+      case 7:
+        options = f.bytes;
+        break;
     }
   }
   final fullName = prefix.isEmpty ? name : '$prefix.$name';
   final model = MessageModel(fullName);
+  model.mapEntry = _parseMapEntry(options);
   for (final fieldBytes in rawFields) {
     final field = _parseField(fieldBytes);
     model.byName[field.name] = field.number;
@@ -2422,4 +2442,627 @@ GRPC_RUNTIME_EOF
    (cons "grpcdc/web_transport.dart" dart-web-body)
    (cons "grpcdc/sidecar_transport.dart" dart-sidecar-body)
    (cons "grpcdc/kafka_native.dart" dart-kafka-native-body)
-   (cons "grpcdc/dynamic.dart" dart-dynamic-body)))
+   (cons "grpcdc/dynamic.dart" dart-dynamic-body)
+   (cons "grpcdc/structdc.dart" dart-structdc-body)))
+
+(define dart-structdc-body
+#<<GRPC_RUNTIME_EOF
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'dynamic.dart';
+import 'status.dart';
+import 'wire.dart';
+
+// Descriptor-driven struct codec (layout v1, DCS1): the packed
+// struct format from SPEC.md, implemented over the dynamic
+// model (dynamic.dart) so Wasm builds transcode protobuf <->
+// struct without the native FFI bridge. Byte-identical to the
+// shared Rust implementation (conformance/struct).
+
+StatusException _fail(String msg) =>
+    StatusException(Wire.codeInvalidArgument, msg);
+
+int _fingerprint(String fullName) {
+  var h = 2166136261;
+  for (final b in utf8.encode(fullName)) {
+    h = ((h ^ b) * 16777619) & 0xffffffff;
+  }
+  return h;
+}
+
+bool _isFixed32(FieldModel f) =>
+    f.type == typeFloat || f.type == typeFixed32 || f.type == typeSfixed32;
+
+int _slotSize(FieldModel f) => _isFixed32(f) ? 4 : 8;
+
+int _s32(int v) {
+  v &= 0xffffffff;
+  return v >= 0x80000000 ? v - 0x100000000 : v;
+}
+
+int _asI64(Object? v) {
+  if (v is bool) return v ? 1 : 0;
+  if (v is num) return v.toInt();
+  return 0;
+}
+
+Uint8List _bytesOf(FieldModel f, Object? v) {
+  if (v is String) return Uint8List.fromList(utf8.encode(v));
+  if (v is Uint8List) return v;
+  if (v is List<int>) return Uint8List.fromList(v);
+  throw _fail('value does not match field ${f.name} type ${f.type}');
+}
+
+bool _nonzero(FieldModel f, Object? v) {
+  switch (f.type) {
+    case typeString:
+    case typeBytes:
+      return v is List && v.isNotEmpty || (v is String && v.isNotEmpty);
+    case typeMessage:
+      return v is GenericMessage;
+    case typeBool:
+      return v == true || _asI64(v) != 0;
+    case typeFloat:
+    case typeDouble:
+      return (v is num ? v.toDouble() : 0.0) != 0.0;
+    default:
+      return _asI64(v) != 0;
+  }
+}
+
+List<FieldModel> _sortedFields(MessageModel model) {
+  final nums = model.fields.keys.toList()..sort();
+  return [for (final n in nums) model.fields[n]!];
+}
+
+MessageModel? _mapModel(FieldModel f, FileModel fm) {
+  if (f.type != typeMessage || !f.repeated) return null;
+  final m = fm.messages[f.typeName];
+  return (m != null && m.mapEntry) ? m : null;
+}
+
+bool _isMap(FieldModel f, FileModel fm) => _mapModel(f, fm) != null;
+
+Object? _defaultValue(FieldModel f) {
+  switch (f.type) {
+    case typeString:
+      return '';
+    case typeBytes:
+      return Uint8List(0);
+    case typeBool:
+      return false;
+    case typeFloat:
+    case typeDouble:
+      return 0.0;
+    case typeMessage:
+      return GenericMessage();
+    default:
+      return 0;
+  }
+}
+
+int _keyCmp(FieldModel kf, Object? a, Object? b) {
+  if (kf.type == typeString) return (a as String).compareTo(b as String);
+  if (kf.type == typeBool ||
+      kf.type == typeUint32 ||
+      kf.type == typeUint64 ||
+      kf.type == typeFixed32 ||
+      kf.type == typeFixed64) {
+    // Unsigned compare on the 64-bit pattern (Dart ints are signed).
+    final av = _asI64(a) ^ (-9223372036854775808);
+    final bv = _asI64(b) ^ (-9223372036854775808);
+    return av.compareTo(bv);
+  }
+  return _asI64(a).compareTo(_asI64(b));
+}
+
+List<List<Object?>> _mapEntries(
+    FieldModel f, List<Object?> values, MessageModel entryModel) {
+  final kf = entryModel.fields[1]!;
+  final vf = entryModel.fields[2]!;
+  final entries = <List<Object?>>[];
+  for (final e in values) {
+    final entry = e as GenericMessage;
+    final key = entry.get(1);
+    if (key == null) throw _fail('map field ${f.name} entry missing key');
+    entries.add([key, entry.get(2) ?? _defaultValue(vf)]);
+  }
+  entries.sort((x, y) => _keyCmp(kf, x[0], y[0]));
+  return entries;
+}
+
+int _valueSize(FieldModel f, Object? v, FileModel fm) {
+  switch (f.type) {
+    case typeString:
+    case typeBytes:
+      return _bytesOf(f, v).length;
+    case typeMessage:
+      return encodeStruct(fm.message(f.typeName), v as GenericMessage, fm)
+          .length;
+    default:
+      return _isFixed32(f) ? 4 : 8;
+  }
+}
+
+bool _fieldPresent(FieldModel f, GenericMessage msg, FileModel fm) {
+  final values = msg.values[f.number] ?? const [];
+  if (_isMap(f, fm) || f.repeated) return values.isNotEmpty;
+  return values.isNotEmpty && _nonzero(f, values[0]);
+}
+
+int _structSize(MessageModel model, GenericMessage msg, FileModel fm) {
+  final fields = _sortedFields(model);
+  final words = fields.length == 0 ? 1 : (fields.length + 31) ~/ 32;
+  var size = 12 + 4 * (words < 1 ? 1 : words);
+  for (final f in fields) {
+    size += _slotSize(f);
+  }
+  for (final f in fields) {
+    final values = msg.values[f.number] ?? const [];
+    if (_isMap(f, fm)) {
+      final em = _mapModel(f, fm)!;
+      final kf = em.fields[1]!;
+      final vf = em.fields[2]!;
+      for (final kv in _mapEntries(f, values.cast<Object?>(), em)) {
+        size += 8 + _valueSize(kf, kv[0], fm) + _valueSize(vf, kv[1], fm);
+      }
+    } else if (f.repeated) {
+      if (values.isEmpty) continue;
+      if (f.type == typeString || f.type == typeBytes || f.type == typeMessage) {
+        size += 8 * values.length;
+      }
+      for (final v in values) {
+        size += _valueSize(f, v, fm);
+      }
+    } else if ((f.type == typeString ||
+            f.type == typeBytes ||
+            f.type == typeMessage) &&
+        _fieldPresent(f, msg, fm)) {
+      size += _valueSize(f, values[0], fm);
+    }
+  }
+  for (final c in msg.unknown) {
+    size += c.length;
+  }
+  return size;
+}
+
+void _putU32(Uint8List buf, int off, int v) {
+  ByteData.sublistView(buf).setUint32(off, v & 0xffffffff, Endian.little);
+}
+
+void _putU64(Uint8List buf, int off, int v) {
+  ByteData.sublistView(buf).setInt64(off, v, Endian.little);
+}
+
+int _getU32(Uint8List data, int off) {
+  if (off + 4 > data.length) throw _fail('struct codec: out of bounds');
+  return ByteData.sublistView(data).getUint32(off, Endian.little);
+}
+
+int _getU64(Uint8List data, int off) {
+  if (off + 8 > data.length) throw _fail('struct codec: out of bounds');
+  return ByteData.sublistView(data).getInt64(off, Endian.little);
+}
+
+void _writeScalar(Uint8List buf, int off, FieldModel f, Object? v) {
+  final bd = ByteData.sublistView(buf);
+  switch (f.type) {
+    case typeFloat:
+      bd.setFloat32(off, (v as num).toDouble(), Endian.little);
+      break;
+    case typeFixed32:
+      _putU32(buf, off, _asI64(v));
+      break;
+    case typeSfixed32:
+      _putU32(buf, off, _s32(_asI64(v)));
+      break;
+    case typeDouble:
+      bd.setFloat64(off, (v as num).toDouble(), Endian.little);
+      break;
+    case typeFixed64:
+    case typeSfixed64:
+      _putU64(buf, off, _asI64(v));
+      break;
+    case typeBool:
+      buf[off] = _asI64(v) != 0 ? 1 : 0;
+      break;
+    default:
+      _putU64(buf, off, _asI64(v));
+  }
+}
+
+void _writeValue(
+    Uint8List buf, int off, FieldModel f, Object? v, FileModel fm) {
+  switch (f.type) {
+    case typeString:
+    case typeBytes:
+      final b = _bytesOf(f, v);
+      buf.setRange(off, off + b.length, b);
+      break;
+    case typeMessage:
+      final enc = encodeStruct(fm.message(f.typeName), v as GenericMessage, fm);
+      buf.setRange(off, off + enc.length, enc);
+      break;
+    default:
+      _writeScalar(buf, off, f, v);
+  }
+}
+
+/// Encode [msg] (a dynamic-model message) in DCS1 struct layout.
+Uint8List encodeStruct(MessageModel model, GenericMessage msg, FileModel fm) {
+  final fields = _sortedFields(model);
+  var words = (fields.length + 31) ~/ 32;
+  if (words < 1) words = 1;
+  final header = 12 + 4 * words;
+  final offsets = <int>[];
+  var cursor = header;
+  for (final f in fields) {
+    offsets.add(cursor);
+    cursor += _slotSize(f);
+  }
+  final fixedEnd = cursor;
+  final buf = Uint8List(_structSize(model, msg, fm));
+  buf.setRange(0, 4, utf8.encode('DCS1'));
+  _putU32(buf, 4, buf.length);
+  _putU32(buf, 8, _fingerprint(model.fullName));
+  for (var i = 0; i < fields.length; i++) {
+    if (_fieldPresent(fields[i], msg, fm)) {
+      final at = 12 + 4 * (i ~/ 32);
+      _putU32(buf, at, _getU32(buf, at) | (1 << (i % 32)));
+    }
+  }
+  var vp = fixedEnd;
+  for (var i = 0; i < fields.length; i++) {
+    final f = fields[i];
+    final off = offsets[i];
+    final values = msg.values[f.number] ?? const <Object?>[];
+    if (_isMap(f, fm)) {
+      if (values.isEmpty) continue;
+      final em = _mapModel(f, fm)!;
+      final kf = em.fields[1]!;
+      final vf = em.fields[2]!;
+      _putU32(buf, off, vp);
+      _putU32(buf, off + 4, values.length);
+      for (final kv in _mapEntries(f, values, em)) {
+        final klen = _valueSize(kf, kv[0], fm);
+        final vlen = _valueSize(vf, kv[1], fm);
+        _putU32(buf, vp, klen);
+        _putU32(buf, vp + 4, vlen);
+        vp += 8;
+        _writeValue(buf, vp, kf, kv[0], fm);
+        vp += klen;
+        _writeValue(buf, vp, vf, kv[1], fm);
+        vp += vlen;
+      }
+    } else if (f.repeated) {
+      if (values.isEmpty) continue;
+      _putU32(buf, off, vp);
+      _putU32(buf, off + 4, values.length);
+      if (f.type == typeString || f.type == typeBytes || f.type == typeMessage) {
+        var doff = vp + 8 * values.length;
+        for (final v in values) {
+          _putU32(buf, vp, doff);
+          _putU32(buf, vp + 4, _valueSize(f, v, fm));
+          doff += _valueSize(f, v, fm);
+          vp += 8;
+        }
+        for (final v in values) {
+          _writeValue(buf, vp, f, v, fm);
+          vp += _valueSize(f, v, fm);
+        }
+      } else {
+        for (final v in values) {
+          _writeScalar(buf, vp, f, v);
+          vp += _slotSize(f);
+        }
+      }
+    } else if (f.type == typeString ||
+        f.type == typeBytes ||
+        f.type == typeMessage) {
+      if (!_fieldPresent(f, msg, fm)) continue;
+      _putU32(buf, off, vp);
+      _putU32(buf, off + 4, _valueSize(f, values[0], fm));
+      _writeValue(buf, vp, f, values[0], fm);
+      vp += _valueSize(f, values[0], fm);
+    } else if (_fieldPresent(f, msg, fm)) {
+      _writeScalar(buf, off, f, values[0]);
+    }
+  }
+  for (final chunk in msg.unknown) {
+    buf.setRange(vp, vp + chunk.length, chunk);
+    vp += chunk.length;
+  }
+  return buf;
+}
+
+Object? _readScalar(Uint8List data, int off, FieldModel f) {
+  final bd = ByteData.sublistView(data);
+  switch (f.type) {
+    case typeFloat:
+      return bd.getFloat32(off, Endian.little).toDouble();
+    case typeFixed32:
+      return _getU32(data, off);
+    case typeSfixed32:
+      return _s32(_getU32(data, off));
+    case typeDouble:
+      return bd.getFloat64(off, Endian.little);
+    case typeFixed64:
+    case typeSfixed64:
+      return _getU64(data, off);
+    case typeBool:
+      return data[off] != 0;
+    case typeEnum:
+    case typeInt32:
+    case typeSint32:
+      return _s32(_getU64(data, off));
+    case typeInt64:
+    case typeSint64:
+      return _getU64(data, off);
+    case typeUint32:
+      return _getU64(data, off) & 0xffffffff;
+    default:
+      return _getU64(data, off);
+  }
+}
+
+Object? _readValue(
+    Uint8List data, int off, int len, FieldModel f, FileModel fm) {
+  if (off + len > data.length) throw _fail('struct codec: out of bounds');
+  final raw = Uint8List.sublistView(data, off, off + len);
+  switch (f.type) {
+    case typeString:
+      return utf8.decode(raw);
+    case typeBytes:
+      return Uint8List.fromList(raw);
+    case typeMessage:
+      if (len == 0) return GenericMessage();
+      return decodeStruct(
+          fm.message(f.typeName), Uint8List.fromList(raw), fm);
+    default:
+      return _readScalar(data, off, f);
+  }
+}
+
+/// Decode DCS1 struct bytes into a dynamic-model message.
+GenericMessage decodeStruct(MessageModel model, Uint8List data, FileModel fm) {
+  final fields = _sortedFields(model);
+  var words = (fields.length + 31) ~/ 32;
+  if (words < 1) words = 1;
+  final header = 12 + 4 * words;
+  if (data.length < header || utf8.decode(data.sublist(0, 4)) != 'DCS1') {
+    throw _fail('struct codec: bad header');
+  }
+  if (_getU32(data, 8) != _fingerprint(model.fullName)) {
+    throw _fail('struct codec: schema fingerprint mismatch');
+  }
+  if (_getU32(data, 4) != data.length) {
+    throw _fail('struct codec: length mismatch');
+  }
+  final offsets = <int>[];
+  var cursor = header;
+  for (final f in fields) {
+    offsets.add(cursor);
+    cursor += _slotSize(f);
+  }
+  final msg = GenericMessage(model);
+  var vend = cursor;
+  for (var i = 0; i < fields.length; i++) {
+    if ((_getU32(data, 12 + 4 * (i ~/ 32)) & (1 << (i % 32))) == 0) continue;
+    final f = fields[i];
+    final off = offsets[i];
+    if (_isMap(f, fm)) {
+      final em = _mapModel(f, fm)!;
+      final kf = em.fields[1]!;
+      final vf = em.fields[2]!;
+      final base = _getU32(data, off);
+      final n = _getU32(data, off + 4);
+      var p = base;
+      for (var j = 0; j < n; j++) {
+        final kl = _getU32(data, p);
+        final vl = _getU32(data, p + 4);
+        p += 8;
+        final key = _readValue(data, p, kl, kf, fm);
+        final val = _readValue(data, p + kl, vl, vf, fm);
+        final entry = GenericMessage(em);
+        entry.set(1, key);
+        entry.set(2, val);
+        msg.add(f.number, entry);
+        p += kl + vl;
+      }
+      if (p > vend) vend = p;
+    } else if (f.repeated) {
+      final base = _getU32(data, off);
+      final n = _getU32(data, off + 4);
+      if (f.type == typeString || f.type == typeBytes || f.type == typeMessage) {
+        for (var j = 0; j < n; j++) {
+          final eo = _getU32(data, base + 8 * j);
+          final el = _getU32(data, base + 8 * j + 4);
+          if (el > 0 || f.type != typeMessage) {
+            msg.add(f.number, _readValue(data, eo, el, f, fm));
+          }
+          if (eo + el > vend) vend = eo + el;
+        }
+      } else {
+        for (var j = 0; j < n; j++) {
+          msg.add(f.number, _readScalar(data, base + j * _slotSize(f), f));
+        }
+        if (base + n * _slotSize(f) > vend) vend = base + n * _slotSize(f);
+      }
+    } else if (f.type == typeString ||
+        f.type == typeBytes ||
+        f.type == typeMessage) {
+      final base = _getU32(data, off);
+      final len = _getU32(data, off + 4);
+      msg.add(f.number, _readValue(data, base, len, f, fm));
+      if (base + len > vend) vend = base + len;
+    } else {
+      msg.add(f.number, _readScalar(data, off, f));
+    }
+  }
+  if (vend < data.length) {
+    msg.unknown.add(Uint8List.fromList(data.sublist(vend)));
+  }
+  return msg;
+}
+
+int _zigzagDecode(int v) => (v >> 1) ^ -(v & 1);
+
+Object? _decodeValueS(FieldModel f, int wire, Object? raw, FileModel fm) {
+  if (wire == 0) {
+    final v = raw as int;
+    switch (f.type) {
+      case typeBool:
+        return v != 0;
+      case typeSint32:
+      case typeSint64:
+        return _zigzagDecode(v);
+      case typeInt32:
+      case typeEnum:
+        return _s32(v);
+      case typeInt64:
+        return v;
+      case typeUint32:
+        return v & 0xffffffff;
+      default:
+        return v;
+    }
+  }
+  if (wire == 1) {
+    final b = raw as Uint8List;
+    final bd = ByteData.sublistView(b);
+    if (f.type == typeDouble) return bd.getFloat64(0, Endian.little);
+    return bd.getInt64(0, Endian.little);
+  }
+  if (wire == 5) {
+    final b = raw as Uint8List;
+    final bd = ByteData.sublistView(b);
+    if (f.type == typeFloat) return bd.getFloat32(0, Endian.little).toDouble();
+    if (f.type == typeSfixed32) return bd.getInt32(0, Endian.little);
+    return bd.getUint32(0, Endian.little);
+  }
+  final b = raw as Uint8List;
+  switch (f.type) {
+    case typeString:
+      return utf8.decode(b);
+    case typeMessage:
+      return decodeGenericS(fm.message(f.typeName), b, fm);
+    default:
+      return b;
+  }
+}
+
+class _SReader {
+  final Uint8List buf;
+  var pos = 0;
+  _SReader(this.buf);
+  int varint() {
+    var result = 0;
+    var shift = 0;
+    while (true) {
+      if (pos >= buf.length) throw _fail('truncated varint');
+      final b = buf[pos++];
+      result |= (b & 0x7f) << shift;
+      if (b & 0x80 == 0) return result;
+      shift += 7;
+      if (shift >= 70) throw _fail('varint too long');
+    }
+  }
+
+  Uint8List take(int n) {
+    if (pos + n > buf.length) throw _fail('truncated field');
+    final out = Uint8List.fromList(buf.sublist(pos, pos + n));
+    pos += n;
+    return out;
+  }
+}
+
+List<Object?> _decodePacked(FieldModel f, Uint8List data, FileModel fm) {
+  final out = <Object?>[];
+  if (f.type == typeDouble || f.type == typeFixed64 || f.type == typeSfixed64) {
+    for (var i = 0; i + 8 <= data.length; i += 8) {
+      out.add(_decodeValueS(
+          f, 1, Uint8List.fromList(data.sublist(i, i + 8)), fm));
+    }
+  } else if (f.type == typeFloat ||
+      f.type == typeFixed32 ||
+      f.type == typeSfixed32) {
+    for (var i = 0; i + 4 <= data.length; i += 4) {
+      out.add(_decodeValueS(
+          f, 5, Uint8List.fromList(data.sublist(i, i + 4)), fm));
+    }
+  } else {
+    final r = _SReader(data);
+    while (r.pos < data.length) {
+      out.add(_decodeValueS(f, 0, r.varint(), fm));
+    }
+  }
+  return out;
+}
+
+/// Protobuf decode into the dynamic model, with packed-repeated
+/// handling (the struct engine's side of the transcode).
+GenericMessage decodeGenericS(MessageModel model, Uint8List data, FileModel fm) {
+  final msg = GenericMessage(model);
+  final r = _SReader(data);
+  while (r.pos < data.length) {
+    final start = r.pos;
+    final tag = r.varint();
+    final number = tag >> 3;
+    final wire = tag & 7;
+    Object? raw;
+    if (wire == 0) {
+      raw = r.varint();
+    } else if (wire == 2) {
+      raw = r.take(r.varint());
+    } else if (wire == 1) {
+      raw = r.take(8);
+    } else if (wire == 5) {
+      raw = r.take(4);
+    } else {
+      throw _fail('unsupported wire type $wire');
+    }
+    final chunk = Uint8List.fromList(data.sublist(start, r.pos));
+    final f = model.fields[number];
+    if (f == null) {
+      msg.unknown.add(chunk);
+      continue;
+    }
+    if (f.repeated &&
+        wire == 2 &&
+        f.type != typeString &&
+        f.type != typeBytes &&
+        f.type != typeMessage &&
+        f.type != typeGroup) {
+      for (final v in _decodePacked(f, raw as Uint8List, fm)) {
+        msg.add(number, v);
+      }
+      continue;
+    }
+    msg.add(number, _decodeValueS(f, wire, raw, fm));
+  }
+  return msg;
+}
+
+final _descriptorCache = <String, FileModel>{};
+
+/// Transcode protobuf <-> struct bytes for [typeName] under the
+/// FileDescriptorSet bytes [descriptor].
+Uint8List transcodeStruct(
+    List<int> descriptor, String typeName, Uint8List data, bool encode) {
+  final key = descriptor.join(',');
+  var fm = _descriptorCache[key];
+  if (fm == null) {
+    fm = parseDescriptorSet(descriptor);
+    _descriptorCache[key] = fm;
+  }
+  final model = fm.messages[typeName] ?? fm.messages['.$typeName'];
+  if (model == null) throw _fail('unknown message type $typeName');
+  if (encode) {
+    return encodeStruct(model, decodeGenericS(model, data, fm), fm);
+  }
+  return encodeGeneric(model, decodeStruct(model, data, fm), fm);
+}
+GRPC_RUNTIME_EOF
+)

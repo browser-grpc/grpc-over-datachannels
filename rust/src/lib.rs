@@ -23,7 +23,8 @@ pub mod channel;
 pub mod codec;
 pub mod dynamic;
 pub mod structdc;
-#[cfg(not(target_arch = "wasm32"))]
+// The C ABI is also built for wasm32: crates/dc-structdc-wasm
+// links it as a staticlib into other languages' Wasm builds.
 pub mod structdc_ffi;
 pub mod endpoint;
 pub mod eventbus;
