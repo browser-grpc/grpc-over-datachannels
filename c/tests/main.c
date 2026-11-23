@@ -2168,6 +2168,20 @@ static void test_interop_server_oracle(void) {
            so that case is out of model for this runtime. */
         printf("interop B case SKIP: orca_oob (go client; generated C server is single-stream, ORCA OOB needs concurrent streams)\n");
     }
+    char dart_client[1024];
+    snprintf(dart_client, sizeof(dart_client), "%s/oracle/dart-interop/interop-client", root);
+    if (!file_exists(dart_client)) {
+        printf("TestInteropServerOracle DART SKIP (dart client not built)\n");
+    } else {
+        for (size_t ci = 0; ci < sizeof(cases) / sizeof(cases[0]); ci++) {
+            const char *test_case = cases[ci];
+            char *argv[] = {dart_client, "-server_host", "127.0.0.1",
+                            "-server_port", port_str, "-test_case",
+                            (char *)test_case, NULL};
+            run_interop_client(argv, "Test completed.");
+            printf("interop B case ok: %s (dart client)\n", test_case);
+        }
+    }
     kill_child(&bridge);
     printf("TestInteropServerOracle OK\n");
 }

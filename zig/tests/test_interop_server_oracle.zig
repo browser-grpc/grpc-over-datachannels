@@ -118,6 +118,21 @@ pub fn testInteropServerOracle(alloc: std.mem.Allocator) void {
             std.debug.print("interop B case ok: {s} (go client)\n", .{test_case});
         }
     }
+    const dart_client = std.fmt.allocPrint(alloc, "{s}/oracle/dart-interop/interop-client", .{root_path}) catch unreachable;
+    if (!util.fileExists(dart_client)) {
+        std.debug.print("TestInteropServerOracle DART SKIP (dart client not built)\n", .{});
+    } else {
+        for (cases) |test_case| {
+            const out_text = runClient(alloc, &.{
+                dart_client,
+                "-server_host", "127.0.0.1",
+                "-server_port", port_str,
+                "-test_case", test_case,
+            });
+            util.check(std.mem.indexOf(u8, out_text, "Test completed.") != null, "dart case output");
+            std.debug.print("interop B case ok: {s} (dart client)\n", .{test_case});
+        }
+    }
     util.killChild(&bridge);
     std.debug.print("TestInteropServerOracle OK\n", .{});
 }
