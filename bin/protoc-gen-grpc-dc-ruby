@@ -4187,7 +4187,7 @@
   '((kind-case
      (unary
       (fmt
-       "    ~a = lambda do |ctx, reqs, sink|\n      req = reqs.recv_into(~a.new)\n      resp = impl.~a(ctx, req)\n      sink.send(resp.marshal_dc)\n    end\n\n"
+       "    ~a = lambda do |ctx, reqs, sink|\n      req = reqs.recv_into(~a.new)\n      resp = impl.~a(ctx, req)\n      sink.send(ctx.encode_message(resp))\n    end\n\n"
        (fmt "~a_handler" (rb-snake (ref name)))
        (stub-ref input-full)
        (ref impl-name)))
@@ -4199,7 +4199,7 @@
        (ref impl-name)))
      (client-streaming
       (fmt
-       "    ~a = lambda do |ctx, reqs, sink|\n      stream = ClientStreamImpl.new(ctx, reqs, ~a)\n      impl.~a(stream)\n      if stream.resp.nil?\n        raise Grpcdc::StatusError.new(Grpcdc::CODE_INTERNAL, \"client-streaming handler never called SendAndClose\")\n      end\n      sink.send(stream.resp.marshal_dc)\n    end\n\n"
+       "    ~a = lambda do |ctx, reqs, sink|\n      stream = ClientStreamImpl.new(ctx, reqs, ~a)\n      impl.~a(stream)\n      if stream.resp.nil?\n        raise Grpcdc::StatusError.new(Grpcdc::CODE_INTERNAL, \"client-streaming handler never called SendAndClose\")\n      end\n      sink.send(ctx.encode_message(stream.resp))\n    end\n\n"
        (fmt "~a_handler" (rb-snake (ref name)))
        (stub-ref input-full)
        (ref impl-name)))
@@ -4599,6 +4599,24 @@
        (each fields (call rbPbDecodeCase))
        "        else\n          @unknown_fields = @unknown_fields + raw_value\n        end\n"))
     "      end\n      self\n    end\n\n"
+    (if (struct-codec)
+      (then
+       (if (ref map-entry)
+         (then "")
+         (else
+          (fmt
+           "    def marshal_struct\n      ~aStruct.marshal(self)\n    end\n\n    def unmarshal_struct(data)\n      _s = ~aStruct.unmarshal(data)\n"
+           (flat)
+           (flat))))
+       (if (ref map-entry)
+         (then "")
+         (else
+          (each fields (fmt "      @~a = _s.~a\n" (ref name) (ref name)))))
+       (if (ref map-entry)
+         (then "")
+         (else
+          "      @unknown_fields = _s.unknown_fields\n      self\n    end\n\n")))
+      (else ""))
     (fmt
      "    def ==(other)\n      other.is_a?(~a) && ~a\n    end\n  end\n\n"
      (flat)
@@ -4694,7 +4712,7 @@
   '((kind-case
      (unary
       (fmt
-       "    ~a = function (\\Grpcdc\\CallContext $ctx, \\Grpcdc\\RequestStream $reqs, \\Grpcdc\\ResponseSink $sink) use ($impl) {\n        $req = $reqs->recvInto(new ~a());\n        $resp = $impl->~a($ctx, $req);\n        $sink->send($resp->marshalDc());\n    };\n\n"
+       "    ~a = function (\\Grpcdc\\CallContext $ctx, \\Grpcdc\\RequestStream $reqs, \\Grpcdc\\ResponseSink $sink) use ($impl) {\n        $req = $reqs->recvInto(new ~a());\n        $resp = $impl->~a($ctx, $req);\n        $sink->send($ctx->encodeMessage($resp));\n    };\n\n"
        (fmt "$~aHandler" (rb-snake (ref name)))
        (php-stub-ref input-full)
        (ref impl-name)))
@@ -4706,7 +4724,7 @@
        (ref impl-name)))
      (client-streaming
       (fmt
-       "    ~a = function (\\Grpcdc\\CallContext $ctx, \\Grpcdc\\RequestStream $reqs, \\Grpcdc\\ResponseSink $sink) use ($impl) {\n        $stream = new ClientStreamImpl($ctx, $reqs, ~a::class);\n        $impl->~a($stream);\n        if ($stream->resp === null) {\n            throw new \\Grpcdc\\StatusError(\\Grpcdc\\Wire::CODE_INTERNAL, \"client-streaming handler never called sendAndClose\");\n        }\n        $sink->send($stream->resp->marshalDc());\n    };\n\n"
+       "    ~a = function (\\Grpcdc\\CallContext $ctx, \\Grpcdc\\RequestStream $reqs, \\Grpcdc\\ResponseSink $sink) use ($impl) {\n        $stream = new ClientStreamImpl($ctx, $reqs, ~a::class);\n        $impl->~a($stream);\n        if ($stream->resp === null) {\n            throw new \\Grpcdc\\StatusError(\\Grpcdc\\Wire::CODE_INTERNAL, \"client-streaming handler never called sendAndClose\");\n        }\n        $sink->send($ctx->encodeMessage($stream->resp));\n    };\n\n"
        (fmt "$~aHandler" (rb-snake (ref name)))
        (php-stub-ref input-full)
        (ref impl-name)))
@@ -5165,6 +5183,24 @@
     "        $r = new Reader($data);\n        while (($item = $r->field()) !== null) {\n            [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;\n            switch ($num) {\n"
     (each fields (call phpPbDecodeCase))
     "                default:\n                    $this->unknownFields .= $rawValue;\n                    break;\n            }\n        }\n        return $this;\n    }\n\n"
+    (if (struct-codec)
+      (then
+       (if (ref map-entry)
+         (then "")
+         (else
+          (fmt
+           "    public function marshalStruct(): string\n    {\n        return ~aStruct::marshal($this);\n    }\n\n    public function unmarshalStruct(string $data): self\n    {\n        $_s = ~aStruct::unmarshal($data);\n"
+           (php-flat-of (ref full-name))
+           (php-flat-of (ref full-name)))
+          (each
+           fields
+           (fmt
+            "        $this->~a = $_s->~a;\n"
+            (php-field-name)
+            (php-field-name)))
+          (fmt
+           "        $this->unknownFields = $_s->unknownFields;\n        return $this;\n    }\n\n"))))
+      (else ""))
     (fmt
      "    public function equals(?object $other): bool\n    {\n        return $other instanceof ~a~a;\n    }\n}\n\n"
      (php-flat-of (ref full-name))
@@ -5265,7 +5301,7 @@
   '((kind-case
      (unary
       (fmt
-       "    def _~a_handler(ctx, reqs, sink):\n        req = reqs.recv_into(~a.~a())\n        resp = impl.~a(ctx, req)\n        sink.send(resp.marshal_dc())\n\n"
+       "    def _~a_handler(ctx, reqs, sink):\n        req = reqs.recv_into(~a.~a())\n        resp = impl.~a(ctx, req)\n        sink.send(ctx.encode_message(resp))\n\n"
        (ref name)
        (arg 0)
        (ref input)
@@ -5279,7 +5315,7 @@
        (ref impl-name)))
      (client-streaming
       (fmt
-       "    def _~a_handler(ctx, reqs, sink):\n        stream = _ClientStreamImpl(ctx, reqs, ~a.~a)\n        impl.~a(stream)\n        if stream.resp is None:\n            raise grpcdc.StatusError(grpcdc.CODE_INTERNAL, \"client-streaming handler never called SendAndClose\")\n        sink.send(stream.resp.marshal_dc())\n\n"
+       "    def _~a_handler(ctx, reqs, sink):\n        stream = _ClientStreamImpl(ctx, reqs, ~a.~a)\n        impl.~a(stream)\n        if stream.resp is None:\n            raise grpcdc.StatusError(grpcdc.CODE_INTERNAL, \"client-streaming handler never called SendAndClose\")\n        sink.send(ctx.encode_message(stream.resp))\n\n"
        (ref name)
        (arg 0)
        (ref input)
@@ -5660,6 +5696,18 @@
       (then "")
       (else
        "            else:\n                self.unknown_fields = self.unknown_fields + raw\n"))
+    (if (struct-codec)
+      (then
+       (if (ref map-entry)
+         (then "")
+         (else
+          (fmt
+           "\n    def marshal_struct(self):\n        return ~aStruct.marshal(self)\n\n    def unmarshal_struct(self, data):\n        _s = ~aStruct.unmarshal(data)\n"
+           (flat)
+           (flat))
+          (each fields (fmt "        self.~a = _s.~a\n" (ref name) (ref name)))
+          "        self.unknown_fields = _s.unknown_fields\n        return self\n")))
+      (else ""))
     (fmt
      "\n    def __eq__(self, other):\n        return isinstance(other, ~a) and self.__dict__ == other.__dict__\n"
      (flat))
@@ -9322,7 +9370,7 @@
      (unary "")
      (server-streaming
       (fmt
-       "--- Server-streaming sink passed to service implementations.\nlocal ~a~aServer = {}\n~a~aServer.__index = ~a~aServer\n\nfunction ~a~aServer.new(sink)\n  return setmetatable({ sink = sink }, ~a~aServer)\nend\n\nfunction ~a~aServer:send(resp)\n  self.sink(resp:marshalDc())\nend\n\n"
+       "--- Server-streaming sink passed to service implementations.\nlocal ~a~aServer = {}\n~a~aServer.__index = ~a~aServer\n\nfunction ~a~aServer.new(ctx, sink)\n  return setmetatable({ ctx = ctx, sink = sink }, ~a~aServer)\nend\n\nfunction ~a~aServer:send(resp)\n  self.sink(self.ctx.encodeMessage(resp))\nend\n\n"
        (svc)
        (ref name)
        (svc)
@@ -9355,7 +9403,7 @@
        (ref name)))
      (bidi
       (fmt
-       "--- Bidi stream passed to service implementations.\nlocal ~a~aServer = {}\n~a~aServer.__index = ~a~aServer\n\nfunction ~a~aServer.new(reqs, sink)\n  return setmetatable({ reqs = reqs, sink = sink }, ~a~aServer)\nend\n\nfunction ~a~aServer:send(resp)\n  self.sink(resp:marshalDc())\nend\n\nfunction ~a~aServer:recv()\n  local req = ~a.new()\n  self.reqs:recvInto(req)\n  return req\nend\n\n"
+       "--- Bidi stream passed to service implementations.\nlocal ~a~aServer = {}\n~a~aServer.__index = ~a~aServer\n\nfunction ~a~aServer.new(ctx, reqs, sink)\n  return setmetatable({ ctx = ctx, reqs = reqs, sink = sink }, ~a~aServer)\nend\n\nfunction ~a~aServer:send(resp)\n  self.sink(self.ctx.encodeMessage(resp))\nend\n\nfunction ~a~aServer:recv()\n  local req = ~a.new()\n  self.reqs:recvInto(req)\n  return req\nend\n\n"
        (svc)
        (ref name)
        (svc)
@@ -9387,7 +9435,7 @@
        'unary
        (list
         'fmt
-        "      {\n        name = ~s,\n        path = ~s,\n        kind = Server.~a,\n        handler = function(ctx, reqs, sink)\n          local req = ~a.new()\n          reqs:recvInto(req)\n          sink(impl:~a(ctx, req):marshalDc())\n        end,\n      },\n"
+        "      {\n        name = ~s,\n        path = ~s,\n        kind = Server.~a,\n        handler = function(ctx, reqs, sink)\n          local req = ~a.new()\n          reqs:recvInto(req)\n          sink(ctx.encodeMessage(impl:~a(ctx, req)))\n        end,\n      },\n"
         '(ref name)
         '(ref path)
         kind-const
@@ -9397,7 +9445,7 @@
        'server-streaming
        (list
         'fmt
-        "      {\n        name = ~s,\n        path = ~s,\n        kind = Server.~a,\n        handler = function(ctx, reqs, sink)\n          local req = ~a.new()\n          reqs:recvInto(req)\n          impl:~a(ctx, req, ~a~aServer.new(sink))\n        end,\n      },\n"
+        "      {\n        name = ~s,\n        path = ~s,\n        kind = Server.~a,\n        handler = function(ctx, reqs, sink)\n          local req = ~a.new()\n          reqs:recvInto(req)\n          impl:~a(ctx, req, ~a~aServer.new(ctx, sink))\n        end,\n      },\n"
         '(ref name)
         '(ref path)
         kind-const
@@ -9409,7 +9457,7 @@
        'client-streaming
        (list
         'fmt
-        "      {\n        name = ~s,\n        path = ~s,\n        kind = Server.~a,\n        handler = function(ctx, reqs, sink)\n          local stream = ~a~aServer.new(reqs)\n          impl:~a(ctx, stream)\n          local resp = stream.resp\n          if resp == nil then\n            error(Status.new(wire.CODE_INTERNAL,\n              \"client-streaming handler never called sendAndClose\"), 0)\n          end\n          sink(resp:marshalDc())\n        end,\n      },\n"
+        "      {\n        name = ~s,\n        path = ~s,\n        kind = Server.~a,\n        handler = function(ctx, reqs, sink)\n          local stream = ~a~aServer.new(reqs)\n          impl:~a(ctx, stream)\n          local resp = stream.resp\n          if resp == nil then\n            error(Status.new(wire.CODE_INTERNAL,\n              \"client-streaming handler never called sendAndClose\"), 0)\n          end\n          sink(ctx.encodeMessage(resp))\n        end,\n      },\n"
         '(ref name)
         '(ref path)
         kind-const
@@ -9420,7 +9468,7 @@
        'bidi
        (list
         'fmt
-        "      {\n        name = ~s,\n        path = ~s,\n        kind = Server.~a,\n        handler = function(ctx, reqs, sink)\n          impl:~a(ctx, ~a~aServer.new(reqs, sink))\n        end,\n      },\n"
+        "      {\n        name = ~s,\n        path = ~s,\n        kind = Server.~a,\n        handler = function(ctx, reqs, sink)\n          impl:~a(ctx, ~a~aServer.new(ctx, reqs, sink))\n        end,\n      },\n"
         '(ref name)
         '(ref path)
         kind-const
@@ -9870,6 +9918,22 @@
     "  local r = Reader.new(data)\n  while true do\n    local field = r:next()\n    if field == nil then break end\n    if false then\n"
     (each fields (call luaPbDecodeCase))
     "    else\n      self.unknownFields = self.unknownFields .. field.rawValue\n    end\n  end\nend\n\n"
+    (if (struct-codec)
+      (then
+       (if (ref map-entry)
+         (then "")
+         (else
+          (fmt
+           "function ~a:marshalStruct()\n  return ~aStruct.marshal(self)\nend\n\nfunction ~a:unmarshalStruct(data)\n  local _s = ~aStruct.unmarshal(data)\n"
+           (flat)
+           (flat)
+           (flat)
+           (flat))
+          (each
+           fields
+           (fmt "  self.~a = _s.~a\n" (lua-field-name) (lua-field-name)))
+          "  self.unknownFields = _s.unknownFields\nend\n\n")))
+      (else ""))
     (each nested (call luaPbMessage))))
 
 (define lua-pb-enum-program
@@ -17165,7 +17229,7 @@
    "      @sink = sink\n"
    "    end\n\n"
    "    def send(resp)\n"
-   "      @sink.send(resp.marshal_dc)\n"
+   "      @sink.send(@context.encode_message(resp))\n"
    "    end\n"
    "  end\n\n"
    "  # Client-streaming stream passed to service implementations.\n"
@@ -17194,7 +17258,7 @@
    "      @req_cls = req_cls\n"
    "    end\n\n"
    "    def send(resp)\n"
-   "      @sink.send(resp.marshal_dc)\n"
+   "      @sink.send(@context.encode_message(resp))\n"
    "    end\n\n"
    "    def recv\n"
    "      @reqs.recv_into(@req_cls.new)\n"
@@ -17261,6 +17325,26 @@
 (define rb-pb-varint-types varint-scalar-types)
 
 (define rb-pb-fixed (fixed-scalar-table 'ruby))
+
+(define (rb-base64 b)
+  (define alphabet
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/")
+  (define n (bytes-length b))
+  (apply
+   string-append
+   (for/list
+    ((i (in-range 0 n 3)))
+    (define b0 (bytes-ref b i))
+    (define b1 (if (< (+ i 1) n) (bytes-ref b (+ i 1)) 0))
+    (define b2 (if (< (+ i 2) n) (bytes-ref b (+ i 2)) 0))
+    (define v (+ (arithmetic-shift b0 16) (arithmetic-shift b1 8) b2))
+    (string
+     (string-ref alphabet (bitwise-and (arithmetic-shift v -18) 63))
+     (string-ref alphabet (bitwise-and (arithmetic-shift v -12) 63))
+     (if (< (+ i 1) n)
+       (string-ref alphabet (bitwise-and (arithmetic-shift v -6) 63))
+       #\=)
+     (if (< (+ i 2) n) (string-ref alphabet (bitwise-and v 63)) #\=)))))
 
 (define (rb-pb-flat pkg full)
   (define rel
@@ -17476,6 +17560,11 @@
               dep-modules))
             (if (null? dep-modules) "" "\n")
             (format "module ~aPb\n" pb)
+            (if (seg-struct-codec)
+              (format
+               "  STRUCTDC_DESCRIPTOR = \"~a\".freeze\n\n"
+               (rb-base64 (hash-ref file-model 'descriptor-set #"")))
+              "")
             (rb-pb-support pb)
             (apply
              string-append
@@ -17486,6 +17575,24 @@
               (lambda (m) (rb-pb-message-class file-model pb m))
               (filter (lambda (m) (not (hash-ref m 'map-entry))) messages)))
             (apply string-append (reverse helpers))
+            (if (seg-struct-codec)
+              (let ((out (open-output-string)))
+                (define (emit-companion msg)
+                  (unless (hash-ref msg 'map-entry)
+                    (define flat (rb-pb-flat pkg (hash-ref msg 'full-name)))
+                    (fprintf
+                     out
+                     "  class ~aStruct\n    def self.marshal(m)\n      Grpcdc::Structdc.transcode_struct(STRUCTDC_DESCRIPTOR.unpack1(\"m\"), \"~a\", m.marshal_dc, true)\n    end\n\n    def self.unmarshal(data)\n      m = ~a.new\n      m.unmarshal_dc(Grpcdc::Structdc.transcode_struct(STRUCTDC_DESCRIPTOR.unpack1(\"m\"), \"~a\", data, false))\n      m\n    end\n  end\n\n"
+                     flat
+                     (hash-ref msg 'full-name)
+                     flat
+                     (hash-ref msg 'full-name)))
+                  (for
+                   ((n (in-list (hash-ref msg 'nested))))
+                   (emit-companion n)))
+                (for ((m (in-list messages))) (emit-companion m))
+                (get-output-string out))
+              "")
             "end\n"))
          (cons (string-append base "_pb.rb") content))))
 
@@ -17522,7 +17629,10 @@
         (lambda (svc) (rb-service file-model svc))
         (hash-ref file-model 'services)))
       "end\n")))
-  (define pb-file (emit-ruby-pb-file file-model))
+  (define pb-file
+    (parameterize
+     ((seg-struct-codec (equal? (hash-ref params 'struct_codec #f) "true")))
+     (emit-ruby-pb-file file-model)))
   (if pb-file (list stub pb-file) stub))
 
 (define (plugin-main)

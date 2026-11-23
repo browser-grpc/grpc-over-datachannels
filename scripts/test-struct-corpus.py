@@ -12,7 +12,7 @@ CORPUS = os.path.join(ROOT, "conformance", "struct")
 PROTO = os.path.join(CORPUS, "msgs.proto")
 GOLDEN = open(os.path.join(CORPUS, "golden.hex")).read().strip()
 
-ADMITTED = ["go", "rust", "rust-shared", "java", "kotlin", "scala", "swift", "dart", "csharp", "c", "cpp", "zig", "js"]
+ADMITTED = ["go", "rust", "rust-shared", "java", "kotlin", "scala", "swift", "dart", "csharp", "c", "cpp", "zig", "js", "python", "lua", "php", "ruby"]
 
 
 def run(*args, **kw):
@@ -166,6 +166,41 @@ def check_dart(tmp):
                           "GRPCDC_STRUCTDC_LIB": os.path.join(lib, "libgrpc_dc.so")})
 
 
+def check_python(tmp):
+    gen = os.path.join(tmp, "gen"); protoc("python", gen)
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join([gen, os.path.join(ROOT, "python")])
+    run("python3", os.path.join(CORPUS, "drivers", "python", "main.py"), GOLDEN,
+        env=env, cwd=gen)
+
+
+def check_lua(tmp):
+    gen = os.path.join(tmp, "gen"); protoc("lua", gen)
+    env = dict(os.environ)
+    env["LUA_PATH"] = ";".join([os.path.join(gen, "?.lua"),
+                                os.path.join(ROOT, "lua", "?.lua"), ";"])
+    run(os.environ.get("LUA", "lua"), os.path.join(CORPUS, "drivers", "lua", "main.lua"), GOLDEN, env=env)
+
+
+def check_php(tmp):
+    gen = os.path.join(tmp, "gen"); protoc("php", gen)
+    shutil.copy(os.path.join(ROOT, "php", "grpcdc.php"), tmp)
+    os.makedirs(os.path.join(tmp, "grpcdc"))
+    for n in os.listdir(os.path.join(ROOT, "php", "grpcdc")):
+        if n.endswith(".php"):
+            shutil.copy(os.path.join(ROOT, "php", "grpcdc", n), os.path.join(tmp, "grpcdc"))
+    shutil.copy(os.path.join(CORPUS, "drivers", "php", "main.php"), gen)
+    run("php", os.path.join(gen, "main.php"), GOLDEN)
+
+
+def check_ruby(tmp):
+    gen = os.path.join(tmp, "gen"); protoc("ruby", gen)
+    env = dict(os.environ)
+    env["RUBYLIB"] = os.pathsep.join([gen, os.path.join(ROOT, "ruby")])
+    run(os.environ.get("RUBY", "ruby"), os.path.join(CORPUS, "drivers", "ruby", "main.rb"),
+        GOLDEN, env=env)
+
+
 def check_js(tmp):
     gen = os.path.join(tmp, "gen"); protoc("js", gen)
     src = os.path.join(tmp, "src"); os.makedirs(src)
@@ -249,8 +284,8 @@ def check_rust_shared(tmp):
 
 CHECKS = {"go": check_go, "rust": check_rust, "rust-shared": check_rust_shared, "java": check_java,
           "kotlin": check_kotlin, "scala": check_scala, "swift": check_swift,
-          "dart": check_dart, "csharp": check_csharp, "c": check_c, "js": check_js,
-          "cpp": check_cpp, "zig": check_zig}
+          "dart": check_dart, "csharp": check_csharp, "c": check_c, "js": check_js, "python": check_python,
+          "cpp": check_cpp, "zig": check_zig, "lua": check_lua, "php": check_php, "ruby": check_ruby}
 
 
 def main():
