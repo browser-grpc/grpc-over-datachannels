@@ -1,0 +1,39 @@
+{
+ "id": "shorts-structs",
+ "orientation": "vertical",
+ "direction": "[sultry cinematic actress, warm expressive female voice, confident film-trailer delivery, smooth and unhurried]",
+ "voice": {
+  "name": "sultry-narrator",
+  "refAudio": "video/assets/narrator-ref.wav",
+  "refText": "Here it is live. The server prints its multiaddr; the client dials it directly and the echo comes back over the data channel. Every other language does the same thing, natively or through the generated sidecar transport."
+ },
+ "source": "docs/outreach/structs-browser-post.md",
+ "youtube": {
+  "title": "Packed structs for gRPC, in the browser #shorts",
+  "description": "Cap'n-Proto-style packed structs for gRPC over WebRTC DataChannels \u2014 now in JS, Python, Lua, PHP, Ruby and Wasm. https://github.com/browser-grpc/grpc-over-datachannels",
+  "tags": [
+   "grpc",
+   "shorts",
+   "protobuf",
+   "wasm"
+  ]
+ },
+ "scenes": [
+  {
+   "kind": "title",
+   "heading": "Structs in the browser",
+   "sub": "gRPC, packed",
+   "say": "gRPC with packed structs, now running in the browser. Protobuf stays the default; structs are opt-in where latency matters."
+  },
+  {
+   "kind": "bullets",
+   "heading": "How",
+   "bullets": [
+    "struct_codec=true at generation",
+    "dc-codec: struct-v1 to negotiate",
+    "Pure transcoders, byte-identical in 21 drivers"
+   ],
+   "say": "Generate with struct codec true, negotiate with one header, and every implementation produces identical bytes, proven by twenty-one conformance drivers."
+  }
+ ]
+}

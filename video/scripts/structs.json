@@ -1,0 +1,61 @@
+{
+ "id": "structs",
+ "direction": "[sultry cinematic actress, warm expressive female voice, confident film-trailer delivery, smooth and unhurried]",
+ "voice": {
+  "name": "sultry-narrator",
+  "refAudio": "video/assets/narrator-ref.wav",
+  "refText": "Here it is live. The server prints its multiaddr; the client dials it directly and the echo comes back over the data channel. Every other language does the same thing, natively or through the generated sidecar transport."
+ },
+ "source": "docs/outreach/structs-browser-post.md",
+ "youtube": {
+  "title": "Packed structs for gRPC in the browser \u2014 grpc-over-datachannels v0.46.0",
+  "description": "v0.46.0 brings the packed DCS1 struct codec to JavaScript, Python, Lua, PHP, Ruby, and the Wasm builds of Swift, Dart, C++, Zig, Kotlin, and Scala. Protobuf stays the default; structs are opt-in per endpoint with dc-codec: struct-v1 negotiation.\n\nCode: https://github.com/browser-grpc/grpc-over-datachannels\nRelease: https://github.com/browser-grpc/grpc-over-datachannels/releases/tag/v0.46.0\nBlog: https://c100k.blogspot.com/2026/11/packed-structs-on-wire-now-in-browser.html\nIn-browser stub generator: https://browser-grpc.github.io/grpc-over-datachannels/app/",
+  "tags": [
+   "grpc",
+   "webrtc",
+   "protobuf",
+   "capnproto",
+   "wasm",
+   "javascript"
+  ]
+ },
+ "scenes": [
+  {
+   "kind": "title",
+   "heading": "Packed structs, now in the browser",
+   "sub": "Cap'n-Proto-style gRPC, protobuf at the edges",
+   "say": "Version 0.46 of grpc-over-datachannels brings the packed struct codec to every browser language. Same gRPC, same DataChannel, a faster wire format where you want it."
+  },
+  {
+   "kind": "bullets",
+   "heading": "Two codecs, one negotiation",
+   "bullets": [
+    "Protobuf stays the default and the interop format",
+    "struct_codec=true generates packed DCS1 companions",
+    "dc-codec: struct-v1 HEADERS opt-in per endpoint",
+    "Mismatch fails UNIMPLEMENTED, never silent fallback"
+   ],
+   "say": "Protobuf stays the default everywhere. At generation time you can opt a message into a packed struct layout: fixed slots, a presence bitmap, no tag-and-varint walk. Channels and servers opt in per endpoint, and a mismatch fails loudly instead of falling back."
+  },
+  {
+   "kind": "bullets",
+   "heading": "Now everywhere",
+   "bullets": [
+    "JavaScript, Python, Lua, PHP, Ruby: pure transcoders",
+    "Swift, Dart, C++, Zig, Kotlin, Scala: real struct calls in Wasm",
+    "21 corpus drivers byte-identical to the Go golden",
+    "Proto2 shape locked: extensions ride the unknown tail"
+   ],
+   "say": "The browser implementations are pure descriptor-driven transcoders, so they work in Wasm too, where there is no native library to call. Twenty-one conformance drivers prove every implementation byte-identical, including a new proto2 shape."
+  },
+  {
+   "kind": "bullets",
+   "heading": "Also in 0.46",
+   "bullets": [
+    "grpc-dart joins grpc-java and grpc-go as an interop oracle",
+    "Every suite now tests all three Google stacks, both directions"
+   ],
+   "say": "Also new: google's Dart gRPC runtime joins Java and Go as a third interop oracle, exercised in both directions by every language suite."
+  }
+ ]
+}
