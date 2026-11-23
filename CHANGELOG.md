@@ -3,6 +3,30 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.46.0 — 2026-11-23
+
+- Struct codec everywhere, including the browser. The
+  browser-tier languages (JavaScript, Python, Lua, PHP, Ruby)
+  gain pure descriptor-driven DCS1 transcoders,
+  `struct_codec=true` generation, and `dc-codec: struct-v1`
+  wire negotiation (UNIMPLEMENTED on mismatch), byte-identical
+  to the Go golden; the Wasm builds of Swift, Dart, C++, Zig,
+  Kotlin, and Scala run real struct calls instead of guarded
+  stubs (pure engines and Wasm ABI shims over the same layout).
+  Conformance corpus now admits 21 drivers
+  (`scripts/test-struct-corpus.py`, all passing); each newly
+  covered language ships a TestStructCodec negotiation e2e.
+  Protobuf remains the default everywhere.
+- Third Google interop peer: `oracle/dart-interop` runs the
+  canonical interop cases over google's grpc-dart runtime
+  (package:grpc) in both directions (`TestDartOracle`), after
+  grpc-java and grpc-go.
+- Fixes: webgen/plugin parity for negotiated-codec stream
+  sinks; Lua Wasm module embeds for struct-enabled messages;
+  Dart negative-varint termination; Python server dispatch;
+  the smoltcp dropping-link gate test is time-bounded so
+  loss stalls fail fast.
+
 ## v0.45.0 — 2026-11-23 (published to GitHub/npm/PyPI/pub.dev/crates.io/GHCR/NuGet/GitHub Maven/RubyGems/LuaRocks/JSR; Maven Central sync deferred to its weekly slot)
 
 - Struct codec on the wire for every tier-1 language.
