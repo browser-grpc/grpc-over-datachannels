@@ -263,7 +263,7 @@ fn rendezvous_survives_garbage_then_serves() {
 
 #[test]
 fn rendezvous_many_peers_demux() {
-    // 12 concurrent dialers, unique messages each: sessions
+    // 8 concurrent dialers, unique messages each: sessions
     // must stay apart on the one listener socket (no
     // cross-talk, no lost echoes).
     let (endpoint_tx, endpoint_rx) = channel::<DcEndpoint>();
@@ -285,17 +285,18 @@ fn rendezvous_many_peers_demux() {
         }
     });
     let mut handles = Vec::new();
-    for i in 0..12 {
+    for i in 0..8 {
         let listener = listener.clone();
         handles.push(std::thread::spawn(move || {
             dial_and_echo(&listener, &format!("peer-{i}"));
         }));
-        // Stagger starts: 12 simultaneous DTLS handshakes
+        // Stagger starts: simultaneous DTLS handshakes
         // retransmitting on the same 1s boundaries collapse
         // into each other on small CI runners (all dialers
-        // time out together); a small ramp keeps the demux
-        // pressure without the thundering herd.
-        std::thread::sleep(Duration::from_millis(150));
+        // time out together, seen on GitHub's 2-core runners
+        // with 12 peers at 150ms); 8 peers at 350ms keeps the
+        // demux pressure without the thundering herd.
+        std::thread::sleep(Duration::from_millis(350));
     }
     for h in handles {
         h.join().unwrap();
