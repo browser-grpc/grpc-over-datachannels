@@ -262,6 +262,59 @@ fn rendezvous_survives_garbage_then_serves() {
 }
 
 #[test]
+fn rendezvous_stun_servers_are_consulted() {
+    // A session peer spawned for a listener configured with
+    // stun_servers must actually send a STUN Binding request
+    // to that server while gathering (issue #3: rendezvous
+    // sessions used to offer host candidates only). The fake
+    // STUN server answers with a documentation-range mapped
+    // address; the echo round-trip then proves the session
+    // still connects on its host candidate.
+    let stun_socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+    let stun_addr = stun_socket.local_addr().unwrap();
+    let (hit_tx, hit_rx) = channel::<()>();
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 2048];
+        stun_socket
+            .set_read_timeout(Some(Duration::from_secs(20)))
+            .unwrap();
+        if let Ok((n, src)) = stun_socket.recv_from(&mut buf) {
+            if let Some(msg) = dc_webrtc::stun::Message::decode(&buf[..n]) {
+                let mapped =
+                    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(203, 0, 113, 9)), src.port());
+                let resp = dc_webrtc::stun::binding_success(&msg, &mapped, b"");
+                let _ = stun_socket.send_to(&resp, src);
+                let _ = hit_tx.send(());
+            }
+        }
+    });
+
+    let (endpoint_tx, endpoint_rx) = channel::<DcEndpoint>();
+    let listener = RendezvousListener::bind(
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+        RendezvousOptions {
+            stun_servers: vec![stun_addr.to_string()],
+            on_endpoint: Box::new(move |endpoint| {
+                let _ = endpoint_tx.send(endpoint);
+            }),
+            on_error: Box::new(|_| {}),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    std::thread::spawn(move || {
+        if let Ok(endpoint) = endpoint_rx.recv_timeout(Duration::from_secs(20)) {
+            echo_endpoint(endpoint);
+        }
+    });
+    dial_and_echo(&listener, "via-stun-config");
+    hit_rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("session peer never queried the configured STUN server");
+    listener.close();
+}
+
+#[test]
 fn rendezvous_many_peers_demux() {
     // 8 concurrent dialers, unique messages each: sessions
     // must stay apart on the one listener socket (no
