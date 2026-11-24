@@ -3,7 +3,20 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.46.1 — 2026-11-23
+## v0.46.2 — 2026-11-24
+
+- Rendezvous: `RendezvousOptions` accepts `stun_servers`
+  and `turn_servers`; each spawned session peer now gathers
+  srflx/relay candidates from them (a rendezvous server
+  behind CGNAT can finally be reached). Defaults are empty,
+  preserving host-candidates-only behavior. (Issue #3)
+- Release tooling: version tags are force-moved to the
+  export commit (fixes the pub.dev OIDC tag collision),
+  kafka-native registry workflows dispatch after the main
+  registry publish, and the pub.dev visibility wait tolerates
+  stale API responses.
+
+## v0.46.1 — 2026-11-23 (published to GitHub/npm/PyPI/pub.dev/GHCR/NuGet/Maven Central/GitHub Maven/crates.io/RubyGems/LuaRocks/JSR)
 
 - Fix: proto2 `group` fields are now rejected with a clear
   plugin error in every language (`groups are not supported`)

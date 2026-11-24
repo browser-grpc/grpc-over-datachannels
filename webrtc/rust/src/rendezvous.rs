@@ -69,6 +69,13 @@ pub struct RendezvousOptions {
     pub ice_ufrag: Option<String>,
     pub ice_pwd: Option<String>,
     pub certificate: Option<Certificate>,
+    /// ICE servers each spawned session peer gathers with:
+    /// STUN yields srflx candidates, TURN yields a relay
+    /// candidate — the NAT escape for a rendezvous server
+    /// behind CGNAT with no public UDP mapping. Empty keeps
+    /// the historical host-candidates-only behavior.
+    pub stun_servers: Vec<String>,
+    pub turn_servers: Vec<crate::turn::TurnServerConfig>,
     /// RFC 7675 consent freshness per session peer. When
     /// either is set, checks run every consent_interval
     /// (default 5 s) and expire after consent_expiry
@@ -88,6 +95,8 @@ impl Default for RendezvousOptions {
             ice_ufrag: None,
             ice_pwd: None,
             certificate: None,
+            stun_servers: Vec::new(),
+            turn_servers: Vec::new(),
             consent_interval: None,
             consent_expiry: None,
             on_endpoint: Box::new(|_| {}),
@@ -103,6 +112,8 @@ struct RvInner {
     ice_pwd: String,
     certificate: Certificate,
     local_ips: Vec<IpAddr>,
+    stun_servers: Vec<String>,
+    turn_servers: Vec<crate::turn::TurnServerConfig>,
     consent_interval: Option<Duration>,
     consent_expiry: Option<Duration>,
     by_remote: Mutex<HashMap<String, Arc<RvEndpoint>>>,
@@ -190,6 +201,8 @@ impl RendezvousListener {
                 .clone()
                 .unwrap_or_else(|| Certificate::generate_self_signed("dc-webrtc")),
             local_ips: options.local_ips.clone(),
+            stun_servers: options.stun_servers.clone(),
+            turn_servers: options.turn_servers.clone(),
             consent_interval: options.consent_interval,
             consent_expiry: options.consent_expiry,
             by_remote: Mutex::new(HashMap::new()),
@@ -280,6 +293,8 @@ fn spawn_session(inner: &Arc<RvInner>, src: SocketAddr, remote_ufrag: &str, firs
     }
     let config = PeerConfig {
         local_ips: inner.local_ips.clone(),
+        stun_servers: inner.stun_servers.clone(),
+        turn_servers: inner.turn_servers.clone(),
         require_peer_certificate: false,
         certificate: Some(inner.certificate.clone()),
         ..Default::default()

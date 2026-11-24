@@ -582,6 +582,10 @@ impl Peer {
     /// ICE-lite, so it is the controlling agent and nominates.
     /// Returns the (never transmitted) answer SDP.
     pub fn handle_rendezvous_offer(&mut self, offer_sdp: &str) -> io::Result<String> {
+        // Gather srflx/relay candidates from PeerConfig like
+        // the offer/answer paths do; without this a rendezvous
+        // session only ever has host candidates.
+        self.gather_from_config();
         let remote = parse(offer_sdp).map_err(bad)?;
         self.apply_remote(remote);
         self.agent.controlling = false;

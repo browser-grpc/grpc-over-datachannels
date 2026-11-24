@@ -24,8 +24,15 @@ jobs:
         # builds below resolve grpc-dc from the local repo,
         # so this workflow does not depend on Maven Central
         # already carrying the version (it is dispatched
-        # before Central in the publish sequence).
-        run: mvn -B -f java/pom.xml install -DskipTests
+        # before Central in the publish sequence). Every mvn
+        # call in this workflow retries 3x: a transient
+        # Maven Central download timeout failed v0.46.1.
+        run: |
+          for attempt in 1 2 3; do
+            if mvn -B -f java/pom.xml install -DskipTests; then exit 0; fi
+            echo "mvn attempt $attempt failed; retrying in 30s"; sleep 30
+          done
+          exit 1
       - name: Lay out the Maven repository under docs/maven
         shell: bash
         run: |
@@ -72,7 +79,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mvn -B -f packages/kafka-java/pom.xml package -DskipTests
+          for attempt in 1 2 3; do
+            if mvn -B -f packages/kafka-java/pom.xml package -DskipTests; then break; fi
+            if [ $attempt = 3 ]; then exit 1; fi
+            echo "mvn attempt $attempt failed; retrying in 30s"; sleep 30
+          done
           V=$(grep -m1 '<version>' packages/kafka-java/pom.xml | sed -E 's/<[^>]+>//g; s/^ *//; s/ *$//')
           DEST="docs/maven/io/github/browser-grpc/kafka-grpc/$V"
           mkdir -p "$DEST"
@@ -116,7 +127,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mvn -B -f packages/eventbus-java/pom.xml package -DskipTests
+          for attempt in 1 2 3; do
+            if mvn -B -f packages/eventbus-java/pom.xml package -DskipTests; then break; fi
+            if [ $attempt = 3 ]; then exit 1; fi
+            echo "mvn attempt $attempt failed; retrying in 30s"; sleep 30
+          done
           V=$(grep -m1 '<version>' packages/eventbus-java/pom.xml | sed -E 's/<[^>]+>//g; s/^ *//; s/ *$//')
           DEST="docs/maven/io/github/browser-grpc/eventbus-grpc/$V"
           mkdir -p "$DEST"

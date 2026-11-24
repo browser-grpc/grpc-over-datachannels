@@ -30,11 +30,18 @@ jobs:
           else
             dart pub publish --force
           fi
-          for i in $(seq 1 30); do
-            [ "$(latest)" = "$VER" ] && break
+          # Bounded visibility wait: poll until the API
+          # reports $VER, tolerating stale CDN responses
+          # (a single final check failed the v0.46.1 step
+          # after a successful upload).
+          deadline=$((SECONDS + 600))
+          until [ "$(latest)" = "$VER" ]; do
+            if [ $SECONDS -ge $deadline ]; then
+              echo "grpc_dc $VER not visible on pub.dev after 600s" >&2
+              exit 1
+            fi
             sleep 20
           done
-          [ "$(latest)" = "$VER" ]
       - if: "!cancelled()"
         name: Publish kafka_grpc
         working-directory: packages/kafka-dart
