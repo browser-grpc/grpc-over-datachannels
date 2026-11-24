@@ -333,3 +333,62 @@ test("kafka streams word count over 3x3 partitions", { skip: !PROXY_ADDR }, asyn
   // Every emitted count increment lands once: 3+2+3 tokens.
   assert.equal(total, 8);
 });
+
+test("kafka streams aggregation and stateless chain", { skip: !PROXY_ADDR }, async (t) => {
+  const { dc, kafka, streams } = makeClients();
+  const id = randomUUID().slice(0, 12);
+  const source = `streams-agg-in-${id}`;
+  const sink = `streams-agg-out-${id}`;
+  const name = `agg-${id}`;
+  t.after(async () => {
+    try {
+      await streams.deleteTopology(new DeleteTopologyRequest({ name }));
+      await kafka.deleteTopics(new DeleteTopicsRequest({ topics: [source, sink] }));
+    } catch { /* best effort */ }
+    dc.close();
+  });
+  for (const topic of [source, sink]) {
+    const created = await kafka.createTopics(new CreateTopicsRequest({
+      topics: [new NewTopic({ name: topic, numPartitions: 1, replicationFactor: 1 })],
+      timeoutMs: 15000,
+    }));
+    assert.deepEqual(created.results.map((r) => r.errorCode), [0]);
+  }
+  const { Step, Aggregator } = await import("../src/kafka_streams_pb.js");
+  const info = await streams.createTopology(new CreateTopologyRequest({
+    topology: new Topology({
+      name,
+      sourceTopic: source,
+      sinkTopic: sink,
+      steps: [
+        new Step({ operator: Operator.FILTER, param: "value_gt:2" }),
+        new Step({ operator: Operator.SELECT_KEY, param: "value" }),
+        new Step({ operator: Operator.GROUP_BY_KEY }),
+        new Step({ operator: Operator.AGGREGATE, aggregator: Aggregator.AGGREGATE_SUM }),
+      ],
+    }),
+  }));
+  assert.equal(info.state, "RUNNING");
+  // Records carry their numeric payload in the value;
+  // SELECT_KEY rekeys by it, FILTER drops <= 2.
+  for (const v of ["1", "5", "5", "9", "2"]) {
+    const resp = await kafka.produce(new ProduceRequest({
+      topic: source, partition: 0,
+      records: [new Record({ value: enc(v) })],
+    }));
+    assert.equal(resp.errorCode, 0);
+  }
+  // Key "5" sums 5+5=10, key "9" is 9; filtered values
+  // never reach the store.
+  let got;
+  for (let i = 0; i < 80; i++) {
+    got = await streams.getStoreValue(new GetStoreValueRequest({ topology: name, key: "5" }));
+    if (got.found && got.value === 10n) break;
+    await sleep(250);
+  }
+  assert.equal(got.value, 10n);
+  const nine = await streams.getStoreValue(new GetStoreValueRequest({ topology: name, key: "9" }));
+  assert.equal(nine.value, 9n);
+  const one = await streams.getStoreValue(new GetStoreValueRequest({ topology: name, key: "1" }));
+  assert.equal(one.found, false, "filtered record reached the store");
+});

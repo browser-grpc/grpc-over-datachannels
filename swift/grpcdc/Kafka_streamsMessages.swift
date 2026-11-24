@@ -59,22 +59,78 @@ public enum Operator: Int32 {
     case TOKENIZE_WORDS = 1
     case GROUP_BY_KEY = 2
     case COUNT = 3
+    case MAP_VALUES = 4
+    case FILTER = 5
+    case SELECT_KEY = 6
+    case AGGREGATE = 7
+    case REDUCE = 8
 }
 
+public enum Aggregator: Int32 {
+    case AGGREGATOR_UNSPECIFIED = 0
+    case AGGREGATE_COUNT = 1
+    case AGGREGATE_SUM = 2
+    case AGGREGATE_MIN = 3
+    case AGGREGATE_MAX = 4
+}
+
+public final class Step: Marshaler, Unmarshaler {
+    public var `operator`: Operator = Operator.OPERATOR_UNSPECIFIED
+    public var param: String = ""
+    public var aggregator: Aggregator = Aggregator.AGGREGATOR_UNSPECIFIED
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ `operator`: Operator = Operator.OPERATOR_UNSPECIFIED, _ param: String = "", _ aggregator: Aggregator = Aggregator.AGGREGATOR_UNSPECIFIED) {
+        self.`operator` = `operator`
+        self.param = param
+        self.aggregator = aggregator
+    }
+    public func MarshalDc() -> [UInt8] {
+        let pbW = Kafka_streamsPb.Writer()
+        if `operator`.rawValue != 0 { pbW.Tag(1, 0); pbW.Varint(Int64(`operator`.rawValue)) }
+        pbW.StringField(2, param)
+        if aggregator.rawValue != 0 { pbW.Tag(3, 0); pbW.Varint(Int64(aggregator.rawValue)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
+    }
+    public func UnmarshalDc(_ data: [UInt8]) {
+        unknownFields = []
+        `operator` = Operator.OPERATOR_UNSPECIFIED
+        param = ""
+        aggregator = Aggregator.AGGREGATOR_UNSPECIFIED
+        let pbR = Kafka_streamsPb.Reader(data)
+        while true {
+            let next: Kafka_streamsPb.Field?
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
+            case 1:
+                `operator` = Operator(rawValue: Int32(truncatingIfNeeded: pbField.varintValue)) ?? Operator.OPERATOR_UNSPECIFIED
+            case 2:
+                param = String(decoding: pbField.bytesValue, as: UTF8.self)
+            case 3:
+                aggregator = Aggregator(rawValue: Int32(truncatingIfNeeded: pbField.varintValue)) ?? Aggregator.AGGREGATOR_UNSPECIFIED
+            default: unknownFields += pbField.rawValue
+            }
+        }
+    }
+}
 public final class Topology: Marshaler, Unmarshaler {
     public var name: String = ""
     public var applicationId: String = ""
     public var sourceTopic: String = ""
     public var sinkTopic: String = ""
     public var operators: [Operator] = []
+    public var steps: [Step] = []
     public var unknownFields: [UInt8] = []
     public init() {}
-    public init(_ name: String = "", _ applicationId: String = "", _ sourceTopic: String = "", _ sinkTopic: String = "", _ operators: [Operator] = []) {
+    public init(_ name: String = "", _ applicationId: String = "", _ sourceTopic: String = "", _ sinkTopic: String = "", _ operators: [Operator] = [], _ steps: [Step] = []) {
         self.name = name
         self.applicationId = applicationId
         self.sourceTopic = sourceTopic
         self.sinkTopic = sinkTopic
         self.operators = operators
+        self.steps = steps
     }
     public func MarshalDc() -> [UInt8] {
         let pbW = Kafka_streamsPb.Writer()
@@ -87,6 +143,7 @@ public final class Topology: Marshaler, Unmarshaler {
             for pbX in operators { pbPayload.Varint(Int64(pbX.rawValue)) }
             pbW.BytesField(5, pbPayload.ToBytes())
         }
+        for pbX in steps { pbW.BytesField(6, pbX.MarshalDc()) }
         pbW.Raw(unknownFields)
         return pbW.ToBytes()
     }
@@ -97,6 +154,7 @@ public final class Topology: Marshaler, Unmarshaler {
         sourceTopic = ""
         sinkTopic = ""
         operators = []
+        steps = []
         let pbR = Kafka_streamsPb.Reader(data)
         while true {
             let next: Kafka_streamsPb.Field?
@@ -120,6 +178,10 @@ public final class Topology: Marshaler, Unmarshaler {
                 } else {
                     operators.append(Operator(rawValue: Int32(truncatingIfNeeded: pbField.varintValue)) ?? Operator.OPERATOR_UNSPECIFIED)
                 }
+            case 6:
+                let pbItem = Step()
+                pbItem.UnmarshalDc(pbField.bytesValue)
+                steps.append(pbItem)
             default: unknownFields += pbField.rawValue
             }
         }

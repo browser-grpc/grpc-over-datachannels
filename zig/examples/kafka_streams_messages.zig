@@ -63,14 +63,68 @@ pub const Operator = enum(i32) {
     TOKENIZE_WORDS = 1,
     GROUP_BY_KEY = 2,
     COUNT = 3,
+    MAP_VALUES = 4,
+    FILTER = 5,
+    SELECT_KEY = 6,
+    AGGREGATE = 7,
+    REDUCE = 8,
 };
 
+pub const Aggregator = enum(i32) {
+    AGGREGATOR_UNSPECIFIED = 0,
+    AGGREGATE_COUNT = 1,
+    AGGREGATE_SUM = 2,
+    AGGREGATE_MIN = 3,
+    AGGREGATE_MAX = 4,
+};
+
+pub const Step = struct {
+    operator: Operator = .OPERATOR_UNSPECIFIED,
+    param: []const u8 = "",
+    aggregator: Aggregator = .AGGREGATOR_UNSPECIFIED,
+    unknown_fields: []const u8 = &.{},
+    pub fn marshalDc(self: *const Step, alloc: std.mem.Allocator) []u8 {
+        _ = .{ self, alloc };
+        var w = PbWriter.init(alloc);
+        defer w.deinit();
+        if (@intFromEnum(self.operator) != 0) { w.tag(1, 0); w.varint(@as(u64, @bitCast(@as(i64, @intFromEnum(self.operator))))); }
+        w.stringField(2, self.param);
+        if (@intFromEnum(self.aggregator) != 0) { w.tag(3, 0); w.varint(@as(u64, @bitCast(@as(i64, @intFromEnum(self.aggregator))))); }
+        w.raw(self.unknown_fields);
+        return w.toBytes();
+    }
+    pub fn unmarshalDc(self: *Step, alloc: std.mem.Allocator, data: []const u8) void {
+        _ = .{ self, alloc, data };
+        self.operator = .OPERATOR_UNSPECIFIED;
+        self.param = "";
+        self.aggregator = .AGGREGATOR_UNSPECIFIED;
+        self.unknown_fields = &.{};
+        var unknown_fields_list = std.ArrayList(u8).empty;
+        var r = PbReader.init(data);
+        while (r.next()) |field| {
+            switch (field.number) {
+                1 => {
+                    self.operator = @enumFromInt(@as(i32, @truncate(@as(i64, @bitCast(field.varint_value)))));
+                },
+                2 => {
+                    self.param = alloc.dupe(u8, field.bytes_value) catch "";
+                },
+                3 => {
+                    self.aggregator = @enumFromInt(@as(i32, @truncate(@as(i64, @bitCast(field.varint_value)))));
+                },
+                else => { unknown_fields_list.appendSlice(alloc, field.raw_value) catch {}; },
+            }
+        }
+        self.unknown_fields = unknown_fields_list.toOwnedSlice(alloc) catch &.{};
+    }
+};
 pub const Topology = struct {
     name: []const u8 = "",
     application_id: []const u8 = "",
     source_topic: []const u8 = "",
     sink_topic: []const u8 = "",
     operators: []const Operator = &.{},
+    steps: []const Step = &.{},
     unknown_fields: []const u8 = &.{},
     pub fn marshalDc(self: *const Topology, alloc: std.mem.Allocator) []u8 {
         _ = .{ self, alloc };
@@ -86,6 +140,7 @@ pub const Topology = struct {
             for (self.operators) |x| payload.varint(@as(u64, @bitCast(@as(i64, @intFromEnum(x)))));
             w.bytesField(5, payload.toBytes());
         }
+        for (self.steps) |x| w.bytesField(6, x.marshalDc(alloc));
         w.raw(self.unknown_fields);
         return w.toBytes();
     }
@@ -96,7 +151,9 @@ pub const Topology = struct {
         self.source_topic = "";
         self.sink_topic = "";
         self.operators = &.{};
+        self.steps = &.{};
         var operators_list = std.ArrayList(Operator).empty;
+        var steps_list = std.ArrayList(Step).empty;
         self.unknown_fields = &.{};
         var unknown_fields_list = std.ArrayList(u8).empty;
         var r = PbReader.init(data);
@@ -124,11 +181,17 @@ pub const Topology = struct {
                         operators_list.append(alloc, @enumFromInt(@as(i32, @truncate(@as(i64, @bitCast(field.varint_value)))))) catch {};
                     }
                 },
+                6 => {
+                    var item: Step = .{};
+                    item.unmarshalDc(alloc, field.bytes_value);
+                    steps_list.append(alloc, item) catch {};
+                },
                 else => { unknown_fields_list.appendSlice(alloc, field.raw_value) catch {}; },
             }
         }
         self.unknown_fields = unknown_fields_list.toOwnedSlice(alloc) catch &.{};
         self.operators = operators_list.toOwnedSlice(alloc) catch &.{};
+        self.steps = steps_list.toOwnedSlice(alloc) catch &.{};
     }
 };
 pub const TopologyInfo = struct {

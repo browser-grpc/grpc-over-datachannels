@@ -142,6 +142,62 @@ object Operator {
   final val TOKENIZE_WORDS: Int = 1
   final val GROUP_BY_KEY: Int = 2
   final val COUNT: Int = 3
+  final val MAP_VALUES: Int = 4
+  final val FILTER: Int = 5
+  final val SELECT_KEY: Int = 6
+  final val AGGREGATE: Int = 7
+  final val REDUCE: Int = 8
+}
+
+object Aggregator {
+  final val AGGREGATOR_UNSPECIFIED: Int = 0
+  final val AGGREGATE_COUNT: Int = 1
+  final val AGGREGATE_SUM: Int = 2
+  final val AGGREGATE_MIN: Int = 3
+  final val AGGREGATE_MAX: Int = 4
+}
+
+class Step(
+    var operator: Int = 0,
+    var param: String = "",
+    var aggregator: Int = 0
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val pbW = new KafkaStreamsPb.Writer()
+    if (operator != 0) {
+      pbW.tag(1, 0)
+      pbW.varint((operator.toLong))
+    }
+    pbW.stringField(2, param)
+    if (aggregator != 0) {
+      pbW.tag(3, 0)
+      pbW.varint((aggregator.toLong))
+    }
+    pbW.raw(unknownFields)
+    pbW.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    operator = 0
+    param = ""
+    aggregator = 0
+    val pbR = new KafkaStreamsPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
+        case 1 =>
+          operator = pbField.varintValue.toInt
+        case 2 =>
+          param = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 3 =>
+          aggregator = pbField.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
+      }
+      pbField = pbR.next()
+    }
+  }
 }
 
 class Topology(
@@ -149,7 +205,8 @@ class Topology(
     var applicationId: String = "",
     var sourceTopic: String = "",
     var sinkTopic: String = "",
-    var operators: List[Int] = List.empty
+    var operators: List[Int] = List.empty,
+    var steps: List[Step] = List.empty
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
@@ -165,6 +222,9 @@ class Topology(
       }
       pbW.bytesField(5, pbPayload.toByteArray)
     }
+    for (pbX <- steps) {
+      pbW.bytesField(6, pbX.marshalDc())
+    }
     pbW.raw(unknownFields)
     pbW.toBytes
   }
@@ -176,6 +236,7 @@ class Topology(
     sourceTopic = ""
     sinkTopic = ""
     operators = List.empty
+    steps = List.empty
     val pbR = new KafkaStreamsPb.Reader(data)
     var pbField = pbR.next()
     while (pbField != null) {
@@ -198,6 +259,10 @@ class Topology(
           } else {
             operators = operators :+ pbField.varintValue.toInt
           }
+        case 6 =>
+          val pbItem = new Step()
+          pbItem.unmarshalDc(pbField.bytesValue)
+          steps = steps :+ pbItem
         case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
       pbField = pbR.next()

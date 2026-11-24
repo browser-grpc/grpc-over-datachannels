@@ -28,6 +28,41 @@ enum Operator {
   // Stateful count per key: increments the topology store
   // and emits (key, decimal count) downstream.
   COUNT = 3;
+  // Stateless value transform; Step.param names it:
+  // "upper", "lower", "trim", "reverse".
+  MAP_VALUES = 4;
+  // Stateless filter; Step.param is the predicate:
+  // "prefix:<s>", "contains:<s>", "key_equals:<s>",
+  // "value_gt:<int>", "value_lt:<int>".
+  FILTER = 5;
+  // Rekey: Step.param "value" (default) makes the key the
+  // record value; "upper"/"lower" also case-folds it.
+  SELECT_KEY = 6;
+  // Stateful aggregation per key (after GROUP_BY_KEY);
+  // Step.aggregator selects COUNT/SUM/MIN/MAX over int64
+  // values. Emits (key, decimal aggregate) per input record.
+  AGGREGATE = 7;
+  // Stateful per-key fold (after GROUP_BY_KEY): the first
+  // value seeds the store, later values combine via
+  // Step.param: "sum" (default), "min", "max".
+  REDUCE = 8;
+}
+
+enum Aggregator {
+  AGGREGATOR_UNSPECIFIED = 0;
+  AGGREGATE_COUNT = 1;
+  AGGREGATE_SUM = 2;
+  AGGREGATE_MIN = 3;
+  AGGREGATE_MAX = 4;
+}
+
+// One topology step. Parameterized operators carry their
+// argument in param/aggregator; unparameterized ones leave
+// them empty.
+message Step {
+  Operator operator = 1;
+  string param = 2;
+  Aggregator aggregator = 3;
 }
 
 message Topology {
@@ -37,7 +72,11 @@ message Topology {
   string application_id = 2;
   string source_topic = 3;
   string sink_topic = 4;
+  // Legacy unparameterized chain; used only when steps is
+  // empty.
   repeated Operator operators = 5;
+  // Parameterized chain; takes precedence over operators.
+  repeated Step steps = 6;
 }
 
 message TopologyInfo {

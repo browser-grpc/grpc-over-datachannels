@@ -146,7 +146,80 @@ const (
 	Operator_TOKENIZE_WORDS       Operator = 1
 	Operator_GROUP_BY_KEY         Operator = 2
 	Operator_COUNT                Operator = 3
+	Operator_MAP_VALUES           Operator = 4
+	Operator_FILTER               Operator = 5
+	Operator_SELECT_KEY           Operator = 6
+	Operator_AGGREGATE            Operator = 7
+	Operator_REDUCE               Operator = 8
 )
+
+type Aggregator int32
+
+const (
+	Aggregator_AGGREGATOR_UNSPECIFIED Aggregator = 0
+	Aggregator_AGGREGATE_COUNT        Aggregator = 1
+	Aggregator_AGGREGATE_SUM          Aggregator = 2
+	Aggregator_AGGREGATE_MIN          Aggregator = 3
+	Aggregator_AGGREGATE_MAX          Aggregator = 4
+)
+
+type Step struct {
+	Operator      Operator
+	Param         string
+	Aggregator    Aggregator
+	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *Step) Reset() {
+	*m = Step{}
+}
+
+func (m *Step) MarshalDC() []byte {
+	var out []byte
+	if m.Operator != 0 {
+		out = KafkaStreamsPbAppendTag(out, 1, 0)
+		out = KafkaStreamsPbAppendVarint(out, uint64(int64(m.Operator)))
+	}
+	out = KafkaStreamsPbAppendStringField(out, 2, m.Param)
+	if m.Aggregator != 0 {
+		out = KafkaStreamsPbAppendTag(out, 3, 0)
+		out = KafkaStreamsPbAppendVarint(out, uint64(int64(m.Aggregator)))
+	}
+	out = append(out, m.UnknownFields...)
+	return out
+}
+
+func (m *Step) UnmarshalDC(data []byte) error {
+	m.UnknownFields = nil
+	r := &KafkaStreamsPbReader{buf: data}
+	for {
+		num, _, value, raw, done, err := r.field()
+		if err != nil {
+			return err
+		}
+		if done {
+			return nil
+		}
+		switch num {
+		case 1:
+			if v, ok := value.(uint64); ok {
+				m.Operator = Operator(int32(v))
+			}
+		case 2:
+			if b, ok := value.([]byte); ok {
+				m.Param = string(b)
+			}
+		case 3:
+			if v, ok := value.(uint64); ok {
+				m.Aggregator = Aggregator(int32(v))
+			}
+		default:
+			m.UnknownFields = append(m.UnknownFields, raw...)
+		}
+	}
+}
 
 type Topology struct {
 	Name          string
@@ -154,6 +227,7 @@ type Topology struct {
 	SourceTopic   string
 	SinkTopic     string
 	Operators     []Operator
+	Steps         []*Step
 	UnknownFields []byte
 }
 
@@ -175,6 +249,9 @@ func (m *Topology) MarshalDC() []byte {
 			payload = KafkaStreamsPbAppendVarint(payload, uint64(int64(x)))
 		}
 		out = KafkaStreamsPbAppendBytesField(out, 5, payload)
+	}
+	for _, x := range m.Steps {
+		out = KafkaStreamsPbAppendBytesField(out, 6, x.MarshalDC())
 	}
 	out = append(out, m.UnknownFields...)
 	return out
@@ -221,6 +298,16 @@ func (m *Topology) UnmarshalDC(data []byte) error {
 					}
 					m.Operators = append(m.Operators, Operator(int32(v)))
 				}
+			}
+		case 6:
+			if b, ok := value.([]byte); ok {
+				var tmpv *Step
+				tmp6 := new(Step)
+				if err := tmp6.UnmarshalDC(b); err != nil {
+					return err
+				}
+				tmpv = tmp6
+				m.Steps = append(m.Steps, tmpv)
 			}
 		default:
 			m.UnknownFields = append(m.UnknownFields, raw...)

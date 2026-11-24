@@ -6,5 +6,10 @@ public enum Operator {
     OPERATOR_UNSPECIFIED = 0,
     TOKENIZE_WORDS = 1,
     GROUP_BY_KEY = 2,
-    COUNT = 3
+    COUNT = 3,
+    MAP_VALUES = 4,
+    FILTER = 5,
+    SELECT_KEY = 6,
+    AGGREGATE = 7,
+    REDUCE = 8
 }

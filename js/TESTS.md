@@ -32,6 +32,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`interop_service.js`](test/interop_service.js) — Cross-language interop
 - [`ipc.test.js`](test/ipc.test.js) — Generated suite/example
 - [`kafka.test.js`](test/kafka.test.js) — Kafka end-to-end (broker legs env-gated)
+- [`kafka_helpers.js`](test/kafka_helpers.js) — Kafka end-to-end (broker legs env-gated)
 - [`kafka_native.test.js`](test/kafka_native.test.js) — Kafka end-to-end (broker legs env-gated)
 - [`kafka_native_differential.test.js`](test/kafka_native_differential.test.js) — Kafka end-to-end (broker legs env-gated)
 - [`kafka_streams.test.js`](test/kafka_streams.test.js) — Kafka end-to-end (broker legs env-gated)

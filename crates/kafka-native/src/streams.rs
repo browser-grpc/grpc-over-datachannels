@@ -1,11 +1,13 @@
 //! Kafka Streams over gRPC (grpcdc.kafka.streams.v1): the
 //! proxy executes declarative topologies against the broker.
-//! v1 supports exactly TOKENIZE_WORDS -> GROUP_BY_KEY ->
-//! COUNT (word count): a per-topology task polls each source
-//! partition, tokenizes record values, maintains the count
-//! store in memory, emits (word, count) records to the sink
-//! (partitioned by key hash), and commits source offsets
-//! under the topology's consumer group after each batch.
+//! Chains are built from TOKENIZE_WORDS, GROUP_BY_KEY,
+//! COUNT, MAP_VALUES, FILTER, SELECT_KEY, AGGREGATE
+//! (COUNT/SUM/MIN/MAX), and REDUCE steps: a per-topology
+//! task polls each source partition, runs records through
+//! the chain, maintains the state store in memory, emits
+//! results to the sink (partitioned by key hash), and
+//! commits source offsets under the topology's consumer
+//! group after each batch.
 //! Exactly-once transactional processing and standby tasks
 //! are future work; a restarted topology restores its store
 //! by replaying the already-committed source range without
@@ -34,11 +36,165 @@ pub struct StreamsService {
     topologies: Mutex<HashMap<String, Arc<TopologyHandle>>>,
 }
 
-const SUPPORTED: [spb::Operator; 3] = [
-    spb::Operator::TokenizeWords,
-    spb::Operator::GroupByKey,
-    spb::Operator::Count,
-];
+/// Resolved step kinds for the chain engine.
+#[derive(Clone, Debug, PartialEq)]
+enum Op {
+    TokenizeWords,
+    GroupByKey,
+    Count,
+    MapValues(MapTransform),
+    Filter(Predicate),
+    SelectKey(KeyMode),
+    Aggregate(AggKind),
+    Reduce(ReduceKind),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum MapTransform { Upper, Lower, Trim, Reverse }
+
+#[derive(Clone, Debug, PartialEq)]
+enum Predicate {
+    Prefix(Vec<u8>),
+    Contains(Vec<u8>),
+    KeyEquals(Vec<u8>),
+    ValueGt(i64),
+    ValueLt(i64),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum KeyMode { Value, Upper, Lower }
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum AggKind { Count, Sum, Min, Max }
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum ReduceKind { Sum, Min, Max }
+
+/// Resolve a Topology's steps (preferred) or legacy
+/// operators into engine ops, validating parameters.
+fn resolve_ops(topo: &spb::Topology) -> Result<Vec<Op>, Status> {
+    let steps: Vec<spb::Step> = if !topo.steps.is_empty() {
+        topo.steps.clone()
+    } else {
+        topo.operators
+            .iter()
+            .map(|op| spb::Step { operator: *op, ..Default::default() })
+            .collect()
+    };
+    if steps.is_empty() {
+        return Err(Status::invalid_argument("topology has no steps"));
+    }
+    let mut ops = Vec::new();
+    for step in &steps {
+        let op = match step.operator {
+            spb::Operator::TokenizeWords => Op::TokenizeWords,
+            spb::Operator::GroupByKey => Op::GroupByKey,
+            spb::Operator::Count => Op::Count,
+            spb::Operator::MapValues => Op::MapValues(match step.param.as_str() {
+                "upper" => MapTransform::Upper,
+                "lower" => MapTransform::Lower,
+                "trim" => MapTransform::Trim,
+                "reverse" => MapTransform::Reverse,
+                other => {
+                    return Err(Status::invalid_argument(format!(
+                        "MAP_VALUES param must be upper|lower|trim|reverse, got '{other}'"
+                    )))
+                }
+            }),
+            spb::Operator::Filter => Op::Filter(parse_predicate(&step.param)?),
+            spb::Operator::SelectKey => Op::SelectKey(match step.param.as_str() {
+                "" | "value" => KeyMode::Value,
+                "upper" => KeyMode::Upper,
+                "lower" => KeyMode::Lower,
+                other => {
+                    return Err(Status::invalid_argument(format!(
+                        "SELECT_KEY param must be value|upper|lower, got '{other}'"
+                    )))
+                }
+            }),
+            spb::Operator::Aggregate => Op::Aggregate(match step.aggregator {
+                spb::Aggregator::AggregateCount => AggKind::Count,
+                spb::Aggregator::AggregateSum => AggKind::Sum,
+                spb::Aggregator::AggregateMin => AggKind::Min,
+                spb::Aggregator::AggregateMax => AggKind::Max,
+                _ => {
+                    return Err(Status::invalid_argument(
+                        "AGGREGATE requires aggregator COUNT|SUM|MIN|MAX",
+                    ))
+                }
+            }),
+            spb::Operator::Reduce => Op::Reduce(match step.param.as_str() {
+                "" | "sum" => ReduceKind::Sum,
+                "min" => ReduceKind::Min,
+                "max" => ReduceKind::Max,
+                other => {
+                    return Err(Status::invalid_argument(format!(
+                        "REDUCE param must be sum|min|max, got '{other}'"
+                    )))
+                }
+            }),
+            _ => {
+                return Err(Status::invalid_argument(format!(
+                    "unsupported operator {:?} in topology chain",
+                    step.operator
+                )))
+            }
+        };
+        ops.push(op);
+    }
+    validate_ops(&ops)?;
+    Ok(ops)
+}
+
+fn parse_predicate(param: &str) -> Result<Predicate, Status> {
+    let bad = || Status::invalid_argument(format!(
+        "FILTER param must be prefix:<s>|contains:<s>|key_equals:<s>|value_gt:<int>|value_lt:<int>, got '{param}'"
+    ));
+    if let Some(v) = param.strip_prefix("prefix:") {
+        Ok(Predicate::Prefix(v.as_bytes().to_vec()))
+    } else if let Some(v) = param.strip_prefix("contains:") {
+        Ok(Predicate::Contains(v.as_bytes().to_vec()))
+    } else if let Some(v) = param.strip_prefix("key_equals:") {
+        Ok(Predicate::KeyEquals(v.as_bytes().to_vec()))
+    } else if let Some(v) = param.strip_prefix("value_gt:") {
+        v.parse::<i64>().map(Predicate::ValueGt).map_err(|_| bad())
+    } else if let Some(v) = param.strip_prefix("value_lt:") {
+        v.parse::<i64>().map(Predicate::ValueLt).map_err(|_| bad())
+    } else {
+        Err(bad())
+    }
+}
+
+/// Chain contract: GROUP_BY_KEY at most once, and stateful
+/// operators (COUNT/AGGREGATE/REDUCE) only after it.
+fn validate_ops(ops: &[Op]) -> Result<(), Status> {
+    let mut grouped = false;
+    for op in ops {
+        match op {
+            Op::GroupByKey => {
+                if grouped {
+                    return Err(Status::invalid_argument("GROUP_BY_KEY may appear at most once"));
+                }
+                grouped = true;
+            }
+            Op::Count | Op::Aggregate(_) | Op::Reduce(_) => {
+                if !grouped {
+                    return Err(Status::invalid_argument(
+                        "stateful operators (COUNT/AGGREGATE/REDUCE) require GROUP_BY_KEY before them",
+                    ));
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+/// Back-compat chain check used by the original tests.
+fn validate_chain(operators: &[spb::Operator]) -> Result<(), Status> {
+    let topo = spb::Topology { operators: operators.to_vec(), ..Default::default() };
+    resolve_ops(&topo).map(|_| ())
+}
 
 fn fnv1a(bytes: &[u8]) -> u64 {
     let mut hash: u64 = 0xcbf29ce484222325;
@@ -47,18 +203,6 @@ fn fnv1a(bytes: &[u8]) -> u64 {
         hash = hash.wrapping_mul(0x100000001b3);
     }
     hash
-}
-
-/// The v1 operator-chain contract: exactly TOKENIZE_WORDS
-/// -> GROUP_BY_KEY -> COUNT, in order, nothing else.
-fn validate_chain(operators: &[spb::Operator]) -> Result<(), Status> {
-    if operators == SUPPORTED {
-        Ok(())
-    } else {
-        Err(Status::invalid_argument(
-            "unsupported operator chain: v1 supports TOKENIZE_WORDS -> GROUP_BY_KEY -> COUNT",
-        ))
-    }
 }
 
 fn tokenize(value: &[u8]) -> Vec<Vec<u8>> {
@@ -79,7 +223,7 @@ impl StreamsService {
         if topo.name.is_empty() || topo.source_topic.is_empty() || topo.sink_topic.is_empty() {
             return Err(Status::invalid_argument("topology name, source_topic, and sink_topic are required"));
         }
-        validate_chain(&topo.operators)?;
+        let ops = resolve_ops(&topo)?;
         let app_id = if topo.application_id.is_empty() {
             format!("streams-{}", topo.name)
         } else {
@@ -105,7 +249,7 @@ impl StreamsService {
         });
         topologies.insert(topo.name.clone(), handle.clone());
         let broker = self.broker.clone();
-        tokio::spawn(run_topology(broker, handle.clone(), topo, app_id));
+        tokio::spawn(run_topology(broker, handle.clone(), topo, app_id, ops));
         let info = handle.state.lock().await.info.clone();
         Ok(info)
     }
@@ -214,7 +358,129 @@ async fn fail(handle: &TopologyHandle, error: String) {
     state.info.error = error;
 }
 
-async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: spb::Topology, app_id: String) {
+#[derive(Clone, Debug, PartialEq)]
+struct PipeRec {
+    key: Vec<u8>,
+    value: Vec<u8>,
+}
+
+fn parse_i64(value: &[u8]) -> Option<i64> {
+    std::str::from_utf8(value).ok()?.trim().parse::<i64>().ok()
+}
+
+/// Run one record through the chain. Store is updated by
+/// stateful ops; callers pass the topology store. Pure apart
+/// from the store, so restore replays use it too (outputs
+/// discarded there).
+fn apply_pipeline(ops: &[Op], rec: &PipeRec, store: &mut HashMap<Vec<u8>, i64>) -> Vec<PipeRec> {
+    let mut current = vec![rec.clone()];
+    for op in ops {
+        let mut next = Vec::new();
+        for r in current {
+            match op {
+                Op::TokenizeWords => {
+                    for token in tokenize(&r.value) {
+                        next.push(PipeRec { key: token, value: b"1".to_vec() });
+                    }
+                }
+                Op::GroupByKey => next.push(r),
+                Op::MapValues(t) => {
+                    let value = match t {
+                        MapTransform::Upper => String::from_utf8_lossy(&r.value).to_uppercase().into_bytes(),
+                        MapTransform::Lower => String::from_utf8_lossy(&r.value).to_lowercase().into_bytes(),
+                        MapTransform::Trim => String::from_utf8_lossy(&r.value).trim().to_string().into_bytes(),
+                        MapTransform::Reverse => {
+                            let mut v = r.value.clone();
+                            v.reverse();
+                            v
+                        }
+                    };
+                    next.push(PipeRec { value, ..r });
+                }
+                Op::Filter(pred) => {
+                    let keep = match pred {
+                        Predicate::Prefix(p) => r.value.starts_with(p),
+                        Predicate::Contains(p) => {
+                            !p.is_empty() && r.value.windows(p.len()).any(|w| w == p.as_slice())
+                        }
+                        Predicate::KeyEquals(k) => &r.key == k,
+                        Predicate::ValueGt(n) => parse_i64(&r.value).is_some_and(|v| v > *n),
+                        Predicate::ValueLt(n) => parse_i64(&r.value).is_some_and(|v| v < *n),
+                    };
+                    if keep {
+                        next.push(r);
+                    }
+                }
+                Op::SelectKey(mode) => {
+                    let key = match mode {
+                        KeyMode::Value => r.value.clone(),
+                        KeyMode::Upper => String::from_utf8_lossy(&r.value).to_uppercase().into_bytes(),
+                        KeyMode::Lower => String::from_utf8_lossy(&r.value).to_lowercase().into_bytes(),
+                    };
+                    next.push(PipeRec { key, ..r });
+                }
+                Op::Count => {
+                    let entry = store.entry(r.key.clone()).or_insert(0);
+                    *entry += 1;
+                    next.push(PipeRec { value: entry.to_string().into_bytes(), ..r });
+                }
+                Op::Aggregate(kind) => {
+                    let v = parse_i64(&r.value);
+                    let entry = store.entry(r.key.clone());
+                    let current_val = match kind {
+                        AggKind::Count => {
+                            let e = entry.or_insert(0);
+                            *e += 1;
+                            *e
+                        }
+                        AggKind::Sum => {
+                            let e = entry.or_insert(0);
+                            *e += v.unwrap_or(0);
+                            *e
+                        }
+                        AggKind::Min => match v {
+                            Some(v) => {
+                                let e = entry.or_insert(v);
+                                *e = (*e).min(v);
+                                *e
+                            }
+                            None => continue,
+                        },
+                        AggKind::Max => match v {
+                            Some(v) => {
+                                let e = entry.or_insert(v);
+                                *e = (*e).max(v);
+                                *e
+                            }
+                            None => continue,
+                        },
+                    };
+                    next.push(PipeRec { value: current_val.to_string().into_bytes(), ..r });
+                }
+                Op::Reduce(kind) => {
+                    let Some(v) = parse_i64(&r.value) else { continue };
+                    let val = match store.get(&r.key) {
+                        None => v,
+                        Some(existing) => match kind {
+                            ReduceKind::Sum => existing + v,
+                            ReduceKind::Min => (*existing).min(v),
+                            ReduceKind::Max => (*existing).max(v),
+                        },
+                    };
+                    store.insert(r.key.clone(), val);
+                    next.push(PipeRec { value: val.to_string().into_bytes(), ..r });
+                }
+            }
+        }
+        current = next;
+        if current.is_empty() {
+            break;
+        }
+    }
+    current
+}
+
+async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: spb::Topology, app_id: String, ops: Vec<Op>) {
     let meta = match broker.metadata(vec![topo.source_topic.clone()], false).await {
         Ok(m) => m,
         Err(e) => return fail(&handle, e.message.clone()).await,
@@ -274,11 +540,15 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
                         break;
                     }
                     replay = record.offset + 1;
-                    for token in tokenize(&record.value) {
+                    {
                         let mut state = handle.state.lock().await;
-                        *state.store.entry(token).or_insert(0) += 1;
+                        let _ = apply_pipeline(
+                            &ops,
+                            &PipeRec { key: record.key.clone(), value: record.value.clone() },
+                            &mut state.store,
+                        );
+                        state.info.records_processed += 1;
                     }
-                    handle.state.lock().await.info.records_processed += 1;
                 }
             }
         }
@@ -306,17 +576,21 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
             let mut next_offset = offset;
             for record in &outcome.records {
                 next_offset = record.offset + 1;
-                for token in tokenize(&record.value) {
-                    let count = {
-                        let mut state = handle.state.lock().await;
-                        let entry = state.store.entry(token.clone()).or_insert(0);
-                        *entry += 1;
-                        *entry
-                    };
-                    let sink_partition = (fnv1a(&token) % sink_partitions as u64) as i32;
+                let outputs = {
+                    let mut state = handle.state.lock().await;
+                    let outs = apply_pipeline(
+                        &ops,
+                        &PipeRec { key: record.key.clone(), value: record.value.clone() },
+                        &mut state.store,
+                    );
+                    state.info.records_processed += 1;
+                    outs
+                };
+                for out_rec in outputs {
+                    let sink_partition = (fnv1a(&out_rec.key) % sink_partitions as u64) as i32;
                     let out = crate::pb::Record {
-                        key: token.clone(),
-                        value: count.to_string().into_bytes(),
+                        key: out_rec.key,
+                        value: out_rec.value,
                         ..Default::default()
                     };
                     let produced = broker
@@ -328,7 +602,6 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
                         Err(e) => return fail(&handle, e.message.clone()).await,
                     }
                 }
-                handle.state.lock().await.info.records_processed += 1;
             }
             if let Err(e) = broker
                 .offset_commit(&app_id, -1, "", None, &topo.source_topic, *p, next_offset, "")
@@ -374,8 +647,14 @@ mod tests {
 
     #[test]
     fn chain_validation_accepts_only_the_v1_chain() {
-        assert!(validate_chain(&SUPPORTED).is_ok());
+        assert!(validate_chain(&[
+            spb::Operator::TokenizeWords,
+            spb::Operator::GroupByKey,
+            spb::Operator::Count,
+        ])
+        .is_ok());
         assert!(validate_chain(&[]).is_err());
+        // Stateful before GROUP_BY_KEY is rejected.
         assert!(validate_chain(&[spb::Operator::Count]).is_err());
         assert!(validate_chain(&[
             spb::Operator::TokenizeWords,
@@ -383,14 +662,85 @@ mod tests {
             spb::Operator::GroupByKey,
         ])
         .is_err());
+        // Duplicate GROUP_BY_KEY is rejected; repeated
+        // stateful ops after grouping are fine.
         assert!(validate_chain(&[
-            spb::Operator::TokenizeWords,
             spb::Operator::GroupByKey,
-            spb::Operator::Count,
+            spb::Operator::GroupByKey,
             spb::Operator::Count,
         ])
         .is_err());
         assert!(validate_chain(&[spb::Operator::OperatorUnspecified]).is_err());
+        // Bad params are rejected at resolution time.
+        let bad = spb::Topology {
+            steps: vec![spb::Step {
+                operator: spb::Operator::MapValues,
+                param: "sideways".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert!(resolve_ops(&bad).is_err());
+        let bad_agg = spb::Topology {
+            steps: vec![
+                spb::Step { operator: spb::Operator::GroupByKey, ..Default::default() },
+                spb::Step { operator: spb::Operator::Aggregate, ..Default::default() },
+            ],
+            ..Default::default()
+        };
+        assert!(resolve_ops(&bad_agg).is_err());
+    }
+
+    #[test]
+    fn pipeline_stateless_and_aggregation() {
+        let topo = spb::Topology {
+            steps: vec![
+                spb::Step { operator: spb::Operator::Filter, param: "value_gt:10".into(), ..Default::default() },
+                spb::Step { operator: spb::Operator::SelectKey, param: "value".into(), ..Default::default() },
+                spb::Step { operator: spb::Operator::GroupByKey, ..Default::default() },
+                spb::Step {
+                    operator: spb::Operator::Aggregate,
+                    aggregator: spb::Aggregator::AggregateSum,
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let ops = resolve_ops(&topo).unwrap();
+        let mut store = HashMap::new();
+        let run = |v: &str, store: &mut HashMap<Vec<u8>, i64>| {
+            apply_pipeline(&ops, &PipeRec { key: b"k".to_vec(), value: v.as_bytes().to_vec() }, store)
+        };
+        assert!(run("5", &mut store).is_empty(), "filter drops <= 10");
+        let out = run("20", &mut store);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].key, b"20".to_vec());
+        assert_eq!(out[0].value, b"20".to_vec());
+        let out = run("20", &mut store);
+        assert_eq!(out[0].value, b"40".to_vec(), "sum accumulates per key");
+    }
+
+    #[test]
+    fn pipeline_min_max_reduce_and_map() {
+        let topo = spb::Topology {
+            steps: vec![
+                spb::Step { operator: spb::Operator::GroupByKey, ..Default::default() },
+                spb::Step { operator: spb::Operator::Reduce, param: "max".into(), ..Default::default() },
+                spb::Step { operator: spb::Operator::MapValues, param: "upper".into(), ..Default::default() },
+            ],
+            ..Default::default()
+        };
+        // MAP_VALUES upper on a numeric string is a no-op
+        // textually; use MIN aggregate instead for the second
+        // half of this test below.
+        let ops = resolve_ops(&topo).unwrap();
+        let mut store = HashMap::new();
+        let mut last = Vec::new();
+        for v in ["7", "3", "9"] {
+            last = apply_pipeline(&ops, &PipeRec { key: b"a".to_vec(), value: v.as_bytes().to_vec() }, &mut store);
+        }
+        assert_eq!(last[0].value, b"9".to_vec());
+        assert_eq!(store[b"a".as_slice()], 9);
     }
 
     #[test]

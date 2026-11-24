@@ -114,6 +114,7 @@ function Reader:next()
   error("bad wire type")
 end
 
+local Step
 local Topology
 local TopologyInfo
 local CreateTopologyRequest
@@ -124,13 +125,53 @@ local DeleteTopologyRequest
 local DeleteTopologyResponse
 local GetStoreValueRequest
 local GetStoreValueResponse
-local Operator = { OPERATOR_UNSPECIFIED = 0, TOKENIZE_WORDS = 1, GROUP_BY_KEY = 2, COUNT = 3 }
+local Operator = { OPERATOR_UNSPECIFIED = 0, TOKENIZE_WORDS = 1, GROUP_BY_KEY = 2, COUNT = 3, MAP_VALUES = 4, FILTER = 5, SELECT_KEY = 6, AGGREGATE = 7, REDUCE = 8 }
+
+local Aggregator = { AGGREGATOR_UNSPECIFIED = 0, AGGREGATE_COUNT = 1, AGGREGATE_SUM = 2, AGGREGATE_MIN = 3, AGGREGATE_MAX = 4 }
+
+Step = {}
+Step.__index = Step
+
+function Step.new(operator, param, aggregator)
+  return setmetatable({ operator = operator or 0, param = param or "", aggregator = aggregator or 0, unknownFields = "" }, Step)
+end
+
+function Step:marshalDc()
+  local w = Writer.new()
+    if self.operator ~= 0 then w:tag(1, 0) w:varint(self.operator) end
+    w:stringField(2, self.param)
+    if self.aggregator ~= 0 then w:tag(3, 0) w:varint(self.aggregator) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function Step:unmarshalDc(data)
+  self.unknownFields = ""
+  self.operator = 0
+  self.param = ""
+  self.aggregator = 0
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      self.operator = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    elseif field.number == 2 then
+      self.param = field.bytesValue
+    elseif field.number == 3 then
+      self.aggregator = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
 
 Topology = {}
 Topology.__index = Topology
 
-function Topology.new(name, applicationId, sourceTopic, sinkTopic, operators)
-  return setmetatable({ name = name or "", applicationId = applicationId or "", sourceTopic = sourceTopic or "", sinkTopic = sinkTopic or "", operators = operators or {}, unknownFields = "" }, Topology)
+function Topology.new(name, applicationId, sourceTopic, sinkTopic, operators, steps)
+  return setmetatable({ name = name or "", applicationId = applicationId or "", sourceTopic = sourceTopic or "", sinkTopic = sinkTopic or "", operators = operators or {}, steps = steps or {}, unknownFields = "" }, Topology)
 end
 
 function Topology:marshalDc()
@@ -144,6 +185,7 @@ function Topology:marshalDc()
       for _, x in ipairs(self.operators) do payload[#payload + 1] = varintBytes(x) end
       w:bytesField(5, table.concat(payload))
     end
+    for _, x in ipairs(self.steps) do w:bytesField(6, x:marshalDc()) end
   w:raw(self.unknownFields)
   return w:toBytes()
 end
@@ -155,6 +197,7 @@ function Topology:unmarshalDc(data)
   self.sourceTopic = ""
   self.sinkTopic = ""
   self.operators = {}
+  self.steps = {}
   local r = Reader.new(data)
   while true do
     local field = r:next()
@@ -178,6 +221,10 @@ function Topology:unmarshalDc(data)
       else
         self.operators[#self.operators + 1] = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
       end
+    elseif field.number == 6 then
+      local item = Step.new()
+      item:unmarshalDc(field.bytesValue)
+      self.steps[#self.steps + 1] = item
     else
       self.unknownFields = self.unknownFields .. field.rawValue
     end
@@ -486,6 +533,7 @@ function GetStoreValueResponse:unmarshalDc(data)
 end
 
 return {
+  Step = Step,
   Topology = Topology,
   TopologyInfo = TopologyInfo,
   CreateTopologyRequest = CreateTopologyRequest,
@@ -497,4 +545,5 @@ return {
   GetStoreValueRequest = GetStoreValueRequest,
   GetStoreValueResponse = GetStoreValueResponse,
   Operator = Operator,
+  Aggregator = Aggregator,
 }

@@ -115,17 +115,86 @@ end
     TOKENIZE_WORDS = 1
     GROUP_BY_KEY = 2
     COUNT = 3
+    MAP_VALUES = 4
+    FILTER = 5
+    SELECT_KEY = 6
+    AGGREGATE = 7
+    REDUCE = 8
+  end
+
+  module Aggregator
+    AGGREGATOR_UNSPECIFIED = 0
+    AGGREGATE_COUNT = 1
+    AGGREGATE_SUM = 2
+    AGGREGATE_MIN = 3
+    AGGREGATE_MAX = 4
+  end
+
+  class Step
+    attr_accessor :operator, :param, :aggregator, :unknown_fields
+
+    def initialize(operator: 0, param: "", aggregator: 0)
+      @operator = operator
+      @param = param
+      @aggregator = aggregator
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    if @operator != 0
+      w.tag(1, 0)
+      w.varint(@operator)
+    end
+    w.string_field(2, @param)
+    if @aggregator != 0
+      w.tag(3, 0)
+      w.varint(@aggregator)
+    end
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @operator = 0
+      @param = ""
+      @aggregator = 0
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        @operator = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+      when 2
+        @param = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 3
+        @aggregator = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(Step) && @operator == other.operator && @param == other.param && @aggregator == other.aggregator
+    end
   end
 
   class Topology
-    attr_accessor :name, :application_id, :source_topic, :sink_topic, :operators, :unknown_fields
+    attr_accessor :name, :application_id, :source_topic, :sink_topic, :operators, :steps, :unknown_fields
 
-    def initialize(name: "", application_id: "", source_topic: "", sink_topic: "", operators: [])
+    def initialize(name: "", application_id: "", source_topic: "", sink_topic: "", operators: [], steps: [])
       @name = name
       @application_id = application_id
       @source_topic = source_topic
       @sink_topic = sink_topic
       @operators = operators
+      @steps = steps
       @unknown_fields = "".b
     end
 
@@ -140,6 +209,7 @@ end
       @operators.each { |x| payload << KafkaStreamsPbVarint.call(x) }
       w.bytes_field(5, payload)
     end
+    @steps.each { |x| w.bytes_field(6, x.marshal_dc) }
       w.raw(@unknown_fields)
       w.to_bytes
     end
@@ -151,6 +221,7 @@ end
       @source_topic = ""
       @sink_topic = ""
       @operators = []
+      @steps = []
       r = Reader.new(data)
       loop do
         item = r.field
@@ -176,6 +247,10 @@ end
         else
           @operators << (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
         end
+      when 6
+        item = Step.new
+        item.unmarshal_dc(bytes_value)
+        @steps << item
         else
           @unknown_fields = @unknown_fields + raw_value
         end
@@ -184,7 +259,7 @@ end
     end
 
     def ==(other)
-      other.is_a?(Topology) && @name == other.name && @application_id == other.application_id && @source_topic == other.source_topic && @sink_topic == other.sink_topic && @operators == other.operators
+      other.is_a?(Topology) && @name == other.name && @application_id == other.application_id && @source_topic == other.source_topic && @sink_topic == other.sink_topic && @operators == other.operators && @steps == other.steps
     end
   end
 

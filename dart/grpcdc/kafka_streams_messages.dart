@@ -56,7 +56,61 @@ enum Operator {
   OPERATOR_UNSPECIFIED,
   TOKENIZE_WORDS,
   GROUP_BY_KEY,
-  COUNT
+  COUNT,
+  MAP_VALUES,
+  FILTER,
+  SELECT_KEY,
+  AGGREGATE,
+  REDUCE
+}
+enum Aggregator {
+  AGGREGATOR_UNSPECIFIED,
+  AGGREGATE_COUNT,
+  AGGREGATE_SUM,
+  AGGREGATE_MIN,
+  AGGREGATE_MAX
+}
+class Step implements Marshaler, Unmarshaler {
+  Operator operator;
+  String param;
+  Aggregator aggregator;
+  Uint8List unknownFields = Uint8List(0);
+  Step([this.operator = Operator.OPERATOR_UNSPECIFIED, this.param = '', this.aggregator = Aggregator.AGGREGATOR_UNSPECIFIED]);
+  @override
+  Uint8List marshalDc() {
+    final pbW = Kafka_streamsPbWriter();
+    if (operator.index != 0) { pbW.tag(1, 0); pbW.varint(operator.index); }
+    pbW.stringField(2, param);
+    if (aggregator.index != 0) { pbW.tag(3, 0); pbW.varint(aggregator.index); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
+  }
+  @override
+  void unmarshalDc(List<int> data) {
+    unknownFields = Uint8List(0);
+    operator = Operator.OPERATOR_UNSPECIFIED;
+    param = '';
+    aggregator = Aggregator.AGGREGATOR_UNSPECIFIED;
+    final pbR = Kafka_streamsPbReader(Uint8List.fromList(data));
+    while (true) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
+        case 1:
+          operator = Operator.values[(pbField.varintValue).toSigned(32)] ;
+          break;
+        case 2:
+          param = utf8.decode(pbField.bytesValue);
+          break;
+        case 3:
+          aggregator = Aggregator.values[(pbField.varintValue).toSigned(32)] ;
+          break;
+        default:
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
+          break;
+      }
+    }
+  }
 }
 class Topology implements Marshaler, Unmarshaler {
   String name;
@@ -64,8 +118,9 @@ class Topology implements Marshaler, Unmarshaler {
   String sourceTopic;
   String sinkTopic;
   List<Operator> operators;
+  List<Step> steps;
   Uint8List unknownFields = Uint8List(0);
-  Topology([this.name = '', this.applicationId = '', this.sourceTopic = '', this.sinkTopic = '']) : operators = [];
+  Topology([this.name = '', this.applicationId = '', this.sourceTopic = '', this.sinkTopic = '']) : operators = [], steps = [];
   @override
   Uint8List marshalDc() {
     final pbW = Kafka_streamsPbWriter();
@@ -78,6 +133,7 @@ class Topology implements Marshaler, Unmarshaler {
         for (final pbX in operators) { pbPayload.varint(pbX.index); }
         pbW.bytesField(5, pbPayload.toBytes());
     }
+    for (final pbX in steps) { pbW.bytesField(6, pbX.marshalDc()); }
     pbW.raw(unknownFields);
     return pbW.toBytes();
   }
@@ -89,6 +145,7 @@ class Topology implements Marshaler, Unmarshaler {
     sourceTopic = '';
     sinkTopic = '';
     operators = [];
+    steps = [];
     final pbR = Kafka_streamsPbReader(Uint8List.fromList(data));
     while (true) {
       final pbField = pbR.next();
@@ -115,6 +172,11 @@ class Topology implements Marshaler, Unmarshaler {
           } else {
             operators.add(Operator.values[(pbField.varintValue).toSigned(32)]);
           }
+          break;
+        case 6:
+          final item = Step();
+          item.unmarshalDc(pbField.bytesValue);
+          steps.add(item);
           break;
         default:
           unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);

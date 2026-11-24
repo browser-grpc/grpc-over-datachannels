@@ -15,6 +15,7 @@
 
 namespace grpcdc::kafka::streams::v1 {
 
+class Step;
 class Topology;
 class TopologyInfo;
 class CreateTopologyRequest;
@@ -30,7 +31,20 @@ enum class Operator : std::int32_t {
   OPERATOR_UNSPECIFIED = 0,
   TOKENIZE_WORDS = 1,
   GROUP_BY_KEY = 2,
-  COUNT = 3
+  COUNT = 3,
+  MAP_VALUES = 4,
+  FILTER = 5,
+  SELECT_KEY = 6,
+  AGGREGATE = 7,
+  REDUCE = 8
+};
+
+enum class Aggregator : std::int32_t {
+  AGGREGATOR_UNSPECIFIED = 0,
+  AGGREGATE_COUNT = 1,
+  AGGREGATE_SUM = 2,
+  AGGREGATE_MIN = 3,
+  AGGREGATE_MAX = 4
 };
 
 namespace pb_kafka_streams {
@@ -82,6 +96,16 @@ public:
 
 }  // namespace pb_kafka_streams
 
+class Step : public grpcdc::Marshaler, public grpcdc::Unmarshaler {
+ public:
+  Operator operator = Operator::OPERATOR_UNSPECIFIED;
+  std::string param = "";
+  Aggregator aggregator = Aggregator::AGGREGATOR_UNSPECIFIED;
+  grpcdc::Bytes unknown_fields;
+  Step() = default;
+  grpcdc::Bytes MarshalDc() const override;
+  void UnmarshalDc(const grpcdc::Bytes& data) override;
+};
 class Topology : public grpcdc::Marshaler, public grpcdc::Unmarshaler {
  public:
   std::string name = "";
@@ -89,6 +113,7 @@ class Topology : public grpcdc::Marshaler, public grpcdc::Unmarshaler {
   std::string source_topic = "";
   std::string sink_topic = "";
   std::vector<Operator> operators = {};
+  std::vector<Step> steps = {};
   grpcdc::Bytes unknown_fields;
   Topology() = default;
   grpcdc::Bytes MarshalDc() const override;
@@ -173,6 +198,41 @@ class GetStoreValueResponse : public grpcdc::Marshaler, public grpcdc::Unmarshal
   grpcdc::Bytes MarshalDc() const override;
   void UnmarshalDc(const grpcdc::Bytes& data) override;
 };
+inline grpcdc::Bytes Step::MarshalDc() const {
+    pb_kafka_streams::Writer pb_w;
+    if (static_cast<std::int32_t>(operator) != 0) { pb_w.Tag(1, 0); pb_w.Varint(static_cast<std::int32_t>(operator)); }
+    pb_w.StringField(2, param);
+    if (static_cast<std::int32_t>(aggregator) != 0) { pb_w.Tag(3, 0); pb_w.Varint(static_cast<std::int32_t>(aggregator)); }
+    pb_w.Raw(unknown_fields);
+    return pb_w.ToBytes();
+}
+
+inline void Step::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
+    unknown_fields.clear();
+    operator = Operator::OPERATOR_UNSPECIFIED;
+    param = "";
+    aggregator = Aggregator::AGGREGATOR_UNSPECIFIED;
+    pb_kafka_streams::Reader pb_r(pb_data_);
+    pb_kafka_streams::Field pb_field;
+    while (pb_r.Next(pb_field)) {
+      switch (pb_field.number) {
+        case 1: {
+            operator = static_cast<Operator>(static_cast<std::int32_t>(pb_field.varint));
+            break;
+        }
+        case 2: {
+            param = std::string(pb_field.bytes.begin(), pb_field.bytes.end());
+            break;
+        }
+        case 3: {
+            aggregator = static_cast<Aggregator>(static_cast<std::int32_t>(pb_field.varint));
+            break;
+        }
+        default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;
+      }
+    }
+}
+
 inline grpcdc::Bytes Topology::MarshalDc() const {
     pb_kafka_streams::Writer pb_w;
     pb_w.StringField(1, name);
@@ -184,6 +244,7 @@ inline grpcdc::Bytes Topology::MarshalDc() const {
         for (auto pb_x : operators) pb_payload.Varint(static_cast<std::int32_t>(pb_x));
         pb_w.BytesField(5, pb_payload.ToBytes());
     }
+    for (const auto& pb_x : steps) pb_w.BytesField(6, pb_x.MarshalDc());
     pb_w.Raw(unknown_fields);
     return pb_w.ToBytes();
 }
@@ -195,6 +256,7 @@ inline void Topology::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
     source_topic = "";
     sink_topic = "";
     operators = {};
+    steps = {};
     pb_kafka_streams::Reader pb_r(pb_data_);
     pb_kafka_streams::Field pb_field;
     while (pb_r.Next(pb_field)) {
@@ -224,6 +286,12 @@ inline void Topology::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
             } else {
                 operators.push_back(static_cast<Operator>(static_cast<std::int32_t>(pb_field.varint)));
             }
+            break;
+        }
+        case 6: {
+            Step pb_item;
+            pb_item.UnmarshalDc(pb_field.bytes);
+            steps.push_back(pb_item);
             break;
         }
         default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;

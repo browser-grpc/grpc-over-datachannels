@@ -11,14 +11,16 @@ public sealed class Topology : IMarshaler, IUnmarshaler {
     public string SourceTopic = "";
     public string SinkTopic = "";
     public System.Collections.Generic.List<Operator> Operators = new System.Collections.Generic.List<Operator>();
+    public System.Collections.Generic.List<Step> Steps = new System.Collections.Generic.List<Step>();
     public byte[] UnknownFields = new byte[0];
     public Topology() {}
-    public Topology(string name, string applicationId, string sourceTopic, string sinkTopic, System.Collections.Generic.List<Operator> operators) {
+    public Topology(string name, string applicationId, string sourceTopic, string sinkTopic, System.Collections.Generic.List<Operator> operators, System.Collections.Generic.List<Step> steps) {
         Name = name;
         ApplicationId = applicationId;
         SourceTopic = sourceTopic;
         SinkTopic = sinkTopic;
         Operators = operators;
+        Steps = steps;
     }
     public byte[] MarshalDc() {
         var w = new Kafka_streamsPb.Writer();
@@ -31,6 +33,7 @@ public sealed class Topology : IMarshaler, IUnmarshaler {
             foreach (var x in Operators) payload.Varint((int) x);
             w.BytesField(5, payload.ToBytes());
         }
+        if (Steps != null) foreach (var x in Steps) w.BytesField(6, x.MarshalDc());
         w.Raw(UnknownFields);
         return w.ToBytes();
     }
@@ -41,6 +44,7 @@ public sealed class Topology : IMarshaler, IUnmarshaler {
         SourceTopic = "";
         SinkTopic = "";
         Operators = new System.Collections.Generic.List<Operator>();
+        Steps = new System.Collections.Generic.List<Step>();
         var r = new Kafka_streamsPb.Reader(data);
         Kafka_streamsPb.Field field;
         while ((field = r.Next()) != null) {
@@ -70,6 +74,12 @@ public sealed class Topology : IMarshaler, IUnmarshaler {
                     } else {
                         Operators.Add((Operator) (int) field.VarintValue);
                     }
+                    break;
+                }
+                case 6: {
+                    var item = new Step();
+                    item.UnmarshalDc(field.BytesValue);
+                    Steps.Add(item);
                     break;
                 }
                 default: UnknownFields = Kafka_streamsPb.ConcatBytes(UnknownFields, field.RawValue); break;

@@ -114,17 +114,76 @@ class Operator:
     TOKENIZE_WORDS = 1
     GROUP_BY_KEY = 2
     COUNT = 3
+    MAP_VALUES = 4
+    FILTER = 5
+    SELECT_KEY = 6
+    AGGREGATE = 7
+    REDUCE = 8
+
+
+class Aggregator:
+    """Enum grpcdc.kafka.streams.v1.Aggregator."""
+    AGGREGATOR_UNSPECIFIED = 0
+    AGGREGATE_COUNT = 1
+    AGGREGATE_SUM = 2
+    AGGREGATE_MIN = 3
+    AGGREGATE_MAX = 4
+
+
+class Step:
+    """Message grpcdc.kafka.streams.v1.Step."""
+
+    def __init__(self, operator=0, param="", aggregator=0):
+        self.operator = operator
+        self.param = param
+        self.aggregator = aggregator
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        out = _append_varint_field(out, 1, self.operator)
+        out = _append_string_field(out, 2, self.param)
+        out = _append_varint_field(out, 3, self.aggregator)
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.operator = 0
+        self.param = ""
+        self.aggregator = 0
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                self.operator = _as_int32(value)
+            elif num == 2:
+                self.param = value.decode("utf-8")
+            elif num == 3:
+                self.aggregator = _as_int32(value)
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, Step) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"Step(operator={self.operator!r}, param={self.param!r}, aggregator={self.aggregator!r})"
 
 
 class Topology:
     """Message grpcdc.kafka.streams.v1.Topology."""
 
-    def __init__(self, name="", application_id="", source_topic="", sink_topic="", operators=None):
+    def __init__(self, name="", application_id="", source_topic="", sink_topic="", operators=None, steps=None):
         self.name = name
         self.application_id = application_id
         self.source_topic = source_topic
         self.sink_topic = sink_topic
         self.operators = list(operators) if operators is not None else []
+        self.steps = list(steps) if steps is not None else []
         self.unknown_fields = b""
 
     def marshal_dc(self):
@@ -138,6 +197,8 @@ class Topology:
             for v in self.operators:
                 payload = _append_varint(payload, v)
             out = _append_bytes_field(out, 5, bytes(payload))
+        for v in self.steps:
+            out = _append_bytes_field(out, 6, v.marshal_dc())
         out += self.unknown_fields
         return bytes(out)
 
@@ -148,6 +209,7 @@ class Topology:
         self.source_topic = ""
         self.sink_topic = ""
         self.operators = []
+        self.steps = []
         reader = _Reader(data)
         while True:
             item = reader.field()
@@ -169,6 +231,11 @@ class Topology:
                         self.operators.append(_as_int32(sub.varint()))
                 else:
                     self.operators.append(_as_int32(value))
+            elif num == 6:
+                tmp = Step()
+                tmp.unmarshal_dc(value)
+                tmp2 = tmp
+                self.steps.append(tmp2)
             else:
                 self.unknown_fields = self.unknown_fields + raw
 
@@ -176,7 +243,7 @@ class Topology:
         return isinstance(other, Topology) and self.__dict__ == other.__dict__
 
     def __repr__(self):
-        return f"Topology(name={self.name!r}, application_id={self.application_id!r}, source_topic={self.source_topic!r}, sink_topic={self.sink_topic!r}, operators={self.operators!r})"
+        return f"Topology(name={self.name!r}, application_id={self.application_id!r}, source_topic={self.source_topic!r}, sink_topic={self.sink_topic!r}, operators={self.operators!r}, steps={self.steps!r})"
 
 
 class TopologyInfo:

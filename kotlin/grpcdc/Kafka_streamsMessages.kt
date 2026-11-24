@@ -55,7 +55,12 @@ enum class Operator(val number: Int) {
     OPERATOR_UNSPECIFIED(0),
     TOKENIZE_WORDS(1),
     GROUP_BY_KEY(2),
-    COUNT(3);
+    COUNT(3),
+    MAP_VALUES(4),
+    FILTER(5),
+    SELECT_KEY(6),
+    AGGREGATE(7),
+    REDUCE(8);
     companion object {
         fun fromNumber(number: Int): Operator =
             when (number) {
@@ -63,17 +68,79 @@ enum class Operator(val number: Int) {
                 1 -> TOKENIZE_WORDS
                 2 -> GROUP_BY_KEY
                 3 -> COUNT
+                4 -> MAP_VALUES
+                5 -> FILTER
+                6 -> SELECT_KEY
+                7 -> AGGREGATE
+                8 -> REDUCE
                 else -> OPERATOR_UNSPECIFIED
             }
     }
 }
 
+enum class Aggregator(val number: Int) {
+    AGGREGATOR_UNSPECIFIED(0),
+    AGGREGATE_COUNT(1),
+    AGGREGATE_SUM(2),
+    AGGREGATE_MIN(3),
+    AGGREGATE_MAX(4);
+    companion object {
+        fun fromNumber(number: Int): Aggregator =
+            when (number) {
+                0 -> AGGREGATOR_UNSPECIFIED
+                1 -> AGGREGATE_COUNT
+                2 -> AGGREGATE_SUM
+                3 -> AGGREGATE_MIN
+                4 -> AGGREGATE_MAX
+                else -> AGGREGATOR_UNSPECIFIED
+            }
+    }
+}
+
+ class Step(
+    var operator: Operator = Operator.OPERATOR_UNSPECIFIED,
+    var param: String = "",
+    var aggregator: Aggregator = Aggregator.AGGREGATOR_UNSPECIFIED,
+) : Marshaler, Unmarshaler {
+    var unknownFields: ByteArray = ByteArray(0)
+    override fun marshalDc(): ByteArray {
+        val pbW = Kafka_streamsPb.Writer()
+        if (operator.number != 0) { pbW.tag(1, 0); pbW.varint(operator.number.toLong()) }
+        pbW.stringField(2, param)
+        if (aggregator.number != 0) { pbW.tag(3, 0); pbW.varint(aggregator.number.toLong()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
+    }
+    override fun unmarshalDc(data: ByteArray) {
+        unknownFields = ByteArray(0)
+        operator = Operator.OPERATOR_UNSPECIFIED
+        param = ""
+        aggregator = Aggregator.AGGREGATOR_UNSPECIFIED
+        val pbR = Kafka_streamsPb.Reader(data)
+        while (true) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
+                1 -> {
+                    operator = Operator.fromNumber(pbField.varintValue.toInt())
+                }
+                2 -> {
+                    param = String(pbField.bytesValue, Charsets.UTF_8)
+                }
+                3 -> {
+                    aggregator = Aggregator.fromNumber(pbField.varintValue.toInt())
+                }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
+            }
+        }
+    }
+}
  class Topology(
     var name: String = "",
     var applicationId: String = "",
     var sourceTopic: String = "",
     var sinkTopic: String = "",
     var operators: MutableList<Operator> = mutableListOf(),
+    var steps: MutableList<Step> = mutableListOf(),
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
@@ -87,6 +154,7 @@ enum class Operator(val number: Int) {
             for (pbX in operators) pbPayload.varint(pbX.number.toLong())
             pbW.bytesField(5, pbPayload.toBytes())
         }
+        for (pbX in steps) pbW.bytesField(6, pbX.marshalDc())
         pbW.raw(unknownFields)
         return pbW.toBytes()
     }
@@ -97,6 +165,7 @@ enum class Operator(val number: Int) {
         sourceTopic = ""
         sinkTopic = ""
         operators = mutableListOf()
+        steps = mutableListOf()
         val pbR = Kafka_streamsPb.Reader(data)
         while (true) {
             val pbField = pbR.next() ?: break
@@ -122,6 +191,11 @@ enum class Operator(val number: Int) {
                     } else {
                         operators.add(Operator.fromNumber(pbField.varintValue.toInt()))
                     }
+                }
+                6 -> {
+                    val pbItem = Step()
+                    pbItem.unmarshalDc(pbField.bytesValue)
+                    steps.add(pbItem)
                 }
                 else -> { unknownFields = unknownFields + pbField.rawValue }
             }

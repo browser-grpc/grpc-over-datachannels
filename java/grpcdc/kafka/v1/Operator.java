@@ -6,7 +6,12 @@ public enum Operator {
         OPERATOR_UNSPECIFIED(0),
         TOKENIZE_WORDS(1),
         GROUP_BY_KEY(2),
-        COUNT(3);
+        COUNT(3),
+        MAP_VALUES(4),
+        FILTER(5),
+        SELECT_KEY(6),
+        AGGREGATE(7),
+        REDUCE(8);
     public final int number;
     Operator(int number) { this.number = number; }
     public static Operator fromNumber(int number) {
@@ -15,6 +20,11 @@ public enum Operator {
             case 1: return TOKENIZE_WORDS;
             case 2: return GROUP_BY_KEY;
             case 3: return COUNT;
+            case 4: return MAP_VALUES;
+            case 5: return FILTER;
+            case 6: return SELECT_KEY;
+            case 7: return AGGREGATE;
+            case 8: return REDUCE;
             default: return OPERATOR_UNSPECIFIED;
     }
 }

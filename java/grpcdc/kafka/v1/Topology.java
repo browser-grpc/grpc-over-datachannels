@@ -8,14 +8,16 @@ public final class Topology implements grpcdc.Marshaler, grpcdc.Unmarshaler {
     public String sourceTopic = "";
     public String sinkTopic = "";
     public java.util.List<Operator> operators = new java.util.ArrayList<>();
+    public java.util.List<Step> steps = new java.util.ArrayList<>();
     public byte[] unknownFields = new byte[0];
     public Topology() {}
-    public Topology(String name, String applicationId, String sourceTopic, String sinkTopic, java.util.List<Operator> operators) {
+    public Topology(String name, String applicationId, String sourceTopic, String sinkTopic, java.util.List<Operator> operators, java.util.List<Step> steps) {
         this.name = name;
         this.applicationId = applicationId;
         this.sourceTopic = sourceTopic;
         this.sinkTopic = sinkTopic;
         this.operators = operators;
+        this.steps = steps;
     }
 
     @Override
@@ -30,6 +32,7 @@ public final class Topology implements grpcdc.Marshaler, grpcdc.Unmarshaler {
             for (Operator pbX : operators) pbPayload.varint(pbX.number);
             pbW.bytesField(5, pbPayload.toBytes());
         }
+        if (steps != null) for (Step pbX : steps) pbW.bytesField(6, pbX.marshalDc());
         pbW.raw(unknownFields);
         return pbW.toBytes();
     }
@@ -42,6 +45,7 @@ public final class Topology implements grpcdc.Marshaler, grpcdc.Unmarshaler {
         sourceTopic = "";
         sinkTopic = "";
         operators = new java.util.ArrayList<>();
+        steps = new java.util.ArrayList<>();
         Kafka_streamsPb.Reader pbR = new Kafka_streamsPb.Reader(data);
         Kafka_streamsPb.Field pbField;
         while ((pbField = pbR.next()) != null) {
@@ -67,6 +71,11 @@ public final class Topology implements grpcdc.Marshaler, grpcdc.Unmarshaler {
                     } else {
                         operators.add(Operator.fromNumber((int) pbField.varintValue));
                     }
+                }
+                case 6 -> {
+                    Step pbItem = new Step();
+                    pbItem.unmarshalDc(pbField.bytesValue);
+                    steps.add(pbItem);
                 }
                 default -> { unknownFields = Kafka_streamsPb.concatBytes(unknownFields, pbField.rawValue); }
             }

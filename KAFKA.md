@@ -181,10 +181,19 @@ declarative topology; the proxy runs it against the broker
 produce to the sink, commit offsets under the topology's
 consumer group `application_id`, default `streams-<name>`)
 and answers interactive queries (`GetStoreValue`) from its
-state stores. v1 supports exactly one operator chain —
-`TOKENIZE_WORDS -> GROUP_BY_KEY -> COUNT`, the word-count
-topology — and rejects anything else at `CreateTopology`
-time rather than silently mis-executing it. Counts are
+state stores. Topologies are chains of steps
+(`Topology.steps`, parameterized; the legacy `operators`
+list still works for the word-count chain): stateless
+`TOKENIZE_WORDS`, `MAP_VALUES` (upper/lower/trim/reverse),
+`FILTER` (prefix/contains/key_equals/value_gt/value_lt),
+`SELECT_KEY`, the `GROUP_BY_KEY` marker, and the stateful
+`COUNT`, `AGGREGATE` (COUNT/SUM/MIN/MAX over int64 values),
+and `REDUCE` (sum/min/max fold). Stateful steps require
+`GROUP_BY_KEY` before them; anything unsupported is
+rejected at `CreateTopology` time rather than silently
+mis-executed. Windows, joins, group-membership assignment,
+and exactly-once are not yet implemented (the runtime is
+one task per topology with offset-commit resume). Counts are
 emitted as `(word, decimal-count)` records, sink-partitioned
 by key hash. The store is in memory: a recreated topology restores it by
 replaying the already-committed source range (no sink

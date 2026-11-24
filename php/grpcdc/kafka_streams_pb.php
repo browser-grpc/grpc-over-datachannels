@@ -149,6 +149,86 @@ final class Operator
     public const TOKENIZE_WORDS = 1;
     public const GROUP_BY_KEY = 2;
     public const COUNT = 3;
+    public const MAP_VALUES = 4;
+    public const FILTER = 5;
+    public const SELECT_KEY = 6;
+    public const AGGREGATE = 7;
+    public const REDUCE = 8;
+}
+
+final class Aggregator
+{
+    public const AGGREGATOR_UNSPECIFIED = 0;
+    public const AGGREGATE_COUNT = 1;
+    public const AGGREGATE_SUM = 2;
+    public const AGGREGATE_MIN = 3;
+    public const AGGREGATE_MAX = 4;
+}
+
+class Step
+{
+    public int $operator = 0;
+    public string $param = "";
+    public int $aggregator = 0;
+
+    public string $unknownFields = "";
+    public function __construct(int $operator = 0, string $param = "", int $aggregator = 0)
+    {
+        $this->operator = $operator;
+        $this->param = $param;
+        $this->aggregator = $aggregator;
+    }
+
+    public function marshalDc(): string
+    {
+        $w = new Writer();
+        if ($this->operator !== 0) {
+            $w->tag(1, 0);
+            $w->varint($this->operator);
+        }
+        $w->stringField(2, $this->param);
+        if ($this->aggregator !== 0) {
+            $w->tag(3, 0);
+            $w->varint($this->aggregator);
+        }
+        $w->raw($this->unknownFields);
+        return $w->toBytes();
+    }
+
+    public function unmarshalDc(string $data): self
+    {
+        $this->unknownFields = "";
+        $this->operator = 0;
+        $this->param = "";
+        $this->aggregator = 0;
+        $r = new Reader($data);
+        while (($item = $r->field()) !== null) {
+            [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;
+            switch ($num) {
+                case 1:
+                    $this->operator = ((($varintValue & 0xffffffff) >= 0x80000000) ? (($varintValue & 0xffffffff) - 0x100000000) : ($varintValue & 0xffffffff));
+                    break;
+                case 2:
+                    $this->param = $bytesValue;
+                    break;
+                case 3:
+                    $this->aggregator = ((($varintValue & 0xffffffff) >= 0x80000000) ? (($varintValue & 0xffffffff) - 0x100000000) : ($varintValue & 0xffffffff));
+                    break;
+                default:
+                    $this->unknownFields .= $rawValue;
+                    break;
+            }
+        }
+        return $this;
+    }
+
+    public function equals(?object $other): bool
+    {
+        return $other instanceof Step
+            && $this->operator === $other->operator
+            && $this->param === $other->param
+            && $this->aggregator === $other->aggregator;
+    }
 }
 
 class Topology
@@ -158,15 +238,17 @@ class Topology
     public string $sourceTopic = "";
     public string $sinkTopic = "";
     public array $operators = [];
+    public array $steps = [];
 
     public string $unknownFields = "";
-    public function __construct(string $name = "", string $applicationId = "", string $sourceTopic = "", string $sinkTopic = "", array $operators = [])
+    public function __construct(string $name = "", string $applicationId = "", string $sourceTopic = "", string $sinkTopic = "", array $operators = [], array $steps = [])
     {
         $this->name = $name;
         $this->applicationId = $applicationId;
         $this->sourceTopic = $sourceTopic;
         $this->sinkTopic = $sinkTopic;
         $this->operators = $operators;
+        $this->steps = $steps;
     }
 
     public function marshalDc(): string
@@ -183,6 +265,9 @@ class Topology
             }
             $w->bytesField(5, $payload);
         }
+        foreach ($this->steps as $x) {
+            $w->bytesField(6, $x->marshalDc());
+        }
         $w->raw($this->unknownFields);
         return $w->toBytes();
     }
@@ -195,6 +280,7 @@ class Topology
         $this->sourceTopic = "";
         $this->sinkTopic = "";
         $this->operators = [];
+        $this->steps = [];
         $r = new Reader($data);
         while (($item = $r->field()) !== null) {
             [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;
@@ -222,6 +308,11 @@ class Topology
                         $this->operators[] = ((($varintValue & 0xffffffff) >= 0x80000000) ? (($varintValue & 0xffffffff) - 0x100000000) : ($varintValue & 0xffffffff));
                     }
                     break;
+                case 6:
+                    $item = new Step();
+                    $item->unmarshalDc($bytesValue);
+                    $this->steps[] = $item;
+                    break;
                 default:
                     $this->unknownFields .= $rawValue;
                     break;
@@ -237,7 +328,8 @@ class Topology
             && $this->applicationId === $other->applicationId
             && $this->sourceTopic === $other->sourceTopic
             && $this->sinkTopic === $other->sinkTopic
-            && $this->operators === $other->operators;
+            && $this->operators === $other->operators
+            && $this->steps === $other->steps;
     }
 }
 

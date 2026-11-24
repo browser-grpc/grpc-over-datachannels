@@ -131,15 +131,65 @@ function readFixed(bytes, read) {
   return read(new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength));
 }
 
-export const Operator = { OPERATOR_UNSPECIFIED: 0, TOKENIZE_WORDS: 1, GROUP_BY_KEY: 2, COUNT: 3 };
+export const Operator = { OPERATOR_UNSPECIFIED: 0, TOKENIZE_WORDS: 1, GROUP_BY_KEY: 2, COUNT: 3, MAP_VALUES: 4, FILTER: 5, SELECT_KEY: 6, AGGREGATE: 7, REDUCE: 8 };
+
+export const Aggregator = { AGGREGATOR_UNSPECIFIED: 0, AGGREGATE_COUNT: 1, AGGREGATE_SUM: 2, AGGREGATE_MIN: 3, AGGREGATE_MAX: 4 };
+
+export class Step {
+  constructor({ operator = 0, param = "", aggregator = 0 } = {}) {
+    this.operator = operator;
+    this.param = param;
+    this.aggregator = aggregator;
+    this.unknownFields = EMPTY_BYTES;
+  }
+  static encode(msg) {
+    const out = [];
+    putVarintField(out, 1, BigInt(msg.operator));
+    putStringField(out, 2, msg.param);
+    putVarintField(out, 3, BigInt(msg.aggregator));
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new Step();
+    Step._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    Step._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.operator = Number(BigInt.asIntN(32, value)); break;
+      case 2: msg.param = textDecoder.decode(value); break;
+      case 3: msg.aggregator = Number(BigInt.asIntN(32, value)); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+  _reset() {
+    this.operator = 0;
+    this.param = "";
+    this.aggregator = 0;
+    this.unknownFields = EMPTY_BYTES;
+  }
+}
 
 export class Topology {
-  constructor({ name = "", applicationId = "", sourceTopic = "", sinkTopic = "", operators = [] } = {}) {
+  constructor({ name = "", applicationId = "", sourceTopic = "", sinkTopic = "", operators = [], steps = [] } = {}) {
     this.name = name;
     this.applicationId = applicationId;
     this.sourceTopic = sourceTopic;
     this.sinkTopic = sinkTopic;
     this.operators = operators;
+    this.steps = steps;
     this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
@@ -153,6 +203,7 @@ export class Topology {
       for (const x of msg.operators) payload.push(...varintBytes(BigInt(x)));
       putBytesField(out, 5, payload);
     }
+    if (msg.steps) for (const v of msg.steps) putBytesField(out, 6, Step.encode(v));
     putRaw(out, msg.unknownFields);
     return new Uint8Array(out);
   }
@@ -177,6 +228,7 @@ export class Topology {
       case 3: msg.sourceTopic = textDecoder.decode(value); break;
       case 4: msg.sinkTopic = textDecoder.decode(value); break;
       case 5: if (wire === 2) { const r = new Reader(value); while (!r.done) msg.operators.push(Number(BigInt.asIntN(32, r.varint()))); } else msg.operators.push(Number(BigInt.asIntN(32, value))); break;
+      case 6: msg.steps.push(Step.decode(value)); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
@@ -188,6 +240,7 @@ export class Topology {
     this.sourceTopic = "";
     this.sinkTopic = "";
     this.operators = [];
+    this.steps = [];
     this.unknownFields = EMPTY_BYTES;
   }
 }

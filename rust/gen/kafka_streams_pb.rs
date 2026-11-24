@@ -130,6 +130,11 @@ pub enum Operator {
     TokenizeWords = 1,
     GroupByKey = 2,
     Count = 3,
+    MapValues = 4,
+    Filter = 5,
+    SelectKey = 6,
+    Aggregate = 7,
+    Reduce = 8,
     Unknown(i32),
 }
 
@@ -140,6 +145,11 @@ impl Operator {
             1 => Operator::TokenizeWords,
             2 => Operator::GroupByKey,
             3 => Operator::Count,
+            4 => Operator::MapValues,
+            5 => Operator::Filter,
+            6 => Operator::SelectKey,
+            7 => Operator::Aggregate,
+            8 => Operator::Reduce,
             _ => Operator::Unknown(v),
         }
     }
@@ -149,8 +159,100 @@ impl Operator {
             Operator::TokenizeWords => 1,
             Operator::GroupByKey => 2,
             Operator::Count => 3,
+            Operator::MapValues => 4,
+            Operator::Filter => 5,
+            Operator::SelectKey => 6,
+            Operator::Aggregate => 7,
+            Operator::Reduce => 8,
             Operator::Unknown(v) => v,
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[repr(i32)]
+pub enum Aggregator {
+    #[default]
+    AggregatorUnspecified = 0,
+    AggregateCount = 1,
+    AggregateSum = 2,
+    AggregateMin = 3,
+    AggregateMax = 4,
+    Unknown(i32),
+}
+
+impl Aggregator {
+    pub fn from_i32(v: i32) -> Self {
+        match v {
+            0 => Aggregator::AggregatorUnspecified,
+            1 => Aggregator::AggregateCount,
+            2 => Aggregator::AggregateSum,
+            3 => Aggregator::AggregateMin,
+            4 => Aggregator::AggregateMax,
+            _ => Aggregator::Unknown(v),
+        }
+    }
+    pub fn to_i32(self) -> i32 {
+        match self {
+            Aggregator::AggregatorUnspecified => 0,
+            Aggregator::AggregateCount => 1,
+            Aggregator::AggregateSum => 2,
+            Aggregator::AggregateMin => 3,
+            Aggregator::AggregateMax => 4,
+            Aggregator::Unknown(v) => v,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Step {
+    pub operator: Operator,
+    pub param: String,
+    pub aggregator: Aggregator,
+    pub unknown_fields: Vec<u8>,
+}
+
+impl Default for Step {
+    fn default() -> Self {
+        Self {
+            operator: Operator::OperatorUnspecified,
+            param: String::new(),
+            aggregator: Aggregator::AggregatorUnspecified,
+            unknown_fields: Vec::new(),
+        }
+    }
+}
+
+impl Step {
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        if self.operator != Operator::OperatorUnspecified { pb_append_tag(&mut out, 1, 0); pb_append_varint(&mut out, (self.operator.to_i32() as u64)); }
+        pb_append_string_field(&mut out, 2, &self.param);
+        if self.aggregator != Aggregator::AggregatorUnspecified { pb_append_tag(&mut out, 3, 0); pb_append_varint(&mut out, (self.aggregator.to_i32() as u64)); }
+        out.extend_from_slice(&self.unknown_fields);
+        out
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, String> {
+        let mut msg = Self::default();
+        let mut reader = PbReader::new(bytes);
+        while let Some(field) = reader.next()? {
+            match field.number {
+                1 => {
+                    msg.operator = Operator::from_i32(field.varint_value as i32);
+                }
+                2 => {
+                    msg.param = String::from_utf8_lossy(&field.bytes_value).into_owned();
+                }
+                3 => {
+                    msg.aggregator = Aggregator::from_i32(field.varint_value as i32);
+                }
+                _ => {
+                    msg.unknown_fields.extend_from_slice(&field.raw_value);
+                }
+            }
+        }
+        Ok(msg)
     }
 }
 
@@ -161,6 +263,7 @@ pub struct Topology {
     pub source_topic: String,
     pub sink_topic: String,
     pub operators: Vec<Operator>,
+    pub steps: Vec<Step>,
     pub unknown_fields: Vec<u8>,
 }
 
@@ -172,6 +275,7 @@ impl Default for Topology {
             source_topic: String::new(),
             sink_topic: String::new(),
             operators: Vec::new(),
+            steps: Vec::new(),
             unknown_fields: Vec::new(),
         }
     }
@@ -189,6 +293,7 @@ impl Topology {
             for x in &self.operators { pb_append_varint(&mut payload, ((*x).to_i32() as u64)); }
             pb_append_bytes_field(&mut out, 5, &payload);
         }
+        for x in &self.steps { pb_append_bytes_field(&mut out, 6, &x.encode()); }
         out.extend_from_slice(&self.unknown_fields);
         out
     }
@@ -220,6 +325,9 @@ impl Topology {
                     } else {
                         msg.operators.push(Operator::from_i32(field.varint_value as i32));
                     }
+                }
+                6 => {
+                    msg.steps.push(Step::decode(&field.bytes_value)?);
                 }
                 _ => {
                     msg.unknown_fields.extend_from_slice(&field.raw_value);
