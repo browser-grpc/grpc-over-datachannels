@@ -23,6 +23,9 @@ pub mod stub;
 #[path = "../../../rust/gen/kafka_streams_pb.rs"]
 pub mod streams_pb;
 
+#[path = "../../../rust/gen/kafka_streams_processor_pb.rs"]
+pub mod processor_pb;
+
 pub mod streams;
 
 pub mod client;
@@ -34,4 +37,4 @@ pub mod wire;
 
 pub use client::{Broker, KafkaConfig, SaslConfig, TlsConfig};
 pub use service::KafkaService;
-pub use streams::{streams_service, StreamsService};
+pub use streams::{processor_context_service, streams_service, StreamsService};

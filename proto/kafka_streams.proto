@@ -87,6 +87,12 @@ enum Operator {
   // two joins share an implementation; the operator exists
   // so topologies state the guarantee they rely on.
   JOIN_GLOBAL_TABLE = 15;
+  // Custom processor callback: Step.param is the
+  // tcp://host:port address of a client-hosted
+  // StreamsProcessor service (see
+  // kafka_streams_processor.proto). Each record is replaced
+  // by the processor's outputs (zero or more).
+  PROCESS = 16;
 }
 
 enum Aggregator {

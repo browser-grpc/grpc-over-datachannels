@@ -142,6 +142,7 @@ pub enum Operator {
     WindowSliding = 13,
     Cogroup = 14,
     JoinGlobalTable = 15,
+    Process = 16,
     Unknown(i32),
 }
 
@@ -164,6 +165,7 @@ impl Operator {
             13 => Operator::WindowSliding,
             14 => Operator::Cogroup,
             15 => Operator::JoinGlobalTable,
+            16 => Operator::Process,
             _ => Operator::Unknown(v),
         }
     }
@@ -185,6 +187,7 @@ impl Operator {
             Operator::WindowSliding => 13,
             Operator::Cogroup => 14,
             Operator::JoinGlobalTable => 15,
+            Operator::Process => 16,
             Operator::Unknown(v) => v,
         }
     }

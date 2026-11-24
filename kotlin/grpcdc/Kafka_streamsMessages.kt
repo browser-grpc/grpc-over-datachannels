@@ -67,7 +67,8 @@ enum class Operator(val number: Int) {
     WINDOW_SESSION(12),
     WINDOW_SLIDING(13),
     COGROUP(14),
-    JOIN_GLOBAL_TABLE(15);
+    JOIN_GLOBAL_TABLE(15),
+    PROCESS(16);
     companion object {
         fun fromNumber(number: Int): Operator =
             when (number) {
@@ -87,6 +88,7 @@ enum class Operator(val number: Int) {
                 13 -> WINDOW_SLIDING
                 14 -> COGROUP
                 15 -> JOIN_GLOBAL_TABLE
+                16 -> PROCESS
                 else -> OPERATOR_UNSPECIFIED
             }
     }

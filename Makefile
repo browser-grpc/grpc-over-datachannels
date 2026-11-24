@@ -283,6 +283,39 @@ kafka-stubs:
 		--grpc-dc-zig_out=zig/examples -I proto proto/kafka_streams.proto
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-c=bin/protoc-gen-grpc-dc-c \
 		--grpc-dc-c_out=c/grpcdc -I proto proto/kafka_streams.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-rust=bin/protoc-gen-grpc-dc-rust \
+		--grpc-dc-rust_out=rust/gen -I proto proto/kafka_streams_processor.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-js=bin/protoc-gen-grpc-dc-js \
+		--grpc-dc-js_out=js/src -I proto proto/kafka_streams_processor.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-go=bin/protoc-gen-grpc-dc-go \
+		--grpc-dc-go_out=go/kafka -I proto proto/kafka_streams_processor.proto
+	gofmt -w go/kafka/kafka_streams_processor_grpc_dc.go go/kafka/kafka_streams_processor_pb.go
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-python=bin/protoc-gen-grpc-dc-python \
+		--grpc-dc-python_out=python/grpcdc -I proto proto/kafka_streams_processor.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-ruby=bin/protoc-gen-grpc-dc-ruby \
+		--grpc-dc-ruby_out=ruby/grpcdc -I proto proto/kafka_streams_processor.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-php=bin/protoc-gen-grpc-dc-php \
+		--grpc-dc-php_out=php/grpcdc -I proto proto/kafka_streams_processor.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-dart=bin/protoc-gen-grpc-dc-dart \
+		--grpc-dc-dart_out=dart/grpcdc -I proto proto/kafka_streams_processor.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-lua=bin/protoc-gen-grpc-dc-lua \
+		--grpc-dc-lua_out=lua/examples -I proto proto/kafka_streams_processor.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-java=bin/protoc-gen-grpc-dc-java \
+		--grpc-dc-java_out=java/grpcdc/kafka/v1 -I proto proto/kafka_streams_processor.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-csharp=bin/protoc-gen-grpc-dc-csharp \
+		--grpc-dc-csharp_out=csharp/grpcdc/kafka/v1 -I proto proto/kafka_streams_processor.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-kotlin=bin/protoc-gen-grpc-dc-kotlin \
+		--grpc-dc-kotlin_out=kotlin/grpcdc -I proto proto/kafka_streams_processor.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-scala=bin/protoc-gen-grpc-dc-scala \
+		--grpc-dc-scala_out=scala/grpcdc -I proto proto/kafka_streams_processor.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-swift=bin/protoc-gen-grpc-dc-swift \
+		--grpc-dc-swift_out=swift/grpcdc -I proto proto/kafka_streams_processor.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-cpp=bin/protoc-gen-grpc-dc-cpp \
+		--grpc-dc-cpp_out=cpp/examples -I proto proto/kafka_streams_processor.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-zig=bin/protoc-gen-grpc-dc-zig \
+		--grpc-dc-zig_out=zig/examples -I proto proto/kafka_streams_processor.proto
+	$(PROTOC) --plugin=protoc-gen-grpc-dc-c=bin/protoc-gen-grpc-dc-c \
+		--grpc-dc-c_out=c/grpcdc -I proto proto/kafka_streams_processor.proto
 
 generate: plugins stubs direct-examples coverage-docs
 

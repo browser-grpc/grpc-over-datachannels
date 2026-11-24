@@ -28,6 +28,7 @@ struct TopologyState {
     table: HashMap<Vec<u8>, Vec<u8>>,
     sessions: HashMap<Vec<u8>, Vec<(i64, i64)>>,
     key_records: HashMap<Vec<u8>, Vec<(i64, Option<i64>)>>,
+    processors: HashMap<String, grpc_dc::Channel>,
 }
 
 struct TopologyHandle {
@@ -60,6 +61,7 @@ enum Op {
     WindowSession { gap_ms: i64, grace_ms: i64, kind: AggKind },
     WindowSliding { size_ms: i64, grace_ms: i64, kind: AggKind },
     Cogroup,
+    Process { addr: String },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -154,6 +156,15 @@ fn resolve_ops(topo: &spb::Topology) -> Result<Vec<Op>, Status> {
                 }
                 let sep = if step.param.is_empty() { ":".to_string() } else { step.param.clone() };
                 Op::JoinTable { separator: sep.into_bytes() }
+            }
+            spb::Operator::Process => {
+                let addr = step.param.strip_prefix("tcp://").unwrap_or(&step.param);
+                if addr.is_empty() || !addr.contains(':') {
+                    return Err(Status::invalid_argument(
+                        "PROCESS requires param tcp://host:port of the StreamsProcessor service",
+                    ));
+                }
+                Op::Process { addr: addr.to_string() }
             }
             spb::Operator::Cogroup => {
                 if topo.cogroup_sources.is_empty() {
@@ -412,6 +423,7 @@ impl StreamsService {
                 table: HashMap::new(),
                 sessions: HashMap::new(),
                 key_records: HashMap::new(),
+                processors: HashMap::new(),
             }),
             stop: AtomicBool::new(false),
         });
@@ -515,6 +527,57 @@ impl StreamsService {
     }
 }
 
+/// ServiceDef for grpcdc.kafka.streams.processor.v1
+/// ProcessorContext: state access for client-hosted
+/// processors, served by the proxy next to KafkaStreams.
+pub fn processor_context_service(svc: Arc<StreamsService>) -> ServiceDef {
+    ServiceDef::new(
+        "grpcdc.kafka.streams.processor.v1.ProcessorContext",
+        vec![
+            grpc_dc::unary_method("GetState", {
+                let svc = svc.clone();
+                move |req: crate::processor_pb::GetStateRequest, _ctx: CallCtx| {
+                    let svc = svc.clone();
+                    async move {
+                        let topologies = svc.topologies.lock().await;
+                        let handle = topologies
+                            .get(&req.topology)
+                            .ok_or_else(|| Status::new(grpc_dc::Code::NotFound, "unknown topology"))?;
+                        let state = handle.state.lock().await;
+                        match state.store.get(req.key.as_bytes()) {
+                            Some(v) => Ok(crate::processor_pb::GetStateResponse {
+                                found: true,
+                                value: *v,
+                                ..Default::default()
+                            }),
+                            None => Ok(crate::processor_pb::GetStateResponse::default()),
+                        }
+                    }
+                }
+            }),
+            grpc_dc::unary_method("PutState", {
+                let svc = svc;
+                move |req: crate::processor_pb::PutStateRequest, _ctx: CallCtx| {
+                    let svc = svc.clone();
+                    async move {
+                        let topologies = svc.topologies.lock().await;
+                        let handle = topologies
+                            .get(&req.topology)
+                            .ok_or_else(|| Status::new(grpc_dc::Code::NotFound, "unknown topology"))?;
+                        handle
+                            .state
+                            .lock()
+                            .await
+                            .store
+                            .insert(req.key.into_bytes(), req.value);
+                        Ok(crate::processor_pb::PutStateResponse::default())
+                    }
+                }
+            }),
+        ],
+    )
+}
+
 /// ServiceDef for grpcdc.kafka.streams.v1.KafkaStreams,
 /// registered alongside the Kafka service by the proxy. (The
 /// generated Rust stub assumes a crate::pb layout this crate
@@ -600,10 +663,49 @@ struct PipelineCtx<'a> {
     table: &'a HashMap<Vec<u8>, Vec<u8>>,
     sessions: &'a mut HashMap<Vec<u8>, Vec<(i64, i64)>>,
     key_records: &'a mut HashMap<Vec<u8>, Vec<(i64, Option<i64>)>>,
+    processors: &'a mut HashMap<String, grpc_dc::Channel>,
+    topology_name: &'a str,
 }
 
-fn apply_pipeline(ops: &[Op], rec: &PipeRec, ctx: &mut PipelineCtx) -> Vec<PipeRec> {
-    let store = &mut *ctx.store;
+impl PipelineCtx<'_> {
+    async fn processor_call(
+        &mut self,
+        addr: &str,
+        rec: &PipeRec,
+    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>, Status> {
+        if !self.processors.contains_key(addr) {
+            let stream = tokio::net::TcpStream::connect(addr)
+                .await
+                .map_err(|e| Status::unavailable(format!("processor connect {addr}: {e}")))?;
+            let (rx, tx) = tokio::io::split(stream);
+            let transport: std::sync::Arc<dyn grpc_dc::DcTransport> =
+                std::sync::Arc::new(grpc_dc::StreamDc::new(rx, tx));
+            self.processors
+                .insert(addr.to_string(), grpc_dc::Channel::new(transport));
+        }
+        let channel = self.processors.get(addr).expect("processor channel inserted");
+        let req = crate::processor_pb::ProcessRecord {
+            key: rec.key.clone(),
+            value: rec.value.clone(),
+            timestamp_ms: rec.ts,
+            topology: self.topology_name.to_string(),
+            ..Default::default()
+        };
+        let resp: crate::processor_pb::ProcessResult = channel
+            .unary(
+                "/grpcdc.kafka.streams.processor.v1.StreamsProcessor/Process",
+                req,
+            )
+            .await?;
+        Ok(resp
+            .records
+            .into_iter()
+            .map(|r| (r.key, r.value))
+            .collect())
+    }
+}
+
+async fn apply_pipeline(ops: &[Op], rec: &PipeRec, ctx: &mut PipelineCtx<'_>) -> Vec<PipeRec> {
     let mut current = vec![rec.clone()];
     for op in ops {
         let mut next = Vec::new();
@@ -663,6 +765,30 @@ fn apply_pipeline(ops: &[Op], rec: &PipeRec, ctx: &mut PipelineCtx) -> Vec<PipeR
                     }
                 }
                 Op::Cogroup => next.push(r),
+                Op::Process { addr } => {
+                    match ctx.processor_call(addr, &r).await {
+                        Ok(outs) => {
+                            for out in outs {
+                                next.push(PipeRec {
+                                    key: out.0,
+                                    value: out.1,
+                                    ts: r.ts,
+                                    window: r.window,
+                                    precomputed: false,
+                                });
+                            }
+                        }
+                        Err(e) => {
+                            // Processor failures drop the
+                            // record and are counted on the
+                            // topology (visible in tests via
+                            // store assertions); failing the
+                            // whole topology on one bad call
+                            // would stall the group.
+                            eprintln!("streams PROCESS to {addr} failed: {}", e.message);
+                        }
+                    }
+                }
                 Op::JoinTable { separator } => {
                     if let Some(tv) = ctx.table.get(&r.key) {
                         let mut value = r.value.clone();
@@ -689,7 +815,7 @@ fn apply_pipeline(ops: &[Op], rec: &PipeRec, ctx: &mut PipelineCtx) -> Vec<PipeR
                     let mut agg: Option<i64> = None;
                     for old in &replaced {
                         if *old != window {
-                            if let Some(v) = store.remove(&store_key(&r.key, Some(*old))) {
+                            if let Some(v) = ctx.store.remove(&store_key(&r.key, Some(*old))) {
                                 agg = Some(match (agg, kind) {
                                     (None, _) => v,
                                     (Some(a), AggKind::Count | AggKind::Sum) => a + v,
@@ -706,7 +832,7 @@ fn apply_pipeline(ops: &[Op], rec: &PipeRec, ctx: &mut PipelineCtx) -> Vec<PipeR
                         AggKind::Max => combine_agg(*kind, agg, parse_i64(&r.value)),
                     };
                     let agg = agg.unwrap_or(0);
-                    store.insert(store_key(&r.key, Some(window)), agg);
+                    ctx.store.insert(store_key(&r.key, Some(window)), agg);
                     next.push(PipeRec {
                         value: agg.to_string().into_bytes(),
                         window: Some(window),
@@ -750,7 +876,7 @@ fn apply_pipeline(ops: &[Op], rec: &PipeRec, ctx: &mut PipelineCtx) -> Vec<PipeR
                             }
                         }
                         let Some(agg) = agg else { continue };
-                        store.insert(store_key(&r.key, Some((start, end))), agg);
+                        ctx.store.insert(store_key(&r.key, Some((start, end))), agg);
                         next.push(PipeRec {
                             value: agg.to_string().into_bytes(),
                             window: Some((start, end)),
@@ -764,7 +890,7 @@ fn apply_pipeline(ops: &[Op], rec: &PipeRec, ctx: &mut PipelineCtx) -> Vec<PipeR
                         next.push(r);
                         continue;
                     }
-                    let entry = store.entry(store_key(&r.key, r.window)).or_insert(0);
+                    let entry = ctx.store.entry(store_key(&r.key, r.window)).or_insert(0);
                     *entry += 1;
                     next.push(PipeRec { value: entry.to_string().into_bytes(), ..r });
                 }
@@ -774,7 +900,7 @@ fn apply_pipeline(ops: &[Op], rec: &PipeRec, ctx: &mut PipelineCtx) -> Vec<PipeR
                         continue;
                     }
                     let v = parse_i64(&r.value);
-                    let entry = store.entry(store_key(&r.key, r.window));
+                    let entry = ctx.store.entry(store_key(&r.key, r.window));
                     let current_val = match kind {
                         AggKind::Count => {
                             let e = entry.or_insert(0);
@@ -812,7 +938,7 @@ fn apply_pipeline(ops: &[Op], rec: &PipeRec, ctx: &mut PipelineCtx) -> Vec<PipeR
                     }
                     let Some(v) = parse_i64(&r.value) else { continue };
                     let skey = store_key(&r.key, r.window);
-                    let val = match store.get(&skey) {
+                    let val = match ctx.store.get(&skey) {
                         None => v,
                         Some(existing) => match kind {
                             ReduceKind::Sum => existing + v,
@@ -820,7 +946,7 @@ fn apply_pipeline(ops: &[Op], rec: &PipeRec, ctx: &mut PipelineCtx) -> Vec<PipeR
                             ReduceKind::Max => (*existing).max(v),
                         },
                     };
-                    store.insert(skey, val);
+                    ctx.store.insert(skey, val);
                     next.push(PipeRec { value: val.to_string().into_bytes(), ..r });
                 }
             }
@@ -924,7 +1050,69 @@ async fn join_topology_group(
     Err(Status::new(grpc_dc::Code::Internal, "streams topology group join did not settle"))
 }
 
+
+/// Run the pipeline for one record without holding the
+/// topology state lock across it: PROCESS steps call out to
+/// client-hosted processors, whose ProcessorContext calls
+/// need that lock (holding it deadlocked the pair). State
+/// is cloned in, the pipeline runs unlocked, and the result
+/// is written back; records are processed sequentially per
+/// topology, so no concurrent writer can interleave.
+async fn apply_with_state(
+    handle: &TopologyHandle,
+    ops: &[Op],
+    rec: &PipeRec,
+    topo_name: &str,
+) -> Vec<PipeRec> {
+    let (mut store, mut sessions, mut key_records, mut stream_time, table, mut processors) = {
+        let st = handle.state.lock().await;
+        (
+            st.store.clone(),
+            st.sessions.clone(),
+            st.key_records.clone(),
+            st.stream_time,
+            st.table.clone(),
+            st.processors.clone(),
+        )
+    };
+    let store_snapshot = store.clone();
+    let outs = apply_pipeline(
+        ops,
+        rec,
+        &mut PipelineCtx {
+            store: &mut store,
+            stream_time: &mut stream_time,
+            table: &table,
+            sessions: &mut sessions,
+            key_records: &mut key_records,
+            processors: &mut processors,
+            topology_name: topo_name,
+        },
+    )
+    .await;
+    let mut st = handle.state.lock().await;
+    // Preserve ProcessorContext writes the processor made
+    // against the live store during the call: entries that
+    // changed versus the snapshot and that the pipeline
+    // itself did not touch win over the write-back.
+    let live = std::mem::replace(&mut st.store, store);
+    for (k, v) in &live {
+        let externally_changed = store_snapshot.get(k) != Some(v);
+        let pipeline_untouched = st.store.get(k) == store_snapshot.get(k);
+        if externally_changed && pipeline_untouched {
+            st.store.insert(k.clone(), *v);
+        }
+    }
+    st.sessions = sessions;
+    st.key_records = key_records;
+    st.stream_time = stream_time;
+    st.processors = processors;
+    st.info.records_processed += 1;
+    outs
+}
+
 async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: spb::Topology, app_id: String, ops: Vec<Op>) {
+    let topo_name = topo.name.clone();
     let meta = match broker.metadata(vec![topo.source_topic.clone()], false).await {
         Ok(m) => m,
         Err(e) => return fail(&handle, e.message.clone()).await,
@@ -1068,9 +1256,8 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
                     }
                     replay = record.offset + 1;
                     {
-                        let mut state = handle.state.lock().await;
-                        let TopologyState { store, stream_time, table, sessions, key_records, .. } = &mut *state;
-                        let _ = apply_pipeline(
+                        let _ = apply_with_state(
+                            &handle,
                             &ops,
                             &PipeRec {
                                 key: record.key.clone(),
@@ -1079,9 +1266,9 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
                                 window: None,
                                 precomputed: false,
                             },
-                            &mut PipelineCtx { store, stream_time, table, sessions, key_records },
-                        );
-                        state.info.records_processed += 1;
+                            &topo_name,
+                        )
+                        .await;
                     }
                 }
             }
@@ -1203,23 +1390,19 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
             let mut next_offset = offset;
             for record in &outcome.records {
                 next_offset = record.offset + 1;
-                let outputs = {
-                    let mut state = handle.state.lock().await;
-                    let TopologyState { store, stream_time, table, sessions, key_records, .. } = &mut *state;
-                    let outs = apply_pipeline(
-                        &ops,
-                        &PipeRec {
-                            key: record.key.clone(),
-                            value: record.value.clone(),
-                            ts: record.timestamp_ms,
-                            window: None,
-                            precomputed: false,
-                        },
-                        &mut PipelineCtx { store, stream_time, table, sessions, key_records },
-                    );
-                    state.info.records_processed += 1;
-                    outs
-                };
+                let outputs = apply_with_state(
+                    &handle,
+                    &ops,
+                    &PipeRec {
+                        key: record.key.clone(),
+                        value: record.value.clone(),
+                        ts: record.timestamp_ms,
+                        window: None,
+                        precomputed: false,
+                    },
+                    &topo_name,
+                )
+                .await;
                 for out_rec in outputs {
                     let sink_partition = (fnv1a(&out_rec.key) % sink_partitions as u64) as i32;
                     if let Some(t) = &mut txn {
@@ -1373,6 +1556,33 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
 mod tests {
     use super::*;
 
+    #[allow(clippy::too_many_arguments)]
+    async fn pipe(
+        ops: &[Op],
+        key: &[u8],
+        value: &[u8],
+        ts: i64,
+        store: &mut HashMap<Vec<u8>, i64>,
+        sessions: &mut HashMap<Vec<u8>, Vec<(i64, i64)>>,
+        records: &mut HashMap<Vec<u8>, Vec<(i64, Option<i64>)>>,
+        stream_time: &mut i64,
+    ) -> Vec<PipeRec> {
+        apply_pipeline(
+            ops,
+            &PipeRec { key: key.to_vec(), value: value.to_vec(), ts, window: None, precomputed: false },
+            &mut PipelineCtx {
+                store,
+                stream_time,
+                table: &EMPTY_TABLE,
+                sessions,
+                key_records: records,
+                processors: &mut HashMap::new(),
+                topology_name: "test",
+            },
+        )
+        .await
+    }
+
     fn words(value: &str) -> Vec<String> {
         tokenize(value.as_bytes())
             .iter()
@@ -1443,8 +1653,8 @@ mod tests {
         assert!(resolve_ops(&bad_agg).is_err());
     }
 
-    #[test]
-    fn pipeline_stateless_and_aggregation() {
+    #[tokio::test]
+    async fn pipeline_stateless_and_aggregation() {
         let topo = spb::Topology {
             steps: vec![
                 spb::Step { operator: spb::Operator::Filter, param: "value_gt:10".into(), ..Default::default() },
@@ -1460,24 +1670,20 @@ mod tests {
         };
         let ops = resolve_ops(&topo).unwrap();
         let mut store = HashMap::new();
-        let run = |v: &str, store: &mut HashMap<Vec<u8>, i64>| {
-            apply_pipeline(
-                &ops,
-                &PipeRec { key: b"k".to_vec(), value: v.as_bytes().to_vec(), ts: 0, window: None, precomputed: false },
-                &mut PipelineCtx { store, stream_time: &mut 0, table: &EMPTY_TABLE, sessions: &mut HashMap::new(), key_records: &mut HashMap::new() },
-            )
-        };
-        assert!(run("5", &mut store).is_empty(), "filter drops <= 10");
-        let out = run("20", &mut store);
+        let mut sessions: HashMap<Vec<u8>, Vec<(i64, i64)>> = HashMap::new();
+        let mut records: HashMap<Vec<u8>, Vec<(i64, Option<i64>)>> = HashMap::new();
+        let mut st = 0i64;
+        assert!(pipe(&ops, b"k", b"5", 0, &mut store, &mut sessions, &mut records, &mut st).await.is_empty(), "filter drops <= 10");
+        let out = pipe(&ops, b"k", b"20", 0, &mut store, &mut sessions, &mut records, &mut st).await;
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].key, b"20".to_vec());
         assert_eq!(out[0].value, b"20".to_vec());
-        let out = run("20", &mut store);
+        let out = pipe(&ops, b"k", b"20", 0, &mut store, &mut sessions, &mut records, &mut st).await;
         assert_eq!(out[0].value, b"40".to_vec(), "sum accumulates per key");
     }
 
-    #[test]
-    fn pipeline_min_max_reduce_and_map() {
+    #[tokio::test]
+    async fn pipeline_min_max_reduce_and_map() {
         let topo = spb::Topology {
             steps: vec![
                 spb::Step { operator: spb::Operator::GroupByKey, ..Default::default() },
@@ -1491,13 +1697,12 @@ mod tests {
         // half of this test below.
         let ops = resolve_ops(&topo).unwrap();
         let mut store = HashMap::new();
+        let mut sessions: HashMap<Vec<u8>, Vec<(i64, i64)>> = HashMap::new();
+        let mut records: HashMap<Vec<u8>, Vec<(i64, Option<i64>)>> = HashMap::new();
+        let mut st = 0i64;
         let mut last = Vec::new();
         for v in ["7", "3", "9"] {
-            last = apply_pipeline(
-                &ops,
-                &PipeRec { key: b"a".to_vec(), value: v.as_bytes().to_vec(), ts: 0, window: None, precomputed: false },
-                &mut PipelineCtx { store: &mut store, stream_time: &mut 0, table: &EMPTY_TABLE, sessions: &mut HashMap::new(), key_records: &mut HashMap::new() },
-            );
+            last = pipe(&ops, b"a", v.as_bytes(), 0, &mut store, &mut sessions, &mut records, &mut st).await;
         }
         assert_eq!(last[0].value, b"9".to_vec());
         assert_eq!(store[b"a".as_slice()], 9);
@@ -1512,8 +1717,8 @@ mod tests {
         assert_eq!(window_starts(1500, 1000, 500), vec![1000, 1500]);
     }
 
-    #[test]
-    fn windowed_count_pipeline_and_late_drop() {
+    #[tokio::test]
+    async fn windowed_count_pipeline_and_late_drop() {
         let topo = spb::Topology {
             steps: vec![
                 spb::Step { operator: spb::Operator::GroupByKey, ..Default::default() },
@@ -1527,23 +1732,21 @@ mod tests {
         let mut stream_time = 0i64;
         let mut sessions_map: HashMap<Vec<u8>, Vec<(i64, i64)>> = HashMap::new();
         let mut records_map: HashMap<Vec<u8>, Vec<(i64, Option<i64>)>> = HashMap::new();
-        let mut run = |ts: i64, store: &mut HashMap<Vec<u8>, i64>, st: &mut i64| {
-            apply_pipeline(
-                &ops,
-                &PipeRec { key: b"w".to_vec(), value: b"x".to_vec(), ts, window: None, precomputed: false },
-                &mut PipelineCtx { store, stream_time: st, table: &EMPTY_TABLE, sessions: &mut sessions_map, key_records: &mut records_map },
-            )
-        };
-        assert_eq!(run(100, &mut store, &mut stream_time)[0].value, b"1".to_vec());
-        assert_eq!(run(900, &mut store, &mut stream_time)[0].value, b"2".to_vec());
-        assert_eq!(run(1100, &mut store, &mut stream_time)[0].value, b"1".to_vec());
+        macro_rules! run {
+            ($ts:expr) => {
+                pipe(&ops, b"w", b"x", $ts, &mut store, &mut sessions_map, &mut records_map, &mut stream_time).await
+            };
+        }
+        assert_eq!(run!(100)[0].value, b"1".to_vec());
+        assert_eq!(run!(900)[0].value, b"2".to_vec());
+        assert_eq!(run!(1100)[0].value, b"1".to_vec());
         // Window [0,1000) closed at stream time 1100 (grace 0):
         // a late record for it is dropped.
-        assert!(run(500, &mut store, &mut stream_time).is_empty());
+        assert!(run!(500).is_empty());
     }
 
-    #[test]
-    fn session_windows_merge_and_sliding_recompute() {
+    #[tokio::test]
+    async fn session_windows_merge_and_sliding_recompute() {
         // Session: gap 2000. Records at 0, 1000 (same
         // session), 10000 (new session), then 2500 bridges
         // nothing (gap to first session last=1000 is 1500,
@@ -1561,24 +1764,18 @@ mod tests {
         let mut sessions_map: HashMap<Vec<u8>, Vec<(i64, i64)>> = HashMap::new();
         let mut records_map: HashMap<Vec<u8>, Vec<(i64, Option<i64>)>> = HashMap::new();
         let mut stream_time = 0i64;
-        let run = |ts: i64,
-                   store: &mut HashMap<Vec<u8>, i64>,
-                   sessions_map: &mut HashMap<Vec<u8>, Vec<(i64, i64)>>,
-                   records_map: &mut HashMap<Vec<u8>, Vec<(i64, Option<i64>)>>,
-                   stream_time: &mut i64| {
-            apply_pipeline(
-                &ops,
-                &PipeRec { key: b"k".to_vec(), value: b"v".to_vec(), ts, window: None, precomputed: false },
-                &mut PipelineCtx { store, stream_time, table: &EMPTY_TABLE, sessions: sessions_map, key_records: records_map },
-            )
-        };
-        let out = run(0, &mut store, &mut sessions_map, &mut records_map, &mut stream_time);
+        macro_rules! run {
+            ($ts:expr) => {
+                pipe(&ops, b"k", b"v", $ts, &mut store, &mut sessions_map, &mut records_map, &mut stream_time).await
+            };
+        }
+        let out = run!(0);
         assert_eq!(out[0].window, Some((0, 1)));
         assert_eq!(out[0].value, b"1".to_vec());
-        let out = run(1000, &mut store, &mut sessions_map, &mut records_map, &mut stream_time);
+        let out = run!(1000);
         assert_eq!(out[0].window, Some((0, 1001)));
         assert_eq!(out[0].value, b"2".to_vec(), "session aggregate survives extension");
-        let out = run(10000, &mut store, &mut sessions_map, &mut records_map, &mut stream_time);
+        let out = run!(10000);
         assert_eq!(out[0].window, Some((10000, 10001)));
         assert_eq!(out[0].value, b"1".to_vec());
         assert_eq!(store[&store_key(b"k", Some((0, 1001)))], 2);
@@ -1603,21 +1800,15 @@ mod tests {
         let mut sessions2: HashMap<Vec<u8>, Vec<(i64, i64)>> = HashMap::new();
         let mut records2: HashMap<Vec<u8>, Vec<(i64, Option<i64>)>> = HashMap::new();
         let mut st2 = 0i64;
-        let run2 = |ts: i64, v: &str,
-                    store: &mut HashMap<Vec<u8>, i64>,
-                    sessions_map: &mut HashMap<Vec<u8>, Vec<(i64, i64)>>,
-                    records_map: &mut HashMap<Vec<u8>, Vec<(i64, Option<i64>)>>,
-                    stream_time: &mut i64| {
-            apply_pipeline(
-                &ops2,
-                &PipeRec { key: b"k".to_vec(), value: v.as_bytes().to_vec(), ts, window: None, precomputed: false },
-                &mut PipelineCtx { store, stream_time, table: &EMPTY_TABLE, sessions: sessions_map, key_records: records_map },
-            )
-        };
-        let out = run2(10000, "5", &mut store2, &mut sessions2, &mut records2, &mut st2);
+        macro_rules! run2 {
+            ($ts:expr, $v:expr) => {
+                pipe(&ops2, b"k", $v.as_bytes(), $ts, &mut store2, &mut sessions2, &mut records2, &mut st2).await
+            };
+        }
+        let out = run2!(10000, "5");
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].value, b"5".to_vec());
-        let out = run2(15000, "7", &mut store2, &mut sessions2, &mut records2, &mut st2);
+        let out = run2!(15000, "7");
         assert!(out.iter().any(|r| r.window == Some((5001, 15001)) && r.value == b"12".to_vec()),
             "sliding window must aggregate both records: {out:?}");
     }

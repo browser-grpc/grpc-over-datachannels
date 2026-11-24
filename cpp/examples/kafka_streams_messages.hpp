@@ -45,7 +45,8 @@ enum class Operator : std::int32_t {
   WINDOW_SESSION = 12,
   WINDOW_SLIDING = 13,
   COGROUP = 14,
-  JOIN_GLOBAL_TABLE = 15
+  JOIN_GLOBAL_TABLE = 15,
+  PROCESS = 16
 };
 
 enum class Aggregator : std::int32_t {

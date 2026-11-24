@@ -127,6 +127,7 @@ end
     WINDOW_SLIDING = 13
     COGROUP = 14
     JOIN_GLOBAL_TABLE = 15
+    PROCESS = 16
   end
 
   module Aggregator

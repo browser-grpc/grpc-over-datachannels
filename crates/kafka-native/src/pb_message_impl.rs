@@ -126,5 +126,27 @@ streams_msg!(GetStoreValueRequest);
 streams_msg!(GetStoreValueResponse);
 
 streams_msg!(Step);
+
+macro_rules! processor_msg {
+    ($t:ident) => {
+        impl grpc_dc::Message for crate::processor_pb::$t {
+            fn encode(&self) -> Vec<u8> {
+                crate::processor_pb::$t::encode(self)
+            }
+            fn decode(bytes: &[u8]) -> Result<Self, grpc_dc::Status> {
+                crate::processor_pb::$t::decode(bytes).map_err(grpc_dc::Status::invalid_argument)
+            }
+        }
+    };
+}
+
+processor_msg!(ProcessRecord);
+processor_msg!(OutRecord);
+processor_msg!(ProcessResult);
+processor_msg!(GetStateRequest);
+processor_msg!(GetStateResponse);
+processor_msg!(PutStateRequest);
+processor_msg!(PutStateResponse);
 streams_msg!(FetchWindowRequest);
 streams_msg!(FetchWindowResponse);
+

@@ -204,7 +204,16 @@ Both must be followed by a stateful step, whose combiner
 they adopt. A `COGROUP` step (with
 `Topology.cogroup_sources`) folds keyed decimal values
 from additional topics into the same store (SUM) as they
-arrive. Stateful steps require
+arrive. `JOIN_GLOBAL_TABLE`
+states the full-materialization guarantee in the API.
+A `PROCESS` step routes each record through a
+client-hosted `StreamsProcessor` service
+(`proto/kafka_streams_processor.proto`, generated stubs;
+step param `tcp://host:port`): the processor returns zero
+or more replacement records and may read/write the
+topology store through the proxy's `ProcessorContext`
+service, while offsets, assignment, and transactions stay
+with the proxy. Stateful steps require
 `GROUP_BY_KEY` before them; anything unsupported is
 rejected at `CreateTopology` time rather than silently
 mis-executed. Each topology task joins its `application_id`
@@ -227,8 +236,7 @@ deletes): matching records emit
 param, default `:`), records with no table entry drop, and
 `GetStoreValue` also answers table lookups. Not yet
 implemented: windowed joins, table-table joins,
-GlobalKTable, session/sliding windows, cogroup, standby
-replicas, processor callbacks, persistent stores. Counts are
+standby replicas, persistent stores. Counts are
 emitted as `(word, decimal-count)` records, sink-partitioned
 by key hash. The store is in memory: a recreated topology restores it by
 replaying the already-committed source range (no sink

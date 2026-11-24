@@ -158,6 +158,7 @@ const (
 	Operator_WINDOW_SLIDING       Operator = 13
 	Operator_COGROUP              Operator = 14
 	Operator_JOIN_GLOBAL_TABLE    Operator = 15
+	Operator_PROCESS              Operator = 16
 )
 
 type Aggregator int32

@@ -161,6 +161,7 @@ final class Operator
     public const WINDOW_SLIDING = 13;
     public const COGROUP = 14;
     public const JOIN_GLOBAL_TABLE = 15;
+    public const PROCESS = 16;
 }
 
 final class Aggregator

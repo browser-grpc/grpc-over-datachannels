@@ -835,3 +835,90 @@ test("kafka streams global table join sees all partitions", { skip: !PROXY_ADDR 
   }
   assert.deepEqual(joined, { k0: "hit=T0", k1: "hit=T1", k2: "hit=T2" });
 });
+
+test("kafka streams PROCESS routes through a client-hosted processor", { skip: !PROXY_ADDR }, async (t) => {
+  const { createServer } = await import("node:net");
+  const { Server } = await import("../index.js");
+  const { createStreamsProcessorService, ProcessorContextClient } = await import("../src/kafka_streams_processor_grpc_dc.js");
+  const { ProcessResult, OutRecord } = await import("../src/kafka_streams_processor_pb.js");
+  const { StreamDataChannel } = await import("../src/stdio.js");
+
+  const { dc, kafka, streams } = makeClients();
+  const id = randomUUID().slice(0, 12);
+  const source = `streams-proc-in-${id}`;
+  const sink = `streams-proc-out-${id}`;
+  const name = `proc-${id}`;
+
+  // Processor host: uppercase the value, and count calls
+  // per key in the topology store via ProcessorContext.
+  const ctxDc = tcpChannelForAddr(PROXY_ADDR);
+  const ctx = new ProcessorContextClient(new Channel(ctxDc));
+  const { GetStateRequest, PutStateRequest } = await import("../src/kafka_streams_processor_pb.js");
+  const procServer = new Server();
+  procServer.addService(createStreamsProcessorService({
+    async process(req) {
+      const prev = await ctx.getState(new GetStateRequest({ topology: req.topology, key: dec(req.key) || "calls" }));
+      const n = (prev.found ? prev.value : 0n) + 1n;
+      await ctx.putState(new PutStateRequest({ topology: req.topology, key: dec(req.key) || "calls", value: n }));
+      return new ProcessResult({
+        records: [new OutRecord({ key: req.key, value: enc(dec(req.value).toUpperCase()) })],
+      });
+    },
+  }));
+  const procSockets = new Set();
+  const listener = createServer((socket) => {
+    procSockets.add(socket);
+    socket.on("close", () => procSockets.delete(socket));
+    procServer.serve(new StreamDataChannel(socket));
+  });
+  await new Promise((resolve) => listener.listen(0, "127.0.0.1", resolve));
+  const procPort = listener.address().port;
+  t.after(async () => {
+    try {
+      await streams.deleteTopology(new DeleteTopologyRequest({ name }));
+      await kafka.deleteTopics(new DeleteTopicsRequest({ topics: [source, sink] }));
+    } catch { /* best effort */ }
+    for (const s of procSockets) s.destroy();
+    listener.close();
+    ctxDc.close();
+    dc.close();
+  });
+  for (const topic of [source, sink]) {
+    const created = await kafka.createTopics(new CreateTopicsRequest({
+      topics: [new NewTopic({ name: topic, numPartitions: 1, replicationFactor: 1 })],
+      timeoutMs: 15000,
+    }));
+    assert.deepEqual(created.results.map((r) => r.errorCode), [0]);
+  }
+  const { Step } = await import("../src/kafka_streams_pb.js");
+  const info = await streams.createTopology(new CreateTopologyRequest({
+    topology: new Topology({
+      name, sourceTopic: source, sinkTopic: sink,
+      steps: [new Step({ operator: Operator.PROCESS, param: `tcp://127.0.0.1:${procPort}` })],
+    }),
+  }));
+  assert.equal(info.state, "RUNNING");
+  for (const [k, v] of [["a", "hello"], ["a", "again"], ["b", "world"]]) {
+    const resp = await kafka.produce(new ProduceRequest({
+      topic: source, partition: 0, records: [new Record({ key: enc(k), value: enc(v) })],
+    }));
+    assert.equal(resp.errorCode, 0);
+  }
+  const got = {};
+  let total = 0;
+  for (let i = 0; i < 60 && total < 3; i++) {
+    const stream = await kafka.consume(new ConsumeRequest({ topic: sink, partition: 0, offset: 0n, maxRecords: 50 }));
+    const iter = stream[Symbol.asyncIterator]();
+    const first = await Promise.race([iter.next(), sleep(1000).then(() => null)]);
+    if (first && !first.done) {
+      total = 0;
+      for (const r of first.value.records) { got[dec(r.value)] = dec(r.key); total++; }
+    }
+    await iter.return?.();
+    if (total < 3) await sleep(250);
+  }
+  assert.deepEqual(got, { HELLO: "a", AGAIN: "a", WORLD: "b" });
+  // ProcessorContext wrote call counts into the topology store.
+  const calls = await streams.getStoreValue(new GetStoreValueRequest({ topology: name, key: "a" }));
+  assert.equal(calls.value, 2n);
+});

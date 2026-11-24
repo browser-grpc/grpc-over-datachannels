@@ -24,7 +24,7 @@
 use bytes::Bytes;
 use grpc_dc::{DcTransport, Server, Status};
 use kafka_native::stub::kafka_service;
-use kafka_native::{streams_service, KafkaConfig, KafkaService, SaslConfig, StreamsService, TlsConfig};
+use kafka_native::{processor_context_service, streams_service, KafkaConfig, KafkaService, SaslConfig, StreamsService, TlsConfig};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -262,7 +262,7 @@ fn service_defs(
     service: &Arc<KafkaService>,
     streams: &Arc<StreamsService>,
 ) -> Vec<grpc_dc::ServiceDef> {
-    vec![kafka_service(service.clone()), streams_service(streams.clone())]
+    vec![kafka_service(service.clone()), streams_service(streams.clone()), processor_context_service(streams.clone())]
 }
 
 async fn serve_tcp(
