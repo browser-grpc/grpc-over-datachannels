@@ -127,7 +127,7 @@ local GetStoreValueRequest
 local GetStoreValueResponse
 local FetchWindowRequest
 local FetchWindowResponse
-local Operator = { OPERATOR_UNSPECIFIED = 0, TOKENIZE_WORDS = 1, GROUP_BY_KEY = 2, COUNT = 3, MAP_VALUES = 4, FILTER = 5, SELECT_KEY = 6, AGGREGATE = 7, REDUCE = 8, WINDOW_TUMBLING = 9, WINDOW_HOPPING = 10, JOIN_TABLE = 11 }
+local Operator = { OPERATOR_UNSPECIFIED = 0, TOKENIZE_WORDS = 1, GROUP_BY_KEY = 2, COUNT = 3, MAP_VALUES = 4, FILTER = 5, SELECT_KEY = 6, AGGREGATE = 7, REDUCE = 8, WINDOW_TUMBLING = 9, WINDOW_HOPPING = 10, JOIN_TABLE = 11, WINDOW_SESSION = 12, WINDOW_SLIDING = 13 }
 
 local Aggregator = { AGGREGATOR_UNSPECIFIED = 0, AGGREGATE_COUNT = 1, AGGREGATE_SUM = 2, AGGREGATE_MIN = 3, AGGREGATE_MAX = 4 }
 
@@ -136,8 +136,8 @@ local ProcessingGuarantee = { PROCESSING_GUARANTEE_UNSPECIFIED = 0, AT_LEAST_ONC
 Step = {}
 Step.__index = Step
 
-function Step.new(operator, param, aggregator, windowSizeMs, windowAdvanceMs, graceMs)
-  return setmetatable({ operator = operator or 0, param = param or "", aggregator = aggregator or 0, windowSizeMs = windowSizeMs or 0, windowAdvanceMs = windowAdvanceMs or 0, graceMs = graceMs or 0, unknownFields = "" }, Step)
+function Step.new(operator, param, aggregator, windowSizeMs, windowAdvanceMs, graceMs, gapMs)
+  return setmetatable({ operator = operator or 0, param = param or "", aggregator = aggregator or 0, windowSizeMs = windowSizeMs or 0, windowAdvanceMs = windowAdvanceMs or 0, graceMs = graceMs or 0, gapMs = gapMs or 0, unknownFields = "" }, Step)
 end
 
 function Step:marshalDc()
@@ -148,6 +148,7 @@ function Step:marshalDc()
     if self.windowSizeMs ~= 0 then w:tag(4, 0) w:varint(self.windowSizeMs) end
     if self.windowAdvanceMs ~= 0 then w:tag(5, 0) w:varint(self.windowAdvanceMs) end
     if self.graceMs ~= 0 then w:tag(6, 0) w:varint(self.graceMs) end
+    if self.gapMs ~= 0 then w:tag(7, 0) w:varint(self.gapMs) end
   w:raw(self.unknownFields)
   return w:toBytes()
 end
@@ -160,6 +161,7 @@ function Step:unmarshalDc(data)
   self.windowSizeMs = 0
   self.windowAdvanceMs = 0
   self.graceMs = 0
+  self.gapMs = 0
   local r = Reader.new(data)
   while true do
     local field = r:next()
@@ -177,6 +179,8 @@ function Step:unmarshalDc(data)
       self.windowAdvanceMs = field.varintValue
     elseif field.number == 6 then
       self.graceMs = field.varintValue
+    elseif field.number == 7 then
+      self.gapMs = field.varintValue
     else
       self.unknownFields = self.unknownFields .. field.rawValue
     end

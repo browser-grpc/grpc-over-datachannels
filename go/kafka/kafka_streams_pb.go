@@ -154,6 +154,8 @@ const (
 	Operator_WINDOW_TUMBLING      Operator = 9
 	Operator_WINDOW_HOPPING       Operator = 10
 	Operator_JOIN_TABLE           Operator = 11
+	Operator_WINDOW_SESSION       Operator = 12
+	Operator_WINDOW_SLIDING       Operator = 13
 )
 
 type Aggregator int32
@@ -181,6 +183,7 @@ type Step struct {
 	WindowSizeMs    int64
 	WindowAdvanceMs int64
 	GraceMs         int64
+	GapMs           int64
 	UnknownFields   []byte
 }
 
@@ -212,6 +215,10 @@ func (m *Step) MarshalDC() []byte {
 	if m.GraceMs != 0 {
 		out = KafkaStreamsPbAppendTag(out, 6, 0)
 		out = KafkaStreamsPbAppendVarint(out, uint64(m.GraceMs))
+	}
+	if m.GapMs != 0 {
+		out = KafkaStreamsPbAppendTag(out, 7, 0)
+		out = KafkaStreamsPbAppendVarint(out, uint64(m.GapMs))
 	}
 	out = append(out, m.UnknownFields...)
 	return out
@@ -252,6 +259,10 @@ func (m *Step) UnmarshalDC(data []byte) error {
 		case 6:
 			if v, ok := value.(uint64); ok {
 				m.GraceMs = int64(v)
+			}
+		case 7:
+			if v, ok := value.(uint64); ok {
+				m.GapMs = int64(v)
 			}
 		default:
 			m.UnknownFields = append(m.UnknownFields, raw...)

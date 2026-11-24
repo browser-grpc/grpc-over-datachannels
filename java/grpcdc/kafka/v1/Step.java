@@ -9,15 +9,17 @@ public final class Step implements grpcdc.Marshaler, grpcdc.Unmarshaler {
     public long windowSizeMs = 0L;
     public long windowAdvanceMs = 0L;
     public long graceMs = 0L;
+    public long gapMs = 0L;
     public byte[] unknownFields = new byte[0];
     public Step() {}
-    public Step(Operator operator, String param, Aggregator aggregator, long windowSizeMs, long windowAdvanceMs, long graceMs) {
+    public Step(Operator operator, String param, Aggregator aggregator, long windowSizeMs, long windowAdvanceMs, long graceMs, long gapMs) {
         this.operator = operator;
         this.param = param;
         this.aggregator = aggregator;
         this.windowSizeMs = windowSizeMs;
         this.windowAdvanceMs = windowAdvanceMs;
         this.graceMs = graceMs;
+        this.gapMs = gapMs;
     }
 
     @Override
@@ -29,6 +31,7 @@ public final class Step implements grpcdc.Marshaler, grpcdc.Unmarshaler {
         if (windowSizeMs != 0) { pbW.tag(4, 0); pbW.varint(windowSizeMs); }
         if (windowAdvanceMs != 0) { pbW.tag(5, 0); pbW.varint(windowAdvanceMs); }
         if (graceMs != 0) { pbW.tag(6, 0); pbW.varint(graceMs); }
+        if (gapMs != 0) { pbW.tag(7, 0); pbW.varint(gapMs); }
         pbW.raw(unknownFields);
         return pbW.toBytes();
     }
@@ -42,6 +45,7 @@ public final class Step implements grpcdc.Marshaler, grpcdc.Unmarshaler {
         windowSizeMs = 0L;
         windowAdvanceMs = 0L;
         graceMs = 0L;
+        gapMs = 0L;
         Kafka_streamsPb.Reader pbR = new Kafka_streamsPb.Reader(data);
         Kafka_streamsPb.Field pbField;
         while ((pbField = pbR.next()) != null) {
@@ -63,6 +67,9 @@ public final class Step implements grpcdc.Marshaler, grpcdc.Unmarshaler {
                 }
                 case 6 -> {
                     graceMs = pbField.varintValue;
+                }
+                case 7 -> {
+                    gapMs = pbField.varintValue;
                 }
                 default -> { unknownFields = Kafka_streamsPb.concatBytes(unknownFields, pbField.rawValue); }
             }

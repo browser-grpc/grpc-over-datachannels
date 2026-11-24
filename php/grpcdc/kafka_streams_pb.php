@@ -157,6 +157,8 @@ final class Operator
     public const WINDOW_TUMBLING = 9;
     public const WINDOW_HOPPING = 10;
     public const JOIN_TABLE = 11;
+    public const WINDOW_SESSION = 12;
+    public const WINDOW_SLIDING = 13;
 }
 
 final class Aggregator
@@ -183,9 +185,10 @@ class Step
     public int $windowSizeMs = 0;
     public int $windowAdvanceMs = 0;
     public int $graceMs = 0;
+    public int $gapMs = 0;
 
     public string $unknownFields = "";
-    public function __construct(int $operator = 0, string $param = "", int $aggregator = 0, int $windowSizeMs = 0, int $windowAdvanceMs = 0, int $graceMs = 0)
+    public function __construct(int $operator = 0, string $param = "", int $aggregator = 0, int $windowSizeMs = 0, int $windowAdvanceMs = 0, int $graceMs = 0, int $gapMs = 0)
     {
         $this->operator = $operator;
         $this->param = $param;
@@ -193,6 +196,7 @@ class Step
         $this->windowSizeMs = $windowSizeMs;
         $this->windowAdvanceMs = $windowAdvanceMs;
         $this->graceMs = $graceMs;
+        $this->gapMs = $gapMs;
     }
 
     public function marshalDc(): string
@@ -219,6 +223,10 @@ class Step
             $w->tag(6, 0);
             $w->varint($this->graceMs);
         }
+        if ($this->gapMs !== 0) {
+            $w->tag(7, 0);
+            $w->varint($this->gapMs);
+        }
         $w->raw($this->unknownFields);
         return $w->toBytes();
     }
@@ -232,6 +240,7 @@ class Step
         $this->windowSizeMs = 0;
         $this->windowAdvanceMs = 0;
         $this->graceMs = 0;
+        $this->gapMs = 0;
         $r = new Reader($data);
         while (($item = $r->field()) !== null) {
             [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;
@@ -254,6 +263,9 @@ class Step
                 case 6:
                     $this->graceMs = $varintValue;
                     break;
+                case 7:
+                    $this->gapMs = $varintValue;
+                    break;
                 default:
                     $this->unknownFields .= $rawValue;
                     break;
@@ -270,7 +282,8 @@ class Step
             && $this->aggregator === $other->aggregator
             && $this->windowSizeMs === $other->windowSizeMs
             && $this->windowAdvanceMs === $other->windowAdvanceMs
-            && $this->graceMs === $other->graceMs;
+            && $this->graceMs === $other->graceMs
+            && $this->gapMs === $other->gapMs;
     }
 }
 

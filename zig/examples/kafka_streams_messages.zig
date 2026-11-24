@@ -71,6 +71,8 @@ pub const Operator = enum(i32) {
     WINDOW_TUMBLING = 9,
     WINDOW_HOPPING = 10,
     JOIN_TABLE = 11,
+    WINDOW_SESSION = 12,
+    WINDOW_SLIDING = 13,
 };
 
 pub const Aggregator = enum(i32) {
@@ -94,6 +96,7 @@ pub const Step = struct {
     window_size_ms: i64 = 0,
     window_advance_ms: i64 = 0,
     grace_ms: i64 = 0,
+    gap_ms: i64 = 0,
     unknown_fields: []const u8 = &.{},
     pub fn marshalDc(self: *const Step, alloc: std.mem.Allocator) []u8 {
         _ = .{ self, alloc };
@@ -105,6 +108,7 @@ pub const Step = struct {
         if (self.window_size_ms != 0) { w.tag(4, 0); w.varint(@as(u64, @bitCast(self.window_size_ms))); }
         if (self.window_advance_ms != 0) { w.tag(5, 0); w.varint(@as(u64, @bitCast(self.window_advance_ms))); }
         if (self.grace_ms != 0) { w.tag(6, 0); w.varint(@as(u64, @bitCast(self.grace_ms))); }
+        if (self.gap_ms != 0) { w.tag(7, 0); w.varint(@as(u64, @bitCast(self.gap_ms))); }
         w.raw(self.unknown_fields);
         return w.toBytes();
     }
@@ -116,6 +120,7 @@ pub const Step = struct {
         self.window_size_ms = 0;
         self.window_advance_ms = 0;
         self.grace_ms = 0;
+        self.gap_ms = 0;
         self.unknown_fields = &.{};
         var unknown_fields_list = std.ArrayList(u8).empty;
         var r = PbReader.init(data);
@@ -138,6 +143,9 @@ pub const Step = struct {
                 },
                 6 => {
                     self.grace_ms = @as(i64, @bitCast(field.varint_value));
+                },
+                7 => {
+                    self.gap_ms = @as(i64, @bitCast(field.varint_value));
                 },
                 else => { unknown_fields_list.appendSlice(alloc, field.raw_value) catch {}; },
             }

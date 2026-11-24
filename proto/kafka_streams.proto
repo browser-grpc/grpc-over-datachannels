@@ -61,6 +61,18 @@ enum Operator {
   // value + param separator (default ":") + table value;
   // records without a table entry are dropped.
   JOIN_TABLE = 11;
+  // Session window: records for a key open a session at
+  // their timestamp; sessions merge when their gap is at
+  // most Step.gap_ms. Must be followed by a stateful step
+  // (COUNT/AGGREGATE/REDUCE), whose aggregate is maintained
+  // across merges by this step.
+  WINDOW_SESSION = 12;
+  // Sliding window (Step.window_size_ms): windows are
+  // anchored at record timestamps (start = ts - size + 1,
+  // plus earlier windows still covering the record); the
+  // aggregate for each window is recomputed from the key's
+  // record history. Must be followed by a stateful step.
+  WINDOW_SLIDING = 13;
 }
 
 enum Aggregator {
@@ -87,6 +99,9 @@ message Step {
   // whose window ended more than this before the largest
   // timestamp seen so far (stream time) is dropped.
   int64 grace_ms = 6;
+  // WINDOW_SESSION only: maximum gap between two records
+  // of the same key for them to share a session.
+  int64 gap_ms = 7;
 }
 
 enum ProcessingGuarantee {

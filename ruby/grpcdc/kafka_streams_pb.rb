@@ -123,6 +123,8 @@ end
     WINDOW_TUMBLING = 9
     WINDOW_HOPPING = 10
     JOIN_TABLE = 11
+    WINDOW_SESSION = 12
+    WINDOW_SLIDING = 13
   end
 
   module Aggregator
@@ -140,15 +142,16 @@ end
   end
 
   class Step
-    attr_accessor :operator, :param, :aggregator, :window_size_ms, :window_advance_ms, :grace_ms, :unknown_fields
+    attr_accessor :operator, :param, :aggregator, :window_size_ms, :window_advance_ms, :grace_ms, :gap_ms, :unknown_fields
 
-    def initialize(operator: 0, param: "", aggregator: 0, window_size_ms: 0, window_advance_ms: 0, grace_ms: 0)
+    def initialize(operator: 0, param: "", aggregator: 0, window_size_ms: 0, window_advance_ms: 0, grace_ms: 0, gap_ms: 0)
       @operator = operator
       @param = param
       @aggregator = aggregator
       @window_size_ms = window_size_ms
       @window_advance_ms = window_advance_ms
       @grace_ms = grace_ms
+      @gap_ms = gap_ms
       @unknown_fields = "".b
     end
 
@@ -175,6 +178,10 @@ end
       w.tag(6, 0)
       w.varint(@grace_ms)
     end
+    if @gap_ms != 0
+      w.tag(7, 0)
+      w.varint(@gap_ms)
+    end
       w.raw(@unknown_fields)
       w.to_bytes
     end
@@ -187,6 +194,7 @@ end
       @window_size_ms = 0
       @window_advance_ms = 0
       @grace_ms = 0
+      @gap_ms = 0
       r = Reader.new(data)
       loop do
         item = r.field
@@ -206,6 +214,8 @@ end
         @window_advance_ms = (((varint_value & 0xffffffffffffffff) ^ 0x8000000000000000) - 0x8000000000000000)
       when 6
         @grace_ms = (((varint_value & 0xffffffffffffffff) ^ 0x8000000000000000) - 0x8000000000000000)
+      when 7
+        @gap_ms = (((varint_value & 0xffffffffffffffff) ^ 0x8000000000000000) - 0x8000000000000000)
         else
           @unknown_fields = @unknown_fields + raw_value
         end
@@ -214,7 +224,7 @@ end
     end
 
     def ==(other)
-      other.is_a?(Step) && @operator == other.operator && @param == other.param && @aggregator == other.aggregator && @window_size_ms == other.window_size_ms && @window_advance_ms == other.window_advance_ms && @grace_ms == other.grace_ms
+      other.is_a?(Step) && @operator == other.operator && @param == other.param && @aggregator == other.aggregator && @window_size_ms == other.window_size_ms && @window_advance_ms == other.window_advance_ms && @grace_ms == other.grace_ms && @gap_ms == other.gap_ms
     end
   end
 

@@ -122,6 +122,8 @@ class Operator:
     WINDOW_TUMBLING = 9
     WINDOW_HOPPING = 10
     JOIN_TABLE = 11
+    WINDOW_SESSION = 12
+    WINDOW_SLIDING = 13
 
 
 class Aggregator:
@@ -143,13 +145,14 @@ class ProcessingGuarantee:
 class Step:
     """Message grpcdc.kafka.streams.v1.Step."""
 
-    def __init__(self, operator=0, param="", aggregator=0, window_size_ms=0, window_advance_ms=0, grace_ms=0):
+    def __init__(self, operator=0, param="", aggregator=0, window_size_ms=0, window_advance_ms=0, grace_ms=0, gap_ms=0):
         self.operator = operator
         self.param = param
         self.aggregator = aggregator
         self.window_size_ms = window_size_ms
         self.window_advance_ms = window_advance_ms
         self.grace_ms = grace_ms
+        self.gap_ms = gap_ms
         self.unknown_fields = b""
 
     def marshal_dc(self):
@@ -160,6 +163,7 @@ class Step:
         out = _append_varint_field(out, 4, self.window_size_ms)
         out = _append_varint_field(out, 5, self.window_advance_ms)
         out = _append_varint_field(out, 6, self.grace_ms)
+        out = _append_varint_field(out, 7, self.gap_ms)
         out += self.unknown_fields
         return bytes(out)
 
@@ -171,6 +175,7 @@ class Step:
         self.window_size_ms = 0
         self.window_advance_ms = 0
         self.grace_ms = 0
+        self.gap_ms = 0
         reader = _Reader(data)
         while True:
             item = reader.field()
@@ -189,6 +194,8 @@ class Step:
                 self.window_advance_ms = _as_int64(value)
             elif num == 6:
                 self.grace_ms = _as_int64(value)
+            elif num == 7:
+                self.gap_ms = _as_int64(value)
             else:
                 self.unknown_fields = self.unknown_fields + raw
 
@@ -196,7 +203,7 @@ class Step:
         return isinstance(other, Step) and self.__dict__ == other.__dict__
 
     def __repr__(self):
-        return f"Step(operator={self.operator!r}, param={self.param!r}, aggregator={self.aggregator!r}, window_size_ms={self.window_size_ms!r}, window_advance_ms={self.window_advance_ms!r}, grace_ms={self.grace_ms!r})"
+        return f"Step(operator={self.operator!r}, param={self.param!r}, aggregator={self.aggregator!r}, window_size_ms={self.window_size_ms!r}, window_advance_ms={self.window_advance_ms!r}, grace_ms={self.grace_ms!r}, gap_ms={self.gap_ms!r})"
 
 
 class Topology:

@@ -41,7 +41,9 @@ enum class Operator : std::int32_t {
   REDUCE = 8,
   WINDOW_TUMBLING = 9,
   WINDOW_HOPPING = 10,
-  JOIN_TABLE = 11
+  JOIN_TABLE = 11,
+  WINDOW_SESSION = 12,
+  WINDOW_SLIDING = 13
 };
 
 enum class Aggregator : std::int32_t {
@@ -115,6 +117,7 @@ class Step : public grpcdc::Marshaler, public grpcdc::Unmarshaler {
   std::int64_t window_size_ms = 0;
   std::int64_t window_advance_ms = 0;
   std::int64_t grace_ms = 0;
+  std::int64_t gap_ms = 0;
   grpcdc::Bytes unknown_fields;
   Step() = default;
   grpcdc::Bytes MarshalDc() const override;
@@ -247,6 +250,7 @@ inline grpcdc::Bytes Step::MarshalDc() const {
     if (window_size_ms != 0) { pb_w.Tag(4, 0); pb_w.Varint(static_cast<std::uint64_t>(window_size_ms)); }
     if (window_advance_ms != 0) { pb_w.Tag(5, 0); pb_w.Varint(static_cast<std::uint64_t>(window_advance_ms)); }
     if (grace_ms != 0) { pb_w.Tag(6, 0); pb_w.Varint(static_cast<std::uint64_t>(grace_ms)); }
+    if (gap_ms != 0) { pb_w.Tag(7, 0); pb_w.Varint(static_cast<std::uint64_t>(gap_ms)); }
     pb_w.Raw(unknown_fields);
     return pb_w.ToBytes();
 }
@@ -259,6 +263,7 @@ inline void Step::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
     window_size_ms = 0;
     window_advance_ms = 0;
     grace_ms = 0;
+    gap_ms = 0;
     pb_kafka_streams::Reader pb_r(pb_data_);
     pb_kafka_streams::Field pb_field;
     while (pb_r.Next(pb_field)) {
@@ -285,6 +290,10 @@ inline void Step::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
         }
         case 6: {
             grace_ms = static_cast<std::int64_t>(pb_field.varint);
+            break;
+        }
+        case 7: {
+            gap_ms = static_cast<std::int64_t>(pb_field.varint);
             break;
         }
         default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;

@@ -131,20 +131,21 @@ function readFixed(bytes, read) {
   return read(new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength));
 }
 
-export const Operator = { OPERATOR_UNSPECIFIED: 0, TOKENIZE_WORDS: 1, GROUP_BY_KEY: 2, COUNT: 3, MAP_VALUES: 4, FILTER: 5, SELECT_KEY: 6, AGGREGATE: 7, REDUCE: 8, WINDOW_TUMBLING: 9, WINDOW_HOPPING: 10, JOIN_TABLE: 11 };
+export const Operator = { OPERATOR_UNSPECIFIED: 0, TOKENIZE_WORDS: 1, GROUP_BY_KEY: 2, COUNT: 3, MAP_VALUES: 4, FILTER: 5, SELECT_KEY: 6, AGGREGATE: 7, REDUCE: 8, WINDOW_TUMBLING: 9, WINDOW_HOPPING: 10, JOIN_TABLE: 11, WINDOW_SESSION: 12, WINDOW_SLIDING: 13 };
 
 export const Aggregator = { AGGREGATOR_UNSPECIFIED: 0, AGGREGATE_COUNT: 1, AGGREGATE_SUM: 2, AGGREGATE_MIN: 3, AGGREGATE_MAX: 4 };
 
 export const ProcessingGuarantee = { PROCESSING_GUARANTEE_UNSPECIFIED: 0, AT_LEAST_ONCE: 1, EXACTLY_ONCE: 2 };
 
 export class Step {
-  constructor({ operator = 0, param = "", aggregator = 0, windowSizeMs = 0n, windowAdvanceMs = 0n, graceMs = 0n } = {}) {
+  constructor({ operator = 0, param = "", aggregator = 0, windowSizeMs = 0n, windowAdvanceMs = 0n, graceMs = 0n, gapMs = 0n } = {}) {
     this.operator = operator;
     this.param = param;
     this.aggregator = aggregator;
     this.windowSizeMs = windowSizeMs;
     this.windowAdvanceMs = windowAdvanceMs;
     this.graceMs = graceMs;
+    this.gapMs = gapMs;
     this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
@@ -155,6 +156,7 @@ export class Step {
     putVarintField(out, 4, BigInt(msg.windowSizeMs));
     putVarintField(out, 5, BigInt(msg.windowAdvanceMs));
     putVarintField(out, 6, BigInt(msg.graceMs));
+    putVarintField(out, 7, BigInt(msg.gapMs));
     putRaw(out, msg.unknownFields);
     return new Uint8Array(out);
   }
@@ -180,6 +182,7 @@ export class Step {
       case 4: msg.windowSizeMs = BigInt.asIntN(64, value); break;
       case 5: msg.windowAdvanceMs = BigInt.asIntN(64, value); break;
       case 6: msg.graceMs = BigInt.asIntN(64, value); break;
+      case 7: msg.gapMs = BigInt.asIntN(64, value); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
@@ -192,6 +195,7 @@ export class Step {
     this.windowSizeMs = 0n;
     this.windowAdvanceMs = 0n;
     this.graceMs = 0n;
+    this.gapMs = 0n;
     this.unknownFields = EMPTY_BYTES;
   }
 }

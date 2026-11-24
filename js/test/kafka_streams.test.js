@@ -657,3 +657,66 @@ test("kafka streams stream-table join enriches records", { skip: !PROXY_ADDR }, 
   assert.deepEqual(joined, { u1: "clicked:Ada", u2: "bought:Grace" });
   assert.equal(total, 2, "record without a table entry must be dropped");
 });
+
+test("kafka streams session window merges by gap", { skip: !PROXY_ADDR }, async (t) => {
+  const { dc, kafka, streams } = makeClients();
+  const id = randomUUID().slice(0, 12);
+  const source = `streams-sess-in-${id}`;
+  const sink = `streams-sess-out-${id}`;
+  const name = `sess-${id}`;
+  t.after(async () => {
+    try {
+      await streams.deleteTopology(new DeleteTopologyRequest({ name }));
+      await kafka.deleteTopics(new DeleteTopicsRequest({ topics: [source, sink] }));
+    } catch { /* best effort */ }
+    dc.close();
+  });
+  for (const topic of [source, sink]) {
+    const created = await kafka.createTopics(new CreateTopicsRequest({
+      topics: [new NewTopic({ name: topic, numPartitions: 1, replicationFactor: 1 })],
+      timeoutMs: 15000,
+    }));
+    assert.deepEqual(created.results.map((r) => r.errorCode), [0]);
+  }
+  const { Step, FetchWindowRequest } = await import("../src/kafka_streams_pb.js");
+  const T0 = 1_699_999_980_000n;
+  const info = await streams.createTopology(new CreateTopologyRequest({
+    topology: new Topology({
+      name, sourceTopic: source, sinkTopic: sink,
+      steps: [
+        new Step({ operator: Operator.SELECT_KEY, param: "value" }),
+        new Step({ operator: Operator.GROUP_BY_KEY }),
+        new Step({ operator: Operator.WINDOW_SESSION, gapMs: 30000n }),
+        new Step({ operator: Operator.COUNT }),
+      ],
+    }),
+  }));
+  assert.equal(info.state, "RUNNING");
+  const at = async (word, off) => {
+    const resp = await kafka.produce(new ProduceRequest({
+      topic: source, partition: 0,
+      records: [new Record({ value: enc(word), timestampMs: T0 + off })],
+    }));
+    assert.equal(resp.errorCode, 0);
+  };
+  // clicks at +0s, +10s (same session, gap 30s), +120s (new).
+  await at("click", 0n);
+  await at("click", 10_000n);
+  await at("click", 120_000n);
+  const fetchWin = async (start, end) => {
+    let got = null;
+    for (let i = 0; i < 80; i++) {
+      got = await streams.fetchWindow(new FetchWindowRequest({
+        topology: name, key: "click", windowStartMs: start, windowEndMs: end,
+      }));
+      if (got.found) break;
+      await sleep(250);
+    }
+    return got;
+  };
+  const s1 = await fetchWin(T0, T0 + 10_001n);
+  assert.equal(s1.found, true);
+  assert.equal(s1.value, 2n);
+  const s2 = await fetchWin(T0 + 120_000n, T0 + 120_001n);
+  assert.equal(s2.value, 1n);
+});

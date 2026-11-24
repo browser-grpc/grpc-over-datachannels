@@ -26,6 +26,8 @@ struct TopologyState {
     store: HashMap<Vec<u8>, i64>,
     stream_time: i64,
     table: HashMap<Vec<u8>, Vec<u8>>,
+    sessions: HashMap<Vec<u8>, Vec<(i64, i64)>>,
+    key_records: HashMap<Vec<u8>, Vec<(i64, Option<i64>)>>,
 }
 
 struct TopologyHandle {
@@ -55,6 +57,8 @@ enum Op {
     Reduce(ReduceKind),
     Window { size_ms: i64, advance_ms: i64, grace_ms: i64 },
     JoinTable { separator: Vec<u8> },
+    WindowSession { gap_ms: i64, grace_ms: i64, kind: AggKind },
+    WindowSliding { size_ms: i64, grace_ms: i64, kind: AggKind },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -92,8 +96,8 @@ fn resolve_ops(topo: &spb::Topology) -> Result<Vec<Op>, Status> {
     if steps.is_empty() {
         return Err(Status::invalid_argument("topology has no steps"));
     }
-    let mut ops = Vec::new();
-    for step in &steps {
+    let mut ops: Vec<Op> = Vec::new();
+    for (idx, step) in steps.iter().enumerate() {
         let op = match step.operator {
             spb::Operator::TokenizeWords => Op::TokenizeWords,
             spb::Operator::GroupByKey => Op::GroupByKey,
@@ -149,6 +153,43 @@ fn resolve_ops(topo: &spb::Topology) -> Result<Vec<Op>, Status> {
                 }
                 let sep = if step.param.is_empty() { ":".to_string() } else { step.param.clone() };
                 Op::JoinTable { separator: sep.into_bytes() }
+            }
+            spb::Operator::WindowSession | spb::Operator::WindowSliding => {
+                // The aggregating window ops need the
+                // combiner of the next stateful step.
+                let kind = steps[idx + 1..]
+                    .iter()
+                    .find_map(|n| match n.operator {
+                        spb::Operator::Count => Some(AggKind::Count),
+                        spb::Operator::Aggregate => Some(match n.aggregator {
+                            spb::Aggregator::AggregateSum => AggKind::Sum,
+                            spb::Aggregator::AggregateMin => AggKind::Min,
+                            spb::Aggregator::AggregateMax => AggKind::Max,
+                            _ => AggKind::Count,
+                        }),
+                        spb::Operator::Reduce => Some(match n.param.as_str() {
+                            "min" => AggKind::Min,
+                            "max" => AggKind::Max,
+                            _ => AggKind::Sum,
+                        }),
+                        _ => None,
+                    })
+                    .ok_or_else(|| {
+                        Status::invalid_argument(
+                            "WINDOW_SESSION/WINDOW_SLIDING require a following COUNT/AGGREGATE/REDUCE step",
+                        )
+                    })?;
+                if step.operator == spb::Operator::WindowSession {
+                    if step.gap_ms <= 0 {
+                        return Err(Status::invalid_argument("WINDOW_SESSION requires gap_ms > 0"));
+                    }
+                    Op::WindowSession { gap_ms: step.gap_ms, grace_ms: step.grace_ms.max(0), kind }
+                } else {
+                    if step.window_size_ms <= 0 {
+                        return Err(Status::invalid_argument("WINDOW_SLIDING requires window_size_ms > 0"));
+                    }
+                    Op::WindowSliding { size_ms: step.window_size_ms, grace_ms: step.grace_ms.max(0), kind }
+                }
             }
             spb::Operator::WindowTumbling | spb::Operator::WindowHopping => {
                 if step.window_size_ms <= 0 {
@@ -246,13 +287,62 @@ fn window_starts(ts: i64, size_ms: i64, advance_ms: i64) -> Vec<i64> {
 fn store_key(key: &[u8], window: Option<(i64, i64)>) -> Vec<u8> {
     match window {
         None => key.to_vec(),
-        Some((start, _end)) => {
+        Some((start, end)) => {
             let mut k = key.to_vec();
             k.push(0);
             k.extend_from_slice(&start.to_be_bytes());
+            k.extend_from_slice(&end.to_be_bytes());
             k
         }
     }
+}
+
+/// Combine an existing aggregate (if any) with one record
+/// contribution under kind.
+fn combine_agg(kind: AggKind, existing: Option<i64>, value: Option<i64>) -> Option<i64> {
+    match kind {
+        AggKind::Count => Some(existing.unwrap_or(0) + 1),
+        AggKind::Sum => Some(existing.unwrap_or(0) + value.unwrap_or(0)),
+        AggKind::Min => match (existing, value) {
+            (Some(e), Some(v)) => Some(e.min(v)),
+            (Some(e), None) => Some(e),
+            (None, v) => v,
+        },
+        AggKind::Max => match (existing, value) {
+            (Some(e), Some(v)) => Some(e.max(v)),
+            (Some(e), None) => Some(e),
+            (None, v) => v,
+        },
+    }
+}
+
+/// Merge the session containing ts for key: sessions are
+/// [start, last_ts] point-intervals; two merge when the
+/// distance between them is at most gap. Returns the merged
+/// [start, end) window (end = last + 1) and the list of
+/// replaced session starts (for store transfer).
+fn session_merge(
+    sessions: &mut Vec<(i64, i64)>,
+    ts: i64,
+    gap_ms: i64,
+) -> ((i64, i64), Vec<(i64, i64)>) {
+    let mut start = ts;
+    let mut last = ts;
+    let mut replaced = Vec::new();
+    let mut kept = Vec::new();
+    for &(s, l) in sessions.iter() {
+        if ts - l <= gap_ms && s - ts <= gap_ms {
+            start = start.min(s);
+            last = last.max(l);
+            replaced.push((s, l + 1));
+        } else {
+            kept.push((s, l));
+        }
+    }
+    kept.push((start, last));
+    kept.sort_unstable();
+    *sessions = kept;
+    ((start, last + 1), replaced)
 }
 
 /// Back-compat chain check used by the original tests.
@@ -311,6 +401,8 @@ impl StreamsService {
                 store: HashMap::new(),
                 stream_time: 0,
                 table: HashMap::new(),
+                sessions: HashMap::new(),
+                key_records: HashMap::new(),
             }),
             stop: AtomicBool::new(false),
         });
@@ -482,6 +574,7 @@ struct PipeRec {
     value: Vec<u8>,
     ts: i64,
     window: Option<(i64, i64)>,
+    precomputed: bool,
 }
 
 fn parse_i64(value: &[u8]) -> Option<i64> {
@@ -496,6 +589,8 @@ struct PipelineCtx<'a> {
     store: &'a mut HashMap<Vec<u8>, i64>,
     stream_time: &'a mut i64,
     table: &'a HashMap<Vec<u8>, Vec<u8>>,
+    sessions: &'a mut HashMap<Vec<u8>, Vec<(i64, i64)>>,
+    key_records: &'a mut HashMap<Vec<u8>, Vec<(i64, Option<i64>)>>,
 }
 
 fn apply_pipeline(ops: &[Op], rec: &PipeRec, ctx: &mut PipelineCtx) -> Vec<PipeRec> {
@@ -507,7 +602,7 @@ fn apply_pipeline(ops: &[Op], rec: &PipeRec, ctx: &mut PipelineCtx) -> Vec<PipeR
             match op {
                 Op::TokenizeWords => {
                     for token in tokenize(&r.value) {
-                        next.push(PipeRec { key: token, value: b"1".to_vec(), ts: r.ts, window: r.window });
+                        next.push(PipeRec { key: token, value: b"1".to_vec(), ts: r.ts, window: r.window, precomputed: false });
                     }
                 }
                 Op::GroupByKey => next.push(r),
@@ -566,12 +661,108 @@ fn apply_pipeline(ops: &[Op], rec: &PipeRec, ctx: &mut PipelineCtx) -> Vec<PipeR
                         next.push(PipeRec { value, ..r });
                     }
                 }
+                Op::WindowSession { gap_ms, grace_ms, kind } => {
+                    if r.ts > *ctx.stream_time {
+                        *ctx.stream_time = r.ts;
+                    }
+                    if r.ts + grace_ms < *ctx.stream_time && *ctx.stream_time - r.ts > *grace_ms {
+                        continue; // too late for any session
+                    }
+                    let sessions = ctx.sessions.entry(r.key.clone()).or_default();
+                    let (window, replaced) = session_merge(sessions, r.ts, *gap_ms);
+                    // Transfer replaced sessions' aggregates
+                    // into the merged window, then add this
+                    // record's contribution.
+                    // Transferred values are already totals:
+                    // fold them additively for Count/Sum and
+                    // by min/max otherwise.
+                    let mut agg: Option<i64> = None;
+                    for old in &replaced {
+                        if *old != window {
+                            if let Some(v) = store.remove(&store_key(&r.key, Some(*old))) {
+                                agg = Some(match (agg, kind) {
+                                    (None, _) => v,
+                                    (Some(a), AggKind::Count | AggKind::Sum) => a + v,
+                                    (Some(a), AggKind::Min) => a.min(v),
+                                    (Some(a), AggKind::Max) => a.max(v),
+                                });
+                            }
+                        }
+                    }
+                    agg = match kind {
+                        AggKind::Count => Some(agg.unwrap_or(0) + 1),
+                        AggKind::Sum => Some(agg.unwrap_or(0) + parse_i64(&r.value).unwrap_or(0)),
+                        AggKind::Min => combine_agg(*kind, agg, parse_i64(&r.value)),
+                        AggKind::Max => combine_agg(*kind, agg, parse_i64(&r.value)),
+                    };
+                    let agg = agg.unwrap_or(0);
+                    store.insert(store_key(&r.key, Some(window)), agg);
+                    next.push(PipeRec {
+                        value: agg.to_string().into_bytes(),
+                        window: Some(window),
+                        precomputed: true,
+                        ..r
+                    });
+                }
+                Op::WindowSliding { size_ms, grace_ms, kind } => {
+                    if r.ts > *ctx.stream_time {
+                        *ctx.stream_time = r.ts;
+                    }
+                    let records = ctx.key_records.entry(r.key.clone()).or_default();
+                    records.push((r.ts, parse_i64(&r.value)));
+                    records.sort_by_key(|(ts, _)| *ts);
+                    // Window starts: this record's own anchor
+                    // plus every earlier start still covering it.
+                    let mut starts: Vec<i64> = records
+                        .iter()
+                        .map(|(ts, _)| ts - size_ms + 1)
+                        .filter(|start| *start <= r.ts && r.ts < start + size_ms)
+                        .collect();
+                    starts.sort_unstable();
+                    starts.dedup();
+                    for start in starts {
+                        let end = start + size_ms;
+                        if end + grace_ms < *ctx.stream_time {
+                            continue;
+                        }
+                        // Aggregate every record of this key
+                        // inside [start, end).
+                        let mut agg: Option<i64> = None;
+                        for (ts, v) in records.iter() {
+                            if *ts >= start && *ts < end {
+                                agg = match kind {
+                                    AggKind::Count => Some(agg.unwrap_or(0) + 1),
+                                    _ => combine_agg(*kind, agg, *v),
+                                };
+                                if *kind == AggKind::Count {
+                                    // combine above already handled via first arm
+                                }
+                            }
+                        }
+                        let Some(agg) = agg else { continue };
+                        store.insert(store_key(&r.key, Some((start, end))), agg);
+                        next.push(PipeRec {
+                            value: agg.to_string().into_bytes(),
+                            window: Some((start, end)),
+                            precomputed: true,
+                            ..r.clone()
+                        });
+                    }
+                }
                 Op::Count => {
+                    if r.precomputed {
+                        next.push(r);
+                        continue;
+                    }
                     let entry = store.entry(store_key(&r.key, r.window)).or_insert(0);
                     *entry += 1;
                     next.push(PipeRec { value: entry.to_string().into_bytes(), ..r });
                 }
                 Op::Aggregate(kind) => {
+                    if r.precomputed {
+                        next.push(r);
+                        continue;
+                    }
                     let v = parse_i64(&r.value);
                     let entry = store.entry(store_key(&r.key, r.window));
                     let current_val = match kind {
@@ -605,6 +796,10 @@ fn apply_pipeline(ops: &[Op], rec: &PipeRec, ctx: &mut PipelineCtx) -> Vec<PipeR
                     next.push(PipeRec { value: current_val.to_string().into_bytes(), ..r });
                 }
                 Op::Reduce(kind) => {
+                    if r.precomputed {
+                        next.push(r);
+                        continue;
+                    }
                     let Some(v) = parse_i64(&r.value) else { continue };
                     let skey = store_key(&r.key, r.window);
                     let val = match store.get(&skey) {
@@ -839,7 +1034,7 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
                     replay = record.offset + 1;
                     {
                         let mut state = handle.state.lock().await;
-                        let TopologyState { store, stream_time, table, .. } = &mut *state;
+                        let TopologyState { store, stream_time, table, sessions, key_records, .. } = &mut *state;
                         let _ = apply_pipeline(
                             &ops,
                             &PipeRec {
@@ -847,8 +1042,9 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
                                 value: record.value.clone(),
                                 ts: record.timestamp_ms,
                                 window: None,
+                                precomputed: false,
                             },
-                            &mut PipelineCtx { store, stream_time, table },
+                            &mut PipelineCtx { store, stream_time, table, sessions, key_records },
                         );
                         state.info.records_processed += 1;
                     }
@@ -956,7 +1152,7 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
                 next_offset = record.offset + 1;
                 let outputs = {
                     let mut state = handle.state.lock().await;
-                    let TopologyState { store, stream_time, table, .. } = &mut *state;
+                    let TopologyState { store, stream_time, table, sessions, key_records, .. } = &mut *state;
                     let outs = apply_pipeline(
                         &ops,
                         &PipeRec {
@@ -964,8 +1160,9 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
                             value: record.value.clone(),
                             ts: record.timestamp_ms,
                             window: None,
+                            precomputed: false,
                         },
-                        &mut PipelineCtx { store, stream_time, table },
+                        &mut PipelineCtx { store, stream_time, table, sessions, key_records },
                     );
                     state.info.records_processed += 1;
                     outs
@@ -1213,8 +1410,8 @@ mod tests {
         let run = |v: &str, store: &mut HashMap<Vec<u8>, i64>| {
             apply_pipeline(
                 &ops,
-                &PipeRec { key: b"k".to_vec(), value: v.as_bytes().to_vec(), ts: 0, window: None },
-                &mut PipelineCtx { store, stream_time: &mut 0, table: &EMPTY_TABLE },
+                &PipeRec { key: b"k".to_vec(), value: v.as_bytes().to_vec(), ts: 0, window: None, precomputed: false },
+                &mut PipelineCtx { store, stream_time: &mut 0, table: &EMPTY_TABLE, sessions: &mut HashMap::new(), key_records: &mut HashMap::new() },
             )
         };
         assert!(run("5", &mut store).is_empty(), "filter drops <= 10");
@@ -1245,8 +1442,8 @@ mod tests {
         for v in ["7", "3", "9"] {
             last = apply_pipeline(
                 &ops,
-                &PipeRec { key: b"a".to_vec(), value: v.as_bytes().to_vec(), ts: 0, window: None },
-                &mut PipelineCtx { store: &mut store, stream_time: &mut 0, table: &EMPTY_TABLE },
+                &PipeRec { key: b"a".to_vec(), value: v.as_bytes().to_vec(), ts: 0, window: None, precomputed: false },
+                &mut PipelineCtx { store: &mut store, stream_time: &mut 0, table: &EMPTY_TABLE, sessions: &mut HashMap::new(), key_records: &mut HashMap::new() },
             );
         }
         assert_eq!(last[0].value, b"9".to_vec());
@@ -1275,11 +1472,13 @@ mod tests {
         let ops = resolve_ops(&topo).unwrap();
         let mut store = HashMap::new();
         let mut stream_time = 0i64;
-        let run = |ts: i64, store: &mut HashMap<Vec<u8>, i64>, st: &mut i64| {
+        let mut sessions_map: HashMap<Vec<u8>, Vec<(i64, i64)>> = HashMap::new();
+        let mut records_map: HashMap<Vec<u8>, Vec<(i64, Option<i64>)>> = HashMap::new();
+        let mut run = |ts: i64, store: &mut HashMap<Vec<u8>, i64>, st: &mut i64| {
             apply_pipeline(
                 &ops,
-                &PipeRec { key: b"w".to_vec(), value: b"x".to_vec(), ts, window: None },
-                &mut PipelineCtx { store, stream_time: st, table: &EMPTY_TABLE },
+                &PipeRec { key: b"w".to_vec(), value: b"x".to_vec(), ts, window: None, precomputed: false },
+                &mut PipelineCtx { store, stream_time: st, table: &EMPTY_TABLE, sessions: &mut sessions_map, key_records: &mut records_map },
             )
         };
         assert_eq!(run(100, &mut store, &mut stream_time)[0].value, b"1".to_vec());
@@ -1288,6 +1487,86 @@ mod tests {
         // Window [0,1000) closed at stream time 1100 (grace 0):
         // a late record for it is dropped.
         assert!(run(500, &mut store, &mut stream_time).is_empty());
+    }
+
+    #[test]
+    fn session_windows_merge_and_sliding_recompute() {
+        // Session: gap 2000. Records at 0, 1000 (same
+        // session), 10000 (new session), then 2500 bridges
+        // nothing (gap to first session last=1000 is 1500,
+        // merges into it; second stays separate).
+        let topo = spb::Topology {
+            steps: vec![
+                spb::Step { operator: spb::Operator::GroupByKey, ..Default::default() },
+                spb::Step { operator: spb::Operator::WindowSession, gap_ms: 2000, ..Default::default() },
+                spb::Step { operator: spb::Operator::Count, ..Default::default() },
+            ],
+            ..Default::default()
+        };
+        let ops = resolve_ops(&topo).unwrap();
+        let mut store: HashMap<Vec<u8>, i64> = HashMap::new();
+        let mut sessions_map: HashMap<Vec<u8>, Vec<(i64, i64)>> = HashMap::new();
+        let mut records_map: HashMap<Vec<u8>, Vec<(i64, Option<i64>)>> = HashMap::new();
+        let mut stream_time = 0i64;
+        let run = |ts: i64,
+                   store: &mut HashMap<Vec<u8>, i64>,
+                   sessions_map: &mut HashMap<Vec<u8>, Vec<(i64, i64)>>,
+                   records_map: &mut HashMap<Vec<u8>, Vec<(i64, Option<i64>)>>,
+                   stream_time: &mut i64| {
+            apply_pipeline(
+                &ops,
+                &PipeRec { key: b"k".to_vec(), value: b"v".to_vec(), ts, window: None, precomputed: false },
+                &mut PipelineCtx { store, stream_time, table: &EMPTY_TABLE, sessions: sessions_map, key_records: records_map },
+            )
+        };
+        let out = run(0, &mut store, &mut sessions_map, &mut records_map, &mut stream_time);
+        assert_eq!(out[0].window, Some((0, 1)));
+        assert_eq!(out[0].value, b"1".to_vec());
+        let out = run(1000, &mut store, &mut sessions_map, &mut records_map, &mut stream_time);
+        assert_eq!(out[0].window, Some((0, 1001)));
+        assert_eq!(out[0].value, b"2".to_vec(), "session aggregate survives extension");
+        let out = run(10000, &mut store, &mut sessions_map, &mut records_map, &mut stream_time);
+        assert_eq!(out[0].window, Some((10000, 10001)));
+        assert_eq!(out[0].value, b"1".to_vec());
+        assert_eq!(store[&store_key(b"k", Some((0, 1001)))], 2);
+        assert_eq!(store[&store_key(b"k", Some((10000, 10001)))], 1);
+
+        // Sliding: size 10000, values 5 at t=10000, 7 at
+        // t=15000. Windows: [1,10001)={5}, [5001,15001)={5,7}.
+        let topo2 = spb::Topology {
+            steps: vec![
+                spb::Step { operator: spb::Operator::GroupByKey, ..Default::default() },
+                spb::Step { operator: spb::Operator::WindowSliding, window_size_ms: 10000, ..Default::default() },
+                spb::Step {
+                    operator: spb::Operator::Aggregate,
+                    aggregator: spb::Aggregator::AggregateSum,
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let ops2 = resolve_ops(&topo2).unwrap();
+        let mut store2: HashMap<Vec<u8>, i64> = HashMap::new();
+        let mut sessions2: HashMap<Vec<u8>, Vec<(i64, i64)>> = HashMap::new();
+        let mut records2: HashMap<Vec<u8>, Vec<(i64, Option<i64>)>> = HashMap::new();
+        let mut st2 = 0i64;
+        let run2 = |ts: i64, v: &str,
+                    store: &mut HashMap<Vec<u8>, i64>,
+                    sessions_map: &mut HashMap<Vec<u8>, Vec<(i64, i64)>>,
+                    records_map: &mut HashMap<Vec<u8>, Vec<(i64, Option<i64>)>>,
+                    stream_time: &mut i64| {
+            apply_pipeline(
+                &ops2,
+                &PipeRec { key: b"k".to_vec(), value: v.as_bytes().to_vec(), ts, window: None, precomputed: false },
+                &mut PipelineCtx { store, stream_time, table: &EMPTY_TABLE, sessions: sessions_map, key_records: records_map },
+            )
+        };
+        let out = run2(10000, "5", &mut store2, &mut sessions2, &mut records2, &mut st2);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].value, b"5".to_vec());
+        let out = run2(15000, "7", &mut store2, &mut sessions2, &mut records2, &mut st2);
+        assert!(out.iter().any(|r| r.window == Some((5001, 15001)) && r.value == b"12".to_vec()),
+            "sliding window must aggregate both records: {out:?}");
     }
 
     #[test]

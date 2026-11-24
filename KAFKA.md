@@ -196,7 +196,12 @@ records whose window closed more than grace_ms behind
 stream time; windowed results carry `window-start` /
 `window-end` record headers and are queried with
 `FetchWindow`, while `GetStoreValue` serves unwindowed
-stores. Stateful steps require
+stores. `WINDOW_SESSION` (gap_ms) merges per-key sessions
+within the gap, transferring aggregates across merges;
+`WINDOW_SLIDING` anchors windows at record timestamps and
+recomputes each window from the key's record history.
+Both must be followed by a stateful step, whose combiner
+they adopt. Stateful steps require
 `GROUP_BY_KEY` before them; anything unsupported is
 rejected at `CreateTopology` time rather than silently
 mis-executed. Each topology task joins its `application_id`

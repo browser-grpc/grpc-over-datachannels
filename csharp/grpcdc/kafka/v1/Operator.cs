@@ -14,5 +14,7 @@ public enum Operator {
     REDUCE = 8,
     WINDOW_TUMBLING = 9,
     WINDOW_HOPPING = 10,
-    JOIN_TABLE = 11
+    JOIN_TABLE = 11,
+    WINDOW_SESSION = 12,
+    WINDOW_SLIDING = 13
 }

@@ -64,7 +64,9 @@ enum Operator {
   REDUCE,
   WINDOW_TUMBLING,
   WINDOW_HOPPING,
-  JOIN_TABLE
+  JOIN_TABLE,
+  WINDOW_SESSION,
+  WINDOW_SLIDING
 }
 enum Aggregator {
   AGGREGATOR_UNSPECIFIED,
@@ -85,8 +87,9 @@ class Step implements Marshaler, Unmarshaler {
   int windowSizeMs;
   int windowAdvanceMs;
   int graceMs;
+  int gapMs;
   Uint8List unknownFields = Uint8List(0);
-  Step([this.operator = Operator.OPERATOR_UNSPECIFIED, this.param = '', this.aggregator = Aggregator.AGGREGATOR_UNSPECIFIED, this.windowSizeMs = 0, this.windowAdvanceMs = 0, this.graceMs = 0]);
+  Step([this.operator = Operator.OPERATOR_UNSPECIFIED, this.param = '', this.aggregator = Aggregator.AGGREGATOR_UNSPECIFIED, this.windowSizeMs = 0, this.windowAdvanceMs = 0, this.graceMs = 0, this.gapMs = 0]);
   @override
   Uint8List marshalDc() {
     final pbW = Kafka_streamsPbWriter();
@@ -96,6 +99,7 @@ class Step implements Marshaler, Unmarshaler {
     if (windowSizeMs != 0) { pbW.tag(4, 0); pbW.varint(windowSizeMs); }
     if (windowAdvanceMs != 0) { pbW.tag(5, 0); pbW.varint(windowAdvanceMs); }
     if (graceMs != 0) { pbW.tag(6, 0); pbW.varint(graceMs); }
+    if (gapMs != 0) { pbW.tag(7, 0); pbW.varint(gapMs); }
     pbW.raw(unknownFields);
     return pbW.toBytes();
   }
@@ -108,6 +112,7 @@ class Step implements Marshaler, Unmarshaler {
     windowSizeMs = 0;
     windowAdvanceMs = 0;
     graceMs = 0;
+    gapMs = 0;
     final pbR = Kafka_streamsPbReader(Uint8List.fromList(data));
     while (true) {
       final pbField = pbR.next();
@@ -130,6 +135,9 @@ class Step implements Marshaler, Unmarshaler {
           break;
         case 6:
           graceMs = pbField.varintValue;
+          break;
+        case 7:
+          gapMs = pbField.varintValue;
           break;
         default:
           unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);

@@ -63,7 +63,9 @@ enum class Operator(val number: Int) {
     REDUCE(8),
     WINDOW_TUMBLING(9),
     WINDOW_HOPPING(10),
-    JOIN_TABLE(11);
+    JOIN_TABLE(11),
+    WINDOW_SESSION(12),
+    WINDOW_SLIDING(13);
     companion object {
         fun fromNumber(number: Int): Operator =
             when (number) {
@@ -79,6 +81,8 @@ enum class Operator(val number: Int) {
                 9 -> WINDOW_TUMBLING
                 10 -> WINDOW_HOPPING
                 11 -> JOIN_TABLE
+                12 -> WINDOW_SESSION
+                13 -> WINDOW_SLIDING
                 else -> OPERATOR_UNSPECIFIED
             }
     }
@@ -125,6 +129,7 @@ enum class ProcessingGuarantee(val number: Int) {
     var windowSizeMs: Long = 0L,
     var windowAdvanceMs: Long = 0L,
     var graceMs: Long = 0L,
+    var gapMs: Long = 0L,
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
@@ -135,6 +140,7 @@ enum class ProcessingGuarantee(val number: Int) {
         if (windowSizeMs != 0L) { pbW.tag(4, 0); pbW.varint(windowSizeMs) }
         if (windowAdvanceMs != 0L) { pbW.tag(5, 0); pbW.varint(windowAdvanceMs) }
         if (graceMs != 0L) { pbW.tag(6, 0); pbW.varint(graceMs) }
+        if (gapMs != 0L) { pbW.tag(7, 0); pbW.varint(gapMs) }
         pbW.raw(unknownFields)
         return pbW.toBytes()
     }
@@ -146,6 +152,7 @@ enum class ProcessingGuarantee(val number: Int) {
         windowSizeMs = 0L
         windowAdvanceMs = 0L
         graceMs = 0L
+        gapMs = 0L
         val pbR = Kafka_streamsPb.Reader(data)
         while (true) {
             val pbField = pbR.next() ?: break
@@ -167,6 +174,9 @@ enum class ProcessingGuarantee(val number: Int) {
                 }
                 6 -> {
                     graceMs = pbField.varintValue
+                }
+                7 -> {
+                    gapMs = pbField.varintValue
                 }
                 else -> { unknownFields = unknownFields + pbField.rawValue }
             }

@@ -138,6 +138,8 @@ pub enum Operator {
     WindowTumbling = 9,
     WindowHopping = 10,
     JoinTable = 11,
+    WindowSession = 12,
+    WindowSliding = 13,
     Unknown(i32),
 }
 
@@ -156,6 +158,8 @@ impl Operator {
             9 => Operator::WindowTumbling,
             10 => Operator::WindowHopping,
             11 => Operator::JoinTable,
+            12 => Operator::WindowSession,
+            13 => Operator::WindowSliding,
             _ => Operator::Unknown(v),
         }
     }
@@ -173,6 +177,8 @@ impl Operator {
             Operator::WindowTumbling => 9,
             Operator::WindowHopping => 10,
             Operator::JoinTable => 11,
+            Operator::WindowSession => 12,
+            Operator::WindowSliding => 13,
             Operator::Unknown(v) => v,
         }
     }
@@ -250,6 +256,7 @@ pub struct Step {
     pub window_size_ms: i64,
     pub window_advance_ms: i64,
     pub grace_ms: i64,
+    pub gap_ms: i64,
     pub unknown_fields: Vec<u8>,
 }
 
@@ -262,6 +269,7 @@ impl Default for Step {
             window_size_ms: 0,
             window_advance_ms: 0,
             grace_ms: 0,
+            gap_ms: 0,
             unknown_fields: Vec::new(),
         }
     }
@@ -276,6 +284,7 @@ impl Step {
         if self.window_size_ms != 0 { pb_append_tag(&mut out, 4, 0); pb_append_varint(&mut out, (self.window_size_ms as u64)); }
         if self.window_advance_ms != 0 { pb_append_tag(&mut out, 5, 0); pb_append_varint(&mut out, (self.window_advance_ms as u64)); }
         if self.grace_ms != 0 { pb_append_tag(&mut out, 6, 0); pb_append_varint(&mut out, (self.grace_ms as u64)); }
+        if self.gap_ms != 0 { pb_append_tag(&mut out, 7, 0); pb_append_varint(&mut out, (self.gap_ms as u64)); }
         out.extend_from_slice(&self.unknown_fields);
         out
     }
@@ -302,6 +311,9 @@ impl Step {
                 }
                 6 => {
                     msg.grace_ms = (field.varint_value as i64);
+                }
+                7 => {
+                    msg.gap_ms = (field.varint_value as i64);
                 }
                 _ => {
                     msg.unknown_fields.extend_from_slice(&field.raw_value);

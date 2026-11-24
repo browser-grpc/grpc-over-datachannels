@@ -67,6 +67,8 @@ public enum Operator: Int32 {
     case WINDOW_TUMBLING = 9
     case WINDOW_HOPPING = 10
     case JOIN_TABLE = 11
+    case WINDOW_SESSION = 12
+    case WINDOW_SLIDING = 13
 }
 
 public enum Aggregator: Int32 {
@@ -90,15 +92,17 @@ public final class Step: Marshaler, Unmarshaler {
     public var windowSizeMs: Int64 = 0
     public var windowAdvanceMs: Int64 = 0
     public var graceMs: Int64 = 0
+    public var gapMs: Int64 = 0
     public var unknownFields: [UInt8] = []
     public init() {}
-    public init(_ `operator`: Operator = Operator.OPERATOR_UNSPECIFIED, _ param: String = "", _ aggregator: Aggregator = Aggregator.AGGREGATOR_UNSPECIFIED, _ windowSizeMs: Int64 = 0, _ windowAdvanceMs: Int64 = 0, _ graceMs: Int64 = 0) {
+    public init(_ `operator`: Operator = Operator.OPERATOR_UNSPECIFIED, _ param: String = "", _ aggregator: Aggregator = Aggregator.AGGREGATOR_UNSPECIFIED, _ windowSizeMs: Int64 = 0, _ windowAdvanceMs: Int64 = 0, _ graceMs: Int64 = 0, _ gapMs: Int64 = 0) {
         self.`operator` = `operator`
         self.param = param
         self.aggregator = aggregator
         self.windowSizeMs = windowSizeMs
         self.windowAdvanceMs = windowAdvanceMs
         self.graceMs = graceMs
+        self.gapMs = gapMs
     }
     public func MarshalDc() -> [UInt8] {
         let pbW = Kafka_streamsPb.Writer()
@@ -108,6 +112,7 @@ public final class Step: Marshaler, Unmarshaler {
         if windowSizeMs != 0 { pbW.Tag(4, 0); pbW.Varint(UInt64(bitPattern: windowSizeMs)) }
         if windowAdvanceMs != 0 { pbW.Tag(5, 0); pbW.Varint(UInt64(bitPattern: windowAdvanceMs)) }
         if graceMs != 0 { pbW.Tag(6, 0); pbW.Varint(UInt64(bitPattern: graceMs)) }
+        if gapMs != 0 { pbW.Tag(7, 0); pbW.Varint(UInt64(bitPattern: gapMs)) }
         pbW.Raw(unknownFields)
         return pbW.ToBytes()
     }
@@ -119,6 +124,7 @@ public final class Step: Marshaler, Unmarshaler {
         windowSizeMs = 0
         windowAdvanceMs = 0
         graceMs = 0
+        gapMs = 0
         let pbR = Kafka_streamsPb.Reader(data)
         while true {
             let next: Kafka_streamsPb.Field?
@@ -137,6 +143,8 @@ public final class Step: Marshaler, Unmarshaler {
                 windowAdvanceMs = Int64(bitPattern: pbField.varintValue)
             case 6:
                 graceMs = Int64(bitPattern: pbField.varintValue)
+            case 7:
+                gapMs = Int64(bitPattern: pbField.varintValue)
             default: unknownFields += pbField.rawValue
             }
         }

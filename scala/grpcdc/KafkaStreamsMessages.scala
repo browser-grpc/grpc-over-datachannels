@@ -150,6 +150,8 @@ object Operator {
   final val WINDOW_TUMBLING: Int = 9
   final val WINDOW_HOPPING: Int = 10
   final val JOIN_TABLE: Int = 11
+  final val WINDOW_SESSION: Int = 12
+  final val WINDOW_SLIDING: Int = 13
 }
 
 object Aggregator {
@@ -172,7 +174,8 @@ class Step(
     var aggregator: Int = 0,
     var windowSizeMs: Long = 0L,
     var windowAdvanceMs: Long = 0L,
-    var graceMs: Long = 0L
+    var graceMs: Long = 0L,
+    var gapMs: Long = 0L
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
@@ -198,6 +201,10 @@ class Step(
       pbW.tag(6, 0)
       pbW.varint(graceMs.toLong)
     }
+    if (gapMs != 0) {
+      pbW.tag(7, 0)
+      pbW.varint(gapMs.toLong)
+    }
     pbW.raw(unknownFields)
     pbW.toBytes
   }
@@ -210,6 +217,7 @@ class Step(
     windowSizeMs = 0L
     windowAdvanceMs = 0L
     graceMs = 0L
+    gapMs = 0L
     val pbR = new KafkaStreamsPb.Reader(data)
     var pbField = pbR.next()
     while (pbField != null) {
@@ -226,6 +234,8 @@ class Step(
           windowAdvanceMs = pbField.varintValue
         case 6 =>
           graceMs = pbField.varintValue
+        case 7 =>
+          gapMs = pbField.varintValue
         case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
       pbField = pbR.next()

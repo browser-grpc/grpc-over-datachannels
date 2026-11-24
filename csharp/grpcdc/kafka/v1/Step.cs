@@ -12,15 +12,17 @@ public sealed class Step : IMarshaler, IUnmarshaler {
     public long WindowSizeMs = 0;
     public long WindowAdvanceMs = 0;
     public long GraceMs = 0;
+    public long GapMs = 0;
     public byte[] UnknownFields = new byte[0];
     public Step() {}
-    public Step(Operator @operator, string param, Aggregator aggregator, long windowSizeMs, long windowAdvanceMs, long graceMs) {
+    public Step(Operator @operator, string param, Aggregator aggregator, long windowSizeMs, long windowAdvanceMs, long graceMs, long gapMs) {
         Operator = @operator;
         Param = param;
         Aggregator = aggregator;
         WindowSizeMs = windowSizeMs;
         WindowAdvanceMs = windowAdvanceMs;
         GraceMs = graceMs;
+        GapMs = gapMs;
     }
     public byte[] MarshalDc() {
         var w = new Kafka_streamsPb.Writer();
@@ -30,6 +32,7 @@ public sealed class Step : IMarshaler, IUnmarshaler {
         if (WindowSizeMs != 0) { w.Tag(4, 0); w.Varint(WindowSizeMs); }
         if (WindowAdvanceMs != 0) { w.Tag(5, 0); w.Varint(WindowAdvanceMs); }
         if (GraceMs != 0) { w.Tag(6, 0); w.Varint(GraceMs); }
+        if (GapMs != 0) { w.Tag(7, 0); w.Varint(GapMs); }
         w.Raw(UnknownFields);
         return w.ToBytes();
     }
@@ -41,6 +44,7 @@ public sealed class Step : IMarshaler, IUnmarshaler {
         WindowSizeMs = 0;
         WindowAdvanceMs = 0;
         GraceMs = 0;
+        GapMs = 0;
         var r = new Kafka_streamsPb.Reader(data);
         Kafka_streamsPb.Field field;
         while ((field = r.Next()) != null) {
@@ -67,6 +71,10 @@ public sealed class Step : IMarshaler, IUnmarshaler {
                 }
                 case 6: {
                     GraceMs = field.VarintValue;
+                    break;
+                }
+                case 7: {
+                    GapMs = field.VarintValue;
                     break;
                 }
                 default: UnknownFields = Kafka_streamsPb.ConcatBytes(UnknownFields, field.RawValue); break;
