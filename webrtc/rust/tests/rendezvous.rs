@@ -319,17 +319,19 @@ fn rendezvous_stun_servers_are_consulted() {
 }
 
 #[test]
-fn rendezvous_turn_allocation_carries_session_checks() {
-    // With turn_servers configured (issue #3), a spawned
-    // session peer must allocate a relay candidate and put
-    // TURN traffic on the wire for the session: the fake TURN
-    // server records the allocation plus the permission /
-    // channel-bind / send traffic the session's TURN client
-    // generates while ICE-checking the dialer, and the echo
-    // round-trip completes. (On loopback the host pair also
-    // exists, so this proves allocation + relay traffic, not
-    // relay exclusivity; relay-only connectivity between two
-    // allocating peers is covered by tests/turn.rs.)
+fn rendezvous_turn_relay_only_echo() {
+    // Relay-only rendezvous (issue #3): the dialer sits
+    // behind a NAT proxy socket. The proxy forwards exactly
+    // the dialer's first Binding request to the listener
+    // (the rendezvous bootstrap: that packet is what spawns
+    // the session), then switches: every later dialer packet
+    // goes to the session's TURN relayed address, and only
+    // relay-originated packets come back. Nothing after the
+    // first packet touches the listener socket, and the
+    // session relays all of its pair traffic once it holds
+    // an allocation, so ICE, DTLS, and the echo below can
+    // only have crossed the TURN relay.
+    use std::sync::atomic::{AtomicUsize, Ordering};
     let (server, state) = fake_turn_server_with(600, 300);
     let (endpoint_tx, endpoint_rx) = channel::<DcEndpoint>();
     let listener = RendezvousListener::bind(
@@ -344,29 +346,119 @@ fn rendezvous_turn_allocation_carries_session_checks() {
         },
     )
     .unwrap();
-    let listener = Arc::new(listener);
+    let desc = listener.descriptor("127.0.0.1");
+    let listener_addr =
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), desc.port);
+
+    // NAT proxy: learns the dialer's address from its first
+    // packet, forwards that packet to the listener, then
+    // re-targets the dialer's flow at the relayed address as
+    // soon as the fake TURN server records the allocation.
+    let proxy = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+    proxy
+        .set_read_timeout(Some(Duration::from_millis(20)))
+        .unwrap();
+    let proxy_addr = proxy.local_addr().unwrap();
+    let relayed_seen = Arc::new(AtomicUsize::new(0));
+    let relayed_seen2 = relayed_seen.clone();
+    let proxy_state = state.clone();
+    std::thread::spawn(move || {
+        let mut buf = vec![0u8; 65536];
+        let mut dialer: Option<SocketAddr> = None;
+        let mut relayed: Option<SocketAddr> = None;
+        let mut bootstrapped = false;
+        loop {
+            if relayed.is_none() {
+                let st = proxy_state.lock().unwrap();
+                relayed = st.by_relay.keys().next().copied();
+            }
+            match proxy.recv_from(&mut buf) {
+                Ok((n, src)) => {
+                    let data = &buf[..n];
+                    if Some(src) == relayed {
+                        relayed_seen2.fetch_add(1, Ordering::SeqCst);
+                        if let Some(d) = dialer {
+                            let _ = proxy.send_to(data, d);
+                        }
+                    } else if dialer.is_none() || Some(src) == dialer {
+                        dialer = Some(src);
+                        if !bootstrapped {
+                            bootstrapped = true;
+                            let _ = proxy.send_to(data, listener_addr);
+                        } else if let Some(r) = relayed {
+                            let _ = proxy.send_to(data, r);
+                        } else {
+                            // Allocation not recorded yet;
+                            // drop: ICE retransmits.
+                        }
+                    } else if Some(src) == Some(listener_addr) {
+                        if let Some(d) = dialer {
+                            let _ = proxy.send_to(data, d);
+                        }
+                    }
+                }
+                Err(e)
+                    if e.kind() == std::io::ErrorKind::WouldBlock
+                        || e.kind() == std::io::ErrorKind::TimedOut => {}
+                Err(_) => return,
+            }
+        }
+    });
+
     std::thread::spawn(move || {
         if let Ok(endpoint) = endpoint_rx.recv_timeout(Duration::from_secs(30)) {
             echo_endpoint(endpoint);
         }
     });
-    dial_and_echo(&listener, "via-turn-config");
 
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    // Dialer whose only remote candidate is the NAT proxy
+    // address: it has no route to the listener at all.
+    let mut dialer = Peer::new(PeerConfig {
+        local_ips: vec![IpAddr::V4(Ipv4Addr::LOCALHOST)],
+        require_peer_certificate: true,
+        ..Default::default()
+    })
+    .unwrap();
+    let remote = SessionDescription {
+        ufrag: desc.ice_ufrag.clone(),
+        pwd: desc.ice_pwd.clone(),
+        fingerprint: desc.fingerprint.clone(),
+        setup: "passive".to_string(),
+        candidates: vec![Candidate::host(proxy_addr, "1")],
+        sctp_port: 5000,
+    };
+    dialer.handle_answer(&generate(&remote, false)).unwrap();
+    let endpoint = dialer.connect().expect("dialer connect over relay only");
+    let channel = endpoint
+        .open_channel(ChannelParams { label: "grpc".into(), ..Default::default() })
+        .unwrap();
+    channel.send_binary(b"relay-only").unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(15);
     loop {
-        {
-            let st = state.lock().unwrap();
-            if st.alloc_count >= 1 && st.direct_count >= 1 {
+        match endpoint.recv_event_timeout(Duration::from_secs(1)) {
+            Some(EndpointEvent::Message { data, .. }) => {
+                assert_eq!(data, b"re:relay-only".to_vec());
                 break;
             }
+            Some(_) => {
+                assert!(std::time::Instant::now() < deadline, "echo timeout over relay");
+            }
+            None => panic!("echo timeout over relay"),
         }
-        assert!(
-            std::time::Instant::now() < deadline,
-            "session peer never used its TURN allocation (state: {:?})",
-            state.lock().unwrap().alloc_count
-        );
-        std::thread::sleep(Duration::from_millis(100));
     }
+    // The relay really carried it: the session allocated,
+    // the TURN server forwarded session traffic directly to
+    // the proxy (the dialer's reflexive address), and the
+    // proxy saw relay-originated packets come back.
+    let st = state.lock().unwrap();
+    assert!(st.alloc_count >= 1, "no TURN allocation for the session");
+    assert!(st.direct_count >= 1, "TURN server never forwarded session traffic");
+    drop(st);
+    assert!(
+        relayed_seen.load(Ordering::SeqCst) >= 1,
+        "proxy never saw a relay-originated packet"
+    );
+    endpoint.shutdown();
     listener.close();
 }
 
