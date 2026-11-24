@@ -1270,12 +1270,16 @@ soak:
 	node scripts/soak.mjs $(SOAK_ITERATIONS)
 
 ## Bounded smoke subset of soak for the per-change gate (in
-## `make test`): 50 iterations x 3 phases. Skips loudly when
+## `make test`): 50 iterations x 3 phases. Latency cap is 3s
+## here (vs 1s upstream default in the full soak) because
+## shared 2-core CI runners see occasional >1s GC/scheduler
+## pauses at p50 ~11ms; failures still allow zero misses.
+## Skips loudly when
 ## the oracle binaries are not built (the CI image builds
 ## them, so there it always runs).
 soak-smoke:
 	@if [ -f oracle/java/target/cp.txt ] && [ -x oracle/go-interop/interop-client ]; then \
-		SOAK_ITERATIONS=50 node scripts/soak.mjs; \
+		SOAK_ITERATIONS=50 SOAK_LATENCY_MS=3000 node scripts/soak.mjs; \
 	else \
 		echo "soak-smoke SKIP (oracle not built; CI image builds it)"; \
 	fi
