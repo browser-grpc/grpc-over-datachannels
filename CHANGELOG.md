@@ -3,7 +3,7 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.46.1 — 2026-11-23
+## v0.46.1 — 2026-11-23 (published to GitHub/npm/PyPI/GHCR/NuGet/Maven Central/crates.io/RubyGems/LuaRocks/JSR)
 
 - Fix: proto2 `group` fields are now rejected with a clear
   plugin error in every language (`groups are not supported`)
