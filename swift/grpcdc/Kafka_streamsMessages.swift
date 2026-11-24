@@ -70,6 +70,7 @@ public enum Operator: Int32 {
     case WINDOW_SESSION = 12
     case WINDOW_SLIDING = 13
     case COGROUP = 14
+    case JOIN_GLOBAL_TABLE = 15
 }
 
 public enum Aggregator: Int32 {

@@ -775,3 +775,63 @@ test("kafka streams cogroup folds extra topics into the store", { skip: !PROXY_A
   const b = await streams.getStoreValue(new GetStoreValueRequest({ topology: name, key: "b" }));
   assert.equal(b.value, 3n);
 });
+
+test("kafka streams global table join sees all partitions", { skip: !PROXY_ADDR }, async (t) => {
+  const { dc, kafka, streams } = makeClients();
+  const id = randomUUID().slice(0, 12);
+  const source = `streams-gt-in-${id}`;
+  const table = `streams-gt-table-${id}`;
+  const sink = `streams-gt-out-${id}`;
+  const name = `gt-${id}`;
+  t.after(async () => {
+    try {
+      await streams.deleteTopology(new DeleteTopologyRequest({ name }));
+      await kafka.deleteTopics(new DeleteTopicsRequest({ topics: [source, table, sink] }));
+    } catch { /* best effort */ }
+    dc.close();
+  });
+  for (const [topic, parts] of [[source, 1], [table, 3], [sink, 1]]) {
+    const created = await kafka.createTopics(new CreateTopicsRequest({
+      topics: [new NewTopic({ name: topic, numPartitions: parts, replicationFactor: 1 })],
+      timeoutMs: 15000,
+    }));
+    assert.deepEqual(created.results.map((r) => r.errorCode), [0]);
+  }
+  // Table entries spread across all 3 partitions.
+  for (let p = 0; p < 3; p++) {
+    const resp = await kafka.produce(new ProduceRequest({
+      topic: table, partition: p,
+      records: [new Record({ key: enc(`k${p}`), value: enc(`T${p}`) })],
+    }));
+    assert.equal(resp.errorCode, 0);
+  }
+  const { Step } = await import("../src/kafka_streams_pb.js");
+  const info = await streams.createTopology(new CreateTopologyRequest({
+    topology: new Topology({
+      name, sourceTopic: source, tableTopic: table, sinkTopic: sink,
+      steps: [new Step({ operator: Operator.JOIN_GLOBAL_TABLE, param: "=" })],
+    }),
+  }));
+  assert.equal(info.state, "RUNNING");
+  for (let p = 0; p < 3; p++) {
+    const resp = await kafka.produce(new ProduceRequest({
+      topic: source, partition: 0,
+      records: [new Record({ key: enc(`k${p}`), value: enc("hit") })],
+    }));
+    assert.equal(resp.errorCode, 0);
+  }
+  const joined = {};
+  let total = 0;
+  for (let i = 0; i < 60 && total < 3; i++) {
+    const stream = await kafka.consume(new ConsumeRequest({ topic: sink, partition: 0, offset: 0n, maxRecords: 50 }));
+    const iter = stream[Symbol.asyncIterator]();
+    const first = await Promise.race([iter.next(), sleep(1000).then(() => null)]);
+    if (first && !first.done) {
+      total = 0;
+      for (const r of first.value.records) { joined[dec(r.key)] = dec(r.value); total++; }
+    }
+    await iter.return?.();
+    if (total < 3) await sleep(250);
+  }
+  assert.deepEqual(joined, { k0: "hit=T0", k1: "hit=T1", k2: "hit=T2" });
+});

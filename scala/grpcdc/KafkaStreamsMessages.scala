@@ -153,6 +153,7 @@ object Operator {
   final val WINDOW_SESSION: Int = 12
   final val WINDOW_SLIDING: Int = 13
   final val COGROUP: Int = 14
+  final val JOIN_GLOBAL_TABLE: Int = 15
 }
 
 object Aggregator {

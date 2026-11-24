@@ -146,7 +146,7 @@ fn resolve_ops(topo: &spb::Topology) -> Result<Vec<Op>, Status> {
                     )))
                 }
             }),
-            spb::Operator::JoinTable => {
+            spb::Operator::JoinTable | spb::Operator::JoinGlobalTable => {
                 if topo.table_topic.is_empty() {
                     return Err(Status::invalid_argument(
                         "JOIN_TABLE requires Topology.table_topic",

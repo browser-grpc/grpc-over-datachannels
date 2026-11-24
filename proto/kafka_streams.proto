@@ -79,6 +79,14 @@ enum Operator {
   // the store with the main chain's stateful steps. The
   // step itself passes records through unchanged.
   COGROUP = 14;
+  // Global-table join: like JOIN_TABLE, but the table is
+  // guaranteed fully materialized on every task instance
+  // (all partitions consumed regardless of group
+  // assignment), so lookups never need routing. In this
+  // runtime table materialization is always global, so the
+  // two joins share an implementation; the operator exists
+  // so topologies state the guarantee they rely on.
+  JOIN_GLOBAL_TABLE = 15;
 }
 
 enum Aggregator {

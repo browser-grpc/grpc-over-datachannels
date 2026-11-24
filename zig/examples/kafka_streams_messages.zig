@@ -74,6 +74,7 @@ pub const Operator = enum(i32) {
     WINDOW_SESSION = 12,
     WINDOW_SLIDING = 13,
     COGROUP = 14,
+    JOIN_GLOBAL_TABLE = 15,
 };
 
 pub const Aggregator = enum(i32) {
