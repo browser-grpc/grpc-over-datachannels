@@ -13,6 +13,10 @@ use dc_webrtc::ice::Candidate;
 use dc_webrtc::peer::{Peer, PeerConfig};
 use dc_webrtc::rendezvous::{RendezvousListener, RendezvousOptions};
 use dc_webrtc::sdp::{generate, SessionDescription};
+use dc_webrtc::turn::TurnServerConfig;
+
+mod turn_fixture;
+use turn_fixture::*;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::mpsc::channel;
 use std::sync::Arc;
@@ -311,6 +315,58 @@ fn rendezvous_stun_servers_are_consulted() {
     hit_rx
         .recv_timeout(Duration::from_secs(5))
         .expect("session peer never queried the configured STUN server");
+    listener.close();
+}
+
+#[test]
+fn rendezvous_turn_allocation_carries_session_checks() {
+    // With turn_servers configured (issue #3), a spawned
+    // session peer must allocate a relay candidate and put
+    // TURN traffic on the wire for the session: the fake TURN
+    // server records the allocation plus the permission /
+    // channel-bind / send traffic the session's TURN client
+    // generates while ICE-checking the dialer, and the echo
+    // round-trip completes. (On loopback the host pair also
+    // exists, so this proves allocation + relay traffic, not
+    // relay exclusivity; relay-only connectivity between two
+    // allocating peers is covered by tests/turn.rs.)
+    let (server, state) = fake_turn_server_with(600, 300);
+    let (endpoint_tx, endpoint_rx) = channel::<DcEndpoint>();
+    let listener = RendezvousListener::bind(
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+        RendezvousOptions {
+            turn_servers: vec![TurnServerConfig::new(&server, USER, PASS)],
+            on_endpoint: Box::new(move |endpoint| {
+                let _ = endpoint_tx.send(endpoint);
+            }),
+            on_error: Box::new(|e| eprintln!("rendezvous: {e}")),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let listener = Arc::new(listener);
+    std::thread::spawn(move || {
+        if let Ok(endpoint) = endpoint_rx.recv_timeout(Duration::from_secs(30)) {
+            echo_endpoint(endpoint);
+        }
+    });
+    dial_and_echo(&listener, "via-turn-config");
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        {
+            let st = state.lock().unwrap();
+            if st.alloc_count >= 1 && st.direct_count >= 1 {
+                break;
+            }
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "session peer never used its TURN allocation (state: {:?})",
+            state.lock().unwrap().alloc_count
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
     listener.close();
 }
 
