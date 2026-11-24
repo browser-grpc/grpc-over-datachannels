@@ -3011,6 +3011,7 @@
          "           --grpc-dc-" dir "_out=out -I . your.proto\n\n"
          "Test and example index: [`TESTS.md`](TESTS.md).\n\n"
          "Full project quickstart: [`../QUICKSTART.md`](../QUICKSTART.md).\n")))
+  (make-directory* (build-path out-dir dir))
   (call-with-output-file (build-path out-dir dir "README.md")
     (lambda (out) (display body out)) #:exists 'replace))
 (for ([lang (in-list languages)]) (emit-language-readme (cdr lang)))
