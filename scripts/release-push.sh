@@ -115,23 +115,28 @@ if git diff --cached --quiet; then
 else
   git -c user.name="John Davis" -c user.email="jdavis@pcprogramming.com" \
     commit -m "release $VERSION (generated export)"
-  # Re-runs after the tag exists (export fixups) must still push
-  # the new commit; only create/push the tag the first time.
-  if git rev-parse "$VERSION" >/dev/null 2>&1; then
-    echo "tag $VERSION already exists; pushing export commit only"
-    git push origin HEAD
-  else
-    git rev-parse "$VERSION" >/dev/null 2>&1 || git tag "$VERSION"
-    git push origin HEAD
-    git push origin "$VERSION"
+  # The version tags must point at THIS export commit. The
+  # github repo also carries same-named source-mirror tags
+  # (pushed from the private repo), and pub.dev OIDC only
+  # accepts a dispatch from a tag whose tree contains the
+  # release — leaving the collision in place forced a manual
+  # tag move for v0.46.0 and v0.46.1, so force-move the tags
+  # here instead.
+  git push origin HEAD
+  if [ "$(git rev-list -n1 "$VERSION" 2>/dev/null || echo none)" != "$(git rev-parse HEAD)" ]; then
+    echo "tag $VERSION: moving to the export commit"
+    git tag -f "$VERSION"
+    git push --force origin "$VERSION"
   fi
   # Submodule tags: the Go module proxy resolves the modules at
   # go/ and webrtc/go/ only via go/<version> / webrtc/go/<version>
   # tags (pkg.go.dev). Same commit as $VERSION.
   for sub in go webrtc/go kafka eventbus; do
-    git rev-parse "$sub/$VERSION" >/dev/null 2>&1 || git tag "$sub/$VERSION"
+    if [ "$(git rev-list -n1 "$sub/$VERSION" 2>/dev/null || echo none)" != "$(git rev-parse HEAD)" ]; then
+      git tag -f "$sub/$VERSION"
+    fi
   done
-  git push origin "go/$VERSION" "webrtc/go/$VERSION" "kafka/$VERSION" "eventbus/$VERSION"
+  git push --force origin "go/$VERSION" "webrtc/go/$VERSION" "kafka/$VERSION" "eventbus/$VERSION"
   echo "published $REPO $VERSION"
 fi
 cd - >/dev/null
@@ -194,17 +199,9 @@ else
   echo "note: no kafka-native export at $KN_EXPORT; skipping repo publish"
 fi
 
-# 1bb. kafka-native registry workflows (crates.io + PyPI via
-# Trusted Publishing from the kafka-native repo itself).
-# Best-effort: both fail until the owner's Trusted Publisher
-# entries exist on crates.io / PyPI.
-if [ -d "$KN_EXPORT" ]; then
-  echo "== dispatching kafka-native publish workflows"
-  gh workflow run publish-crates.yml --repo "$KN_REPO" 2>&1 || \
-    echo "note: kafka-native publish-crates dispatch failed (Trusted Publisher pending?)"
-  gh workflow run publish-pypi.yml --repo "$KN_REPO" 2>&1 || \
-    echo "note: kafka-native publish-pypi dispatch failed (Trusted Publisher pending?)"
-fi
+# (kafka-native registry workflows are dispatched after the
+# main registry loop in 4bb: they depend on the new grpc-dc
+# version already existing on crates.io / PyPI.)
 
 # ------------------------------------------------------------------
 # 1bb. Packagist repos (browser-grpc/grpc-dc-php,
@@ -674,6 +671,24 @@ for wf in publish-npm publish-nuget publish-maven publish-maven-github publish-p
 done
 
 # ------------------------------------------------------------------
+# 4bb. kafka-native registry workflows (crates.io + PyPI via
+#     Trusted Publishing from the kafka-native repo itself),
+#     dispatched only now: kafka-native depends on grpc-dc
+#     $VERSION, which the loop above has just published (an
+#     early dispatch failed on the missing crates.io version
+#     for v0.46.1 and needed a manual re-run). Best-effort:
+#     both fail until the owner's Trusted Publisher entries
+#     exist on crates.io / PyPI.
+# ------------------------------------------------------------------
+if [ -d "$KN_EXPORT" ]; then
+  echo "== dispatching kafka-native publish workflows"
+  gh workflow run publish-crates.yml --repo "$KN_REPO" 2>&1 || \
+    echo "note: kafka-native publish-crates dispatch failed (Trusted Publisher pending?)"
+  gh workflow run publish-pypi.yml --repo "$KN_REPO" 2>&1 || \
+    echo "note: kafka-native publish-pypi dispatch failed (Trusted Publisher pending?)"
+fi
+
+# ------------------------------------------------------------------
 # 4c. Changelog bookkeeping: mark this version published in
 #     the private repo (the export already shipped without
 #     the note, as before). Best-effort; runs only from a
@@ -698,9 +713,17 @@ if [ -f CHANGELOG.md ] && git rev-parse --git-dir >/dev/null 2>&1 \
   git add CHANGELOG.md
   if git -c user.name="John Davis" -c user.email="jdavis@pcprogramming.com" \
        commit -m "CHANGELOG: $VERSION published to $CHANNELS" >/dev/null 2>&1; then
-    git push origin HEAD >/dev/null 2>&1 \
-      && echo "changelog: $VERSION marked published ($CHANNELS) and pushed" \
-      || echo "note: changelog commit made but push failed; push manually"
+    # Push to every configured remote (origin + github mirror);
+    # pushing only origin left the mirror behind for v0.46.1.
+    PUSH_OK=1
+    for remote in $(git remote); do
+      git push "$remote" HEAD >/dev/null 2>&1 || PUSH_OK=0
+    done
+    if [ "$PUSH_OK" = 1 ]; then
+      echo "changelog: $VERSION marked published ($CHANNELS) and pushed"
+    else
+      echo "note: changelog commit made but a push failed; push manually"
+    fi
   else
     echo "note: changelog update skipped (nothing to commit)"
   fi
