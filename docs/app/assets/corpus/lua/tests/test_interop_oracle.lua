@@ -316,23 +316,19 @@ end
 
 --- Interop client grading: the generated Lua TestService client
 --- runs the canonical grpc interop cases (generated table:
---- interop_scenarios.lua) against the official grpc-go
---- TestServiceServer, through the bridge (dc-to-http2, stdio =
---- DataChannel). Skips when the Go server binary is not built
---- (Dockerfile.ci builds it).
-local function testInteropOracle()
-  local rootPath = util.root()
-  local dir = util.tmpdir()
-  local serverBin = rootPath .. "/oracle/go-interop/interop-server"
-  if not util.fileExists(serverBin) then
-    print("TestInteropOracle SKIP (go interop server not built)")
-    return
-  end
+--- interop_scenarios.lua) against the official TestServiceServers
+--- (grpc-go and grpc-dart), through the bridge (dc-to-http2,
+--- stdio = DataChannel). Each leg skips when its server binary
+--- is not built (Dockerfile.ci builds both). The grpc-dart
+--- server registers only TestService (no OpenRcaService) and
+--- ignores the compressed flags, so its leg runs the canonical
+--- case table only; compression and ORCA run on the Go leg.
+local function runServerLeg(rootPath, dir, tag, serverBin, portFlag, includeExtras)
   local port = util.freePort()
   local server = util.spawnToFiles(
-    string.format("%s -port %d", serverBin, port),
-    dir .. "/server.out", dir .. "/server.err")
-  -- The Go server logs nothing at startup: poll the TCP port.
+    string.format("%s %s %d", serverBin, portFlag, port),
+    dir .. "/" .. tag .. "-server.out", dir .. "/" .. tag .. "-server.err")
+  -- The servers log nothing usable at startup: poll the TCP port.
   local ready = false
   for _ = 1, 300 do
     if server == nil then break end
@@ -346,28 +342,49 @@ local function testInteropOracle()
   end
   if not ready then
     util.kill(server)
-    print("TestInteropOracle SKIP (interop server did not start)")
-    return
+    print("TestInteropOracle SKIP (" .. tag .. " interop server did not start)")
+    return false
   end
   local bridge = util.spawnPipe(string.format(
     "node %s/oracle/bridge.mjs dc-to-http2 --grpc 127.0.0.1:%d", rootPath, port))
   if bridge == nil then
     util.kill(server)
     print("TestInteropOracle SKIP (bridge did not start)")
-    return
+    return false
   end
   local ok, err = pcall(function()
     local channel = channelModule.Channel.new(bridge.transport)
     local client = stubs.TestServiceClient.new(channel)
     local unimpl = stubs.UnimplementedServiceClient.new(channel)
     runCases(channel, client, unimpl)
-    runCompressionCases(client)
-    runOrcaCases(channel, client)
+    if includeExtras then
+      runCompressionCases(client)
+      runOrcaCases(channel, client)
+    end
   end)
   util.kill(bridge.pid)
   util.kill(server)
   if not ok then error(err, 0) end
-  print("TestInteropOracle OK")
+  return true
+end
+
+local function testInteropOracle()
+  local rootPath = util.root()
+  local dir = util.tmpdir()
+  local ran = false
+  local goBin = rootPath .. "/oracle/go-interop/interop-server"
+  if not util.fileExists(goBin) then
+    print("TestInteropOracle SKIP (go interop server not built)")
+  else
+    ran = runServerLeg(rootPath, dir, "go", goBin, "-port", true) or ran
+  end
+  local dartBin = rootPath .. "/oracle/dart-interop/interop-server"
+  if not util.fileExists(dartBin) then
+    print("TestInteropOracle DART SKIP (dart interop server not built)")
+  else
+    ran = runServerLeg(rootPath, dir, "dart", dartBin, "--port", false) or ran
+  end
+  if ran then print("TestInteropOracle OK") end
 end
 
 return testInteropOracle

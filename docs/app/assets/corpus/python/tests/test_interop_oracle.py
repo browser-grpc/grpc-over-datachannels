@@ -1,10 +1,15 @@
 """Interop oracle: the generated Python client runs the
 canonical grpc interop cases (grpc.testing.TestService,
 vendored in oracle/interop) against the OFFICIAL
-TestServiceServers — grpc-java and grpc-go — no bridge,
-direct HTTP/2 (grpcdc.http2.Http2Transport). Case semantics
-mirror grpc's AbstractInteropTest. Skips when an oracle is
-not built (Dockerfile.ci builds both).
+TestServiceServers — grpc-java and grpc-go over direct
+HTTP/2 (grpcdc.http2.Http2Transport), and grpc-dart
+(google's package:grpc) through the bridge
+(oracle/bridge.mjs dc-to-http2; stdio = DataChannel). Case
+semantics mirror grpc's AbstractInteropTest. The dart leg
+runs the canonical case table only: the grpc-dart server
+registers no ORCA service and does not grade the compression
+rows. Skips when an oracle is not built (Dockerfile.ci
+builds all three).
 
 custom_metadata asserts the initial response metadata echo;
 trailing metadata is not surfaced by the grpc-dc frame layer
@@ -27,6 +32,7 @@ import grpcdc
 import interop_service
 import orca_grpc_dc
 import test_grpc_dc
+from stdio import StdioTransport
 from grpcdc.http2 import Http2Transport
 from orca_pb import OrcaLoadReportRequest
 from messages_pb import (
@@ -145,6 +151,32 @@ class InteropOracleBase:
                     break
             if not ready:
                 raise unittest.SkipTest("TestServiceServer did not start")
+        elif cls.SERVER_KIND == "dart":
+            binary = os.path.join(ROOT, "oracle", "dart-interop", "interop-server")
+            if not os.path.exists(binary):
+                raise unittest.SkipTest(
+                    "dart interop server not built (cd oracle/dart-interop && "
+                    "dart compile exe bin/interop_server.dart -o interop-server)"
+                )
+            # grpc-go spells the port flag -port, grpc-dart --port.
+            cls.server = subprocess.Popen(
+                [binary, "--port", str(cls.port)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+            # Poll the TCP port until the server accepts connections.
+            if not wait_for_port(cls.port, cls.server):
+                raise unittest.SkipTest("dart TestServiceServer did not start")
+            cls.bridge = subprocess.Popen(
+                [
+                    "node", os.path.join(ROOT, "oracle", "bridge.mjs"),
+                    "dc-to-http2", "--grpc", f"127.0.0.1:{cls.port}",
+                ],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+            )
+            cls.transport = StdioTransport(cls.bridge.stdin, cls.bridge.stdout)
         else:
             binary = os.path.join(ROOT, "oracle", "go-interop", "interop-server")
             if not os.path.exists(binary):
@@ -161,14 +193,21 @@ class InteropOracleBase:
             # The Go server prints no readiness line; poll the port.
             if not wait_for_port(cls.port, cls.server):
                 raise unittest.SkipTest("go TestServiceServer did not start")
-        cls.transport = Http2Transport(f"127.0.0.1:{cls.port}")
+        if cls.SERVER_KIND != "dart":
+            cls.transport = Http2Transport(f"127.0.0.1:{cls.port}")
         cls.channel = grpcdc.Channel(cls.transport)
         cls.client = test_grpc_dc.TestServiceClient(cls.channel)
 
     @classmethod
     def tearDownClass(cls):
-        cls.transport.close()
+        try:
+            cls.transport.close()
+        except Exception:
+            pass
         kill_and_wait(cls.server)
+        bridge = getattr(cls, "bridge", None)
+        if bridge is not None:
+            kill_and_wait(bridge)
 
     def test_empty_unary(self):
         resp = self.client.EmptyCall(Empty())
@@ -469,6 +508,28 @@ class TestInteropOracleGo(InteropOracleBase, unittest.TestCase):
         feed_and_read_oob(
             self, self.client,
             orca_grpc_dc.OpenRcaServiceClient(self.channel))
+
+
+class TestInteropOracleDart(InteropOracleBase, unittest.TestCase):
+    SERVER_KIND = "dart"
+
+    # The grpc-dart server registers no ORCA service and does not
+    # grade the compression rows (they run on the Go/Java legs
+    # above); the dart leg runs the canonical case table only.
+    def test_orca_per_rpc(self):
+        self.skipTest("grpc-dart server has no ORCA per-RPC report")
+
+    def test_client_compressed_unary(self):
+        self.skipTest("grpc-dart server does not grade compression rows")
+
+    def test_server_compressed_unary(self):
+        self.skipTest("grpc-dart server does not grade compression rows")
+
+    def test_client_compressed_streaming(self):
+        self.skipTest("grpc-dart server does not grade compression rows")
+
+    def test_server_compressed_streaming(self):
+        self.skipTest("grpc-dart server does not grade compression rows")
 
 
 class TestOrcaOobStreamLoopback(unittest.TestCase):

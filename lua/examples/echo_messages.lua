@@ -222,8 +222,19 @@ function EchoRequestStruct.marshal(m)
   return Structdc.transcodeStruct(_STRUCTDC_DESCRIPTOR, "echo.EchoRequest", m:marshalDc(), true)
 end
 function EchoRequestStruct.unmarshal(data)
+  local wire = Structdc.transcodeStruct(_STRUCTDC_DESCRIPTOR, "echo.EchoRequest", data, false)
   local m = EchoRequest.new()
-  m:unmarshalDc(Structdc.transcodeStruct(_STRUCTDC_DESCRIPTOR, "echo.EchoRequest", data, false))
+  m:unmarshalDc(wire)
+  local present = {}
+  local r = Reader.new(wire)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    present[field.number] = true
+  end
+  if not present[1] then m.message = "" end
+  if not present[2] then m.count = 0 end
+  if not present[3] then m.delayMs = 0 end
   return m
 end
 
@@ -232,8 +243,18 @@ function EchoResponseStruct.marshal(m)
   return Structdc.transcodeStruct(_STRUCTDC_DESCRIPTOR, "echo.EchoResponse", m:marshalDc(), true)
 end
 function EchoResponseStruct.unmarshal(data)
+  local wire = Structdc.transcodeStruct(_STRUCTDC_DESCRIPTOR, "echo.EchoResponse", data, false)
   local m = EchoResponse.new()
-  m:unmarshalDc(Structdc.transcodeStruct(_STRUCTDC_DESCRIPTOR, "echo.EchoResponse", data, false))
+  m:unmarshalDc(wire)
+  local present = {}
+  local r = Reader.new(wire)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    present[field.number] = true
+  end
+  if not present[1] then m.message = "" end
+  if not present[2] then m.index = 0 end
   return m
 end
 

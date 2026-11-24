@@ -1,16 +1,17 @@
 local util = require("test_util")
 
 --- Interop oracle, Direction B: the OFFICIAL interop clients
---- (grpc-java TestServiceClient, grpc-go interop-client) run the
+--- (grpc-java TestServiceClient, grpc-go interop-client, grpc-dart
+--- interop-client) run the
 --- canonical cases against the generated Lua TestService server
 --- (examples/interop_server_stdio.lua), reached over HTTP/2
 --- through oracle/bridge.mjs http2-to-dc. Skips when an oracle
 --- binary or Node is unavailable. Mirrors
 --- java/tests/TestInteropServerOracle.java. Process plumbing
 --- uses output files (see test_util): Lua stdlib cannot read a
---- child exit code, so the Java client is graded on its
---- "Test completed." marker and the Go client on the absence of
---- its FATAL failure line.
+--- child exit code, so the Java and Dart clients are graded on
+--- their "Test completed." marker and the Go client on the
+--- absence of its FATAL failure line.
 local CASES = {
   "empty_unary",
   "large_unary",
@@ -108,6 +109,18 @@ local function testInteropServerOracle()
         end
       end
       print("interop B case SKIP: orca_oob (go client; generated Lua server is single-threaded/cooperative, ORCA OOB needs concurrent streams)")
+    end
+    local dartClient = rootPath .. "/oracle/dart-interop/interop-client"
+    if os.execute("test -f " .. dartClient) ~= true then
+      print("TestInteropServerOracle DART SKIP (dart client not built)")
+    else
+      for _, testCase in ipairs(CASES) do
+        local cmd = string.format(
+          "%s -server_host 127.0.0.1 -server_port %d -test_case %s",
+          dartClient, port, testCase)
+        runClient(dir, "dart_" .. testCase, cmd, "Test completed.")
+        print("interop B case ok: " .. testCase .. " (dart client)")
+      end
     end
   end)
   util.kill(bridge)

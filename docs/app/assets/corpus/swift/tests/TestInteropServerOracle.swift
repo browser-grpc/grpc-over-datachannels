@@ -80,7 +80,8 @@ private func ReadAllFd(_ fd: Int32) -> String {
 }
 
 /// Interop oracle, Direction B: the OFFICIAL interop clients
-/// (grpc-java TestServiceClient, grpc-go interop-client) run the
+/// (grpc-java TestServiceClient, grpc-go interop-client, grpc-dart
+/// interop-client) run the
 /// canonical cases against the generated Swift TestService
 /// server (examples/InteropServerStdio), reached over HTTP/2
 /// through oracle/bridge.mjs http2-to-dc. Skips when an oracle
@@ -131,6 +132,21 @@ func TestInteropServerOracle() throws {
             }
             _ = try RunClient(argv)
             print("interop B case ok: \(testCase) (go client)")
+        }
+    }
+    let dartClient = "\(root)/oracle/dart-interop/interop-client"
+    if !FileExists(dartClient) {
+        print("TestInteropServerOracle DART SKIP (dart client not built)")
+    } else {
+        for testCase in interopBCases {
+            let out = try RunClient([
+                dartClient,
+                "-server_host", "127.0.0.1",
+                "-server_port", String(port),
+                "-test_case", testCase,
+            ])
+            try Check(out.contains("Test completed."), "dart case \(testCase): unexpected output: \(out)")
+            print("interop B case ok: \(testCase) (dart client)")
         }
     }
     bridge.Kill()

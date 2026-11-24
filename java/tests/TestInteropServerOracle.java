@@ -13,7 +13,8 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * Interop oracle, Direction B: the OFFICIAL interop clients
- * (grpc-java TestServiceClient, grpc-go interop-client) run the
+ * (grpc-java TestServiceClient, grpc-go interop-client, grpc-dart
+ * interop-client) run the
  * canonical cases against the generated Java TestService server
  * (examples/InteropServerStdio.java +
  * examples/interop/InteropServiceImpl.java), reached over
@@ -171,6 +172,21 @@ public final class TestInteropServerOracle {
                     }
                     runClient(argv, 120);
                     System.out.println("interop B case ok: " + testCase + " (go client)");
+                }
+            }
+            Path dartClient = ROOT.resolve("oracle/dart-interop/interop-client");
+            if (!Files.exists(dartClient)) {
+                System.out.println("TestInteropServerOracle DART SKIP (dart client not built)");
+            } else {
+                for (String testCase : CASES) {
+                    String out = runClient(List.of(
+                            dartClient.toString(),
+                            "-server_host", "127.0.0.1",
+                            "-server_port", Integer.toString(port),
+                            "-test_case", testCase), 120);
+                    check(out.contains("Test completed."),
+                            "dart case " + testCase + ": unexpected output: " + out);
+                    System.out.println("interop B case ok: " + testCase + " (dart client)");
                 }
             }
         } finally {

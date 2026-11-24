@@ -9,10 +9,14 @@ namespace Tests;
 /// <summary>
 /// Interop client grading: the generated C# TestService client
 /// runs the canonical grpc interop cases (generated table:
-/// InteropCases) against the official grpc-go TestServiceServer,
-/// through the bridge (dc-to-http2, stdio = DataChannel). Mirrors
-/// the Java/JS/Python/Go/Rust interop oracle suites. Skips when
-/// the oracle server binary is not built (Dockerfile.ci builds it).
+/// InteropCases) against the official TestServiceServers —
+/// grpc-go and grpc-dart (google's package:grpc) — through the
+/// bridge (dc-to-http2, stdio = DataChannel). Mirrors the
+/// Java/JS/Python/Go/Rust interop oracle suites. Each leg skips
+/// when its oracle server binary is not built (Dockerfile.ci
+/// builds both). The dart leg runs the canonical case table
+/// only: the grpc-dart server has no ORCA service and does not
+/// grade the compression rows.
 /// </summary>
 public static class TestInteropOracle
 {
@@ -378,7 +382,36 @@ public static class TestInteropOracle
         Console.WriteLine("interop case ok: orca_oob");
     }
 
-    public static void Run()
+    private static int FreePort()
+    {
+        using var listener = new TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        return ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+    }
+
+    private static void WaitForPort(int port, string what)
+    {
+        // The servers print no reliable readiness line; poll the port.
+        long deadline = Environment.TickCount64 + 30000;
+        bool ready = false;
+        while (Environment.TickCount64 < deadline)
+        {
+            try
+            {
+                using var sock = new TcpClient();
+                sock.Connect("127.0.0.1", port);
+                ready = true;
+                break;
+            }
+            catch (SocketException)
+            {
+                Thread.Sleep(100);
+            }
+        }
+        Program.Check(ready, what);
+    }
+
+    private static void RunGoLeg()
     {
         string serverBin = Path.Combine(Root, "oracle", "go-interop", "interop-server");
         if (!File.Exists(serverBin))
@@ -386,12 +419,7 @@ public static class TestInteropOracle
             Console.WriteLine("TestInteropOracle SKIP (go interop server not built)");
             return;
         }
-        int port;
-        using (var listener = new TcpListener(System.Net.IPAddress.Loopback, 0))
-        {
-            listener.Start();
-            port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
-        }
+        int port = FreePort();
         var serverStart = new ProcessStartInfo(serverBin) { RedirectStandardOutput = true, RedirectStandardError = true };
         serverStart.ArgumentList.Add("-port");
         serverStart.ArgumentList.Add(port.ToString());
@@ -400,24 +428,7 @@ public static class TestInteropOracle
         server.StandardError.ReadToEndAsync();
         try
         {
-            // The Go server prints no readiness line; poll the port.
-            long deadline = Environment.TickCount64 + 30000;
-            bool ready = false;
-            while (Environment.TickCount64 < deadline)
-            {
-                try
-                {
-                    using var sock = new TcpClient();
-                    sock.Connect("127.0.0.1", port);
-                    ready = true;
-                    break;
-                }
-                catch (SocketException)
-                {
-                    Thread.Sleep(100);
-                }
-            }
-            Program.Check(ready, "go interop server did not start");
+            WaitForPort(port, "go interop server did not start");
 
             var bridgeStart = new ProcessStartInfo("node")
             {
@@ -449,6 +460,68 @@ public static class TestInteropOracle
         {
             server.Kill();
         }
+        Console.WriteLine("TestInteropOracle go leg OK");
+    }
+
+    // Direction A, grpc-dart leg: the same canonical case table
+    // against google's grpc-dart server (oracle/dart-interop,
+    // package:grpc) over direct HTTP/2 through the bridge. The
+    // dart server registers no ORCA service and does not grade
+    // the compression rows, so only RunCases runs here.
+    private static void RunDartLeg()
+    {
+        string serverBin = Path.Combine(Root, "oracle", "dart-interop", "interop-server");
+        if (!File.Exists(serverBin))
+        {
+            Console.WriteLine("TestInteropOracleDart SKIP (dart interop server not built)");
+            return;
+        }
+        int port = FreePort();
+        var serverStart = new ProcessStartInfo(serverBin) { RedirectStandardOutput = true, RedirectStandardError = true };
+        serverStart.ArgumentList.Add("--port");
+        serverStart.ArgumentList.Add(port.ToString());
+        using Process server = Process.Start(serverStart);
+        server.StandardOutput.ReadToEndAsync();
+        server.StandardError.ReadToEndAsync();
+        try
+        {
+            WaitForPort(port, "dart interop server did not start");
+
+            var bridgeStart = new ProcessStartInfo("node")
+            {
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            };
+            bridgeStart.ArgumentList.Add(Path.Combine(Root, "oracle", "bridge.mjs"));
+            bridgeStart.ArgumentList.Add("dc-to-http2");
+            bridgeStart.ArgumentList.Add("--grpc");
+            bridgeStart.ArgumentList.Add($"127.0.0.1:{port}");
+            using Process bridge = Process.Start(bridgeStart);
+            bridge.StandardError.ReadToEndAsync();
+            try
+            {
+                var transport = new StdioTransport(bridge.StandardInput.BaseStream, bridge.StandardOutput.BaseStream);
+                var channel = new Channel(transport);
+                var client = new TestGrpcDc.TestServiceClient(channel);
+                RunCases(channel, client, new TestGrpcDc.UnimplementedServiceClient(channel));
+            }
+            finally
+            {
+                bridge.Kill();
+            }
+        }
+        finally
+        {
+            server.Kill();
+        }
+        Console.WriteLine("TestInteropOracleDart OK");
+    }
+
+    public static void Run()
+    {
+        RunGoLeg();
+        RunDartLeg();
         Console.WriteLine("TestInteropOracle OK");
     }
 }

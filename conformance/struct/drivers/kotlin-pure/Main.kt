@@ -39,5 +39,25 @@ fun main(args: Array<String>) {
         println("ROUNDTRIP_MISMATCH")
         kotlin.system.exitProcess(1)
     }
+    val golden2Hex = args[1]
+    val golden2 = unhex(golden2Hex)
+    val p2 = P2()
+    p2.name = "req"
+    p2.count = 42
+    p2.greeting = "hi"
+    p2.enabled = false
+    p2.ratio = 2.5
+    p2.nums = mutableListOf(5, -6)
+    p2.extNote = "note!"
+    val got2 = P2Struct.marshal(p2)
+    if (!got2.contentEquals(golden2)) {
+        println("MARSHAL2_MISMATCH\n got ${hex(got2)}\nwant $golden2Hex")
+        kotlin.system.exitProcess(1)
+    }
+    val back2 = P2Struct.unmarshal(golden2)
+    if (!P2Struct.marshal(back2).contentEquals(golden2)) {
+        println("ROUNDTRIP2_MISMATCH")
+        kotlin.system.exitProcess(1)
+    }
     println("DECODE_OK")
 }

@@ -77,7 +77,8 @@ bool WaitReady(FILE* f, const std::string& needle) {
 }  // namespace
 
 /// Interop oracle, Direction B: the OFFICIAL interop clients
-/// (grpc-java TestServiceClient, grpc-go interop-client) run the
+/// (grpc-java TestServiceClient, grpc-go interop-client, grpc-dart
+/// interop-client) run the
 /// canonical cases against the generated C++ TestService server
 /// (examples/interop_server_stdio), reached over HTTP/2 through
 /// oracle/bridge.mjs http2-to-dc. Skips when an oracle binary or
@@ -137,6 +138,21 @@ void TestInteropServerOracle() {
       }
       RunClient(argv);
       std::printf("interop B case ok: %s (go client)\n", test_case.c_str());
+    }
+  }
+  std::string dart_client = root + "/oracle/dart-interop/interop-client";
+  if (!FileExists(dart_client)) {
+    std::printf("TestInteropServerOracle DART SKIP (dart client not built)\n");
+  } else {
+    for (const char* tc : kCases) {
+      std::string test_case = tc;
+      std::string out = RunClient({dart_client,
+                                   "-server_host", "127.0.0.1",
+                                   "-server_port", std::to_string(port),
+                                   "-test_case", test_case});
+      Check(out.find("Test completed.") != std::string::npos,
+            "dart case " + test_case + ": unexpected output: " + out);
+      std::printf("interop B case ok: %s (dart client)\n", test_case.c_str());
     }
   }
   bridge.Kill();

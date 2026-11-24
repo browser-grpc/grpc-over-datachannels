@@ -3,10 +3,14 @@ package grpcdc_test
 // Interop oracle: the generated Go client runs the canonical
 // grpc interop cases (grpc.testing.TestService, vendored in
 // ../oracle/interop) against the OFFICIAL TestServiceServers —
-// grpc-java and grpc-go — no bridge, direct HTTP/2
-// (DialHttp2). Case semantics mirror grpc's
-// AbstractInteropTest. Skips when an oracle is not built
-// (Dockerfile.ci builds both).
+// grpc-java and grpc-go over direct HTTP/2 (DialHttp2), and
+// grpc-dart (google's package:grpc) through the bridge
+// (oracle/bridge.mjs dc-to-http2; stdio = DataChannel). Case
+// semantics mirror grpc's AbstractInteropTest. The dart leg
+// runs the canonical case table only: the grpc-dart server
+// registers no ORCA service and does not grade the compression
+// rows. Skips when an oracle is not built (Dockerfile.ci
+// builds all three).
 //
 // custom_metadata asserts the unary path succeeds; initial
 // response metadata is asserted in the Python driver (trailing
@@ -29,6 +33,7 @@ import (
 	"time"
 
 	grpcdc "github.com/browser-grpc/grpc-over-datachannels/go"
+	echo "github.com/browser-grpc/grpc-over-datachannels/go/examples"
 	testingpb "github.com/browser-grpc/grpc-over-datachannels/go/interop"
 )
 
@@ -99,6 +104,56 @@ func startTestServiceServer(t *testing.T, port int) {
 	}
 }
 
+func startDartTestServiceServer(t *testing.T, port int) {
+	t.Helper()
+	binary := filepath.Join("..", "oracle", "dart-interop", "interop-server")
+	if _, err := os.Stat(binary); err != nil {
+		skipOracle(t, "dart interop server not built (cd oracle/dart-interop && dart compile exe bin/interop_server.dart -o interop-server)")
+	}
+	// grpc-go spells the port flag -port, grpc-dart --port.
+	cmd := exec.Command(binary, "--port", fmt.Sprint(port))
+	if err := cmd.Start(); err != nil {
+		skipOraclef(t, "cannot start dart TestServiceServer: %v", err)
+	}
+	t.Cleanup(func() { _ = cmd.Process.Kill() })
+	// Poll the TCP port until the server accepts connections.
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), time.Second)
+		if err == nil {
+			_ = conn.Close()
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("dart TestServiceServer did not start")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+func interopDartClient(t *testing.T) (*testingpb.TestServiceClient, *grpcdc.Channel, func()) {
+	t.Helper()
+	port := freePort(t)
+	startDartTestServiceServer(t, port)
+	bridge := exec.Command("node", filepath.Join("..", "oracle", "bridge.mjs"),
+		"dc-to-http2", "--grpc", fmt.Sprintf("127.0.0.1:%d", port))
+	bridgeIn, err := bridge.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	bridgeOut, err := bridge.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	bridge.Stderr = os.Stderr
+	if err := bridge.Start(); err != nil {
+		skipOraclef(t, "cannot start bridge: %v", err)
+	}
+	t.Cleanup(func() { _ = bridge.Process.Kill() })
+	channel := grpcdc.NewChannel(echo.NewStdioTransport(bridgeIn, bridgeOut))
+	return testingpb.NewTestServiceClient(channel), channel, func() { _ = bridge.Process.Kill() }
+}
+
 func interopClient(t *testing.T, kind string) (*testingpb.TestServiceClient, *grpcdc.Channel, func()) {
 	t.Helper()
 	port := freePort(t)
@@ -128,13 +183,19 @@ func statusCode(err error) (grpcdc.Code, bool) {
 func TestInteropGoClientCallsJavaTestService(t *testing.T) {
 	client, channel, closeFn := interopClient(t, "java")
 	defer closeFn()
-	runInteropCases(t, client, channel)
+	runInteropCases(t, client, channel, true)
 }
 
 func TestInteropGoClientCallsGoTestService(t *testing.T) {
 	client, channel, closeFn := interopClient(t, "go")
 	defer closeFn()
-	runInteropCases(t, client, channel)
+	runInteropCases(t, client, channel, true)
+}
+
+func TestInteropGoClientCallsDartTestService(t *testing.T) {
+	client, channel, closeFn := interopDartClient(t)
+	defer closeFn()
+	runInteropCases(t, client, channel, false)
 }
 
 // ORCA out-of-band streaming (OpenRcaService): feed the shared
@@ -200,7 +261,10 @@ func TestOrcaOobStream(t *testing.T) {
 	})
 }
 
-func runInteropCases(t *testing.T, client *testingpb.TestServiceClient, channel *grpcdc.Channel) {
+// runInteropCases runs the canonical case table; with full it
+// also runs the ORCA per-RPC and compression rows (graded only
+// on the grpc-go/grpc-java legs — see TestInteropGoClientCallsDartTestService).
+func runInteropCases(t *testing.T, client *testingpb.TestServiceClient, channel *grpcdc.Channel, full bool) {
 	ctx := context.Background()
 
 	t.Run("empty_unary", func(t *testing.T) {
@@ -298,139 +362,141 @@ func runInteropCases(t *testing.T, client *testingpb.TestServiceClient, channel 
 		}
 	})
 
-	t.Run("orca_per_rpc", func(t *testing.T) {
-		// Upstream orca_per_rpc: the per-request TestOrcaReport
-		// comes back as the serialized OrcaLoadReport in the
-		// endpoint-load-metrics-bin trailer (base64 -bin value).
-		stream, err := channel.UnaryStream(ctx, "/grpc.testing.TestService/UnaryCall",
-			&testingpb.SimpleRequest{
-				OrcaPerQueryReport: &testingpb.TestOrcaReport{
-					CpuUtilization:    0.8210,
-					MemoryUtilization: 0.5847,
-					RequestCost:       map[string]float64{"cost": 3456.32},
-					Utilization:       map[string]float64{"util": 0.30499},
-				},
-			}, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := stream.Recv(&testingpb.SimpleResponse{}); err != nil {
-			t.Fatal(err)
-		}
-		if err := stream.Recv(&testingpb.SimpleResponse{}); err != io.EOF {
-			t.Fatalf("final recv = %v, want EOF", err)
-		}
-		encoded := stream.Trailer()["endpoint-load-metrics-bin"]
-		raw, err := base64.StdEncoding.DecodeString(encoded)
-		if err != nil {
-			// Servers may send raw (unpadded) base64, as grpc-go
-			// does; grpc's decodeBinHeader accepts both forms.
-			raw, err = base64.RawStdEncoding.DecodeString(encoded)
-		}
-		if err != nil {
-			t.Fatalf("trailer %q: %v", encoded, err)
-		}
-		report := &testingpb.OrcaLoadReport{}
-		if err := report.UnmarshalDC(raw); err != nil {
-			t.Fatal(err)
-		}
-		if report.CpuUtilization != 0.8210 || report.MemUtilization != 0.5847 ||
-			report.RequestCost["cost"] != 3456.32 || report.Utilization["util"] != 0.30499 {
-			t.Fatalf("report = %+v", report)
-		}
-	})
-
-	t.Run("client_compressed_unary", func(t *testing.T) {
-		// Gzip-compressed request (grpc-encoding call metadata);
-		// the reference server only accepts when the request
-		// really arrives compressed (expect_compressed).
-		stream, err := channel.UnaryStream(ctx, "/grpc.testing.TestService/UnaryCall",
-			&testingpb.SimpleRequest{
-				ExpectCompressed: &testingpb.BoolValue{Value: true},
-				ResponseSize:     31415,
-				Payload:          &testingpb.Payload{Body: zeros(271828)},
-			}, map[string]string{"grpc-encoding": "gzip"})
-		if err != nil {
-			t.Fatal(err)
-		}
-		resp := &testingpb.SimpleResponse{}
-		if err := stream.Recv(resp); err != nil {
-			t.Fatal(err)
-		}
-		if len(resp.Payload.Body) != 31415 {
-			t.Fatalf("payload len = %d", len(resp.Payload.Body))
-		}
-	})
-
-	t.Run("server_compressed_unary", func(t *testing.T) {
-		// The server gzip-compresses the response
-		// (response_compressed); the transport decompresses, so
-		// the payload arrives intact and decodable.
-		resp, err := client.UnaryCall(ctx, &testingpb.SimpleRequest{
-			ResponseCompressed: &testingpb.BoolValue{Value: true},
-			ResponseSize:       31415,
-			Payload:            &testingpb.Payload{Body: zeros(271828)},
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(resp.Payload.Body) != 31415 {
-			t.Fatalf("payload len = %d", len(resp.Payload.Body))
-		}
-	})
-
-	t.Run("client_compressed_streaming", func(t *testing.T) {
-		sizes := []int32{27182, 8, 1828, 45904}
-		reqs := make([]grpcdc.Marshaler, 0, len(sizes))
-		total := 0
-		for _, size := range sizes {
-			reqs = append(reqs, &testingpb.StreamingInputCallRequest{
-				Payload: &testingpb.Payload{Body: zeros(int(size))},
-			})
-			total += int(size)
-		}
-		resp := &testingpb.StreamingInputCallResponse{}
-		err := channel.ClientStreamCallWithMetadata(ctx,
-			"/grpc.testing.TestService/StreamingInputCall", reqs, resp,
-			map[string]string{"grpc-encoding": "gzip"})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if int(resp.AggregatedPayloadSize) != total {
-			t.Fatalf("aggregated = %d, want %d", resp.AggregatedPayloadSize, total)
-		}
-	})
-
-	t.Run("server_compressed_streaming", func(t *testing.T) {
-		sizes := []int32{31415, 9, 2653, 58979}
-		params := make([]*testingpb.ResponseParameters, 0, len(sizes))
-		for _, size := range sizes {
-			params = append(params, &testingpb.ResponseParameters{Size: size})
-		}
-		stream, err := client.StreamingOutputCall(ctx, &testingpb.StreamingOutputCallRequest{
-			ResponseParameters: params,
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		got := 0
-		for {
-			resp, err := stream.Recv()
-			if err == io.EOF {
-				break
-			}
+	if full {
+		t.Run("orca_per_rpc", func(t *testing.T) {
+			// Upstream orca_per_rpc: the per-request TestOrcaReport
+			// comes back as the serialized OrcaLoadReport in the
+			// endpoint-load-metrics-bin trailer (base64 -bin value).
+			stream, err := channel.UnaryStream(ctx, "/grpc.testing.TestService/UnaryCall",
+				&testingpb.SimpleRequest{
+					OrcaPerQueryReport: &testingpb.TestOrcaReport{
+						CpuUtilization:    0.8210,
+						MemoryUtilization: 0.5847,
+						RequestCost:       map[string]float64{"cost": 3456.32},
+						Utilization:       map[string]float64{"util": 0.30499},
+					},
+				}, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if int32(len(resp.Payload.Body)) != sizes[got] {
-				t.Fatalf("size[%d] = %d", got, len(resp.Payload.Body))
+			if err := stream.Recv(&testingpb.SimpleResponse{}); err != nil {
+				t.Fatal(err)
 			}
-			got++
-		}
-		if got != len(sizes) {
-			t.Fatalf("got %d responses", got)
-		}
-	})
+			if err := stream.Recv(&testingpb.SimpleResponse{}); err != io.EOF {
+				t.Fatalf("final recv = %v, want EOF", err)
+			}
+			encoded := stream.Trailer()["endpoint-load-metrics-bin"]
+			raw, err := base64.StdEncoding.DecodeString(encoded)
+			if err != nil {
+				// Servers may send raw (unpadded) base64, as grpc-go
+				// does; grpc's decodeBinHeader accepts both forms.
+				raw, err = base64.RawStdEncoding.DecodeString(encoded)
+			}
+			if err != nil {
+				t.Fatalf("trailer %q: %v", encoded, err)
+			}
+			report := &testingpb.OrcaLoadReport{}
+			if err := report.UnmarshalDC(raw); err != nil {
+				t.Fatal(err)
+			}
+			if report.CpuUtilization != 0.8210 || report.MemUtilization != 0.5847 ||
+				report.RequestCost["cost"] != 3456.32 || report.Utilization["util"] != 0.30499 {
+				t.Fatalf("report = %+v", report)
+			}
+		})
+
+		t.Run("client_compressed_unary", func(t *testing.T) {
+			// Gzip-compressed request (grpc-encoding call metadata);
+			// the reference server only accepts when the request
+			// really arrives compressed (expect_compressed).
+			stream, err := channel.UnaryStream(ctx, "/grpc.testing.TestService/UnaryCall",
+				&testingpb.SimpleRequest{
+					ExpectCompressed: &testingpb.BoolValue{Value: true},
+					ResponseSize:     31415,
+					Payload:          &testingpb.Payload{Body: zeros(271828)},
+				}, map[string]string{"grpc-encoding": "gzip"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp := &testingpb.SimpleResponse{}
+			if err := stream.Recv(resp); err != nil {
+				t.Fatal(err)
+			}
+			if len(resp.Payload.Body) != 31415 {
+				t.Fatalf("payload len = %d", len(resp.Payload.Body))
+			}
+		})
+
+		t.Run("server_compressed_unary", func(t *testing.T) {
+			// The server gzip-compresses the response
+			// (response_compressed); the transport decompresses, so
+			// the payload arrives intact and decodable.
+			resp, err := client.UnaryCall(ctx, &testingpb.SimpleRequest{
+				ResponseCompressed: &testingpb.BoolValue{Value: true},
+				ResponseSize:       31415,
+				Payload:            &testingpb.Payload{Body: zeros(271828)},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(resp.Payload.Body) != 31415 {
+				t.Fatalf("payload len = %d", len(resp.Payload.Body))
+			}
+		})
+
+		t.Run("client_compressed_streaming", func(t *testing.T) {
+			sizes := []int32{27182, 8, 1828, 45904}
+			reqs := make([]grpcdc.Marshaler, 0, len(sizes))
+			total := 0
+			for _, size := range sizes {
+				reqs = append(reqs, &testingpb.StreamingInputCallRequest{
+					Payload: &testingpb.Payload{Body: zeros(int(size))},
+				})
+				total += int(size)
+			}
+			resp := &testingpb.StreamingInputCallResponse{}
+			err := channel.ClientStreamCallWithMetadata(ctx,
+				"/grpc.testing.TestService/StreamingInputCall", reqs, resp,
+				map[string]string{"grpc-encoding": "gzip"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if int(resp.AggregatedPayloadSize) != total {
+				t.Fatalf("aggregated = %d, want %d", resp.AggregatedPayloadSize, total)
+			}
+		})
+
+		t.Run("server_compressed_streaming", func(t *testing.T) {
+			sizes := []int32{31415, 9, 2653, 58979}
+			params := make([]*testingpb.ResponseParameters, 0, len(sizes))
+			for _, size := range sizes {
+				params = append(params, &testingpb.ResponseParameters{Size: size})
+			}
+			stream, err := client.StreamingOutputCall(ctx, &testingpb.StreamingOutputCallRequest{
+				ResponseParameters: params,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := 0
+			for {
+				resp, err := stream.Recv()
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				if int32(len(resp.Payload.Body)) != sizes[got] {
+					t.Fatalf("size[%d] = %d", got, len(resp.Payload.Body))
+				}
+				got++
+			}
+			if got != len(sizes) {
+				t.Fatalf("got %d responses", got)
+			}
+		})
+	}
 
 	t.Run("custom_metadata", func(t *testing.T) {
 		// Upstream custom_metadata: echo-initial returns as
@@ -441,7 +507,7 @@ func runInteropCases(t *testing.T, client *testingpb.TestServiceClient, channel 
 		trailingBin := base64.StdEncoding.EncodeToString(
 			[]byte{0x0a, 0x0b, 0x0a, 0x0b, 0x0a, 0x0b})
 		md := map[string]string{
-			"x-grpc-test-echo-initial":       "test_initial_metadata_value",
+			"x-grpc-test-echo-initial":      "test_initial_metadata_value",
 			"x-grpc-test-echo-trailing-bin": trailingBin,
 		}
 		assertEcho := func(header, trailer map[string]string) {

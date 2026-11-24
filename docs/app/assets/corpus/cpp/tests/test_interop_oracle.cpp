@@ -393,17 +393,19 @@ bool TcpConnectable(int port) {
   return ok;
 }
 
-}  // namespace
+void WaitForPort(int port, const char* what) {
+  bool ready = false;
+  for (int i = 0; i < 300 && !ready; ++i) {
+    if (TcpConnectable(port)) {
+      ready = true;
+    } else {
+      usleep(100 * 1000);
+    }
+  }
+  Check(ready, what);
+}
 
-/// Interop client grading: the generated C++ TestService client
-/// runs the canonical grpc interop cases (generated table:
-/// interop_cases.hpp) against the official grpc-go
-/// TestServiceServer, through the bridge (dc-to-http2, stdio =
-/// DataChannel). Mirrors the Java/C#/Kotlin/Scala/Dart interop
-/// oracle suites. Skips when the oracle server binary is not
-/// built (Dockerfile.ci builds it).
-void TestInteropOracle() {
-  const std::string root = Root();
+void RunGoLeg(const std::string& root) {
   const std::string server_bin = root + "/oracle/go-interop/interop-server";
   if (!FileExists(server_bin)) {
     std::fprintf(stderr, "TestInteropOracle SKIP (go interop server not built)\n");
@@ -419,15 +421,7 @@ void TestInteropOracle() {
   std::thread drain([](FILE* f) { ReadAll(f); }, server.from_stderr);
   drain.detach();
 
-  bool ready = false;
-  for (int i = 0; i < 300 && !ready; ++i) {
-    if (TcpConnectable(port)) {
-      ready = true;
-    } else {
-      usleep(100 * 1000);
-    }
-  }
-  Check(ready, "go interop server did not start");
+  WaitForPort(port, "go interop server did not start");
 
   Proc bridge;
   if (!Spawn({"node", root + "/oracle/bridge.mjs", "dc-to-http2", "--grpc",
@@ -448,6 +442,68 @@ void TestInteropOracle() {
   }
   bridge.Kill();
   server.Kill();
+  std::fprintf(stdout, "TestInteropOracle go leg OK\n");
+}
+
+// Direction A, grpc-dart leg: the same canonical case table
+// against google's grpc-dart server (oracle/dart-interop,
+// package:grpc) over direct HTTP/2 through the bridge. The
+// dart server registers no ORCA service and does not grade
+// the compression rows, so only RunCases runs here.
+void RunDartLeg(const std::string& root) {
+  const std::string server_bin = root + "/oracle/dart-interop/interop-server";
+  if (!FileExists(server_bin)) {
+    std::fprintf(stderr, "TestInteropOracleDart SKIP (dart interop server not built)\n");
+    return;
+  }
+  const int port = FreePort();
+  Proc server;
+  if (!Spawn({server_bin, "--port", std::to_string(port)}, true, server)) {
+    std::fprintf(stderr, "TestInteropOracleDart SKIP (spawn dart server)\n");
+    return;
+  }
+  // Drain stderr so the pipe never blocks.
+  std::thread drain([](FILE* f) { ReadAll(f); }, server.from_stderr);
+  drain.detach();
+
+  WaitForPort(port, "dart interop server did not start");
+
+  Proc bridge;
+  if (!Spawn({"node", root + "/oracle/bridge.mjs", "dc-to-http2", "--grpc",
+              "127.0.0.1:" + std::to_string(port)},
+             false, bridge)) {
+    std::fprintf(stderr, "TestInteropOracleDart SKIP (spawn bridge)\n");
+    server.Kill();
+    return;
+  }
+  {
+    auto transport = std::make_shared<echo::StdioTransport>(bridge.to_stdin, bridge.from_stdout);
+    auto channel = std::make_shared<grpcdc::Channel>(transport);
+    TestGrpcDc::TestServiceClient client(channel);
+    TestGrpcDc::UnimplementedServiceClient unimpl(channel);
+    RunCases(*channel, client, unimpl);
+  }
+  bridge.Kill();
+  server.Kill();
+  std::fprintf(stdout, "TestInteropOracleDart OK\n");
+}
+
+}  // namespace
+
+/// Interop client grading: the generated C++ TestService client
+/// runs the canonical grpc interop cases (generated table:
+/// interop_cases.hpp) against the official TestServiceServers —
+/// grpc-go and grpc-dart (google's package:grpc) — through the
+/// bridge (dc-to-http2, stdio = DataChannel). Mirrors the
+/// Java/C#/Kotlin/Scala/Dart interop oracle suites. Each leg
+/// skips when its oracle server binary is not built
+/// (Dockerfile.ci builds both). The dart leg runs the canonical
+/// case table only: the grpc-dart server has no ORCA service
+/// and does not grade the compression rows.
+void TestInteropOracle() {
+  const std::string root = Root();
+  RunGoLeg(root);
+  RunDartLeg(root);
   std::fprintf(stdout, "TestInteropOracle OK\n");
 }
 

@@ -438,8 +438,13 @@ fn runOrcaCases(alloc: std.mem.Allocator, channel: *grpcdc.channel.Channel, clie
 /// Interop client grading: the generated Zig TestService client
 /// runs the canonical interop cases (generated table:
 /// interop_cases.zig) against the official grpc-go
-/// TestServiceServer through the bridge. Skips when the server
-/// binary is not built (Dockerfile.ci builds it).
+/// TestServiceServer, and then against google's grpc-dart server
+/// (oracle/dart-interop/interop-server), each through the bridge.
+/// Each leg skips when its server binary is not built
+/// (Dockerfile.ci builds them). The grpc-dart leg runs only the
+/// canonical table: that server implements no ORCA service and
+/// does not grade compression, so runCompressionCases/runOrcaCases
+/// stay go-only.
 pub fn testInteropOracle(alloc: std.mem.Allocator) void {
     const root_path = util.root(alloc);
     const server_bin = std.fmt.allocPrint(alloc, "{s}/oracle/go-interop/interop-server", .{root_path}) catch @panic("out of memory");
@@ -490,5 +495,57 @@ pub fn testInteropOracle(alloc: std.mem.Allocator) void {
     runCases(alloc, &channel, &client, &unimpl);
     runCompressionCases(alloc, &client);
     runOrcaCases(alloc, &channel, &client);
+
+    // Direction-A grpc-dart leg: same canonical table against
+    // google's grpc-dart server (direct HTTP/2, bridged the same
+    // way). The dart server spells its flag --port (the Go server
+    // uses -port).
+    const dart_bin = std.fmt.allocPrint(alloc, "{s}/oracle/dart-interop/interop-server", .{root_path}) catch @panic("out of memory");
+    std.fs.cwd().access(dart_bin, .{}) catch {
+        std.debug.print("TestInteropOracle DART SKIP (dart interop server not built)\n", .{});
+        std.debug.print("TestInteropOracle OK\n", .{});
+        return;
+    };
+    std.debug.print("TestInteropOracle DART (grpc-dart server)\n", .{});
+    const dart_port = util.freePort();
+    const dart_port_arg = std.fmt.allocPrint(alloc, "{d}", .{dart_port}) catch @panic("out of memory");
+    const dart_grpc_arg = std.fmt.allocPrint(alloc, "127.0.0.1:{d}", .{dart_port}) catch @panic("out of memory");
+    var dart_server = util.spawn(alloc, &.{ dart_bin, "--port", dart_port_arg }) catch {
+        std.debug.print("TestInteropOracle DART SKIP (dart server did not start)\n", .{});
+        std.debug.print("TestInteropOracle OK\n", .{});
+        return;
+    };
+    defer _ = dart_server.kill() catch {};
+    var dart_server_err = util.Drain{};
+    util.startDrain(alloc, &dart_server_err, dart_server.stderr.?);
+
+    var dart_ready = false;
+    var dart_attempts: usize = 0;
+    while (dart_attempts < 300) : (dart_attempts += 1) {
+        const stream = std.net.tcpConnectToAddress(std.net.Address.parseIp4("127.0.0.1", dart_port) catch unreachable) catch {
+            std.Thread.sleep(100 * std.time.ns_per_ms);
+            continue;
+        };
+        stream.close();
+        dart_ready = true;
+        break;
+    }
+    util.check(dart_ready, "dart interop server did not start");
+
+    var dart_bridge = util.spawn(alloc, &.{ "node", bridge_path, "dc-to-http2", "--grpc", dart_grpc_arg }) catch {
+        std.debug.print("TestInteropOracle DART SKIP (bridge did not start)\n", .{});
+        std.debug.print("TestInteropOracle OK\n", .{});
+        return;
+    };
+    defer _ = dart_bridge.kill() catch {};
+    var dart_bridge_err = util.Drain{};
+    util.startDrain(alloc, &dart_bridge_err, dart_bridge.stderr.?);
+
+    var dart_transport = examples.stdio_transport.StdioTransport.init(alloc, dart_bridge.stdout.?.handle, dart_bridge.stdin.?.handle);
+    var dart_channel = grpcdc.channel.Channel.init(alloc, dart_transport.transport());
+    defer dart_channel.deinit();
+    var dart_client = TestServiceClient.init(&dart_channel);
+    var dart_unimpl = UnimplementedServiceClient.init(&dart_channel);
+    runCases(alloc, &dart_channel, &dart_client, &dart_unimpl);
     std.debug.print("TestInteropOracle OK\n", .{});
 }

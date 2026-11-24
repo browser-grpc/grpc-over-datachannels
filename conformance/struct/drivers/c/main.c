@@ -4,6 +4,8 @@
 
 #include "msgs_messages.h"
 #include "msgs_struct.h"
+#include "msgs2_messages.h"
+#include "msgs2_struct.h"
 
 static char *dupstr(const char *s) {
     size_t n = strlen(s);
@@ -67,6 +69,40 @@ int main(int argc, char **argv) {
     char *rtHex = (char *)malloc(2 * rt.len + 1);
     hexof(rt.data, rt.len, rtHex);
     if (strcmp(rtHex, goldenHex) != 0) { printf("ROUNDTRIP_MISMATCH\n"); return 1; }
+
+    const char *golden2Hex = argv[2];
+    size_t g2len = strlen(golden2Hex) / 2;
+    uint8_t *golden2 = (uint8_t *)malloc(g2len);
+    for (size_t i = 0; i < g2len; i++) {
+        unsigned int v;
+        sscanf(golden2Hex + 2 * i, "%2x", &v);
+        golden2[i] = (uint8_t)v;
+    }
+
+    P2 p2;
+    memset(&p2, 0, sizeof(p2));
+    p2.name = dupstr("req");
+    p2.count = 42;
+    p2.greeting = dupstr("hi");
+    p2.enabled = false;
+    p2.ratio = 2.5;
+    p2.nums = (int32_t *)malloc(2 * sizeof(int32_t));
+    p2.nums[0] = 5; p2.nums[1] = -6; p2.nums_count = 2;
+    p2.ext_note = dupstr("note!");
+
+    Msgs2PbBytes got2 = P2_struct_marshal(&p2);
+    char *got2Hex = (char *)malloc(2 * got2.len + 1);
+    hexof(got2.data, got2.len, got2Hex);
+    if (strcmp(got2Hex, golden2Hex) != 0) {
+        printf("MARSHAL2_MISMATCH\n got %s\nwant %s\n", got2Hex, golden2Hex);
+        return 1;
+    }
+    P2 back2; memset(&back2, 0, sizeof(back2));
+    if (!P2_struct_unmarshal(&back2, golden2, g2len)) { printf("DECODE2_FAIL\n"); return 1; }
+    Msgs2PbBytes rt2 = P2_struct_marshal(&back2);
+    char *rt2Hex = (char *)malloc(2 * rt2.len + 1);
+    hexof(rt2.data, rt2.len, rt2Hex);
+    if (strcmp(rt2Hex, golden2Hex) != 0) { printf("ROUNDTRIP2_MISMATCH\n"); return 1; }
     printf("DECODE_OK\n");
     return 0;
 }

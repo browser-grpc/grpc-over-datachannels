@@ -8,7 +8,8 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Interop oracle, Direction B: the OFFICIAL interop clients
- * (grpc-java TestServiceClient, grpc-go interop-client) run the
+ * (grpc-java TestServiceClient, grpc-go interop-client, grpc-dart
+ * interop-client) run the
  * canonical cases against the generated Scala TestService
  * server (examples/InteropServerStdio), reached over HTTP/2
  * through oracle/bridge.mjs http2-to-dc. Skips when an oracle
@@ -117,6 +118,20 @@ def testInteropServerOracle(): Unit = {
         }
         runClientB(argv)
         println(s"interop B case ok: $testCase (go client)")
+      }
+    }
+    val dartClient = new File(s"$rootPath/oracle/dart-interop/interop-client")
+    if (!dartClient.exists()) {
+      println("TestInteropServerOracle DART SKIP (dart client not built)")
+    } else {
+      for (testCase <- interopBCases) {
+        val out = runClientB(List(
+          dartClient.getPath,
+          "-server_host", "127.0.0.1",
+          "-server_port", port.toString,
+          "-test_case", testCase))
+        check(out.contains("Test completed."), s"dart case $testCase: unexpected output: $out")
+        println(s"interop B case ok: $testCase (dart client)")
       }
     }
   } finally {

@@ -217,6 +217,29 @@ class TestInteropServerOracle(unittest.TestCase):
         )
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
 
+    def run_dart_client(self, test_case):
+        binary = os.path.join(ROOT, "oracle", "dart-interop", "interop-client")
+        if not os.path.exists(binary):
+            oracle_skip(self, "dart interop client not built")
+        proc = subprocess.run(
+            [
+                binary,
+                "-server_host", "127.0.0.1",
+                "-server_port", str(self.http2_port),
+                "-test_case", test_case,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn("Test completed.", proc.stdout)
+
+    def test_dart_client_cases(self):
+        for test_case in CASES:
+            with self.subTest(client="dart", case=test_case):
+                self.run_dart_client(test_case)
+
     def test_java_client_cases(self):
         for test_case in CASES + ["cacheable_unary",
                                   "client_compressed_unary",

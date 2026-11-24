@@ -123,6 +123,57 @@ fn sample() -> GenericMessage {
     m
 }
 
+fn corpus_file2() -> FileModel {
+    // Proto2 shape (msgs2.proto): the extension field (100, ext_note)
+    // is not a model field — its protobuf bytes ride the unknown tail.
+    // Types: double=1 int32=5 bool=8 string=9.
+    let p2 = model(
+        "shapes.P2",
+        vec![
+            field(1, "name", 9, false, ""),
+            field(2, "count", 5, false, ""),
+            field(3, "greeting", 9, false, ""),
+            field(4, "enabled", 8, false, ""),
+            field(5, "ratio", 1, false, ""),
+            field(6, "nums", 5, true, ""),
+        ],
+        false,
+    );
+    let mut messages = HashMap::new();
+    messages.insert(format!(".{}", p2.full_name), p2);
+    FileModel { messages, services: HashMap::new() }
+}
+
+fn sample2() -> GenericMessage {
+    let mut m = GenericMessage::new();
+    m.set(1, "req");
+    m.set(2, 42i64);
+    m.set(3, "hi");
+    // enabled=false is non-present under proto3-style presence
+    // (its proto2 default is true), so it carries no struct bit.
+    m.set(4, false);
+    m.set(5, 2.5f64);
+    for v in [5i64, -6] {
+        m.add(6, v);
+    }
+    // Extension field 100 ("note!") as raw protobuf chunk in the tail:
+    // tag (100<<3|2)=802 -> a2 06, len 5, "note!".
+    m.unknown.push(vec![0xa2, 0x06, 0x05, b'n', b'o', b't', b'e', b'!']);
+    m
+}
+
+fn golden2() -> Vec<u8> {
+    let hex = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../conformance/struct/golden2.hex"
+    ))
+    .expect("read golden2.hex");
+    let hex = hex.trim();
+    (0..hex.len() / 2)
+        .map(|i| u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).unwrap())
+        .collect()
+}
+
 fn golden() -> Vec<u8> {
     let hex = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -145,6 +196,21 @@ fn shared_struct_codec_matches_corpus_golden() {
     let back = decode_struct(&outer, &golden, &file).unwrap();
     let re = encode_struct(&outer, &back, &file).unwrap();
     assert_eq!(re, golden, "shared Rust struct codec roundtrip mismatch");
+}
+
+#[test]
+fn shared_struct_codec_matches_corpus_golden2() {
+    let file = corpus_file2();
+    let p2 = file.message(".shapes.P2").unwrap();
+    let golden = golden2();
+    let encoded = encode_struct(&p2, &sample2(), &file).unwrap();
+    assert_eq!(encoded, golden, "shared Rust struct codec (P2) must match the Go golden2");
+    // Decode into a zero-value GenericMessage: decode_struct only
+    // materialises fields the presence bitmap marks present, so no
+    // proto2 defaults are manufactured (enabled stays absent/false).
+    let back = decode_struct(&p2, &golden, &file).unwrap();
+    let re = encode_struct(&p2, &back, &file).unwrap();
+    assert_eq!(re, golden, "shared Rust struct codec (P2) roundtrip mismatch");
 }
 
 #[test]

@@ -97,7 +97,8 @@ static inline EchoPbBytes EchoRequest_marshal(const EchoRequest *m) {
 }
 
 static inline void EchoRequest_unmarshal(EchoRequest *m, const uint8_t *data, size_t len) {
-    EchoRequest_init(m);
+    memset(m, 0, sizeof(*m));
+    m->message = "";
     EchoPbReader r; EchoPb_reader_init(&r, data, len);
     EchoPbField field;
     while (EchoPb_reader_next(&r, &field)) {
@@ -139,7 +140,8 @@ static inline EchoPbBytes EchoResponse_marshal(const EchoResponse *m) {
 }
 
 static inline void EchoResponse_unmarshal(EchoResponse *m, const uint8_t *data, size_t len) {
-    EchoResponse_init(m);
+    memset(m, 0, sizeof(*m));
+    m->message = "";
     EchoPbReader r; EchoPb_reader_init(&r, data, len);
     EchoPbField field;
     while (EchoPb_reader_next(&r, &field)) {

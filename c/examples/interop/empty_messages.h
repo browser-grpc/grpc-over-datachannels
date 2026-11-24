@@ -80,7 +80,7 @@ static inline EmptyPbBytes Empty_marshal(const Empty *m) {
 }
 
 static inline void Empty_unmarshal(Empty *m, const uint8_t *data, size_t len) {
-    Empty_init(m);
+    memset(m, 0, sizeof(*m));
     EmptyPbReader r; EmptyPb_reader_init(&r, data, len);
     EmptyPbField field;
     while (EmptyPb_reader_next(&r, &field)) {

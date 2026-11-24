@@ -7,6 +7,7 @@
 #include <string>
 
 #include "msgs_messages.hpp"
+#include "msgs2_messages.hpp"
 #include "grpcdc/structdc.hpp"
 
 using namespace shapes;
@@ -73,6 +74,45 @@ int main(int argc, char** argv) {
     }
     if (re != golden) {
         std::printf("ROUNDTRIP_MISMATCH\n");
+        return 1;
+    }
+
+    std::string golden2Hex = argv[3];
+    grpcdc::Bytes golden2 = Unhex(golden2Hex);
+    grpcdc::Bytes descriptor2 = Unhex(argv[4]);
+
+    P2 p2;
+    p2.name = "req";
+    p2.count = 42;
+    p2.greeting = "hi";
+    p2.enabled = false;
+    p2.ratio = 2.5;
+    p2.nums = {5, -6};
+    p2.ext_note = "note!";
+
+    grpcdc::Bytes got2;
+    if (!grpcdc::structdc::Transcode(descriptor2, "shapes.P2", p2.MarshalDc(), true, got2, err)) {
+        std::printf("ENCODE2_FAIL %s\n", err.c_str());
+        return 1;
+    }
+    if (got2 != golden2) {
+        std::printf("MARSHAL2_MISMATCH\n got %s\nwant %s\n", Hex(got2).c_str(), golden2Hex.c_str());
+        return 1;
+    }
+    grpcdc::Bytes back2Pb;
+    if (!grpcdc::structdc::Transcode(descriptor2, "shapes.P2", golden2, false, back2Pb, err)) {
+        std::printf("DECODE2_FAIL %s\n", err.c_str());
+        return 1;
+    }
+    P2 back2;
+    back2.UnmarshalDc(back2Pb);
+    grpcdc::Bytes re2;
+    if (!grpcdc::structdc::Transcode(descriptor2, "shapes.P2", back2.MarshalDc(), true, re2, err)) {
+        std::printf("REENCODE2_FAIL %s\n", err.c_str());
+        return 1;
+    }
+    if (re2 != golden2) {
+        std::printf("ROUNDTRIP2_MISMATCH\n");
         return 1;
     }
     std::printf("DECODE_OK\n");

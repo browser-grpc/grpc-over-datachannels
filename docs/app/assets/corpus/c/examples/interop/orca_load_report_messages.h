@@ -144,7 +144,7 @@ static inline Orca_load_reportPbBytes OrcaLoadReport_marshal(const OrcaLoadRepor
 }
 
 static inline void OrcaLoadReport_unmarshal(OrcaLoadReport *m, const uint8_t *data, size_t len) {
-    OrcaLoadReport_init(m);
+    memset(m, 0, sizeof(*m));
     Orca_load_reportPbReader r; Orca_load_reportPb_reader_init(&r, data, len);
     Orca_load_reportPbField field;
     while (Orca_load_reportPb_reader_next(&r, &field)) {

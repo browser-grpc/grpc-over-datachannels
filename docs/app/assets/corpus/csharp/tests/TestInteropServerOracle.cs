@@ -4,7 +4,8 @@ namespace Tests;
 
 /// <summary>
 /// Interop oracle, Direction B: the OFFICIAL interop clients
-/// (grpc-java TestServiceClient, grpc-go interop-client) run the
+/// (grpc-java TestServiceClient, grpc-go interop-client, grpc-dart
+/// interop-client) run the
 /// canonical cases against the generated C# TestService server
 /// (examples/InteropServerStdio), reached over HTTP/2 through
 /// oracle/bridge.mjs http2-to-dc. Skips when an oracle binary or
@@ -157,6 +158,27 @@ public static class TestInteropServerOracle
                     }
                     RunClient(argv);
                     Console.WriteLine($"interop B case ok: {testCase} (go client)");
+                }
+            }
+            string dartClient = Path.Combine(root, "oracle/dart-interop/interop-client");
+            if (!File.Exists(dartClient))
+            {
+                Console.WriteLine("TestInteropServerOracle DART SKIP (dart client not built)");
+            }
+            else
+            {
+                foreach (string testCase in Cases)
+                {
+                    string outText = RunClient(new List<string>
+                    {
+                        dartClient,
+                        "-server_host", "127.0.0.1",
+                        "-server_port", port.ToString(),
+                        "-test_case", testCase,
+                    });
+                    Program.Check(outText.Contains("Test completed."),
+                        $"dart case {testCase}: unexpected output: {outText}");
+                    Console.WriteLine($"interop B case ok: {testCase} (dart client)");
                 }
             }
         }

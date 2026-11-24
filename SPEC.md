@@ -219,6 +219,21 @@ run `scripts/test-struct-corpus.py`):
   packed repeated scalars, element tables, and map entries with
   sorted keys; unknown-fields bytes form the tail.
 
+Presence is proto3-style throughout: a singular field is
+present iff its value is non-default (nonzero / non-empty).
+Proto2 messages transcode with the same rule — an explicitly
+set proto2 field whose value equals its default (e.g. an
+optional bool set to `false` against a `true` default) has no
+struct presence and is dropped by a protobuf -> struct ->
+protobuf round trip; decode targets must therefore be
+zero-value messages, not defaults-applied ones (applying
+defaults at decode would manufacture presence). Extension
+fields are not model fields: their protobuf bytes ride the
+unknown-fields tail verbatim. Proto2 `group` fields are not
+supported by any plugin (generation rejects TYPE_GROUP). The
+corpus locks these semantics with a second proto2 shape
+(`conformance/struct/msgs2.proto`, `golden2.hex`).
+
 All tier-1 languages negotiate the codec the same way: channel
 and server opt in with `SetStructCodec` / `setStructCodec` /
 `set_struct_codec` (Go, JS-style, and Rust/Dart spellings per

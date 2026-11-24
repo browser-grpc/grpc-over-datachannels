@@ -5,6 +5,8 @@
 
 #include "msgs_messages.hpp"
 #include "msgs_struct.hpp"
+#include "msgs2_messages.hpp"
+#include "msgs2_struct.hpp"
 
 using namespace shapes;
 
@@ -48,6 +50,31 @@ int main(int argc, char** argv) {
     auto back = OuterStruct::Unmarshal(golden);
     if (OuterStruct::Marshal(back) != golden) {
         std::printf("ROUNDTRIP_MISMATCH\n");
+        return 1;
+    }
+
+    std::string golden2Hex = argv[2];
+    grpcdc::Bytes golden2;
+    for (std::size_t i = 0; i + 1 < golden2Hex.size(); i += 2)
+        golden2.push_back(static_cast<std::uint8_t>(std::stoi(golden2Hex.substr(i, 2), nullptr, 16)));
+
+    P2 p2;
+    p2.name = "req";
+    p2.count = 42;
+    p2.greeting = "hi";
+    p2.enabled = false;
+    p2.ratio = 2.5;
+    p2.nums = {5, -6};
+    p2.ext_note = "note!";
+
+    auto got2 = P2Struct::Marshal(p2);
+    if (Hex(got2) != golden2Hex) {
+        std::printf("MARSHAL2_MISMATCH\n got %s\nwant %s\n", Hex(got2).c_str(), golden2Hex.c_str());
+        return 1;
+    }
+    auto back2 = P2Struct::Unmarshal(golden2);
+    if (P2Struct::Marshal(back2) != golden2) {
+        std::printf("ROUNDTRIP2_MISMATCH\n");
         return 1;
     }
     std::printf("DECODE_OK\n");

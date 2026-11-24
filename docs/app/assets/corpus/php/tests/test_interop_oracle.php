@@ -1,10 +1,14 @@
 <?php
 // Interop client grading: the generated PHP TestService client
 // runs the canonical grpc interop cases (generated table:
-// interop_cases_generated.php) against the official grpc-go
-// TestServiceServer, through the bridge (dc-to-http2, stdio =
-// DataChannel). Skips when the Go server binary is not built
-// (Dockerfile.ci builds it).
+// interop_cases_generated.php) against the official
+// TestServiceServers (grpc-go and grpc-dart), through the bridge
+// (dc-to-http2, stdio = DataChannel). Each leg skips when its
+// server binary is not built (Dockerfile.ci builds both). The
+// grpc-dart server registers only TestService (no
+// OpenRcaService) and ignores the compressed flags, so its leg
+// runs the canonical case table only; compression and ORCA run
+// on the Go leg.
 
 require_once __DIR__ . "/../grpcdc.php";
 require_once __DIR__ . "/../examples/test_grpc_dc.php";
@@ -311,16 +315,11 @@ final class TestInteropOracle
         echo "interop case ok: orca_oob\n";
     }
 
-    public static function run(): void
+    private static function runLeg(string $root, string $serverBin, string $portFlag, string $tag, bool $includeExtras): bool
     {
-        $root = T::root();
-        $serverBin = $root . "/oracle/go-interop/interop-server";
-        if (!file_exists($serverBin)) {
-            T::skip("go interop server not built");
-        }
         $port = OracleRunner::freePort();
         $serverProc = proc_open(
-            [$serverBin, "-port", (string)$port],
+            [$serverBin, $portFlag, (string)$port],
             [0 => ["pipe", "r"], 1 => ["pipe", "w"], 2 => ["pipe", "w"]],
             $serverPipes
         );
@@ -338,7 +337,8 @@ final class TestInteropOracle
         }
         if (!$ready) {
             OracleRunner::kill($serverProc);
-            T::skip("interop server did not start");
+            echo "TestInteropOracle SKIP (" . $tag . " interop server did not start)\n";
+            return false;
         }
         [$bridgeProc, $bridgePipes] = OracleRunner::startBridge(
             ["dc-to-http2", "--grpc", "127.0.0.1:" . $port], null);
@@ -348,11 +348,35 @@ final class TestInteropOracle
             $client = new \TestGrpcDc\TestServiceClient($channel);
             $unimpl = new \TestGrpcDc\UnimplementedServiceClient($channel);
             self::runCases($channel, $client, $unimpl);
-            self::runCompressionCases($client);
-            self::runOrcaCases($channel, $client);
+            if ($includeExtras) {
+                self::runCompressionCases($client);
+                self::runOrcaCases($channel, $client);
+            }
         } finally {
             OracleRunner::kill($bridgeProc);
             OracleRunner::kill($serverProc);
+        }
+        return true;
+    }
+
+    public static function run(): void
+    {
+        $root = T::root();
+        $ran = false;
+        $goBin = $root . "/oracle/go-interop/interop-server";
+        if (!file_exists($goBin)) {
+            echo "TestInteropOracle SKIP (go interop server not built)\n";
+        } else {
+            $ran = self::runLeg($root, $goBin, "-port", "go", true) || $ran;
+        }
+        $dartBin = $root . "/oracle/dart-interop/interop-server";
+        if (!file_exists($dartBin)) {
+            echo "TestInteropOracle DART SKIP (dart interop server not built)\n";
+        } else {
+            $ran = self::runLeg($root, $dartBin, "--port", "dart", false) || $ran;
+        }
+        if (!$ran) {
+            T::skip("no interop server built");
         }
         echo "TestInteropOracle OK\n";
     }

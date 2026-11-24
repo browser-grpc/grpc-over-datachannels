@@ -2,6 +2,7 @@
 import sys
 
 from msgs_pb import Hue, Inner, Outer
+from msgs2_pb import P2
 
 GOLDEN_HEX = sys.argv[1]
 golden = bytes.fromhex(GOLDEN_HEX)
@@ -36,5 +37,31 @@ back = Outer()
 back.unmarshal_struct(golden)
 if back.marshal_struct().hex() != GOLDEN_HEX:
     print("ROUNDTRIP_MISMATCH")
+    sys.exit(1)
+
+# Proto2 shape (msgs2.proto): explicit defaults, unpacked
+# repeated, extension field merged as ext_note. Decode into a
+# zero-value message: applying proto2 defaults at decode would
+# manufacture presence (enabled=True) the struct bytes do not
+# carry.
+GOLDEN2_HEX = sys.argv[2]
+golden2 = bytes.fromhex(GOLDEN2_HEX)
+p2 = P2(
+    name="req",
+    count=42,
+    greeting="hi",
+    enabled=False,
+    ratio=2.5,
+    nums=[5, -6],
+    ext_note="note!",
+)
+got2 = p2.marshal_struct()
+if got2.hex() != GOLDEN2_HEX:
+    print(f"P2_MARSHAL_MISMATCH\n got {got2.hex()}\nwant {GOLDEN2_HEX}")
+    sys.exit(1)
+back2 = P2(name="", count=0, greeting="", enabled=False, ratio=0.0, nums=[], ext_note="")
+back2.unmarshal_struct(golden2)
+if back2.marshal_struct().hex() != GOLDEN2_HEX:
+    print("P2_ROUNDTRIP_MISMATCH")
     sys.exit(1)
 print("DECODE_OK")

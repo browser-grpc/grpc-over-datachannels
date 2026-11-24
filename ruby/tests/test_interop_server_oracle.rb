@@ -1,11 +1,13 @@
 # Interop oracle, Direction B: the OFFICIAL interop clients
-# (grpc-java TestServiceClient, grpc-go interop-client) run the
+# (grpc-java TestServiceClient, grpc-go interop-client, grpc-dart
+# interop-client) run the
 # canonical cases against the generated Ruby TestService server
 # (examples/interop_server_stdio.rb), reached over HTTP/2
 # through oracle/bridge.mjs http2-to-dc. Skips when an oracle
 # binary or Node is unavailable. Mirrors
-# java/tests/TestInteropServerOracle.java. The Java client is
-# graded on its "Test completed." marker; the Go client never
+# java/tests/TestInteropServerOracle.java. The Java and Dart
+# clients are graded on exit status and their "Test completed."
+# marker; the Go client never
 # prints failures except through its FATAL line, so absence of
 # FATAL is success there.
 
@@ -70,6 +72,9 @@ module TestInteropServerOracle
   def self.run_client(dir, tag, cmd, marker)
     pid = spawn(cmd, out: File.join(dir, "#{tag}.out"), err: File.join(dir, "#{tag}.err"))
     TestUtil.check(wait_pid(pid, 120), "client did not exit: #{tag}")
+    if marker
+      TestUtil.check($?&.success?, "client exit nonzero: #{tag}: #{$?.inspect}")
+    end
     output = File.read(File.join(dir, "#{tag}.out")) + File.read(File.join(dir, "#{tag}.err"))
     if marker
       TestUtil.check(output.include?(marker), "client output for #{tag}:\n#{output}")
@@ -113,6 +118,16 @@ module TestInteropServerOracle
           end
         else
           puts "TestInteropServerOracle GO SKIP (go client not built)"
+        end
+        dart_client = File.join(root, "oracle", "dart-interop", "interop-client")
+        if File.exist?(dart_client)
+          CASES.each do |test_case|
+            cmd = "#{dart_client} -server_host 127.0.0.1 -server_port #{port} -test_case #{test_case}"
+            run_client(dir, "dart_#{test_case}", cmd, "Test completed.")
+            puts "interop B case ok: #{test_case} (dart client)"
+          end
+        else
+          puts "TestInteropServerOracle DART SKIP (dart client not built)"
         end
       ensure
         kill(bridge)

@@ -1,11 +1,16 @@
 # Struct-codec conformance corpus
 
-One wide proto shape (`msgs.proto`: nested message, enum, packed
-repeated scalars, both maps, oneof, bytes, fixed32/fixed64, sint) and
-one golden byte string (`golden.hex`, produced by the Go generated
-codec) that every language's struct codec must reproduce byte-for-byte,
-in both directions. A language joins the struct-codec rollout only by
-passing `scripts/test-struct-corpus.py <lang>` (run by the `Makefile`
+Two shapes: one wide proto3 shape (`msgs.proto`: nested message, enum,
+packed repeated scalars, both maps, oneof, bytes, fixed32/fixed64,
+sint) and one proto2 shape (`msgs2.proto`: required/optional presence,
+explicit defaults, unpacked repeated, an extension field), each with a
+golden byte string (`golden.hex` / `golden2.hex`, produced by the Go
+generated codec) that every language's struct codec must reproduce
+byte-for-byte, in both directions. The proto2 shape locks the
+presence semantics documented in SPEC.md (proto3-style presence;
+extension bytes ride the unknown-fields tail). A language joins the
+struct-codec rollout only by passing
+`scripts/test-struct-corpus.py <lang>` (run by the `Makefile`
 `test-struct-corpus` target, part of `make test`).
 
 ## Admitted languages

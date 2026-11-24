@@ -25,10 +25,13 @@ import java.util.List;
 /**
  * Interop client grading: the generated Java TestService client
  * runs the canonical grpc interop cases (generated table:
- * InteropCases) against the official grpc-go TestServiceServer,
+ * InteropCases) against the official grpc-go TestServiceServer
+ * and the official grpc-dart (package:grpc) TestService server,
  * through the bridge (dc-to-http2, stdio = DataChannel). Mirrors
- * the JS/Python/Go/Rust interop oracle suites. Skips when the
- * oracle server binary is not built (Dockerfile.ci builds it).
+ * the JS/Python/Go/Rust interop oracle suites. Each leg skips
+ * when its oracle server binary is not built (Dockerfile.ci
+ * builds both). The compression and ORCA rows run only on the
+ * Go leg: the grpc-dart oracle registers no ORCA service.
  */
 public final class TestInteropOracle {
     private TestInteropOracle() {}
@@ -393,17 +396,22 @@ public final class TestInteropOracle {
         System.out.println("interop case ok: orca_oob");
     }
 
-    public static void main(String[] args) throws Exception {
-        Path serverBin = ROOT.resolve("oracle/go-interop/interop-server");
+    // One Direction-A leg: spawn the official server on a free
+    // port, bridge dc-to-http2 to it, and run the canonical
+    // cases (plus compression/ORCA when full is set). Returns
+    // false when the server binary is not built.
+    private static boolean runLeg(Path serverBin, String portFlag, String label,
+                                  boolean full) throws Exception {
         if (!Files.isExecutable(serverBin)) {
-            System.out.println("TestInteropOracle SKIP (go interop server not built)");
-            return;
+            System.out.println("TestInteropOracle " + label + " SKIP ("
+                    + label.toLowerCase() + " interop server not built)");
+            return false;
         }
         int port = freePort();
-        Process server = new ProcessBuilder(serverBin.toString(), "-port", String.valueOf(port))
+        Process server = new ProcessBuilder(serverBin.toString(), portFlag, String.valueOf(port))
                 .redirectErrorStream(true).start();
         try {
-            // The Go server prints no readiness line; poll the port.
+            // The servers print no readiness line we rely on; poll the port.
             long deadline = System.currentTimeMillis() + 30000;
             boolean ready = false;
             while (System.currentTimeMillis() < deadline) {
@@ -414,7 +422,7 @@ public final class TestInteropOracle {
                     Thread.sleep(100);
                 }
             }
-            check(ready, "go interop server did not start");
+            check(ready, label + " interop server did not start");
 
             Process bridge = new ProcessBuilder("node",
                     ROOT.resolve("oracle/bridge.mjs").toString(),
@@ -438,13 +446,29 @@ public final class TestInteropOracle {
                 Channel channel = new Channel(transport);
                 TestGrpcDc.TestServiceClient client = new TestGrpcDc.TestServiceClient(channel);
                 runCases(channel, client, new TestGrpcDc.UnimplementedServiceClient(channel));
-                runCompressionCases(client);
-                runOrcaCases(channel, client);
+                if (full) {
+                    runCompressionCases(client);
+                    runOrcaCases(channel, client);
+                }
             } finally {
                 bridge.destroyForcibly();
             }
         } finally {
             server.destroyForcibly();
+        }
+        return true;
+    }
+
+    public static void main(String[] args) throws Exception {
+        boolean ran = false;
+        // grpc-go spells the port flag -port, grpc-dart --port.
+        ran |= runLeg(ROOT.resolve("oracle/go-interop/interop-server"),
+                "-port", "GO", true);
+        ran |= runLeg(ROOT.resolve("oracle/dart-interop/interop-server"),
+                "--port", "DART", false);
+        if (!ran) {
+            System.out.println("TestInteropOracle SKIP (no interop server built)");
+            return;
         }
         System.out.println("TestInteropOracle OK");
     }

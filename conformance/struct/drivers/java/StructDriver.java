@@ -40,5 +40,34 @@ public class StructDriver {
             return;
         }
         System.out.println("DECODE_OK");
+        // Proto2 shape (msgs2.proto / golden2).
+        P2 p2 = new P2();
+        p2.name = "req"; p2.count = 42; p2.greeting = "hi"; p2.enabled = false;
+        p2.ratio = 2.5; p2.nums = new java.util.ArrayList<>(java.util.List.of(5, -6));
+        p2.extNote = "note!";
+        byte[] golden2 = unhex(args[1]);
+        byte[] got2 = P2Struct.marshal(p2);
+        if (!java.util.Arrays.equals(got2, golden2)) {
+            System.out.println("P2_MARSHAL_MISMATCH\n got " + hex(got2) + "\nwant " + args[1]);
+            System.exit(1);
+        }
+        // Decode into a zero-value message: P2Struct.unmarshal applies
+        // proto2 defaults for absent fields, so restore zero values for
+        // fields the struct presence bitmap marks absent (enabled=false
+        // here) before re-marshalling, or defaults would manufacture presence.
+        P2 back2 = P2Struct.unmarshal(golden2);
+        int presence = (golden2[12] & 0xFF) | ((golden2[13] & 0xFF) << 8)
+                | ((golden2[14] & 0xFF) << 16) | ((golden2[15] & 0xFF) << 24);
+        if ((presence & (1 << 0)) == 0) back2.name = "";
+        if ((presence & (1 << 1)) == 0) back2.count = 0;
+        if ((presence & (1 << 2)) == 0) back2.greeting = "";
+        if ((presence & (1 << 3)) == 0) back2.enabled = false;
+        if ((presence & (1 << 4)) == 0) back2.ratio = 0;
+        if ((presence & (1 << 5)) == 0) back2.nums = new java.util.ArrayList<>();
+        if (!java.util.Arrays.equals(P2Struct.marshal(back2), golden2)) {
+            System.out.println("P2_ROUNDTRIP_MISMATCH");
+            System.exit(1);
+        }
+        System.out.println("P2_DECODE_OK");
     }
 }

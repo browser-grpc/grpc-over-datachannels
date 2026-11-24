@@ -82,7 +82,7 @@ static inline OrcaPbBytes OrcaLoadReportRequest_marshal(const OrcaLoadReportRequ
 }
 
 static inline void OrcaLoadReportRequest_unmarshal(OrcaLoadReportRequest *m, const uint8_t *data, size_t len) {
-    OrcaLoadReportRequest_init(m);
+    memset(m, 0, sizeof(*m));
     OrcaPbReader r; OrcaPb_reader_init(&r, data, len);
     OrcaPbField field;
     while (OrcaPb_reader_next(&r, &field)) {

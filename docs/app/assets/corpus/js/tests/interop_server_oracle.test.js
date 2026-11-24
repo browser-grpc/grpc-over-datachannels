@@ -36,6 +36,7 @@ const run = promisify(execFile);
 const ROOT = new URL("../..", import.meta.url).pathname;
 const JAVA_DIR = `${ROOT}oracle/java`;
 const GO_CLIENT = `${ROOT}oracle/go-interop/interop-client`;
+const DART_CLIENT = `${ROOT}oracle/dart-interop/interop-client`;
 
 const CASES = [
   "empty_unary",
@@ -104,6 +105,26 @@ test("interop B: grpc-java client -> ingress proxy -> JS TestService server", { 
           "--server_host=127.0.0.1", `--server_port=${port}`,
           `--test_case=${testCase}`, "--use_tls=false",
         ],
+        { timeout: 120000 },
+      );
+      if (!stdout.includes("Test completed.")) {
+        throw new Error(`unexpected client output: ${stdout}`);
+      }
+    });
+  }
+});
+
+test("interop B: grpc-dart client -> ingress proxy -> JS TestService server", { timeout: 280000 }, async (t) => {
+  if (!existsSync(DART_CLIENT)) {
+    oracleSkip(t, "dart interop client not built (oracle/dart-interop)");
+    return;
+  }
+  const port = await startServerSide(t);
+  for (const testCase of CASES) {
+    await t.test(testCase, async () => {
+      const { stdout } = await run(
+        DART_CLIENT,
+        ["-server_host", "127.0.0.1", "-server_port", String(port), "-test_case", testCase],
         { timeout: 120000 },
       );
       if (!stdout.includes("Test completed.")) {

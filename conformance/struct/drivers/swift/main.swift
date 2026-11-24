@@ -19,16 +19,33 @@ func buildOuter() -> Outer {
     return m
 }
 
+func buildP2() -> P2 {
+    let m = P2()
+    m.name = "req"
+    m.count = 42
+    m.greeting = "hi"
+    m.enabled = false
+    m.ratio = 2.5
+    m.nums = [5, -6]
+    m.extNote = "note!"
+    return m
+}
+
 func hex(_ b: [UInt8]) -> String { b.map { String(format: "%02x", $0) }.joined() }
 
-let goldenHex = CommandLine.arguments[1]
-var golden: [UInt8] = []
-var idx = goldenHex.startIndex
-while idx < goldenHex.endIndex {
-    let nxt = goldenHex.index(idx, offsetBy: 2)
-    golden.append(UInt8(goldenHex[idx..<nxt], radix: 16)!)
-    idx = nxt
+func unhex(_ s: String) -> [UInt8] {
+    var out: [UInt8] = []
+    var idx = s.startIndex
+    while idx < s.endIndex {
+        let nxt = s.index(idx, offsetBy: 2)
+        out.append(UInt8(s[idx..<nxt], radix: 16)!)
+        idx = nxt
+    }
+    return out
 }
+
+let goldenHex = CommandLine.arguments[1]
+let golden = unhex(goldenHex)
 let got = OuterStruct.Marshal(buildOuter())
 if got != golden {
     print("MARSHAL_MISMATCH\n got \(hex(got))\nwant \(goldenHex)")
@@ -37,6 +54,19 @@ if got != golden {
 let back = OuterStruct.Unmarshal(golden)
 if OuterStruct.Marshal(back) != golden {
     print("ROUNDTRIP_MISMATCH")
+    exit(1)
+}
+// Proto2 shape (msgs2.proto): explicit defaults, extension.
+let golden2Hex = CommandLine.arguments[2]
+let golden2 = unhex(golden2Hex)
+let got2 = P2Struct.Marshal(buildP2())
+if got2 != golden2 {
+    print("P2_MARSHAL_MISMATCH\n got \(hex(got2))\nwant \(golden2Hex)")
+    exit(1)
+}
+let back2 = P2Struct.Unmarshal(golden2)
+if P2Struct.Marshal(back2) != golden2 {
+    print("P2_ROUNDTRIP_MISMATCH")
     exit(1)
 }
 print("DECODE_OK")

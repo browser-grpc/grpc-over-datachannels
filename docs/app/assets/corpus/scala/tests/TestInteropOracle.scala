@@ -11,11 +11,14 @@ import scala.util.Using
 /**
  * Interop client grading: the generated Scala TestService client
  * runs the canonical grpc interop cases (generated table:
- * InteropCases) against the official grpc-go TestServiceServer,
- * through the bridge (dc-to-http2, stdio = DataChannel). Mirrors
- * the Java/C#/Kotlin/JS/Python/Go/Rust interop oracle suites.
- * Skips when the oracle server binary is not built (Dockerfile.ci
- * builds it).
+ * InteropCases) against the official TestServiceServers
+ * (grpc-go and grpc-dart), through the bridge (dc-to-http2,
+ * stdio = DataChannel). Mirrors the Java/C#/Kotlin/JS/Python/
+ * Go/Rust interop oracle suites. Each leg skips when its server
+ * binary is not built (Dockerfile.ci builds both). The grpc-dart
+ * server registers only TestService (no OpenRcaService) and
+ * ignores the compressed flags, so its leg runs the canonical
+ * case table only; compression and ORCA run on the Go leg.
  */
 
 private def interopPayload(size: Int): Payload = new Payload(body = new Array[Byte](size))
@@ -278,15 +281,15 @@ private def runInteropCases(
   }
 }
 
-def testInteropOracle(): Unit = {
-  val rootPath = root()
-  val serverBin = new File(rootPath, "oracle/go-interop/interop-server")
-  if (!serverBin.canExecute) {
-    println("TestInteropOracle SKIP (go interop server not built)")
-    return
-  }
+private def runInteropLeg(
+    rootPath: String,
+    serverBin: File,
+    portFlag: String,
+    label: String,
+    includeExtras: Boolean,
+): Unit = {
   val port = Using.resource(new ServerSocket(0))(_.getLocalPort)
-  val server = new ProcessBuilder(serverBin.getPath, "-port", port.toString)
+  val server = new ProcessBuilder(serverBin.getPath, portFlag, port.toString)
     .redirectErrorStream(true)
     .start()
   try {
@@ -308,7 +311,7 @@ def testInteropOracle(): Unit = {
         case _: Exception => Thread.sleep(100)
       }
     }
-    check(ready, "go interop server did not start")
+    check(ready, s"$label interop server did not start")
 
     val bridge = new ProcessBuilder("node", new File(rootPath, "oracle/bridge.mjs").getPath,
       "dc-to-http2", "--grpc", s"127.0.0.1:$port")
@@ -327,13 +330,36 @@ def testInteropOracle(): Unit = {
       val channel = new Channel(transport)
       val client = new TestGrpcDc.TestServiceClient(channel)
       runInteropCases(channel, client, new TestGrpcDc.UnimplementedServiceClient(channel))
-      runCompressionCases(client)
-      runOrcaCases(channel, client)
+      if (includeExtras) {
+        runCompressionCases(client)
+        runOrcaCases(channel, client)
+      }
     } finally {
       bridge.destroyForcibly()
     }
   } finally {
     server.destroyForcibly()
   }
-  println("TestInteropOracle OK")
+}
+
+def testInteropOracle(): Unit = {
+  val rootPath = root()
+  var ran = false
+  val goBin = new File(rootPath, "oracle/go-interop/interop-server")
+  if (!goBin.canExecute) {
+    println("TestInteropOracle SKIP (go interop server not built)")
+  } else {
+    runInteropLeg(rootPath, goBin, "-port", "go", true)
+    ran = true
+  }
+  val dartBin = new File(rootPath, "oracle/dart-interop/interop-server")
+  if (!dartBin.canExecute) {
+    println("TestInteropOracle DART SKIP (dart interop server not built)")
+  } else {
+    runInteropLeg(rootPath, dartBin, "--port", "dart", false)
+    ran = true
+  }
+  if (ran) {
+    println("TestInteropOracle OK")
+  }
 }
