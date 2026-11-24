@@ -3,6 +3,18 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.46.1 — 2026-11-23
+
+- Fix: release exports from a fresh checkout could fail
+  writing a per-language README into a directory the export
+  had not created (`emit-language-readme` now creates it).
+- Test: rendezvous demux pressure loosened for small CI
+  runners (8 peers, 350 ms stagger).
+- Struct corpus extended with a proto2 shape (explicit
+  defaults, unpacked repeated, extensions) across all 21
+  drivers; Rust typed struct codec now rides extension
+  fields on the unknown-fields tail like the shared codec.
+
 ## v0.46.0 — 2026-11-23 (published to GitHub/npm/PyPI/pub.dev/GHCR/NuGet/Maven Central/GitHub Maven/crates.io/RubyGems/LuaRocks/JSR)
 
 - Struct codec everywhere, including the browser. The
