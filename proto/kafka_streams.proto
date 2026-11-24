@@ -1,0 +1,91 @@
+// Kafka Streams over gRPC: stream processing hosted by the
+// Rust kafka proxy. Clients describe a topology declaratively;
+// the proxy executes it against the broker (consume with a
+// consumer group, transform, produce, commit), keeps the
+// state stores, and answers interactive queries. This is the
+// Kafka-Streams programming model exposed as generated gRPC
+// stubs instead of the JVM DSL: no Kafka client and no JVM
+// on the calling side.
+//
+// v1 operator set is deliberately small and broker-verified:
+// TOKENIZE_WORDS -> GROUP_BY_KEY -> COUNT (the word-count
+// topology). Unsupported operators are rejected at
+// CreateTopology time, never silently ignored.
+
+syntax = "proto3";
+
+package grpcdc.kafka.streams.v1;
+
+enum Operator {
+  OPERATOR_UNSPECIFIED = 0;
+  // Split each record value (UTF-8) into lowercase
+  // alphanumeric tokens; emit one record per token with the
+  // token as key and "1" as value.
+  TOKENIZE_WORDS = 1;
+  // Repartition marker: subsequent stateful operators key
+  // their store by the record key. Required before COUNT.
+  GROUP_BY_KEY = 2;
+  // Stateful count per key: increments the topology store
+  // and emits (key, decimal count) downstream.
+  COUNT = 3;
+}
+
+message Topology {
+  string name = 1;
+  // Consumer group id for the source subscription;
+  // empty defaults to "streams-<name>".
+  string application_id = 2;
+  string source_topic = 3;
+  string sink_topic = 4;
+  repeated Operator operators = 5;
+}
+
+message TopologyInfo {
+  string name = 1;
+  string application_id = 2;
+  string source_topic = 3;
+  string sink_topic = 4;
+  // RUNNING, FAILED, or STOPPED.
+  string state = 5;
+  int64 records_processed = 6;
+  string error = 7;
+}
+
+message CreateTopologyRequest {
+  Topology topology = 1;
+}
+
+message DescribeTopologyRequest {
+  string name = 1;
+}
+
+message ListTopologiesRequest {}
+
+message ListTopologiesResponse {
+  repeated TopologyInfo topologies = 1;
+}
+
+message DeleteTopologyRequest {
+  string name = 1;
+}
+
+message DeleteTopologyResponse {}
+
+message GetStoreValueRequest {
+  string topology = 1;
+  string key = 2;
+}
+
+message GetStoreValueResponse {
+  bool found = 1;
+  string key = 2;
+  int64 value = 3;
+}
+
+service KafkaStreams {
+  rpc CreateTopology(CreateTopologyRequest) returns (TopologyInfo);
+  rpc DescribeTopology(DescribeTopologyRequest) returns (TopologyInfo);
+  rpc ListTopologies(ListTopologiesRequest) returns (ListTopologiesResponse);
+  rpc DeleteTopology(DeleteTopologyRequest) returns (DeleteTopologyResponse);
+  rpc GetStoreValue(GetStoreValueRequest) returns (GetStoreValueResponse);
+}

@@ -170,6 +170,31 @@ fallback when the advertised leader is unreachable), proven
 on a two-broker Apache Kafka cluster by
 `kafka_proxy_multi_broker_leader_routing`.
 
+## Stream processing (Kafka Streams over gRPC)
+
+The proxy also serves `grpcdc.kafka.streams.v1.KafkaStreams`
+(`proto/kafka_streams.proto`, stubs generated for every
+language by `make kafka-stubs`): the Kafka Streams model as
+a gRPC interface, hosted by the proxy. Clients create a
+declarative topology; the proxy runs it against the broker
+(per-topology task: fetch source partitions, transform,
+produce to the sink, commit offsets under the topology's
+consumer group `application_id`, default `streams-<name>`)
+and answers interactive queries (`GetStoreValue`) from its
+state stores. v1 supports exactly one operator chain —
+`TOKENIZE_WORDS -> GROUP_BY_KEY -> COUNT`, the word-count
+topology — and rejects anything else at `CreateTopology`
+time rather than silently mis-executing it. Counts are
+emitted as `(word, decimal-count)` records, sink-partitioned
+by key hash. The store is in memory: a proxy restart resumes
+from committed offsets with an empty store (counts rebuild
+from the source, as a Streams application reset would), and
+exactly-once transactional processing is future work. The
+JS suite `js/test/kafka_streams.test.js` drives the whole
+path (create, produce sentences, sink counts, store queries,
+unsupported-chain rejection) against both brokers in
+`make test-kafka`.
+
 ## Running the proxy
 
 ```
