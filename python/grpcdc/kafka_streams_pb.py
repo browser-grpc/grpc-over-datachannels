@@ -132,6 +132,13 @@ class Aggregator:
     AGGREGATE_MAX = 4
 
 
+class ProcessingGuarantee:
+    """Enum grpcdc.kafka.streams.v1.ProcessingGuarantee."""
+    PROCESSING_GUARANTEE_UNSPECIFIED = 0
+    AT_LEAST_ONCE = 1
+    EXACTLY_ONCE = 2
+
+
 class Step:
     """Message grpcdc.kafka.streams.v1.Step."""
 
@@ -194,13 +201,14 @@ class Step:
 class Topology:
     """Message grpcdc.kafka.streams.v1.Topology."""
 
-    def __init__(self, name="", application_id="", source_topic="", sink_topic="", operators=None, steps=None):
+    def __init__(self, name="", application_id="", source_topic="", sink_topic="", operators=None, steps=None, processing_guarantee=0):
         self.name = name
         self.application_id = application_id
         self.source_topic = source_topic
         self.sink_topic = sink_topic
         self.operators = list(operators) if operators is not None else []
         self.steps = list(steps) if steps is not None else []
+        self.processing_guarantee = processing_guarantee
         self.unknown_fields = b""
 
     def marshal_dc(self):
@@ -216,6 +224,7 @@ class Topology:
             out = _append_bytes_field(out, 5, bytes(payload))
         for v in self.steps:
             out = _append_bytes_field(out, 6, v.marshal_dc())
+        out = _append_varint_field(out, 7, self.processing_guarantee)
         out += self.unknown_fields
         return bytes(out)
 
@@ -227,6 +236,7 @@ class Topology:
         self.sink_topic = ""
         self.operators = []
         self.steps = []
+        self.processing_guarantee = 0
         reader = _Reader(data)
         while True:
             item = reader.field()
@@ -253,6 +263,8 @@ class Topology:
                 tmp.unmarshal_dc(value)
                 tmp2 = tmp
                 self.steps.append(tmp2)
+            elif num == 7:
+                self.processing_guarantee = _as_int32(value)
             else:
                 self.unknown_fields = self.unknown_fields + raw
 
@@ -260,7 +272,7 @@ class Topology:
         return isinstance(other, Topology) and self.__dict__ == other.__dict__
 
     def __repr__(self):
-        return f"Topology(name={self.name!r}, application_id={self.application_id!r}, source_topic={self.source_topic!r}, sink_topic={self.sink_topic!r}, operators={self.operators!r}, steps={self.steps!r})"
+        return f"Topology(name={self.name!r}, application_id={self.application_id!r}, source_topic={self.source_topic!r}, sink_topic={self.sink_topic!r}, operators={self.operators!r}, steps={self.steps!r}, processing_guarantee={self.processing_guarantee!r})"
 
 
 class TopologyInfo:

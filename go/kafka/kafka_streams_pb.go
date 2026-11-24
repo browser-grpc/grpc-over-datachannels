@@ -165,6 +165,14 @@ const (
 	Aggregator_AGGREGATE_MAX          Aggregator = 4
 )
 
+type ProcessingGuarantee int32
+
+const (
+	ProcessingGuarantee_PROCESSING_GUARANTEE_UNSPECIFIED ProcessingGuarantee = 0
+	ProcessingGuarantee_AT_LEAST_ONCE                    ProcessingGuarantee = 1
+	ProcessingGuarantee_EXACTLY_ONCE                     ProcessingGuarantee = 2
+)
+
 type Step struct {
 	Operator        Operator
 	Param           string
@@ -251,13 +259,14 @@ func (m *Step) UnmarshalDC(data []byte) error {
 }
 
 type Topology struct {
-	Name          string
-	ApplicationId string
-	SourceTopic   string
-	SinkTopic     string
-	Operators     []Operator
-	Steps         []*Step
-	UnknownFields []byte
+	Name                string
+	ApplicationId       string
+	SourceTopic         string
+	SinkTopic           string
+	Operators           []Operator
+	Steps               []*Step
+	ProcessingGuarantee ProcessingGuarantee
+	UnknownFields       []byte
 }
 
 // Reset zeroes the message (restoring explicit defaults),
@@ -281,6 +290,10 @@ func (m *Topology) MarshalDC() []byte {
 	}
 	for _, x := range m.Steps {
 		out = KafkaStreamsPbAppendBytesField(out, 6, x.MarshalDC())
+	}
+	if m.ProcessingGuarantee != 0 {
+		out = KafkaStreamsPbAppendTag(out, 7, 0)
+		out = KafkaStreamsPbAppendVarint(out, uint64(int64(m.ProcessingGuarantee)))
 	}
 	out = append(out, m.UnknownFields...)
 	return out
@@ -337,6 +350,10 @@ func (m *Topology) UnmarshalDC(data []byte) error {
 				}
 				tmpv = tmp6
 				m.Steps = append(m.Steps, tmpv)
+			}
+		case 7:
+			if v, ok := value.(uint64); ok {
+				m.ProcessingGuarantee = ProcessingGuarantee(int32(v))
 			}
 		default:
 			m.UnknownFields = append(m.UnknownFields, raw...)

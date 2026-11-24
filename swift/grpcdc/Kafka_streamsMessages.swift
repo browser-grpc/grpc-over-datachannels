@@ -76,6 +76,12 @@ public enum Aggregator: Int32 {
     case AGGREGATE_MAX = 4
 }
 
+public enum ProcessingGuarantee: Int32 {
+    case PROCESSING_GUARANTEE_UNSPECIFIED = 0
+    case AT_LEAST_ONCE = 1
+    case EXACTLY_ONCE = 2
+}
+
 public final class Step: Marshaler, Unmarshaler {
     public var `operator`: Operator = Operator.OPERATOR_UNSPECIFIED
     public var param: String = ""
@@ -142,15 +148,17 @@ public final class Topology: Marshaler, Unmarshaler {
     public var sinkTopic: String = ""
     public var operators: [Operator] = []
     public var steps: [Step] = []
+    public var processingGuarantee: ProcessingGuarantee = ProcessingGuarantee.PROCESSING_GUARANTEE_UNSPECIFIED
     public var unknownFields: [UInt8] = []
     public init() {}
-    public init(_ name: String = "", _ applicationId: String = "", _ sourceTopic: String = "", _ sinkTopic: String = "", _ operators: [Operator] = [], _ steps: [Step] = []) {
+    public init(_ name: String = "", _ applicationId: String = "", _ sourceTopic: String = "", _ sinkTopic: String = "", _ operators: [Operator] = [], _ steps: [Step] = [], _ processingGuarantee: ProcessingGuarantee = ProcessingGuarantee.PROCESSING_GUARANTEE_UNSPECIFIED) {
         self.name = name
         self.applicationId = applicationId
         self.sourceTopic = sourceTopic
         self.sinkTopic = sinkTopic
         self.operators = operators
         self.steps = steps
+        self.processingGuarantee = processingGuarantee
     }
     public func MarshalDc() -> [UInt8] {
         let pbW = Kafka_streamsPb.Writer()
@@ -164,6 +172,7 @@ public final class Topology: Marshaler, Unmarshaler {
             pbW.BytesField(5, pbPayload.ToBytes())
         }
         for pbX in steps { pbW.BytesField(6, pbX.MarshalDc()) }
+        if processingGuarantee.rawValue != 0 { pbW.Tag(7, 0); pbW.Varint(Int64(processingGuarantee.rawValue)) }
         pbW.Raw(unknownFields)
         return pbW.ToBytes()
     }
@@ -175,6 +184,7 @@ public final class Topology: Marshaler, Unmarshaler {
         sinkTopic = ""
         operators = []
         steps = []
+        processingGuarantee = ProcessingGuarantee.PROCESSING_GUARANTEE_UNSPECIFIED
         let pbR = Kafka_streamsPb.Reader(data)
         while true {
             let next: Kafka_streamsPb.Field?
@@ -202,6 +212,8 @@ public final class Topology: Marshaler, Unmarshaler {
                 let pbItem = Step()
                 pbItem.UnmarshalDc(pbField.bytesValue)
                 steps.append(pbItem)
+            case 7:
+                processingGuarantee = ProcessingGuarantee(rawValue: Int32(truncatingIfNeeded: pbField.varintValue)) ?? ProcessingGuarantee.PROCESSING_GUARANTEE_UNSPECIFIED
             default: unknownFields += pbField.rawValue
             }
         }

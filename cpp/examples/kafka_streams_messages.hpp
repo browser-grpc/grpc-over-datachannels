@@ -51,6 +51,12 @@ enum class Aggregator : std::int32_t {
   AGGREGATE_MAX = 4
 };
 
+enum class ProcessingGuarantee : std::int32_t {
+  PROCESSING_GUARANTEE_UNSPECIFIED = 0,
+  AT_LEAST_ONCE = 1,
+  EXACTLY_ONCE = 2
+};
+
 namespace pb_kafka_streams {
 
 class Writer {
@@ -121,6 +127,7 @@ class Topology : public grpcdc::Marshaler, public grpcdc::Unmarshaler {
   std::string sink_topic = "";
   std::vector<Operator> operators = {};
   std::vector<Step> steps = {};
+  ProcessingGuarantee processing_guarantee = ProcessingGuarantee::PROCESSING_GUARANTEE_UNSPECIFIED;
   grpcdc::Bytes unknown_fields;
   Topology() = default;
   grpcdc::Bytes MarshalDc() const override;
@@ -295,6 +302,7 @@ inline grpcdc::Bytes Topology::MarshalDc() const {
         pb_w.BytesField(5, pb_payload.ToBytes());
     }
     for (const auto& pb_x : steps) pb_w.BytesField(6, pb_x.MarshalDc());
+    if (static_cast<std::int32_t>(processing_guarantee) != 0) { pb_w.Tag(7, 0); pb_w.Varint(static_cast<std::int32_t>(processing_guarantee)); }
     pb_w.Raw(unknown_fields);
     return pb_w.ToBytes();
 }
@@ -307,6 +315,7 @@ inline void Topology::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
     sink_topic = "";
     operators = {};
     steps = {};
+    processing_guarantee = ProcessingGuarantee::PROCESSING_GUARANTEE_UNSPECIFIED;
     pb_kafka_streams::Reader pb_r(pb_data_);
     pb_kafka_streams::Field pb_field;
     while (pb_r.Next(pb_field)) {
@@ -342,6 +351,10 @@ inline void Topology::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
             Step pb_item;
             pb_item.UnmarshalDc(pb_field.bytes);
             steps.push_back(pb_item);
+            break;
+        }
+        case 7: {
+            processing_guarantee = static_cast<ProcessingGuarantee>(static_cast<std::int32_t>(pb_field.varint));
             break;
         }
         default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;

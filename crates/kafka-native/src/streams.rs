@@ -588,6 +588,16 @@ fn apply_pipeline(ops: &[Op], rec: &PipeRec, ctx: &mut PipelineCtx) -> Vec<PipeR
     current
 }
 
+/// Transactional producer state for EXACTLY_ONCE: one
+/// producer id for the topology's lifetime; partitions are
+/// added per transaction and sequences advance across them.
+struct TxnState {
+    producer_id: i64,
+    producer_epoch: i16,
+    sequences: HashMap<(String, i32), i32>,
+    partitions_in_txn: std::collections::HashSet<(String, i32)>,
+}
+
 struct Membership {
     coordinator: Arc<tokio::sync::Mutex<crate::client::Conn>>,
     generation_id: i32,
@@ -708,6 +718,24 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
         let mut state = handle.state.lock().await;
         state.info.assigned_partitions = partitions.clone();
         state.info.generation_id = membership.generation_id;
+    }
+    let exactly_once = topo.processing_guarantee == spb::ProcessingGuarantee::ExactlyOnce;
+    let mut txn: Option<TxnState> = None;
+    if exactly_once {
+        match broker.init_producer_id(Some(app_id.as_str()), 60_000).await {
+            Ok((pid, epoch, 0)) => {
+                txn = Some(TxnState {
+                    producer_id: pid,
+                    producer_epoch: epoch,
+                    sequences: HashMap::new(),
+                    partitions_in_txn: Default::default(),
+                });
+            }
+            Ok((_, _, err)) => {
+                return fail(&handle, format!("InitProducerId for EXACTLY_ONCE failed with error {err}")).await
+            }
+            Err(e) => return fail(&handle, e.message.clone()).await,
+        }
     }
 
     // Resume from committed group offsets, else earliest.
@@ -856,6 +884,30 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
                 };
                 for out_rec in outputs {
                     let sink_partition = (fnv1a(&out_rec.key) % sink_partitions as u64) as i32;
+                    if let Some(t) = &mut txn {
+                        let key = (topo.sink_topic.clone(), sink_partition);
+                        if !t.partitions_in_txn.contains(&key) {
+                            match broker
+                                .add_partitions_to_txn(
+                                    &app_id,
+                                    t.producer_id,
+                                    t.producer_epoch,
+                                    vec![(topo.sink_topic.clone(), vec![sink_partition])],
+                                )
+                                .await
+                            {
+                                Ok(results) => {
+                                    if let Some((_, _, err)) = results.first() {
+                                        if *err != 0 {
+                                            return fail(&handle, format!("AddPartitionsToTxn error {err}")).await;
+                                        }
+                                    }
+                                    t.partitions_in_txn.insert(key.clone());
+                                }
+                                Err(e) => return fail(&handle, e.message.clone()).await,
+                            }
+                        }
+                    }
                     let headers = match out_rec.window {
                         Some((start, end)) => vec![
                             crate::pb::Header {
@@ -877,9 +929,23 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
                         headers,
                         ..Default::default()
                     };
+                    let (pid, epoch, seq, tid) = match &txn {
+                        Some(t) => (
+                            t.producer_id,
+                            t.producer_epoch,
+                            *t.sequences.get(&(topo.sink_topic.clone(), sink_partition)).unwrap_or(&0),
+                            Some(app_id.as_str()),
+                        ),
+                        None => (-1, -1, -1, None),
+                    };
                     let produced = broker
-                        .produce(&topo.sink_topic, sink_partition, &[out], -1, 30_000, 0, -1, -1, -1, None)
+                        .produce(&topo.sink_topic, sink_partition, &[out], -1, 30_000, 0, pid, epoch, seq, tid)
                         .await;
+                    if produced.as_ref().is_ok_and(|o| o.error_code == 0) {
+                        if let Some(t) = &mut txn {
+                            *t.sequences.entry((topo.sink_topic.clone(), sink_partition)).or_insert(0) += 1;
+                        }
+                    }
                     match produced {
                         Ok(o) if o.error_code == 0 => {}
                         Ok(o) => return fail(&handle, format!("produce to {} error {}", topo.sink_topic, o.error_code)).await,
@@ -887,28 +953,72 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
                     }
                 }
             }
-            match broker
-                .offset_commit(
-                    &app_id,
-                    membership.generation_id,
-                    &membership.member_id,
-                    None,
-                    &topo.source_topic,
-                    *p,
-                    next_offset,
-                    "",
-                )
-                .await
-            {
-                Ok(0) => {}
-                Ok(code) => {
-                    return fail(
-                        &handle,
-                        format!("offset commit for streams topology failed with error {code}"),
+            if let Some(t) = &mut txn {
+                // Exactly-once: attach this batch's source
+                // offset to the transaction and commit records
+                // + offset atomically.
+                let add = broker.add_offsets_to_txn(&app_id, &app_id, t.producer_id, t.producer_epoch).await;
+                let txn_err = match add {
+                    Ok(0) => broker
+                        .txn_offset_commit(
+                            &app_id,
+                            &app_id,
+                            t.producer_id,
+                            t.producer_epoch,
+                            &topo.source_topic,
+                            *p,
+                            next_offset,
+                            "",
+                        )
+                        .await
+                        .unwrap_or(-1),
+                    Ok(code) => code,
+                    Err(_) => -1,
+                };
+                if txn_err != 0 {
+                    let _ = broker.end_txn(&app_id, t.producer_id, t.producer_epoch, false).await;
+                    return fail(&handle, format!("txn offset commit error {txn_err}")).await;
+                }
+                match broker.end_txn(&app_id, t.producer_id, t.producer_epoch, true).await {
+                    Ok(0) => {
+                        let parts: Vec<(String, i32)> =
+                            t.partitions_in_txn.iter().cloned().collect();
+                        if !parts.is_empty() {
+                            let _ = broker
+                                .write_txn_markers(&parts, t.producer_id, t.producer_epoch, true, &app_id)
+                                .await;
+                        }
+                        t.partitions_in_txn.clear();
+                    }
+                    Ok(code) => {
+                        return fail(&handle, format!("EndTxn commit error {code}")).await
+                    }
+                    Err(e) => return fail(&handle, e.message.clone()).await,
+                }
+            } else {
+                match broker
+                    .offset_commit(
+                        &app_id,
+                        membership.generation_id,
+                        &membership.member_id,
+                        None,
+                        &topo.source_topic,
+                        *p,
+                        next_offset,
+                        "",
                     )
                     .await
+                {
+                    Ok(0) => {}
+                    Ok(code) => {
+                        return fail(
+                            &handle,
+                            format!("offset commit for streams topology failed with error {code}"),
+                        )
+                        .await
+                    }
+                    Err(e) => return fail(&handle, e.message.clone()).await,
                 }
-                Err(e) => return fail(&handle, e.message.clone()).await,
             }
             offsets.insert(*p, next_offset);
         }

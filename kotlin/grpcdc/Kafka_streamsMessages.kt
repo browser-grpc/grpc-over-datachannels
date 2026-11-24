@@ -101,6 +101,21 @@ enum class Aggregator(val number: Int) {
     }
 }
 
+enum class ProcessingGuarantee(val number: Int) {
+    PROCESSING_GUARANTEE_UNSPECIFIED(0),
+    AT_LEAST_ONCE(1),
+    EXACTLY_ONCE(2);
+    companion object {
+        fun fromNumber(number: Int): ProcessingGuarantee =
+            when (number) {
+                0 -> PROCESSING_GUARANTEE_UNSPECIFIED
+                1 -> AT_LEAST_ONCE
+                2 -> EXACTLY_ONCE
+                else -> PROCESSING_GUARANTEE_UNSPECIFIED
+            }
+    }
+}
+
  class Step(
     var operator: Operator = Operator.OPERATOR_UNSPECIFIED,
     var param: String = "",
@@ -163,6 +178,7 @@ enum class Aggregator(val number: Int) {
     var sinkTopic: String = "",
     var operators: MutableList<Operator> = mutableListOf(),
     var steps: MutableList<Step> = mutableListOf(),
+    var processingGuarantee: ProcessingGuarantee = ProcessingGuarantee.PROCESSING_GUARANTEE_UNSPECIFIED,
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
@@ -177,6 +193,7 @@ enum class Aggregator(val number: Int) {
             pbW.bytesField(5, pbPayload.toBytes())
         }
         for (pbX in steps) pbW.bytesField(6, pbX.marshalDc())
+        if (processingGuarantee.number != 0) { pbW.tag(7, 0); pbW.varint(processingGuarantee.number.toLong()) }
         pbW.raw(unknownFields)
         return pbW.toBytes()
     }
@@ -188,6 +205,7 @@ enum class Aggregator(val number: Int) {
         sinkTopic = ""
         operators = mutableListOf()
         steps = mutableListOf()
+        processingGuarantee = ProcessingGuarantee.PROCESSING_GUARANTEE_UNSPECIFIED
         val pbR = Kafka_streamsPb.Reader(data)
         while (true) {
             val pbField = pbR.next() ?: break
@@ -218,6 +236,9 @@ enum class Aggregator(val number: Int) {
                     val pbItem = Step()
                     pbItem.unmarshalDc(pbField.bytesValue)
                     steps.add(pbItem)
+                }
+                7 -> {
+                    processingGuarantee = ProcessingGuarantee.fromNumber(pbField.varintValue.toInt())
                 }
                 else -> { unknownFields = unknownFields + pbField.rawValue }
             }

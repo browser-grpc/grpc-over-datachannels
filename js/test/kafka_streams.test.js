@@ -531,3 +531,58 @@ test("kafka streams group membership splits partitions", { skip: !PROXY_ADDR }, 
   }
   assert.equal(totalShared, 8);
 });
+
+test("kafka streams exactly-once commits sink and offsets atomically", { skip: !PROXY_ADDR }, async (t) => {
+  const { dc, kafka, streams } = makeClients();
+  const id = randomUUID().slice(0, 12);
+  const source = `streams-eos-in-${id}`;
+  const sink = `streams-eos-out-${id}`;
+  const name = `eos-${id}`;
+  t.after(async () => {
+    try {
+      await streams.deleteTopology(new DeleteTopologyRequest({ name }));
+      await kafka.deleteTopics(new DeleteTopicsRequest({ topics: [source, sink] }));
+    } catch { /* best effort */ }
+    dc.close();
+  });
+  for (const topic of [source, sink]) {
+    const created = await kafka.createTopics(new CreateTopicsRequest({
+      topics: [new NewTopic({ name: topic, numPartitions: 1, replicationFactor: 1 })],
+      timeoutMs: 15000,
+    }));
+    assert.deepEqual(created.results.map((r) => r.errorCode), [0]);
+  }
+  const { ProcessingGuarantee } = await import("../src/kafka_streams_pb.js");
+  const info = await streams.createTopology(new CreateTopologyRequest({
+    topology: new Topology({
+      name,
+      sourceTopic: source,
+      sinkTopic: sink,
+      processingGuarantee: ProcessingGuarantee.EXACTLY_ONCE,
+      operators: [Operator.TOKENIZE_WORDS, Operator.GROUP_BY_KEY, Operator.COUNT],
+    }),
+  }));
+  assert.equal(info.state, "RUNNING");
+  assert.equal(info.applicationId, `streams-${name}`);
+  await produceLines(kafka, source, ["eos eos test", "eos"]);
+  await waitStore(streams, name, "eos", 3n);
+  // read_committed must see exactly the committed counts:
+  // final records eos=3, test=1, and nothing aborted/duplicated.
+  const finalCounts = {};
+  let total = 0;
+  const stream = await kafka.consume(new ConsumeRequest({
+    topic: sink, partition: 0, offset: 0n, maxRecords: 50, readCommitted: true,
+  }));
+  const iter = stream[Symbol.asyncIterator]();
+  const first = await Promise.race([iter.next(), sleep(8000).then(() => null)]);
+  assert.ok(first && !first.done, "no read_committed records from EXACTLY_ONCE sink");
+  for (const r of first.value.records) {
+    finalCounts[dec(r.key)] = dec(r.value);
+    total++;
+  }
+  await iter.return?.();
+  assert.deepEqual(finalCounts, { eos: "3", test: "1" });
+  // Every emitted increment committed exactly once:
+  // eos: 1,2,3 (3 records) + test: 1 (1 record).
+  assert.equal(total, 4);
+});

@@ -131,6 +131,8 @@ local Operator = { OPERATOR_UNSPECIFIED = 0, TOKENIZE_WORDS = 1, GROUP_BY_KEY = 
 
 local Aggregator = { AGGREGATOR_UNSPECIFIED = 0, AGGREGATE_COUNT = 1, AGGREGATE_SUM = 2, AGGREGATE_MIN = 3, AGGREGATE_MAX = 4 }
 
+local ProcessingGuarantee = { PROCESSING_GUARANTEE_UNSPECIFIED = 0, AT_LEAST_ONCE = 1, EXACTLY_ONCE = 2 }
+
 Step = {}
 Step.__index = Step
 
@@ -184,8 +186,8 @@ end
 Topology = {}
 Topology.__index = Topology
 
-function Topology.new(name, applicationId, sourceTopic, sinkTopic, operators, steps)
-  return setmetatable({ name = name or "", applicationId = applicationId or "", sourceTopic = sourceTopic or "", sinkTopic = sinkTopic or "", operators = operators or {}, steps = steps or {}, unknownFields = "" }, Topology)
+function Topology.new(name, applicationId, sourceTopic, sinkTopic, operators, steps, processingGuarantee)
+  return setmetatable({ name = name or "", applicationId = applicationId or "", sourceTopic = sourceTopic or "", sinkTopic = sinkTopic or "", operators = operators or {}, steps = steps or {}, processingGuarantee = processingGuarantee or 0, unknownFields = "" }, Topology)
 end
 
 function Topology:marshalDc()
@@ -200,6 +202,7 @@ function Topology:marshalDc()
       w:bytesField(5, table.concat(payload))
     end
     for _, x in ipairs(self.steps) do w:bytesField(6, x:marshalDc()) end
+    if self.processingGuarantee ~= 0 then w:tag(7, 0) w:varint(self.processingGuarantee) end
   w:raw(self.unknownFields)
   return w:toBytes()
 end
@@ -212,6 +215,7 @@ function Topology:unmarshalDc(data)
   self.sinkTopic = ""
   self.operators = {}
   self.steps = {}
+  self.processingGuarantee = 0
   local r = Reader.new(data)
   while true do
     local field = r:next()
@@ -239,6 +243,8 @@ function Topology:unmarshalDc(data)
       local item = Step.new()
       item:unmarshalDc(field.bytesValue)
       self.steps[#self.steps + 1] = item
+    elseif field.number == 7 then
+      self.processingGuarantee = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
     else
       self.unknownFields = self.unknownFields .. field.rawValue
     end
@@ -670,4 +676,5 @@ return {
   FetchWindowResponse = FetchWindowResponse,
   Operator = Operator,
   Aggregator = Aggregator,
+  ProcessingGuarantee = ProcessingGuarantee,
 }

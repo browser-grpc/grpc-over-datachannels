@@ -9,15 +9,17 @@ public final class Topology implements grpcdc.Marshaler, grpcdc.Unmarshaler {
     public String sinkTopic = "";
     public java.util.List<Operator> operators = new java.util.ArrayList<>();
     public java.util.List<Step> steps = new java.util.ArrayList<>();
+    public ProcessingGuarantee processingGuarantee = ProcessingGuarantee.PROCESSING_GUARANTEE_UNSPECIFIED;
     public byte[] unknownFields = new byte[0];
     public Topology() {}
-    public Topology(String name, String applicationId, String sourceTopic, String sinkTopic, java.util.List<Operator> operators, java.util.List<Step> steps) {
+    public Topology(String name, String applicationId, String sourceTopic, String sinkTopic, java.util.List<Operator> operators, java.util.List<Step> steps, ProcessingGuarantee processingGuarantee) {
         this.name = name;
         this.applicationId = applicationId;
         this.sourceTopic = sourceTopic;
         this.sinkTopic = sinkTopic;
         this.operators = operators;
         this.steps = steps;
+        this.processingGuarantee = processingGuarantee;
     }
 
     @Override
@@ -33,6 +35,7 @@ public final class Topology implements grpcdc.Marshaler, grpcdc.Unmarshaler {
             pbW.bytesField(5, pbPayload.toBytes());
         }
         if (steps != null) for (Step pbX : steps) pbW.bytesField(6, pbX.marshalDc());
+        if (processingGuarantee != null && processingGuarantee.number != 0) { pbW.tag(7, 0); pbW.varint(processingGuarantee.number); }
         pbW.raw(unknownFields);
         return pbW.toBytes();
     }
@@ -46,6 +49,7 @@ public final class Topology implements grpcdc.Marshaler, grpcdc.Unmarshaler {
         sinkTopic = "";
         operators = new java.util.ArrayList<>();
         steps = new java.util.ArrayList<>();
+        processingGuarantee = ProcessingGuarantee.PROCESSING_GUARANTEE_UNSPECIFIED;
         Kafka_streamsPb.Reader pbR = new Kafka_streamsPb.Reader(data);
         Kafka_streamsPb.Field pbField;
         while ((pbField = pbR.next()) != null) {
@@ -76,6 +80,9 @@ public final class Topology implements grpcdc.Marshaler, grpcdc.Unmarshaler {
                     Step pbItem = new Step();
                     pbItem.unmarshalDc(pbField.bytesValue);
                     steps.add(pbItem);
+                }
+                case 7 -> {
+                    processingGuarantee = ProcessingGuarantee.fromNumber((int) pbField.varintValue);
                 }
                 default -> { unknownFields = Kafka_streamsPb.concatBytes(unknownFields, pbField.rawValue); }
             }

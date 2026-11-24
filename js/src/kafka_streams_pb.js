@@ -135,6 +135,8 @@ export const Operator = { OPERATOR_UNSPECIFIED: 0, TOKENIZE_WORDS: 1, GROUP_BY_K
 
 export const Aggregator = { AGGREGATOR_UNSPECIFIED: 0, AGGREGATE_COUNT: 1, AGGREGATE_SUM: 2, AGGREGATE_MIN: 3, AGGREGATE_MAX: 4 };
 
+export const ProcessingGuarantee = { PROCESSING_GUARANTEE_UNSPECIFIED: 0, AT_LEAST_ONCE: 1, EXACTLY_ONCE: 2 };
+
 export class Step {
   constructor({ operator = 0, param = "", aggregator = 0, windowSizeMs = 0n, windowAdvanceMs = 0n, graceMs = 0n } = {}) {
     this.operator = operator;
@@ -195,13 +197,14 @@ export class Step {
 }
 
 export class Topology {
-  constructor({ name = "", applicationId = "", sourceTopic = "", sinkTopic = "", operators = [], steps = [] } = {}) {
+  constructor({ name = "", applicationId = "", sourceTopic = "", sinkTopic = "", operators = [], steps = [], processingGuarantee = 0 } = {}) {
     this.name = name;
     this.applicationId = applicationId;
     this.sourceTopic = sourceTopic;
     this.sinkTopic = sinkTopic;
     this.operators = operators;
     this.steps = steps;
+    this.processingGuarantee = processingGuarantee;
     this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
@@ -216,6 +219,7 @@ export class Topology {
       putBytesField(out, 5, payload);
     }
     if (msg.steps) for (const v of msg.steps) putBytesField(out, 6, Step.encode(v));
+    putVarintField(out, 7, BigInt(msg.processingGuarantee));
     putRaw(out, msg.unknownFields);
     return new Uint8Array(out);
   }
@@ -241,6 +245,7 @@ export class Topology {
       case 4: msg.sinkTopic = textDecoder.decode(value); break;
       case 5: if (wire === 2) { const r = new Reader(value); while (!r.done) msg.operators.push(Number(BigInt.asIntN(32, r.varint()))); } else msg.operators.push(Number(BigInt.asIntN(32, value))); break;
       case 6: msg.steps.push(Step.decode(value)); break;
+      case 7: msg.processingGuarantee = Number(BigInt.asIntN(32, value)); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
@@ -253,6 +258,7 @@ export class Topology {
     this.sinkTopic = "";
     this.operators = [];
     this.steps = [];
+    this.processingGuarantee = 0;
     this.unknownFields = EMPTY_BYTES;
   }
 }

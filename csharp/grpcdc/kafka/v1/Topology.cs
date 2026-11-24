@@ -12,15 +12,17 @@ public sealed class Topology : IMarshaler, IUnmarshaler {
     public string SinkTopic = "";
     public System.Collections.Generic.List<Operator> Operators = new System.Collections.Generic.List<Operator>();
     public System.Collections.Generic.List<Step> Steps = new System.Collections.Generic.List<Step>();
+    public ProcessingGuarantee ProcessingGuarantee = ProcessingGuarantee.PROCESSING_GUARANTEE_UNSPECIFIED;
     public byte[] UnknownFields = new byte[0];
     public Topology() {}
-    public Topology(string name, string applicationId, string sourceTopic, string sinkTopic, System.Collections.Generic.List<Operator> operators, System.Collections.Generic.List<Step> steps) {
+    public Topology(string name, string applicationId, string sourceTopic, string sinkTopic, System.Collections.Generic.List<Operator> operators, System.Collections.Generic.List<Step> steps, ProcessingGuarantee processingGuarantee) {
         Name = name;
         ApplicationId = applicationId;
         SourceTopic = sourceTopic;
         SinkTopic = sinkTopic;
         Operators = operators;
         Steps = steps;
+        ProcessingGuarantee = processingGuarantee;
     }
     public byte[] MarshalDc() {
         var w = new Kafka_streamsPb.Writer();
@@ -34,6 +36,7 @@ public sealed class Topology : IMarshaler, IUnmarshaler {
             w.BytesField(5, payload.ToBytes());
         }
         if (Steps != null) foreach (var x in Steps) w.BytesField(6, x.MarshalDc());
+        if ((int) ProcessingGuarantee != 0) { w.Tag(7, 0); w.Varint((int) ProcessingGuarantee); }
         w.Raw(UnknownFields);
         return w.ToBytes();
     }
@@ -45,6 +48,7 @@ public sealed class Topology : IMarshaler, IUnmarshaler {
         SinkTopic = "";
         Operators = new System.Collections.Generic.List<Operator>();
         Steps = new System.Collections.Generic.List<Step>();
+        ProcessingGuarantee = ProcessingGuarantee.PROCESSING_GUARANTEE_UNSPECIFIED;
         var r = new Kafka_streamsPb.Reader(data);
         Kafka_streamsPb.Field field;
         while ((field = r.Next()) != null) {
@@ -80,6 +84,10 @@ public sealed class Topology : IMarshaler, IUnmarshaler {
                     var item = new Step();
                     item.UnmarshalDc(field.BytesValue);
                     Steps.Add(item);
+                    break;
+                }
+                case 7: {
+                    ProcessingGuarantee = (ProcessingGuarantee) (int) field.VarintValue;
                     break;
                 }
                 default: UnknownFields = Kafka_streamsPb.ConcatBytes(UnknownFields, field.RawValue); break;

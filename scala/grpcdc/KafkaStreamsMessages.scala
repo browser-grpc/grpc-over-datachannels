@@ -159,6 +159,12 @@ object Aggregator {
   final val AGGREGATE_MAX: Int = 4
 }
 
+object ProcessingGuarantee {
+  final val PROCESSING_GUARANTEE_UNSPECIFIED: Int = 0
+  final val AT_LEAST_ONCE: Int = 1
+  final val EXACTLY_ONCE: Int = 2
+}
+
 class Step(
     var operator: Int = 0,
     var param: String = "",
@@ -232,7 +238,8 @@ class Topology(
     var sourceTopic: String = "",
     var sinkTopic: String = "",
     var operators: List[Int] = List.empty,
-    var steps: List[Step] = List.empty
+    var steps: List[Step] = List.empty,
+    var processingGuarantee: Int = 0
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
@@ -251,6 +258,10 @@ class Topology(
     for (pbX <- steps) {
       pbW.bytesField(6, pbX.marshalDc())
     }
+    if (processingGuarantee != 0) {
+      pbW.tag(7, 0)
+      pbW.varint((processingGuarantee.toLong))
+    }
     pbW.raw(unknownFields)
     pbW.toBytes
   }
@@ -263,6 +274,7 @@ class Topology(
     sinkTopic = ""
     operators = List.empty
     steps = List.empty
+    processingGuarantee = 0
     val pbR = new KafkaStreamsPb.Reader(data)
     var pbField = pbR.next()
     while (pbField != null) {
@@ -289,6 +301,8 @@ class Topology(
           val pbItem = new Step()
           pbItem.unmarshalDc(pbField.bytesValue)
           steps = steps :+ pbItem
+        case 7 =>
+          processingGuarantee = pbField.varintValue.toInt
         case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
       pbField = pbR.next()

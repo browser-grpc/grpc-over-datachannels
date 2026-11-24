@@ -167,6 +167,13 @@ final class Aggregator
     public const AGGREGATE_MAX = 4;
 }
 
+final class ProcessingGuarantee
+{
+    public const PROCESSING_GUARANTEE_UNSPECIFIED = 0;
+    public const AT_LEAST_ONCE = 1;
+    public const EXACTLY_ONCE = 2;
+}
+
 class Step
 {
     public int $operator = 0;
@@ -274,9 +281,10 @@ class Topology
     public string $sinkTopic = "";
     public array $operators = [];
     public array $steps = [];
+    public int $processingGuarantee = 0;
 
     public string $unknownFields = "";
-    public function __construct(string $name = "", string $applicationId = "", string $sourceTopic = "", string $sinkTopic = "", array $operators = [], array $steps = [])
+    public function __construct(string $name = "", string $applicationId = "", string $sourceTopic = "", string $sinkTopic = "", array $operators = [], array $steps = [], int $processingGuarantee = 0)
     {
         $this->name = $name;
         $this->applicationId = $applicationId;
@@ -284,6 +292,7 @@ class Topology
         $this->sinkTopic = $sinkTopic;
         $this->operators = $operators;
         $this->steps = $steps;
+        $this->processingGuarantee = $processingGuarantee;
     }
 
     public function marshalDc(): string
@@ -303,6 +312,10 @@ class Topology
         foreach ($this->steps as $x) {
             $w->bytesField(6, $x->marshalDc());
         }
+        if ($this->processingGuarantee !== 0) {
+            $w->tag(7, 0);
+            $w->varint($this->processingGuarantee);
+        }
         $w->raw($this->unknownFields);
         return $w->toBytes();
     }
@@ -316,6 +329,7 @@ class Topology
         $this->sinkTopic = "";
         $this->operators = [];
         $this->steps = [];
+        $this->processingGuarantee = 0;
         $r = new Reader($data);
         while (($item = $r->field()) !== null) {
             [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;
@@ -348,6 +362,9 @@ class Topology
                     $item->unmarshalDc($bytesValue);
                     $this->steps[] = $item;
                     break;
+                case 7:
+                    $this->processingGuarantee = ((($varintValue & 0xffffffff) >= 0x80000000) ? (($varintValue & 0xffffffff) - 0x100000000) : ($varintValue & 0xffffffff));
+                    break;
                 default:
                     $this->unknownFields .= $rawValue;
                     break;
@@ -364,7 +381,8 @@ class Topology
             && $this->sourceTopic === $other->sourceTopic
             && $this->sinkTopic === $other->sinkTopic
             && $this->operators === $other->operators
-            && $this->steps === $other->steps;
+            && $this->steps === $other->steps
+            && $this->processingGuarantee === $other->processingGuarantee;
     }
 }
 

@@ -83,6 +83,16 @@ message Step {
   int64 grace_ms = 6;
 }
 
+enum ProcessingGuarantee {
+  PROCESSING_GUARANTEE_UNSPECIFIED = 0; // = AT_LEAST_ONCE
+  AT_LEAST_ONCE = 1;
+  // Sink records and source offsets commit atomically via
+  // a Kafka transaction (transactional.id = application_id):
+  // crash/rebalance replay never double-emits to the sink,
+  // at the cost of read_committed visibility latency.
+  EXACTLY_ONCE = 2;
+}
+
 message Topology {
   string name = 1;
   // Consumer group id for the source subscription;
@@ -95,6 +105,7 @@ message Topology {
   repeated Operator operators = 5;
   // Parameterized chain; takes precedence over operators.
   repeated Step steps = 6;
+  ProcessingGuarantee processing_guarantee = 7;
 }
 
 message TopologyInfo {

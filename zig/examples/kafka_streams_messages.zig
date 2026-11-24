@@ -80,6 +80,12 @@ pub const Aggregator = enum(i32) {
     AGGREGATE_MAX = 4,
 };
 
+pub const ProcessingGuarantee = enum(i32) {
+    PROCESSING_GUARANTEE_UNSPECIFIED = 0,
+    AT_LEAST_ONCE = 1,
+    EXACTLY_ONCE = 2,
+};
+
 pub const Step = struct {
     operator: Operator = .OPERATOR_UNSPECIFIED,
     param: []const u8 = "",
@@ -145,6 +151,7 @@ pub const Topology = struct {
     sink_topic: []const u8 = "",
     operators: []const Operator = &.{},
     steps: []const Step = &.{},
+    processing_guarantee: ProcessingGuarantee = .PROCESSING_GUARANTEE_UNSPECIFIED,
     unknown_fields: []const u8 = &.{},
     pub fn marshalDc(self: *const Topology, alloc: std.mem.Allocator) []u8 {
         _ = .{ self, alloc };
@@ -161,6 +168,7 @@ pub const Topology = struct {
             w.bytesField(5, payload.toBytes());
         }
         for (self.steps) |x| w.bytesField(6, x.marshalDc(alloc));
+        if (@intFromEnum(self.processing_guarantee) != 0) { w.tag(7, 0); w.varint(@as(u64, @bitCast(@as(i64, @intFromEnum(self.processing_guarantee))))); }
         w.raw(self.unknown_fields);
         return w.toBytes();
     }
@@ -172,6 +180,7 @@ pub const Topology = struct {
         self.sink_topic = "";
         self.operators = &.{};
         self.steps = &.{};
+        self.processing_guarantee = .PROCESSING_GUARANTEE_UNSPECIFIED;
         var operators_list = std.ArrayList(Operator).empty;
         var steps_list = std.ArrayList(Step).empty;
         self.unknown_fields = &.{};
@@ -205,6 +214,9 @@ pub const Topology = struct {
                     var item: Step = .{};
                     item.unmarshalDc(alloc, field.bytes_value);
                     steps_list.append(alloc, item) catch {};
+                },
+                7 => {
+                    self.processing_guarantee = @enumFromInt(@as(i32, @truncate(@as(i64, @bitCast(field.varint_value)))));
                 },
                 else => { unknown_fields_list.appendSlice(alloc, field.raw_value) catch {}; },
             }

@@ -205,8 +205,14 @@ assignor; heartbeats, rejoin on fencing/rebalance, leave on
 delete), so instances sharing an application id split the
 source partitions — `TopologyInfo.assigned_partitions` and
 `generation_id` report the live assignment — and offset
-commits carry the member's generation. Joins and
-exactly-once are not yet implemented. Counts are
+commits carry the member's generation.
+`processing_guarantee: EXACTLY_ONCE` runs each fetch batch
+in a Kafka transaction (transactional.id = application_id):
+sink records, the source offset (AddOffsetsToTxn +
+TxnOffsetCommit), and commit markers land atomically;
+read_committed consumers see each emitted record once.
+The default remains at-least-once. Joins are not yet
+implemented. Counts are
 emitted as `(word, decimal-count)` records, sink-partitioned
 by key hash. The store is in memory: a recreated topology restores it by
 replaying the already-committed source range (no sink

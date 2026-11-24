@@ -210,6 +210,35 @@ impl Aggregator {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[repr(i32)]
+pub enum ProcessingGuarantee {
+    #[default]
+    ProcessingGuaranteeUnspecified = 0,
+    AtLeastOnce = 1,
+    ExactlyOnce = 2,
+    Unknown(i32),
+}
+
+impl ProcessingGuarantee {
+    pub fn from_i32(v: i32) -> Self {
+        match v {
+            0 => ProcessingGuarantee::ProcessingGuaranteeUnspecified,
+            1 => ProcessingGuarantee::AtLeastOnce,
+            2 => ProcessingGuarantee::ExactlyOnce,
+            _ => ProcessingGuarantee::Unknown(v),
+        }
+    }
+    pub fn to_i32(self) -> i32 {
+        match self {
+            ProcessingGuarantee::ProcessingGuaranteeUnspecified => 0,
+            ProcessingGuarantee::AtLeastOnce => 1,
+            ProcessingGuarantee::ExactlyOnce => 2,
+            ProcessingGuarantee::Unknown(v) => v,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Step {
     pub operator: Operator,
@@ -288,6 +317,7 @@ pub struct Topology {
     pub sink_topic: String,
     pub operators: Vec<Operator>,
     pub steps: Vec<Step>,
+    pub processing_guarantee: ProcessingGuarantee,
     pub unknown_fields: Vec<u8>,
 }
 
@@ -300,6 +330,7 @@ impl Default for Topology {
             sink_topic: String::new(),
             operators: Vec::new(),
             steps: Vec::new(),
+            processing_guarantee: ProcessingGuarantee::ProcessingGuaranteeUnspecified,
             unknown_fields: Vec::new(),
         }
     }
@@ -318,6 +349,7 @@ impl Topology {
             pb_append_bytes_field(&mut out, 5, &payload);
         }
         for x in &self.steps { pb_append_bytes_field(&mut out, 6, &x.encode()); }
+        if self.processing_guarantee != ProcessingGuarantee::ProcessingGuaranteeUnspecified { pb_append_tag(&mut out, 7, 0); pb_append_varint(&mut out, (self.processing_guarantee.to_i32() as u64)); }
         out.extend_from_slice(&self.unknown_fields);
         out
     }
@@ -352,6 +384,9 @@ impl Topology {
                 }
                 6 => {
                     msg.steps.push(Step::decode(&field.bytes_value)?);
+                }
+                7 => {
+                    msg.processing_guarantee = ProcessingGuarantee::from_i32(field.varint_value as i32);
                 }
                 _ => {
                     msg.unknown_fields.extend_from_slice(&field.raw_value);
