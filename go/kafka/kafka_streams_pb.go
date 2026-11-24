@@ -283,6 +283,7 @@ type Topology struct {
 	ProcessingGuarantee ProcessingGuarantee
 	TableTopic          string
 	CogroupSources      []string
+	StateDir            string
 	UnknownFields       []byte
 }
 
@@ -316,6 +317,7 @@ func (m *Topology) MarshalDC() []byte {
 	for _, x := range m.CogroupSources {
 		out = KafkaStreamsPbAppendBytesField(out, 9, []byte(x))
 	}
+	out = KafkaStreamsPbAppendStringField(out, 10, m.StateDir)
 	out = append(out, m.UnknownFields...)
 	return out
 }
@@ -383,6 +385,10 @@ func (m *Topology) UnmarshalDC(data []byte) error {
 		case 9:
 			if b, ok := value.([]byte); ok {
 				m.CogroupSources = append(m.CogroupSources, string(b))
+			}
+		case 10:
+			if b, ok := value.([]byte); ok {
+				m.StateDir = string(b)
 			}
 		default:
 			m.UnknownFields = append(m.UnknownFields, raw...)

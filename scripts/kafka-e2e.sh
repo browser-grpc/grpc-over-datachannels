@@ -601,6 +601,8 @@ run_suites() { # broker_addr proxy_addr label
         bash -c "cd '$ROOT/js' && node --test test/kafka.test.js"
     run "js streams e2e ($label)" env KAFKA_E2E_PROXY_ADDR="$proxy" \
         bash -c "cd '$ROOT/js' && node --test test/kafka_streams.test.js"
+    run "python streams e2e ($label)" env KAFKA_E2E_PROXY_ADDR="$proxy" \
+        bash -c "cd '$ROOT/python' && python3 -m unittest tests.test_kafka_streams"
     run "go e2e ($label)" env KAFKA_E2E_PROXY_ADDR="$proxy" \
         bash -c "cd '$ROOT/go' && go test -run 'TestKafka' ."
     run "ruby e2e ($label)" env KAFKA_E2E_PROXY_ADDR="$proxy" \

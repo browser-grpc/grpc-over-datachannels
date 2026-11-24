@@ -201,7 +201,7 @@ export class Step {
 }
 
 export class Topology {
-  constructor({ name = "", applicationId = "", sourceTopic = "", sinkTopic = "", operators = [], steps = [], processingGuarantee = 0, tableTopic = "", cogroupSources = [] } = {}) {
+  constructor({ name = "", applicationId = "", sourceTopic = "", sinkTopic = "", operators = [], steps = [], processingGuarantee = 0, tableTopic = "", cogroupSources = [], stateDir = "" } = {}) {
     this.name = name;
     this.applicationId = applicationId;
     this.sourceTopic = sourceTopic;
@@ -211,6 +211,7 @@ export class Topology {
     this.processingGuarantee = processingGuarantee;
     this.tableTopic = tableTopic;
     this.cogroupSources = cogroupSources;
+    this.stateDir = stateDir;
     this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
@@ -228,6 +229,7 @@ export class Topology {
     putVarintField(out, 7, BigInt(msg.processingGuarantee));
     putStringField(out, 8, msg.tableTopic);
     if (msg.cogroupSources) for (const v of msg.cogroupSources) putBytesField(out, 9, textEncoder.encode(v));
+    putStringField(out, 10, msg.stateDir);
     putRaw(out, msg.unknownFields);
     return new Uint8Array(out);
   }
@@ -256,6 +258,7 @@ export class Topology {
       case 7: msg.processingGuarantee = Number(BigInt.asIntN(32, value)); break;
       case 8: msg.tableTopic = textDecoder.decode(value); break;
       case 9: msg.cogroupSources.push(textDecoder.decode(value)); break;
+      case 10: msg.stateDir = textDecoder.decode(value); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
@@ -271,6 +274,7 @@ export class Topology {
     this.processingGuarantee = 0;
     this.tableTopic = "";
     this.cogroupSources = [];
+    this.stateDir = "";
     this.unknownFields = EMPTY_BYTES;
   }
 }

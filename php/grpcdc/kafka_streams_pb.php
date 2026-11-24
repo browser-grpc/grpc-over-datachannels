@@ -301,9 +301,10 @@ class Topology
     public int $processingGuarantee = 0;
     public string $tableTopic = "";
     public array $cogroupSources = [];
+    public string $stateDir = "";
 
     public string $unknownFields = "";
-    public function __construct(string $name = "", string $applicationId = "", string $sourceTopic = "", string $sinkTopic = "", array $operators = [], array $steps = [], int $processingGuarantee = 0, string $tableTopic = "", array $cogroupSources = [])
+    public function __construct(string $name = "", string $applicationId = "", string $sourceTopic = "", string $sinkTopic = "", array $operators = [], array $steps = [], int $processingGuarantee = 0, string $tableTopic = "", array $cogroupSources = [], string $stateDir = "")
     {
         $this->name = $name;
         $this->applicationId = $applicationId;
@@ -314,6 +315,7 @@ class Topology
         $this->processingGuarantee = $processingGuarantee;
         $this->tableTopic = $tableTopic;
         $this->cogroupSources = $cogroupSources;
+        $this->stateDir = $stateDir;
     }
 
     public function marshalDc(): string
@@ -341,6 +343,7 @@ class Topology
         foreach ($this->cogroupSources as $x) {
             $w->bytesField(9, $x);
         }
+        $w->stringField(10, $this->stateDir);
         $w->raw($this->unknownFields);
         return $w->toBytes();
     }
@@ -357,6 +360,7 @@ class Topology
         $this->processingGuarantee = 0;
         $this->tableTopic = "";
         $this->cogroupSources = [];
+        $this->stateDir = "";
         $r = new Reader($data);
         while (($item = $r->field()) !== null) {
             [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;
@@ -398,6 +402,9 @@ class Topology
                 case 9:
                     $this->cogroupSources[] = $bytesValue;
                     break;
+                case 10:
+                    $this->stateDir = $bytesValue;
+                    break;
                 default:
                     $this->unknownFields .= $rawValue;
                     break;
@@ -417,7 +424,8 @@ class Topology
             && $this->steps === $other->steps
             && $this->processingGuarantee === $other->processingGuarantee
             && $this->tableTopic === $other->tableTopic
-            && $this->cogroupSources === $other->cogroupSources;
+            && $this->cogroupSources === $other->cogroupSources
+            && $this->stateDir === $other->stateDir;
     }
 }
 

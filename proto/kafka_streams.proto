@@ -152,6 +152,19 @@ message Topology {
   // Additional keyed-value topics folded into the store
   // by a COGROUP step.
   repeated string cogroup_sources = 9;
+  // Persistent state: when non-empty, the task snapshots
+  // store changes to the changelog topic
+  // "<application_id>-store-changelog" (created on demand)
+  // and restores from it at startup instead of replaying
+  // the source range. The value is a local state directory
+  // name kept for parity with Kafka Streams (this runtime
+  // keeps no local files; the changelog is the state).
+  // Crash semantics: changelog writes are at-least-once per
+  // batch, so a crash can persist a store change whose
+  // source offset did not commit; on restore the source
+  // record then replays through the restored store (see
+  // KAFKA.md for the exact guarantee).
+  string state_dir = 10;
 }
 
 message TopologyInfo {

@@ -24,7 +24,7 @@
 ;;; the way down.
 
 (require "spec.rkt" "pb.rkt" "desc.rkt" json racket/runtime-path "webrtc-gen.rkt"
-         "oracle-spec.rkt" "oracle-gen.rkt" "bdd-gen.rkt" "webgen.rkt" "mux-gen.rkt"
+         "oracle-spec.rkt" "oracle-gen.rkt" "bdd-gen.rkt" "webgen.rkt" "mux-gen.rkt" "kafka-streams-gen.rkt"
          "interop-gen.rkt" "sctp-gen.rkt"
          "proxy-gen.rkt" "http2-gen.rkt" "eventbus-gen.rkt" "interop-service-gen.rkt"
          "runtime-go.rkt" "runtime-js.rkt" "runtime-rust.rkt" "runtime-python.rkt" "runtime-java.rkt" "runtime-csharp.rkt" "runtime-cpp.rkt" "runtime-swift.rkt" "runtime-kotlin.rkt" "runtime-dart.rkt" "runtime-zig.rkt" "runtime-c.rkt" "runtime-lua.rkt" "runtime-ruby.rkt" "runtime-php.rkt" "runtime-scala.rkt")
@@ -1618,6 +1618,7 @@ BROWSER_SERVER_EOF
   (write-runtime-files "js/test" "oracle-gen.rkt" (list (emit-js-oracle-driver)))
   (write-runtime-files "js/test" "interop-service-gen.rkt" (list (emit-js-interop-service)))
   (write-runtime-files "js/test" "bdd-gen.rkt" (list (emit-js-bdd) (emit-bdd-schemas 'js)))
+  (write-runtime-files "js/test" "kafka-streams-gen.rkt" (list (emit-js-kafka-streams)))
   (write-runtime-files "browser-test" "bdd-gen.rkt" (list (emit-browser-bdd-scenarios) (emit-browser-bdd-manifest)))
   (write-runtime-files "go" "oracle-gen.rkt" (list (emit-go-oracle-driver)))
   (write-runtime-files "go" "bdd-gen.rkt" (list (emit-go-bdd) (emit-bdd-schemas 'go)))
@@ -1629,6 +1630,7 @@ BROWSER_SERVER_EOF
   (write-runtime-files "python/tests" "oracle-gen.rkt" (list (emit-python-oracle-driver)))
   (write-runtime-files "python/tests" "interop-service-gen.rkt" (list (emit-py-interop-service)))
   (write-runtime-files "python/tests" "bdd-gen.rkt" (list (emit-python-bdd) (emit-bdd-schemas 'python)))
+  (write-runtime-files "python/tests" "kafka-streams-gen.rkt" (list (emit-python-kafka-streams)))
   (make-directory* (build-path root "java" "grpcdc"))
   (call-with-output-file (build-path root "java" "grpcdc" "Wire.java") #:exists 'replace
     (lambda (out) (display (emit-java-wire) out)))

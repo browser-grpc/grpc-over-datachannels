@@ -344,6 +344,7 @@ pub struct Topology {
     pub processing_guarantee: ProcessingGuarantee,
     pub table_topic: String,
     pub cogroup_sources: Vec<String>,
+    pub state_dir: String,
     pub unknown_fields: Vec<u8>,
 }
 
@@ -359,6 +360,7 @@ impl Default for Topology {
             processing_guarantee: ProcessingGuarantee::ProcessingGuaranteeUnspecified,
             table_topic: String::new(),
             cogroup_sources: Vec::new(),
+            state_dir: String::new(),
             unknown_fields: Vec::new(),
         }
     }
@@ -380,6 +382,7 @@ impl Topology {
         if self.processing_guarantee != ProcessingGuarantee::ProcessingGuaranteeUnspecified { pb_append_tag(&mut out, 7, 0); pb_append_varint(&mut out, (self.processing_guarantee.to_i32() as u64)); }
         pb_append_string_field(&mut out, 8, &self.table_topic);
         for x in &self.cogroup_sources { pb_append_bytes_field(&mut out, 9, x.as_bytes()); }
+        pb_append_string_field(&mut out, 10, &self.state_dir);
         out.extend_from_slice(&self.unknown_fields);
         out
     }
@@ -423,6 +426,9 @@ impl Topology {
                 }
                 9 => {
                     msg.cogroup_sources.push(String::from_utf8_lossy(&field.bytes_value).into_owned());
+                }
+                10 => {
+                    msg.state_dir = String::from_utf8_lossy(&field.bytes_value).into_owned();
                 }
                 _ => {
                     msg.unknown_fields.extend_from_slice(&field.raw_value);

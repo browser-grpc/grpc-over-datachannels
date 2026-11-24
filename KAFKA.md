@@ -236,7 +236,16 @@ deletes): matching records emit
 param, default `:`), records with no table entry drop, and
 `GetStoreValue` also answers table lookups. Not yet
 implemented: windowed joins, table-table joins,
-standby replicas, persistent stores. Counts are
+standby replicas. With `state_dir` set, the task snapshots
+store changes after each batch to
+`<application_id>-store-changelog` and restores from it on
+start (skipping source-range replay); changelog writes are
+at-least-once per batch, so a crash can persist a change
+whose source offset did not commit — that record then
+replays into the restored store and (for COUNT/SUM) counts
+once more; run EXACTLY_ONCE topologies when that matters,
+noting the changelog produce itself is not yet part of
+the batch transaction. Counts are
 emitted as `(word, decimal-count)` records, sink-partitioned
 by key hash. The store is in memory: a recreated topology restores it by
 replaying the already-committed source range (no sink

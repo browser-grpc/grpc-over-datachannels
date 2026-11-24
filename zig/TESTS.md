@@ -70,6 +70,8 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`kafka_messages.zig`](examples/kafka_messages.zig) — Kafka end-to-end (broker legs env-gated)
 - [`kafka_streams_grpc_dc.zig`](examples/kafka_streams_grpc_dc.zig) — Kafka end-to-end (broker legs env-gated)
 - [`kafka_streams_messages.zig`](examples/kafka_streams_messages.zig) — Kafka end-to-end (broker legs env-gated)
+- [`kafka_streams_processor_grpc_dc.zig`](examples/kafka_streams_processor_grpc_dc.zig) — Kafka end-to-end (broker legs env-gated)
+- [`kafka_streams_processor_messages.zig`](examples/kafka_streams_processor_messages.zig) — Kafka end-to-end (broker legs env-gated)
 - [`pb.zig`](examples/pb.zig) — Generated suite/example
 - [`stdio_transport.zig`](examples/stdio_transport.zig) — Generated suite/example
 

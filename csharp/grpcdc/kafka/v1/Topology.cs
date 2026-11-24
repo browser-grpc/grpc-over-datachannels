@@ -15,9 +15,10 @@ public sealed class Topology : IMarshaler, IUnmarshaler {
     public ProcessingGuarantee ProcessingGuarantee = ProcessingGuarantee.PROCESSING_GUARANTEE_UNSPECIFIED;
     public string TableTopic = "";
     public System.Collections.Generic.List<string> CogroupSources = new System.Collections.Generic.List<string>();
+    public string StateDir = "";
     public byte[] UnknownFields = new byte[0];
     public Topology() {}
-    public Topology(string name, string applicationId, string sourceTopic, string sinkTopic, System.Collections.Generic.List<Operator> operators, System.Collections.Generic.List<Step> steps, ProcessingGuarantee processingGuarantee, string tableTopic, System.Collections.Generic.List<string> cogroupSources) {
+    public Topology(string name, string applicationId, string sourceTopic, string sinkTopic, System.Collections.Generic.List<Operator> operators, System.Collections.Generic.List<Step> steps, ProcessingGuarantee processingGuarantee, string tableTopic, System.Collections.Generic.List<string> cogroupSources, string stateDir) {
         Name = name;
         ApplicationId = applicationId;
         SourceTopic = sourceTopic;
@@ -27,6 +28,7 @@ public sealed class Topology : IMarshaler, IUnmarshaler {
         ProcessingGuarantee = processingGuarantee;
         TableTopic = tableTopic;
         CogroupSources = cogroupSources;
+        StateDir = stateDir;
     }
     public byte[] MarshalDc() {
         var w = new Kafka_streamsPb.Writer();
@@ -43,6 +45,7 @@ public sealed class Topology : IMarshaler, IUnmarshaler {
         if ((int) ProcessingGuarantee != 0) { w.Tag(7, 0); w.Varint((int) ProcessingGuarantee); }
         w.StringField(8, TableTopic);
         if (CogroupSources != null) foreach (var x in CogroupSources) w.BytesField(9, System.Text.Encoding.UTF8.GetBytes(x));
+        w.StringField(10, StateDir);
         w.Raw(UnknownFields);
         return w.ToBytes();
     }
@@ -57,6 +60,7 @@ public sealed class Topology : IMarshaler, IUnmarshaler {
         ProcessingGuarantee = ProcessingGuarantee.PROCESSING_GUARANTEE_UNSPECIFIED;
         TableTopic = "";
         CogroupSources = new System.Collections.Generic.List<string>();
+        StateDir = "";
         var r = new Kafka_streamsPb.Reader(data);
         Kafka_streamsPb.Field field;
         while ((field = r.Next()) != null) {
@@ -104,6 +108,10 @@ public sealed class Topology : IMarshaler, IUnmarshaler {
                 }
                 case 9: {
                     CogroupSources.Add(System.Text.Encoding.UTF8.GetString(field.BytesValue));
+                    break;
+                }
+                case 10: {
+                    StateDir = System.Text.Encoding.UTF8.GetString(field.BytesValue);
                     break;
                 }
                 default: UnknownFields = Kafka_streamsPb.ConcatBytes(UnknownFields, field.RawValue); break;

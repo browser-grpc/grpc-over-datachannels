@@ -166,6 +166,7 @@ pub const Topology = struct {
     processing_guarantee: ProcessingGuarantee = .PROCESSING_GUARANTEE_UNSPECIFIED,
     table_topic: []const u8 = "",
     cogroup_sources: []const []const u8 = &.{},
+    state_dir: []const u8 = "",
     unknown_fields: []const u8 = &.{},
     pub fn marshalDc(self: *const Topology, alloc: std.mem.Allocator) []u8 {
         _ = .{ self, alloc };
@@ -185,6 +186,7 @@ pub const Topology = struct {
         if (@intFromEnum(self.processing_guarantee) != 0) { w.tag(7, 0); w.varint(@as(u64, @bitCast(@as(i64, @intFromEnum(self.processing_guarantee))))); }
         w.stringField(8, self.table_topic);
         for (self.cogroup_sources) |x| w.bytesField(9, x);
+        w.stringField(10, self.state_dir);
         w.raw(self.unknown_fields);
         return w.toBytes();
     }
@@ -199,6 +201,7 @@ pub const Topology = struct {
         self.processing_guarantee = .PROCESSING_GUARANTEE_UNSPECIFIED;
         self.table_topic = "";
         self.cogroup_sources = &.{};
+        self.state_dir = "";
         var operators_list = std.ArrayList(Operator).empty;
         var steps_list = std.ArrayList(Step).empty;
         var cogroup_sources_list = std.ArrayList([]const u8).empty;
@@ -242,6 +245,9 @@ pub const Topology = struct {
                 },
                 9 => {
                     cogroup_sources_list.append(alloc, alloc.dupe(u8, field.bytes_value) catch "") catch {};
+                },
+                10 => {
+                    self.state_dir = alloc.dupe(u8, field.bytes_value) catch "";
                 },
                 else => { unknown_fields_list.appendSlice(alloc, field.raw_value) catch {}; },
             }

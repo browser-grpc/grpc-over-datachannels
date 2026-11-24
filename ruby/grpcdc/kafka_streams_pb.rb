@@ -232,9 +232,9 @@ end
   end
 
   class Topology
-    attr_accessor :name, :application_id, :source_topic, :sink_topic, :operators, :steps, :processing_guarantee, :table_topic, :cogroup_sources, :unknown_fields
+    attr_accessor :name, :application_id, :source_topic, :sink_topic, :operators, :steps, :processing_guarantee, :table_topic, :cogroup_sources, :state_dir, :unknown_fields
 
-    def initialize(name: "", application_id: "", source_topic: "", sink_topic: "", operators: [], steps: [], processing_guarantee: 0, table_topic: "", cogroup_sources: [])
+    def initialize(name: "", application_id: "", source_topic: "", sink_topic: "", operators: [], steps: [], processing_guarantee: 0, table_topic: "", cogroup_sources: [], state_dir: "")
       @name = name
       @application_id = application_id
       @source_topic = source_topic
@@ -244,6 +244,7 @@ end
       @processing_guarantee = processing_guarantee
       @table_topic = table_topic
       @cogroup_sources = cogroup_sources
+      @state_dir = state_dir
       @unknown_fields = "".b
     end
 
@@ -265,6 +266,7 @@ end
     end
     w.string_field(8, @table_topic)
     @cogroup_sources.each { |x| w.bytes_field(9, x) }
+    w.string_field(10, @state_dir)
       w.raw(@unknown_fields)
       w.to_bytes
     end
@@ -280,6 +282,7 @@ end
       @processing_guarantee = 0
       @table_topic = ""
       @cogroup_sources = []
+      @state_dir = ""
       r = Reader.new(data)
       loop do
         item = r.field
@@ -315,6 +318,8 @@ end
         @table_topic = bytes_value.dup.force_encoding(Encoding::UTF_8)
       when 9
         @cogroup_sources << bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 10
+        @state_dir = bytes_value.dup.force_encoding(Encoding::UTF_8)
         else
           @unknown_fields = @unknown_fields + raw_value
         end
@@ -323,7 +328,7 @@ end
     end
 
     def ==(other)
-      other.is_a?(Topology) && @name == other.name && @application_id == other.application_id && @source_topic == other.source_topic && @sink_topic == other.sink_topic && @operators == other.operators && @steps == other.steps && @processing_guarantee == other.processing_guarantee && @table_topic == other.table_topic && @cogroup_sources == other.cogroup_sources
+      other.is_a?(Topology) && @name == other.name && @application_id == other.application_id && @source_topic == other.source_topic && @sink_topic == other.sink_topic && @operators == other.operators && @steps == other.steps && @processing_guarantee == other.processing_guarantee && @table_topic == other.table_topic && @cogroup_sources == other.cogroup_sources && @state_dir == other.state_dir
     end
   end
 

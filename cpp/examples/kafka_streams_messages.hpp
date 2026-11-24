@@ -137,6 +137,7 @@ class Topology : public grpcdc::Marshaler, public grpcdc::Unmarshaler {
   ProcessingGuarantee processing_guarantee = ProcessingGuarantee::PROCESSING_GUARANTEE_UNSPECIFIED;
   std::string table_topic = "";
   std::vector<std::string> cogroup_sources = {};
+  std::string state_dir = "";
   grpcdc::Bytes unknown_fields;
   Topology() = default;
   grpcdc::Bytes MarshalDc() const override;
@@ -320,6 +321,7 @@ inline grpcdc::Bytes Topology::MarshalDc() const {
     if (static_cast<std::int32_t>(processing_guarantee) != 0) { pb_w.Tag(7, 0); pb_w.Varint(static_cast<std::int32_t>(processing_guarantee)); }
     pb_w.StringField(8, table_topic);
     for (const auto& pb_x : cogroup_sources) pb_w.BytesField(9, grpcdc::Bytes(pb_x.begin(), pb_x.end()));
+    pb_w.StringField(10, state_dir);
     pb_w.Raw(unknown_fields);
     return pb_w.ToBytes();
 }
@@ -335,6 +337,7 @@ inline void Topology::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
     processing_guarantee = ProcessingGuarantee::PROCESSING_GUARANTEE_UNSPECIFIED;
     table_topic = "";
     cogroup_sources = {};
+    state_dir = "";
     pb_kafka_streams::Reader pb_r(pb_data_);
     pb_kafka_streams::Field pb_field;
     while (pb_r.Next(pb_field)) {
@@ -382,6 +385,10 @@ inline void Topology::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
         }
         case 9: {
             cogroup_sources.push_back(std::string(pb_field.bytes.begin(), pb_field.bytes.end()));
+            break;
+        }
+        case 10: {
+            state_dir = std::string(pb_field.bytes.begin(), pb_field.bytes.end());
             break;
         }
         default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;

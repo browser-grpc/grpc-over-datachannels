@@ -1051,6 +1051,23 @@ async fn join_topology_group(
 }
 
 
+fn changelog_topic(app_id: &str) -> String {
+    format!("{app_id}-store-changelog")
+}
+
+/// Restore a store snapshot from changelog records
+/// (key = store key bytes, value = decimal i64): latest
+/// record per key wins.
+fn restore_changelog(records: &[(Vec<u8>, Vec<u8>)]) -> HashMap<Vec<u8>, i64> {
+    let mut store = HashMap::new();
+    for (k, v) in records {
+        if let Some(n) = parse_i64(v) {
+            store.insert(k.clone(), n);
+        }
+    }
+    store
+}
+
 /// Run the pipeline for one record without holding the
 /// topology state lock across it: PROCESS steps call out to
 /// client-hosted processors, whose ProcessorContext calls
@@ -1222,6 +1239,54 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
         }
     }
 
+    // Persistent state: restore the store from the
+    // changelog topic when state_dir is set and a changelog
+    // exists; source-range replay is then skipped for the
+    // store (offsets still resume from the group commits).
+    let changelog = if topo.state_dir.is_empty() {
+        None
+    } else {
+        Some(changelog_topic(&app_id))
+    };
+    let mut changelog_restored = false;
+    if let Some(topic) = &changelog {
+        let _ = broker
+            .create_topics(vec![(topic.clone(), -1, -1)], 15_000, false)
+            .await;
+        // Read the whole changelog (all partitions) latest-per-key.
+        if let Ok(meta) = broker.metadata(vec![topic.clone()], false).await {
+            let mut records: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
+            for t in &meta.topics {
+                if &t.name != topic {
+                    continue;
+                }
+                for part in &t.partitions {
+                    let mut off = broker
+                        .list_offsets(topic, part.id, -2, false)
+                        .await
+                        .map(|(o, _, _)| o)
+                        .unwrap_or(0);
+                    loop {
+                        match broker.fetch(topic, part.id, off, 200, 1, 4 * 1024 * 1024, false).await {
+                            Ok(outcome) if outcome.error_code == 0 && !outcome.records.is_empty() => {
+                                for r in &outcome.records {
+                                    off = r.offset + 1;
+                                    records.push((r.key.clone(), r.value.clone()));
+                                }
+                            }
+                            _ => break,
+                        }
+                    }
+                }
+            }
+            if !records.is_empty() {
+                let store = restore_changelog(&records);
+                handle.state.lock().await.store = store;
+                changelog_restored = true;
+            }
+        }
+    }
+
     // Resume from committed group offsets, else earliest.
     // When a committed offset exists, first restore the
     // store by replaying [earliest, committed) through the
@@ -1240,7 +1305,7 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
             Err(e) => return fail(&handle, e.message.clone()).await,
         };
         let start = committed.unwrap_or(earliest);
-        if start > earliest {
+        if start > earliest && !changelog_restored {
             let mut replay = earliest;
             while replay < start && !handle.stop.load(Ordering::Relaxed) {
                 let outcome = match broker.fetch(&topo.source_topic, *p, replay, 200, 1, 4 * 1024 * 1024, false).await {
@@ -1542,6 +1607,31 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
                 }
             }
             offsets.insert(*p, next_offset);
+            if let Some(topic) = &changelog {
+                // Snapshot the whole store per batch
+                // (at-least-once: a crash may persist a
+                // change whose offset did not commit; the
+                // record then replays into the restored
+                // store, which for COUNT/SUM double-counts
+                // that one record - documented in KAFKA.md;
+                // EXACTLY_ONCE makes changelog+offset atomic
+                // only when the changelog produce joins the
+                // same transaction, which v1 does not do).
+                let snapshot: Vec<(Vec<u8>, i64)> = {
+                    let st = handle.state.lock().await;
+                    st.store.iter().map(|(k, v)| (k.clone(), *v)).collect()
+                };
+                for (k, v) in snapshot {
+                    let rec = crate::pb::Record {
+                        key: k,
+                        value: v.to_string().into_bytes(),
+                        ..Default::default()
+                    };
+                    let _ = broker
+                        .produce(topic, 0, &[rec], -1, 30_000, 0, -1, -1, -1, None)
+                        .await;
+                }
+            }
         }
         if !progressed {
             tokio::time::sleep(std::time::Duration::from_millis(150)).await;
@@ -1811,6 +1901,21 @@ mod tests {
         let out = run2!(15000, "7");
         assert!(out.iter().any(|r| r.window == Some((5001, 15001)) && r.value == b"12".to_vec()),
             "sliding window must aggregate both records: {out:?}");
+    }
+
+    #[test]
+    fn changelog_restore_latest_wins() {
+        let records = vec![
+            (b"a".to_vec(), b"1".to_vec()),
+            (b"b".to_vec(), b"5".to_vec()),
+            (b"a".to_vec(), b"3".to_vec()),
+            (b"c".to_vec(), b"not-a-number".to_vec()),
+        ];
+        let store = restore_changelog(&records);
+        assert_eq!(store[b"a".as_slice()], 3);
+        assert_eq!(store[b"b".as_slice()], 5);
+        assert!(!store.contains_key(b"c".as_slice()));
+        assert_eq!(changelog_topic("streams-wc"), "streams-wc-store-changelog");
     }
 
     #[test]

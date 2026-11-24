@@ -255,7 +255,8 @@ class Topology(
     var steps: List[Step] = List.empty,
     var processingGuarantee: Int = 0,
     var tableTopic: String = "",
-    var cogroupSources: List[String] = List.empty
+    var cogroupSources: List[String] = List.empty,
+    var stateDir: String = ""
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
@@ -282,6 +283,7 @@ class Topology(
     for (pbX <- cogroupSources) {
       pbW.bytesField(9, pbX.getBytes(java.nio.charset.StandardCharsets.UTF_8))
     }
+    pbW.stringField(10, stateDir)
     pbW.raw(unknownFields)
     pbW.toBytes
   }
@@ -297,6 +299,7 @@ class Topology(
     processingGuarantee = 0
     tableTopic = ""
     cogroupSources = List.empty
+    stateDir = ""
     val pbR = new KafkaStreamsPb.Reader(data)
     var pbField = pbR.next()
     while (pbField != null) {
@@ -329,6 +332,8 @@ class Topology(
           tableTopic = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 9 =>
           cogroupSources = cogroupSources :+ new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 10 =>
+          stateDir = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
       pbField = pbR.next()

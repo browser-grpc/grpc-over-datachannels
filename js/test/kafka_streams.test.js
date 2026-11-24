@@ -922,3 +922,94 @@ test("kafka streams PROCESS routes through a client-hosted processor", { skip: !
   const calls = await streams.getStoreValue(new GetStoreValueRequest({ topology: name, key: "a" }));
   assert.equal(calls.value, 2n);
 });
+
+// Generated-scenario legs: cases come from
+// racket/kafka-streams-spec.rkt (one table for every
+// language; Python interprets the same data). The dedicated
+// tests above cover the operators these scenarios don't.
+import { KAFKA_STREAMS_SCENARIOS } from "./kafka_streams_scenarios.generated.js";
+
+for (const scenario of KAFKA_STREAMS_SCENARIOS) {
+  test(`kafka streams generated scenario: ${scenario.name}`, { skip: !PROXY_ADDR }, async (t) => {
+    const { Step, Aggregator } = await import("../src/kafka_streams_pb.js");
+    const { kafka, streams, source, sink, name } = await setupStreams(t);
+    void kafka;
+    void streams;
+    void source;
+    void sink;
+    void name;
+    // setupStreams pre-created the legacy word-count
+    // topology; generated scenarios need custom chains, so
+    // this leg builds its own.
+    const { dc, kafka: k2, streams: s2 } = makeClients();
+    const id = randomUUID().slice(0, 12);
+    const src = `gen-in-${id}`;
+    const out = `gen-out-${id}`;
+    const topoName = `gen-${scenario.name}-${id}`;
+    t.after(async () => {
+      try {
+        await s2.deleteTopology(new DeleteTopologyRequest({ name: topoName }));
+        await k2.deleteTopics(new DeleteTopicsRequest({ topics: [src, out] }));
+      } catch { /* best effort */ }
+      dc.close();
+    });
+    for (const topic of [src, out]) {
+      const created = await k2.createTopics(new CreateTopicsRequest({
+        topics: [new NewTopic({ name: topic, numPartitions: 1, replicationFactor: 1 })],
+        timeoutMs: 15000,
+      }));
+      assert.deepEqual(created.results.map((r) => r.errorCode), [0]);
+    }
+    const steps = scenario.chain.map((st) => new Step({
+      operator: Operator[st.operator],
+      param: st.param,
+      aggregator: st.aggregator,
+    }));
+    const info = await s2.createTopology(new CreateTopologyRequest({
+      topology: new Topology({ name: topoName, sourceTopic: src, sinkTopic: out, steps }),
+    }));
+    assert.equal(info.state, "RUNNING");
+    await produceLines(k2, src, scenario.lines);
+    for (const [key, value] of Object.entries(scenario.store)) {
+      await waitStore(s2, topoName, key, BigInt(value));
+    }
+    const { finalCounts } = await drainSink(k2, out, 1);
+    assert.deepEqual(finalCounts, scenario.sink);
+  });
+}
+
+test("kafka streams state_dir restores from changelog on recreate", { skip: !PROXY_ADDR }, async (t) => {
+  const { kafka, streams, source, sink, name } = await setupStreams(t);
+  // Recreate with state_dir from the start (same name/app).
+  await streams.deleteTopology(new DeleteTopologyRequest({ name }));
+  await sleep(600);
+  const mk = () => streams.createTopology(new CreateTopologyRequest({
+    topology: new Topology({
+      name, sourceTopic: source, sinkTopic: sink, stateDir: "state",
+      operators: [Operator.TOKENIZE_WORDS, Operator.GROUP_BY_KEY, Operator.COUNT],
+    }),
+  }));
+  // The default topology from setupStreams had no records;
+  // recreate as stateful, count, delete, recreate, and the
+  // store must come back from the changelog WITHOUT
+  // replaying the source (sink gets no duplicate counts).
+  await mk();
+  await produceLines(kafka, source, ["persist persist me"]);
+  await waitStore(streams, name, "persist", 2n);
+  const sinkBefore = (await drainSink(kafka, sink, 1)).total;
+  await streams.deleteTopology(new DeleteTopologyRequest({ name }));
+  await sleep(600);
+  await mk();
+  // Store restored from changelog before any new record.
+  let restored = null;
+  for (let i = 0; i < 40; i++) {
+    restored = await streams.getStoreValue(new GetStoreValueRequest({ topology: name, key: "persist" }));
+    if (restored.found && restored.value === 2n) break;
+    await sleep(250);
+  }
+  assert.equal(restored?.value, 2n, "store was not restored from changelog");
+  await produceLines(kafka, source, ["persist"]);
+  await waitStore(streams, name, "persist", 3n);
+  const sinkAfter = (await drainSink(kafka, sink, 1)).total;
+  assert.equal(sinkAfter, sinkBefore + 1, "restore replayed source records into the sink");
+});

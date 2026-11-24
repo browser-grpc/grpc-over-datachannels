@@ -12,9 +12,10 @@ public final class Topology implements grpcdc.Marshaler, grpcdc.Unmarshaler {
     public ProcessingGuarantee processingGuarantee = ProcessingGuarantee.PROCESSING_GUARANTEE_UNSPECIFIED;
     public String tableTopic = "";
     public java.util.List<String> cogroupSources = new java.util.ArrayList<>();
+    public String stateDir = "";
     public byte[] unknownFields = new byte[0];
     public Topology() {}
-    public Topology(String name, String applicationId, String sourceTopic, String sinkTopic, java.util.List<Operator> operators, java.util.List<Step> steps, ProcessingGuarantee processingGuarantee, String tableTopic, java.util.List<String> cogroupSources) {
+    public Topology(String name, String applicationId, String sourceTopic, String sinkTopic, java.util.List<Operator> operators, java.util.List<Step> steps, ProcessingGuarantee processingGuarantee, String tableTopic, java.util.List<String> cogroupSources, String stateDir) {
         this.name = name;
         this.applicationId = applicationId;
         this.sourceTopic = sourceTopic;
@@ -24,6 +25,7 @@ public final class Topology implements grpcdc.Marshaler, grpcdc.Unmarshaler {
         this.processingGuarantee = processingGuarantee;
         this.tableTopic = tableTopic;
         this.cogroupSources = cogroupSources;
+        this.stateDir = stateDir;
     }
 
     @Override
@@ -42,6 +44,7 @@ public final class Topology implements grpcdc.Marshaler, grpcdc.Unmarshaler {
         if (processingGuarantee != null && processingGuarantee.number != 0) { pbW.tag(7, 0); pbW.varint(processingGuarantee.number); }
         pbW.stringField(8, tableTopic);
         if (cogroupSources != null) for (String pbX : cogroupSources) pbW.bytesField(9, pbX.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        pbW.stringField(10, stateDir);
         pbW.raw(unknownFields);
         return pbW.toBytes();
     }
@@ -58,6 +61,7 @@ public final class Topology implements grpcdc.Marshaler, grpcdc.Unmarshaler {
         processingGuarantee = ProcessingGuarantee.PROCESSING_GUARANTEE_UNSPECIFIED;
         tableTopic = "";
         cogroupSources = new java.util.ArrayList<>();
+        stateDir = "";
         Kafka_streamsPb.Reader pbR = new Kafka_streamsPb.Reader(data);
         Kafka_streamsPb.Field pbField;
         while ((pbField = pbR.next()) != null) {
@@ -97,6 +101,9 @@ public final class Topology implements grpcdc.Marshaler, grpcdc.Unmarshaler {
                 }
                 case 9 -> {
                     cogroupSources.add(new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8));
+                }
+                case 10 -> {
+                    stateDir = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 default -> { unknownFields = Kafka_streamsPb.concatBytes(unknownFields, pbField.rawValue); }
             }

@@ -163,9 +163,10 @@ public final class Topology: Marshaler, Unmarshaler {
     public var processingGuarantee: ProcessingGuarantee = ProcessingGuarantee.PROCESSING_GUARANTEE_UNSPECIFIED
     public var tableTopic: String = ""
     public var cogroupSources: [String] = []
+    public var stateDir: String = ""
     public var unknownFields: [UInt8] = []
     public init() {}
-    public init(_ name: String = "", _ applicationId: String = "", _ sourceTopic: String = "", _ sinkTopic: String = "", _ operators: [Operator] = [], _ steps: [Step] = [], _ processingGuarantee: ProcessingGuarantee = ProcessingGuarantee.PROCESSING_GUARANTEE_UNSPECIFIED, _ tableTopic: String = "", _ cogroupSources: [String] = []) {
+    public init(_ name: String = "", _ applicationId: String = "", _ sourceTopic: String = "", _ sinkTopic: String = "", _ operators: [Operator] = [], _ steps: [Step] = [], _ processingGuarantee: ProcessingGuarantee = ProcessingGuarantee.PROCESSING_GUARANTEE_UNSPECIFIED, _ tableTopic: String = "", _ cogroupSources: [String] = [], _ stateDir: String = "") {
         self.name = name
         self.applicationId = applicationId
         self.sourceTopic = sourceTopic
@@ -175,6 +176,7 @@ public final class Topology: Marshaler, Unmarshaler {
         self.processingGuarantee = processingGuarantee
         self.tableTopic = tableTopic
         self.cogroupSources = cogroupSources
+        self.stateDir = stateDir
     }
     public func MarshalDc() -> [UInt8] {
         let pbW = Kafka_streamsPb.Writer()
@@ -191,6 +193,7 @@ public final class Topology: Marshaler, Unmarshaler {
         if processingGuarantee.rawValue != 0 { pbW.Tag(7, 0); pbW.Varint(Int64(processingGuarantee.rawValue)) }
         pbW.StringField(8, tableTopic)
         for pbX in cogroupSources { pbW.BytesField(9, [UInt8](pbX.utf8)) }
+        pbW.StringField(10, stateDir)
         pbW.Raw(unknownFields)
         return pbW.ToBytes()
     }
@@ -205,6 +208,7 @@ public final class Topology: Marshaler, Unmarshaler {
         processingGuarantee = ProcessingGuarantee.PROCESSING_GUARANTEE_UNSPECIFIED
         tableTopic = ""
         cogroupSources = []
+        stateDir = ""
         let pbR = Kafka_streamsPb.Reader(data)
         while true {
             let next: Kafka_streamsPb.Field?
@@ -238,6 +242,8 @@ public final class Topology: Marshaler, Unmarshaler {
                 tableTopic = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 9:
                 cogroupSources.append(String(decoding: pbField.bytesValue, as: UTF8.self))
+            case 10:
+                stateDir = String(decoding: pbField.bytesValue, as: UTF8.self)
             default: unknownFields += pbField.rawValue
             }
         }

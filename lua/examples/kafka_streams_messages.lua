@@ -190,8 +190,8 @@ end
 Topology = {}
 Topology.__index = Topology
 
-function Topology.new(name, applicationId, sourceTopic, sinkTopic, operators, steps, processingGuarantee, tableTopic, cogroupSources)
-  return setmetatable({ name = name or "", applicationId = applicationId or "", sourceTopic = sourceTopic or "", sinkTopic = sinkTopic or "", operators = operators or {}, steps = steps or {}, processingGuarantee = processingGuarantee or 0, tableTopic = tableTopic or "", cogroupSources = cogroupSources or {}, unknownFields = "" }, Topology)
+function Topology.new(name, applicationId, sourceTopic, sinkTopic, operators, steps, processingGuarantee, tableTopic, cogroupSources, stateDir)
+  return setmetatable({ name = name or "", applicationId = applicationId or "", sourceTopic = sourceTopic or "", sinkTopic = sinkTopic or "", operators = operators or {}, steps = steps or {}, processingGuarantee = processingGuarantee or 0, tableTopic = tableTopic or "", cogroupSources = cogroupSources or {}, stateDir = stateDir or "", unknownFields = "" }, Topology)
 end
 
 function Topology:marshalDc()
@@ -209,6 +209,7 @@ function Topology:marshalDc()
     if self.processingGuarantee ~= 0 then w:tag(7, 0) w:varint(self.processingGuarantee) end
     w:stringField(8, self.tableTopic)
     for _, x in ipairs(self.cogroupSources) do w:bytesField(9, x) end
+    w:stringField(10, self.stateDir)
   w:raw(self.unknownFields)
   return w:toBytes()
 end
@@ -224,6 +225,7 @@ function Topology:unmarshalDc(data)
   self.processingGuarantee = 0
   self.tableTopic = ""
   self.cogroupSources = {}
+  self.stateDir = ""
   local r = Reader.new(data)
   while true do
     local field = r:next()
@@ -257,6 +259,8 @@ function Topology:unmarshalDc(data)
       self.tableTopic = field.bytesValue
     elseif field.number == 9 then
       self.cogroupSources[#self.cogroupSources + 1] = field.bytesValue
+    elseif field.number == 10 then
+      self.stateDir = field.bytesValue
     else
       self.unknownFields = self.unknownFields .. field.rawValue
     end
