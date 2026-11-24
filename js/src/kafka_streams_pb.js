@@ -131,7 +131,7 @@ function readFixed(bytes, read) {
   return read(new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength));
 }
 
-export const Operator = { OPERATOR_UNSPECIFIED: 0, TOKENIZE_WORDS: 1, GROUP_BY_KEY: 2, COUNT: 3, MAP_VALUES: 4, FILTER: 5, SELECT_KEY: 6, AGGREGATE: 7, REDUCE: 8, WINDOW_TUMBLING: 9, WINDOW_HOPPING: 10, JOIN_TABLE: 11, WINDOW_SESSION: 12, WINDOW_SLIDING: 13 };
+export const Operator = { OPERATOR_UNSPECIFIED: 0, TOKENIZE_WORDS: 1, GROUP_BY_KEY: 2, COUNT: 3, MAP_VALUES: 4, FILTER: 5, SELECT_KEY: 6, AGGREGATE: 7, REDUCE: 8, WINDOW_TUMBLING: 9, WINDOW_HOPPING: 10, JOIN_TABLE: 11, WINDOW_SESSION: 12, WINDOW_SLIDING: 13, COGROUP: 14 };
 
 export const Aggregator = { AGGREGATOR_UNSPECIFIED: 0, AGGREGATE_COUNT: 1, AGGREGATE_SUM: 2, AGGREGATE_MIN: 3, AGGREGATE_MAX: 4 };
 
@@ -201,7 +201,7 @@ export class Step {
 }
 
 export class Topology {
-  constructor({ name = "", applicationId = "", sourceTopic = "", sinkTopic = "", operators = [], steps = [], processingGuarantee = 0, tableTopic = "" } = {}) {
+  constructor({ name = "", applicationId = "", sourceTopic = "", sinkTopic = "", operators = [], steps = [], processingGuarantee = 0, tableTopic = "", cogroupSources = [] } = {}) {
     this.name = name;
     this.applicationId = applicationId;
     this.sourceTopic = sourceTopic;
@@ -210,6 +210,7 @@ export class Topology {
     this.steps = steps;
     this.processingGuarantee = processingGuarantee;
     this.tableTopic = tableTopic;
+    this.cogroupSources = cogroupSources;
     this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
@@ -226,6 +227,7 @@ export class Topology {
     if (msg.steps) for (const v of msg.steps) putBytesField(out, 6, Step.encode(v));
     putVarintField(out, 7, BigInt(msg.processingGuarantee));
     putStringField(out, 8, msg.tableTopic);
+    if (msg.cogroupSources) for (const v of msg.cogroupSources) putBytesField(out, 9, textEncoder.encode(v));
     putRaw(out, msg.unknownFields);
     return new Uint8Array(out);
   }
@@ -253,6 +255,7 @@ export class Topology {
       case 6: msg.steps.push(Step.decode(value)); break;
       case 7: msg.processingGuarantee = Number(BigInt.asIntN(32, value)); break;
       case 8: msg.tableTopic = textDecoder.decode(value); break;
+      case 9: msg.cogroupSources.push(textDecoder.decode(value)); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
@@ -267,6 +270,7 @@ export class Topology {
     this.steps = [];
     this.processingGuarantee = 0;
     this.tableTopic = "";
+    this.cogroupSources = [];
     this.unknownFields = EMPTY_BYTES;
   }
 }

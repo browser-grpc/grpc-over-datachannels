@@ -43,7 +43,8 @@ enum class Operator : std::int32_t {
   WINDOW_HOPPING = 10,
   JOIN_TABLE = 11,
   WINDOW_SESSION = 12,
-  WINDOW_SLIDING = 13
+  WINDOW_SLIDING = 13,
+  COGROUP = 14
 };
 
 enum class Aggregator : std::int32_t {
@@ -133,6 +134,7 @@ class Topology : public grpcdc::Marshaler, public grpcdc::Unmarshaler {
   std::vector<Step> steps = {};
   ProcessingGuarantee processing_guarantee = ProcessingGuarantee::PROCESSING_GUARANTEE_UNSPECIFIED;
   std::string table_topic = "";
+  std::vector<std::string> cogroup_sources = {};
   grpcdc::Bytes unknown_fields;
   Topology() = default;
   grpcdc::Bytes MarshalDc() const override;
@@ -315,6 +317,7 @@ inline grpcdc::Bytes Topology::MarshalDc() const {
     for (const auto& pb_x : steps) pb_w.BytesField(6, pb_x.MarshalDc());
     if (static_cast<std::int32_t>(processing_guarantee) != 0) { pb_w.Tag(7, 0); pb_w.Varint(static_cast<std::int32_t>(processing_guarantee)); }
     pb_w.StringField(8, table_topic);
+    for (const auto& pb_x : cogroup_sources) pb_w.BytesField(9, grpcdc::Bytes(pb_x.begin(), pb_x.end()));
     pb_w.Raw(unknown_fields);
     return pb_w.ToBytes();
 }
@@ -329,6 +332,7 @@ inline void Topology::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
     steps = {};
     processing_guarantee = ProcessingGuarantee::PROCESSING_GUARANTEE_UNSPECIFIED;
     table_topic = "";
+    cogroup_sources = {};
     pb_kafka_streams::Reader pb_r(pb_data_);
     pb_kafka_streams::Field pb_field;
     while (pb_r.Next(pb_field)) {
@@ -372,6 +376,10 @@ inline void Topology::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
         }
         case 8: {
             table_topic = std::string(pb_field.bytes.begin(), pb_field.bytes.end());
+            break;
+        }
+        case 9: {
+            cogroup_sources.push_back(std::string(pb_field.bytes.begin(), pb_field.bytes.end()));
             break;
         }
         default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;

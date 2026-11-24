@@ -124,6 +124,7 @@ class Operator:
     JOIN_TABLE = 11
     WINDOW_SESSION = 12
     WINDOW_SLIDING = 13
+    COGROUP = 14
 
 
 class Aggregator:
@@ -209,7 +210,7 @@ class Step:
 class Topology:
     """Message grpcdc.kafka.streams.v1.Topology."""
 
-    def __init__(self, name="", application_id="", source_topic="", sink_topic="", operators=None, steps=None, processing_guarantee=0, table_topic=""):
+    def __init__(self, name="", application_id="", source_topic="", sink_topic="", operators=None, steps=None, processing_guarantee=0, table_topic="", cogroup_sources=None):
         self.name = name
         self.application_id = application_id
         self.source_topic = source_topic
@@ -218,6 +219,7 @@ class Topology:
         self.steps = list(steps) if steps is not None else []
         self.processing_guarantee = processing_guarantee
         self.table_topic = table_topic
+        self.cogroup_sources = list(cogroup_sources) if cogroup_sources is not None else []
         self.unknown_fields = b""
 
     def marshal_dc(self):
@@ -235,6 +237,8 @@ class Topology:
             out = _append_bytes_field(out, 6, v.marshal_dc())
         out = _append_varint_field(out, 7, self.processing_guarantee)
         out = _append_string_field(out, 8, self.table_topic)
+        for v in self.cogroup_sources:
+            out = _append_bytes_field(out, 9, v.encode("utf-8"))
         out += self.unknown_fields
         return bytes(out)
 
@@ -248,6 +252,7 @@ class Topology:
         self.steps = []
         self.processing_guarantee = 0
         self.table_topic = ""
+        self.cogroup_sources = []
         reader = _Reader(data)
         while True:
             item = reader.field()
@@ -278,6 +283,8 @@ class Topology:
                 self.processing_guarantee = _as_int32(value)
             elif num == 8:
                 self.table_topic = value.decode("utf-8")
+            elif num == 9:
+                self.cogroup_sources.append(value.decode("utf-8"))
             else:
                 self.unknown_fields = self.unknown_fields + raw
 
@@ -285,7 +292,7 @@ class Topology:
         return isinstance(other, Topology) and self.__dict__ == other.__dict__
 
     def __repr__(self):
-        return f"Topology(name={self.name!r}, application_id={self.application_id!r}, source_topic={self.source_topic!r}, sink_topic={self.sink_topic!r}, operators={self.operators!r}, steps={self.steps!r}, processing_guarantee={self.processing_guarantee!r}, table_topic={self.table_topic!r})"
+        return f"Topology(name={self.name!r}, application_id={self.application_id!r}, source_topic={self.source_topic!r}, sink_topic={self.sink_topic!r}, operators={self.operators!r}, steps={self.steps!r}, processing_guarantee={self.processing_guarantee!r}, table_topic={self.table_topic!r}, cogroup_sources={self.cogroup_sources!r})"
 
 
 class TopologyInfo:

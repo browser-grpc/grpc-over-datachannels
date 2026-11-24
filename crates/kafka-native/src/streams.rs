@@ -59,6 +59,7 @@ enum Op {
     JoinTable { separator: Vec<u8> },
     WindowSession { gap_ms: i64, grace_ms: i64, kind: AggKind },
     WindowSliding { size_ms: i64, grace_ms: i64, kind: AggKind },
+    Cogroup,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -153,6 +154,14 @@ fn resolve_ops(topo: &spb::Topology) -> Result<Vec<Op>, Status> {
                 }
                 let sep = if step.param.is_empty() { ":".to_string() } else { step.param.clone() };
                 Op::JoinTable { separator: sep.into_bytes() }
+            }
+            spb::Operator::Cogroup => {
+                if topo.cogroup_sources.is_empty() {
+                    return Err(Status::invalid_argument(
+                        "COGROUP requires Topology.cogroup_sources",
+                    ));
+                }
+                Op::Cogroup
             }
             spb::Operator::WindowSession | spb::Operator::WindowSliding => {
                 // The aggregating window ops need the
@@ -653,6 +662,7 @@ fn apply_pipeline(ops: &[Op], rec: &PipeRec, ctx: &mut PipelineCtx) -> Vec<PipeR
                         next.push(PipeRec { window: Some((start, end)), ..r.clone() });
                     }
                 }
+                Op::Cogroup => next.push(r),
                 Op::JoinTable { separator } => {
                     if let Some(tv) = ctx.table.get(&r.key) {
                         let mut value = r.value.clone();
@@ -999,6 +1009,31 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
         }
     }
 
+    // Cogroup sources: keyed decimal values folded into
+    // the store (SUM) as they arrive.
+    let mut cogroup_offsets: HashMap<String, HashMap<i32, i64>> = HashMap::new();
+    for topic in &topo.cogroup_sources {
+        match broker.metadata(vec![topic.clone()], false).await {
+            Ok(m) => {
+                let mut parts = HashMap::new();
+                for t in &m.topics {
+                    if &t.name == topic {
+                        for part in &t.partitions {
+                            let off = broker
+                                .list_offsets(topic, part.id, -2, false)
+                                .await
+                                .map(|(o, _, _)| o)
+                                .unwrap_or(0);
+                            parts.insert(part.id, off);
+                        }
+                    }
+                }
+                cogroup_offsets.insert(topic.clone(), parts);
+            }
+            Err(e) => return fail(&handle, e.message.clone()).await,
+        }
+    }
+
     // Resume from committed group offsets, else earliest.
     // When a committed offset exists, first restore the
     // store by replaying [earliest, committed) through the
@@ -1121,6 +1156,24 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
                             state.table.remove(&record.key);
                         } else {
                             state.table.insert(record.key.clone(), record.value.clone());
+                        }
+                    }
+                }
+            }
+        }
+        for (topic, parts) in cogroup_offsets.iter_mut() {
+            for (tp, toff) in parts.iter_mut() {
+                if let Ok(outcome) = broker
+                    .fetch(topic, *tp, *toff, 100, 1, 4 * 1024 * 1024, false)
+                    .await
+                {
+                    if outcome.error_code == 0 && !outcome.records.is_empty() {
+                        let mut state = handle.state.lock().await;
+                        for record in &outcome.records {
+                            *toff = record.offset + 1;
+                            if let Some(v) = parse_i64(&record.value) {
+                                *state.store.entry(record.key.clone()).or_insert(0) += v;
+                            }
                         }
                     }
                 }

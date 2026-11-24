@@ -720,3 +720,58 @@ test("kafka streams session window merges by gap", { skip: !PROXY_ADDR }, async 
   const s2 = await fetchWin(T0 + 120_000n, T0 + 120_001n);
   assert.equal(s2.value, 1n);
 });
+
+test("kafka streams cogroup folds extra topics into the store", { skip: !PROXY_ADDR }, async (t) => {
+  const { dc, kafka, streams } = makeClients();
+  const id = randomUUID().slice(0, 12);
+  const source = `streams-cg-in-${id}`;
+  const extra = `streams-cg-extra-${id}`;
+  const sink = `streams-cg-out-${id}`;
+  const name = `cg-${id}`;
+  t.after(async () => {
+    try {
+      await streams.deleteTopology(new DeleteTopologyRequest({ name }));
+      await kafka.deleteTopics(new DeleteTopicsRequest({ topics: [source, extra, sink] }));
+    } catch { /* best effort */ }
+    dc.close();
+  });
+  for (const topic of [source, extra, sink]) {
+    const created = await kafka.createTopics(new CreateTopicsRequest({
+      topics: [new NewTopic({ name: topic, numPartitions: 1, replicationFactor: 1 })],
+      timeoutMs: 15000,
+    }));
+    assert.deepEqual(created.results.map((r) => r.errorCode), [0]);
+  }
+  const { Step } = await import("../src/kafka_streams_pb.js");
+  const info = await streams.createTopology(new CreateTopologyRequest({
+    topology: new Topology({
+      name, sourceTopic: source, sinkTopic: sink, cogroupSources: [extra],
+      steps: [
+        new Step({ operator: Operator.GROUP_BY_KEY }),
+        new Step({ operator: Operator.COGROUP }),
+        new Step({ operator: Operator.AGGREGATE, aggregator: 2 /* SUM */ }),
+      ],
+    }),
+  }));
+  assert.equal(info.state, "RUNNING");
+  const put = async (topic, k, v) => {
+    const resp = await kafka.produce(new ProduceRequest({
+      topic, partition: 0, records: [new Record({ key: enc(k), value: enc(v) })],
+    }));
+    assert.equal(resp.errorCode, 0);
+  };
+  await put(source, "a", "5");
+  await put(extra, "a", "7");
+  await put(extra, "b", "3");
+  // Store for "a": main aggregate (5) + cogroup fold (7) in
+  // some order; wait until the total reaches 12.
+  let got = null;
+  for (let i = 0; i < 80; i++) {
+    got = await streams.getStoreValue(new GetStoreValueRequest({ topology: name, key: "a" }));
+    if (got.found && got.value === 12n) break;
+    await sleep(250);
+  }
+  assert.equal(got?.value, 12n, `cogroup total wrong: ${got?.value}`);
+  const b = await streams.getStoreValue(new GetStoreValueRequest({ topology: name, key: "b" }));
+  assert.equal(b.value, 3n);
+});

@@ -152,6 +152,7 @@ object Operator {
   final val JOIN_TABLE: Int = 11
   final val WINDOW_SESSION: Int = 12
   final val WINDOW_SLIDING: Int = 13
+  final val COGROUP: Int = 14
 }
 
 object Aggregator {
@@ -251,7 +252,8 @@ class Topology(
     var operators: List[Int] = List.empty,
     var steps: List[Step] = List.empty,
     var processingGuarantee: Int = 0,
-    var tableTopic: String = ""
+    var tableTopic: String = "",
+    var cogroupSources: List[String] = List.empty
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
@@ -275,6 +277,9 @@ class Topology(
       pbW.varint((processingGuarantee.toLong))
     }
     pbW.stringField(8, tableTopic)
+    for (pbX <- cogroupSources) {
+      pbW.bytesField(9, pbX.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+    }
     pbW.raw(unknownFields)
     pbW.toBytes
   }
@@ -289,6 +294,7 @@ class Topology(
     steps = List.empty
     processingGuarantee = 0
     tableTopic = ""
+    cogroupSources = List.empty
     val pbR = new KafkaStreamsPb.Reader(data)
     var pbField = pbR.next()
     while (pbField != null) {
@@ -319,6 +325,8 @@ class Topology(
           processingGuarantee = pbField.varintValue.toInt
         case 8 =>
           tableTopic = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 9 =>
+          cogroupSources = cogroupSources :+ new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
       pbField = pbR.next()

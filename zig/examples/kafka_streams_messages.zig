@@ -73,6 +73,7 @@ pub const Operator = enum(i32) {
     JOIN_TABLE = 11,
     WINDOW_SESSION = 12,
     WINDOW_SLIDING = 13,
+    COGROUP = 14,
 };
 
 pub const Aggregator = enum(i32) {
@@ -162,6 +163,7 @@ pub const Topology = struct {
     steps: []const Step = &.{},
     processing_guarantee: ProcessingGuarantee = .PROCESSING_GUARANTEE_UNSPECIFIED,
     table_topic: []const u8 = "",
+    cogroup_sources: []const []const u8 = &.{},
     unknown_fields: []const u8 = &.{},
     pub fn marshalDc(self: *const Topology, alloc: std.mem.Allocator) []u8 {
         _ = .{ self, alloc };
@@ -180,6 +182,7 @@ pub const Topology = struct {
         for (self.steps) |x| w.bytesField(6, x.marshalDc(alloc));
         if (@intFromEnum(self.processing_guarantee) != 0) { w.tag(7, 0); w.varint(@as(u64, @bitCast(@as(i64, @intFromEnum(self.processing_guarantee))))); }
         w.stringField(8, self.table_topic);
+        for (self.cogroup_sources) |x| w.bytesField(9, x);
         w.raw(self.unknown_fields);
         return w.toBytes();
     }
@@ -193,8 +196,10 @@ pub const Topology = struct {
         self.steps = &.{};
         self.processing_guarantee = .PROCESSING_GUARANTEE_UNSPECIFIED;
         self.table_topic = "";
+        self.cogroup_sources = &.{};
         var operators_list = std.ArrayList(Operator).empty;
         var steps_list = std.ArrayList(Step).empty;
+        var cogroup_sources_list = std.ArrayList([]const u8).empty;
         self.unknown_fields = &.{};
         var unknown_fields_list = std.ArrayList(u8).empty;
         var r = PbReader.init(data);
@@ -233,12 +238,16 @@ pub const Topology = struct {
                 8 => {
                     self.table_topic = alloc.dupe(u8, field.bytes_value) catch "";
                 },
+                9 => {
+                    cogroup_sources_list.append(alloc, alloc.dupe(u8, field.bytes_value) catch "") catch {};
+                },
                 else => { unknown_fields_list.appendSlice(alloc, field.raw_value) catch {}; },
             }
         }
         self.unknown_fields = unknown_fields_list.toOwnedSlice(alloc) catch &.{};
         self.operators = operators_list.toOwnedSlice(alloc) catch &.{};
         self.steps = steps_list.toOwnedSlice(alloc) catch &.{};
+        self.cogroup_sources = cogroup_sources_list.toOwnedSlice(alloc) catch &.{};
     }
 };
 pub const TopologyInfo = struct {

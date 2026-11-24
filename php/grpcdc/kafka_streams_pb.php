@@ -159,6 +159,7 @@ final class Operator
     public const JOIN_TABLE = 11;
     public const WINDOW_SESSION = 12;
     public const WINDOW_SLIDING = 13;
+    public const COGROUP = 14;
 }
 
 final class Aggregator
@@ -297,9 +298,10 @@ class Topology
     public array $steps = [];
     public int $processingGuarantee = 0;
     public string $tableTopic = "";
+    public array $cogroupSources = [];
 
     public string $unknownFields = "";
-    public function __construct(string $name = "", string $applicationId = "", string $sourceTopic = "", string $sinkTopic = "", array $operators = [], array $steps = [], int $processingGuarantee = 0, string $tableTopic = "")
+    public function __construct(string $name = "", string $applicationId = "", string $sourceTopic = "", string $sinkTopic = "", array $operators = [], array $steps = [], int $processingGuarantee = 0, string $tableTopic = "", array $cogroupSources = [])
     {
         $this->name = $name;
         $this->applicationId = $applicationId;
@@ -309,6 +311,7 @@ class Topology
         $this->steps = $steps;
         $this->processingGuarantee = $processingGuarantee;
         $this->tableTopic = $tableTopic;
+        $this->cogroupSources = $cogroupSources;
     }
 
     public function marshalDc(): string
@@ -333,6 +336,9 @@ class Topology
             $w->varint($this->processingGuarantee);
         }
         $w->stringField(8, $this->tableTopic);
+        foreach ($this->cogroupSources as $x) {
+            $w->bytesField(9, $x);
+        }
         $w->raw($this->unknownFields);
         return $w->toBytes();
     }
@@ -348,6 +354,7 @@ class Topology
         $this->steps = [];
         $this->processingGuarantee = 0;
         $this->tableTopic = "";
+        $this->cogroupSources = [];
         $r = new Reader($data);
         while (($item = $r->field()) !== null) {
             [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;
@@ -386,6 +393,9 @@ class Topology
                 case 8:
                     $this->tableTopic = $bytesValue;
                     break;
+                case 9:
+                    $this->cogroupSources[] = $bytesValue;
+                    break;
                 default:
                     $this->unknownFields .= $rawValue;
                     break;
@@ -404,7 +414,8 @@ class Topology
             && $this->operators === $other->operators
             && $this->steps === $other->steps
             && $this->processingGuarantee === $other->processingGuarantee
-            && $this->tableTopic === $other->tableTopic;
+            && $this->tableTopic === $other->tableTopic
+            && $this->cogroupSources === $other->cogroupSources;
     }
 }
 

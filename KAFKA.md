@@ -201,7 +201,10 @@ within the gap, transferring aggregates across merges;
 `WINDOW_SLIDING` anchors windows at record timestamps and
 recomputes each window from the key's record history.
 Both must be followed by a stateful step, whose combiner
-they adopt. Stateful steps require
+they adopt. A `COGROUP` step (with
+`Topology.cogroup_sources`) folds keyed decimal values
+from additional topics into the same store (SUM) as they
+arrive. Stateful steps require
 `GROUP_BY_KEY` before them; anything unsupported is
 rejected at `CreateTopology` time rather than silently
 mis-executed. Each topology task joins its `application_id`

@@ -140,6 +140,7 @@ pub enum Operator {
     JoinTable = 11,
     WindowSession = 12,
     WindowSliding = 13,
+    Cogroup = 14,
     Unknown(i32),
 }
 
@@ -160,6 +161,7 @@ impl Operator {
             11 => Operator::JoinTable,
             12 => Operator::WindowSession,
             13 => Operator::WindowSliding,
+            14 => Operator::Cogroup,
             _ => Operator::Unknown(v),
         }
     }
@@ -179,6 +181,7 @@ impl Operator {
             Operator::JoinTable => 11,
             Operator::WindowSession => 12,
             Operator::WindowSliding => 13,
+            Operator::Cogroup => 14,
             Operator::Unknown(v) => v,
         }
     }
@@ -334,6 +337,7 @@ pub struct Topology {
     pub steps: Vec<Step>,
     pub processing_guarantee: ProcessingGuarantee,
     pub table_topic: String,
+    pub cogroup_sources: Vec<String>,
     pub unknown_fields: Vec<u8>,
 }
 
@@ -348,6 +352,7 @@ impl Default for Topology {
             steps: Vec::new(),
             processing_guarantee: ProcessingGuarantee::ProcessingGuaranteeUnspecified,
             table_topic: String::new(),
+            cogroup_sources: Vec::new(),
             unknown_fields: Vec::new(),
         }
     }
@@ -368,6 +373,7 @@ impl Topology {
         for x in &self.steps { pb_append_bytes_field(&mut out, 6, &x.encode()); }
         if self.processing_guarantee != ProcessingGuarantee::ProcessingGuaranteeUnspecified { pb_append_tag(&mut out, 7, 0); pb_append_varint(&mut out, (self.processing_guarantee.to_i32() as u64)); }
         pb_append_string_field(&mut out, 8, &self.table_topic);
+        for x in &self.cogroup_sources { pb_append_bytes_field(&mut out, 9, x.as_bytes()); }
         out.extend_from_slice(&self.unknown_fields);
         out
     }
@@ -408,6 +414,9 @@ impl Topology {
                 }
                 8 => {
                     msg.table_topic = String::from_utf8_lossy(&field.bytes_value).into_owned();
+                }
+                9 => {
+                    msg.cogroup_sources.push(String::from_utf8_lossy(&field.bytes_value).into_owned());
                 }
                 _ => {
                     msg.unknown_fields.extend_from_slice(&field.raw_value);

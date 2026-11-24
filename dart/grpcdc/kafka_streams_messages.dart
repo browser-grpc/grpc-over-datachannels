@@ -66,7 +66,8 @@ enum Operator {
   WINDOW_HOPPING,
   JOIN_TABLE,
   WINDOW_SESSION,
-  WINDOW_SLIDING
+  WINDOW_SLIDING,
+  COGROUP
 }
 enum Aggregator {
   AGGREGATOR_UNSPECIFIED,
@@ -155,8 +156,9 @@ class Topology implements Marshaler, Unmarshaler {
   List<Step> steps;
   ProcessingGuarantee processingGuarantee;
   String tableTopic;
+  List<String> cogroupSources;
   Uint8List unknownFields = Uint8List(0);
-  Topology([this.name = '', this.applicationId = '', this.sourceTopic = '', this.sinkTopic = '', this.processingGuarantee = ProcessingGuarantee.PROCESSING_GUARANTEE_UNSPECIFIED, this.tableTopic = '']) : operators = [], steps = [];
+  Topology([this.name = '', this.applicationId = '', this.sourceTopic = '', this.sinkTopic = '', this.processingGuarantee = ProcessingGuarantee.PROCESSING_GUARANTEE_UNSPECIFIED, this.tableTopic = '']) : operators = [], steps = [], cogroupSources = [];
   @override
   Uint8List marshalDc() {
     final pbW = Kafka_streamsPbWriter();
@@ -172,6 +174,7 @@ class Topology implements Marshaler, Unmarshaler {
     for (final pbX in steps) { pbW.bytesField(6, pbX.marshalDc()); }
     if (processingGuarantee.index != 0) { pbW.tag(7, 0); pbW.varint(processingGuarantee.index); }
     pbW.stringField(8, tableTopic);
+    for (final pbX in cogroupSources) { pbW.bytesField(9, utf8.encode(pbX)); }
     pbW.raw(unknownFields);
     return pbW.toBytes();
   }
@@ -186,6 +189,7 @@ class Topology implements Marshaler, Unmarshaler {
     steps = [];
     processingGuarantee = ProcessingGuarantee.PROCESSING_GUARANTEE_UNSPECIFIED;
     tableTopic = '';
+    cogroupSources = [];
     final pbR = Kafka_streamsPbReader(Uint8List.fromList(data));
     while (true) {
       final pbField = pbR.next();
@@ -223,6 +227,9 @@ class Topology implements Marshaler, Unmarshaler {
           break;
         case 8:
           tableTopic = utf8.decode(pbField.bytesValue);
+          break;
+        case 9:
+          cogroupSources.add(utf8.decode(pbField.bytesValue));
           break;
         default:
           unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);

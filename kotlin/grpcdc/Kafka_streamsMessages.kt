@@ -65,7 +65,8 @@ enum class Operator(val number: Int) {
     WINDOW_HOPPING(10),
     JOIN_TABLE(11),
     WINDOW_SESSION(12),
-    WINDOW_SLIDING(13);
+    WINDOW_SLIDING(13),
+    COGROUP(14);
     companion object {
         fun fromNumber(number: Int): Operator =
             when (number) {
@@ -83,6 +84,7 @@ enum class Operator(val number: Int) {
                 11 -> JOIN_TABLE
                 12 -> WINDOW_SESSION
                 13 -> WINDOW_SLIDING
+                14 -> COGROUP
                 else -> OPERATOR_UNSPECIFIED
             }
     }
@@ -192,6 +194,7 @@ enum class ProcessingGuarantee(val number: Int) {
     var steps: MutableList<Step> = mutableListOf(),
     var processingGuarantee: ProcessingGuarantee = ProcessingGuarantee.PROCESSING_GUARANTEE_UNSPECIFIED,
     var tableTopic: String = "",
+    var cogroupSources: MutableList<String> = mutableListOf(),
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
@@ -208,6 +211,7 @@ enum class ProcessingGuarantee(val number: Int) {
         for (pbX in steps) pbW.bytesField(6, pbX.marshalDc())
         if (processingGuarantee.number != 0) { pbW.tag(7, 0); pbW.varint(processingGuarantee.number.toLong()) }
         pbW.stringField(8, tableTopic)
+        for (pbX in cogroupSources) pbW.bytesField(9, pbX.toByteArray(Charsets.UTF_8))
         pbW.raw(unknownFields)
         return pbW.toBytes()
     }
@@ -221,6 +225,7 @@ enum class ProcessingGuarantee(val number: Int) {
         steps = mutableListOf()
         processingGuarantee = ProcessingGuarantee.PROCESSING_GUARANTEE_UNSPECIFIED
         tableTopic = ""
+        cogroupSources = mutableListOf()
         val pbR = Kafka_streamsPb.Reader(data)
         while (true) {
             val pbField = pbR.next() ?: break
@@ -257,6 +262,9 @@ enum class ProcessingGuarantee(val number: Int) {
                 }
                 8 -> {
                     tableTopic = String(pbField.bytesValue, Charsets.UTF_8)
+                }
+                9 -> {
+                    cogroupSources.add(String(pbField.bytesValue, Charsets.UTF_8))
                 }
                 else -> { unknownFields = unknownFields + pbField.rawValue }
             }

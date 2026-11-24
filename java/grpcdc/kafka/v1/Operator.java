@@ -16,7 +16,8 @@ public enum Operator {
         WINDOW_HOPPING(10),
         JOIN_TABLE(11),
         WINDOW_SESSION(12),
-        WINDOW_SLIDING(13);
+        WINDOW_SLIDING(13),
+        COGROUP(14);
     public final int number;
     Operator(int number) { this.number = number; }
     public static Operator fromNumber(int number) {
@@ -35,6 +36,7 @@ public enum Operator {
             case 11: return JOIN_TABLE;
             case 12: return WINDOW_SESSION;
             case 13: return WINDOW_SLIDING;
+            case 14: return COGROUP;
             default: return OPERATOR_UNSPECIFIED;
     }
 }

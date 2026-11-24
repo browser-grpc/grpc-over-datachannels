@@ -69,6 +69,7 @@ public enum Operator: Int32 {
     case JOIN_TABLE = 11
     case WINDOW_SESSION = 12
     case WINDOW_SLIDING = 13
+    case COGROUP = 14
 }
 
 public enum Aggregator: Int32 {
@@ -159,9 +160,10 @@ public final class Topology: Marshaler, Unmarshaler {
     public var steps: [Step] = []
     public var processingGuarantee: ProcessingGuarantee = ProcessingGuarantee.PROCESSING_GUARANTEE_UNSPECIFIED
     public var tableTopic: String = ""
+    public var cogroupSources: [String] = []
     public var unknownFields: [UInt8] = []
     public init() {}
-    public init(_ name: String = "", _ applicationId: String = "", _ sourceTopic: String = "", _ sinkTopic: String = "", _ operators: [Operator] = [], _ steps: [Step] = [], _ processingGuarantee: ProcessingGuarantee = ProcessingGuarantee.PROCESSING_GUARANTEE_UNSPECIFIED, _ tableTopic: String = "") {
+    public init(_ name: String = "", _ applicationId: String = "", _ sourceTopic: String = "", _ sinkTopic: String = "", _ operators: [Operator] = [], _ steps: [Step] = [], _ processingGuarantee: ProcessingGuarantee = ProcessingGuarantee.PROCESSING_GUARANTEE_UNSPECIFIED, _ tableTopic: String = "", _ cogroupSources: [String] = []) {
         self.name = name
         self.applicationId = applicationId
         self.sourceTopic = sourceTopic
@@ -170,6 +172,7 @@ public final class Topology: Marshaler, Unmarshaler {
         self.steps = steps
         self.processingGuarantee = processingGuarantee
         self.tableTopic = tableTopic
+        self.cogroupSources = cogroupSources
     }
     public func MarshalDc() -> [UInt8] {
         let pbW = Kafka_streamsPb.Writer()
@@ -185,6 +188,7 @@ public final class Topology: Marshaler, Unmarshaler {
         for pbX in steps { pbW.BytesField(6, pbX.MarshalDc()) }
         if processingGuarantee.rawValue != 0 { pbW.Tag(7, 0); pbW.Varint(Int64(processingGuarantee.rawValue)) }
         pbW.StringField(8, tableTopic)
+        for pbX in cogroupSources { pbW.BytesField(9, [UInt8](pbX.utf8)) }
         pbW.Raw(unknownFields)
         return pbW.ToBytes()
     }
@@ -198,6 +202,7 @@ public final class Topology: Marshaler, Unmarshaler {
         steps = []
         processingGuarantee = ProcessingGuarantee.PROCESSING_GUARANTEE_UNSPECIFIED
         tableTopic = ""
+        cogroupSources = []
         let pbR = Kafka_streamsPb.Reader(data)
         while true {
             let next: Kafka_streamsPb.Field?
@@ -229,6 +234,8 @@ public final class Topology: Marshaler, Unmarshaler {
                 processingGuarantee = ProcessingGuarantee(rawValue: Int32(truncatingIfNeeded: pbField.varintValue)) ?? ProcessingGuarantee.PROCESSING_GUARANTEE_UNSPECIFIED
             case 8:
                 tableTopic = String(decoding: pbField.bytesValue, as: UTF8.self)
+            case 9:
+                cogroupSources.append(String(decoding: pbField.bytesValue, as: UTF8.self))
             default: unknownFields += pbField.rawValue
             }
         }

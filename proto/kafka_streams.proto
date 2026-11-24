@@ -73,6 +73,12 @@ enum Operator {
   // aggregate for each window is recomputed from the key's
   // record history. Must be followed by a stateful step.
   WINDOW_SLIDING = 13;
+  // Cogroup marker: records from Topology.cogroup_sources
+  // (keyed decimal-int64 values) are folded into this
+  // topology's store by key (SUM) as they arrive, sharing
+  // the store with the main chain's stateful steps. The
+  // step itself passes records through unchanged.
+  COGROUP = 14;
 }
 
 enum Aggregator {
@@ -129,6 +135,9 @@ message Topology {
   ProcessingGuarantee processing_guarantee = 7;
   // Materialized table topic for JOIN_TABLE steps.
   string table_topic = 8;
+  // Additional keyed-value topics folded into the store
+  // by a COGROUP step.
+  repeated string cogroup_sources = 9;
 }
 
 message TopologyInfo {

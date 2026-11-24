@@ -156,6 +156,7 @@ const (
 	Operator_JOIN_TABLE           Operator = 11
 	Operator_WINDOW_SESSION       Operator = 12
 	Operator_WINDOW_SLIDING       Operator = 13
+	Operator_COGROUP              Operator = 14
 )
 
 type Aggregator int32
@@ -279,6 +280,7 @@ type Topology struct {
 	Steps               []*Step
 	ProcessingGuarantee ProcessingGuarantee
 	TableTopic          string
+	CogroupSources      []string
 	UnknownFields       []byte
 }
 
@@ -309,6 +311,9 @@ func (m *Topology) MarshalDC() []byte {
 		out = KafkaStreamsPbAppendVarint(out, uint64(int64(m.ProcessingGuarantee)))
 	}
 	out = KafkaStreamsPbAppendStringField(out, 8, m.TableTopic)
+	for _, x := range m.CogroupSources {
+		out = KafkaStreamsPbAppendBytesField(out, 9, []byte(x))
+	}
 	out = append(out, m.UnknownFields...)
 	return out
 }
@@ -372,6 +377,10 @@ func (m *Topology) UnmarshalDC(data []byte) error {
 		case 8:
 			if b, ok := value.([]byte); ok {
 				m.TableTopic = string(b)
+			}
+		case 9:
+			if b, ok := value.([]byte); ok {
+				m.CogroupSources = append(m.CogroupSources, string(b))
 			}
 		default:
 			m.UnknownFields = append(m.UnknownFields, raw...)
