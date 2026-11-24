@@ -11,7 +11,9 @@ public enum Operator {
         FILTER(5),
         SELECT_KEY(6),
         AGGREGATE(7),
-        REDUCE(8);
+        REDUCE(8),
+        WINDOW_TUMBLING(9),
+        WINDOW_HOPPING(10);
     public final int number;
     Operator(int number) { this.number = number; }
     public static Operator fromNumber(int number) {
@@ -25,6 +27,8 @@ public enum Operator {
             case 6: return SELECT_KEY;
             case 7: return AGGREGATE;
             case 8: return REDUCE;
+            case 9: return WINDOW_TUMBLING;
+            case 10: return WINDOW_HOPPING;
             default: return OPERATOR_UNSPECIFIED;
     }
 }

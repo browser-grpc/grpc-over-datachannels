@@ -53,6 +53,13 @@ func (c *KafkaStreamsClient) GetStoreValue(ctx context.Context, req *GetStoreVal
 	}
 	return resp, nil
 }
+func (c *KafkaStreamsClient) FetchWindow(ctx context.Context, req *FetchWindowRequest) (*FetchWindowResponse, error) {
+	resp := new(FetchWindowResponse)
+	if err := c.Channel.Unary(ctx, "/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", req, resp); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
 
 type KafkaStreamsServer interface {
 	CreateTopology(context.Context, *CreateTopologyRequest) (*TopologyInfo, error)
@@ -60,6 +67,7 @@ type KafkaStreamsServer interface {
 	ListTopologies(context.Context, *ListTopologiesRequest) (*ListTopologiesResponse, error)
 	DeleteTopology(context.Context, *DeleteTopologyRequest) (*DeleteTopologyResponse, error)
 	GetStoreValue(context.Context, *GetStoreValueRequest) (*GetStoreValueResponse, error)
+	FetchWindow(context.Context, *FetchWindowRequest) (*FetchWindowResponse, error)
 }
 
 func RegisterKafkaStreamsServer(s *grpcdc.Server, srv KafkaStreamsServer) {
@@ -132,6 +140,21 @@ func RegisterKafkaStreamsServer(s *grpcdc.Server, srv KafkaStreamsServer) {
 					return err
 				}
 				resp, err := srv.GetStoreValue(ctx, req)
+				if err != nil {
+					return err
+				}
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
+			}},
+			{Name: "FetchWindow", Path: "/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
+				req := new(FetchWindowRequest)
+				if err := reqs.RecvInto(req); err != nil {
+					return err
+				}
+				resp, err := srv.FetchWindow(ctx, req)
 				if err != nil {
 					return err
 				}

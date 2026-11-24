@@ -46,6 +46,12 @@ public enum Kafka_streamsGrpcDc {
             return resp
         }
 
+        public func FetchWindow(_ req: FetchWindowRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> FetchWindowResponse {
+            let resp = FetchWindowResponse()
+            try channel.Unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", req, resp, metadata, timeout)
+            return resp
+        }
+
         // -- async (Swift concurrency) surface ---------------------------
         #if canImport(Foundation)
 
@@ -69,6 +75,10 @@ public enum Kafka_streamsGrpcDc {
             try await Task.detached { try self.GetStoreValue(req, metadata, timeout) }.value
         }
 
+        public func FetchWindowAsync(_ req: FetchWindowRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> FetchWindowResponse {
+            try await Task.detached { try self.FetchWindow(req, metadata, timeout) }.value
+        }
+
         #endif
     }
 
@@ -79,6 +89,7 @@ public enum Kafka_streamsGrpcDc {
         func ListTopologies(_ ctx: Endpoint.CallContext, _ req: ListTopologiesRequest) throws -> ListTopologiesResponse
         func DeleteTopology(_ ctx: Endpoint.CallContext, _ req: DeleteTopologyRequest) throws -> DeleteTopologyResponse
         func GetStoreValue(_ ctx: Endpoint.CallContext, _ req: GetStoreValueRequest) throws -> GetStoreValueResponse
+        func FetchWindow(_ ctx: Endpoint.CallContext, _ req: FetchWindowRequest) throws -> FetchWindowResponse
     }
 
     #if canImport(Foundation)
@@ -89,6 +100,7 @@ public enum Kafka_streamsGrpcDc {
         func ListTopologiesAsync(_ ctx: Endpoint.CallContext, _ req: ListTopologiesRequest) async throws -> ListTopologiesResponse
         func DeleteTopologyAsync(_ ctx: Endpoint.CallContext, _ req: DeleteTopologyRequest) async throws -> DeleteTopologyResponse
         func GetStoreValueAsync(_ ctx: Endpoint.CallContext, _ req: GetStoreValueRequest) async throws -> GetStoreValueResponse
+        func FetchWindowAsync(_ ctx: Endpoint.CallContext, _ req: FetchWindowRequest) async throws -> FetchWindowResponse
     }
 
     #endif
@@ -111,6 +123,9 @@ public enum Kafka_streamsGrpcDc {
         }
         func GetStoreValue(_ ctx: Endpoint.CallContext, _ req: GetStoreValueRequest) throws -> GetStoreValueResponse {
             try RunBlocking { try await self.impl.GetStoreValueAsync(ctx, req) }
+        }
+        func FetchWindow(_ ctx: Endpoint.CallContext, _ req: FetchWindowRequest) throws -> FetchWindowResponse {
+            try RunBlocking { try await self.impl.FetchWindowAsync(ctx, req) }
         }
     }
 
@@ -147,6 +162,12 @@ public enum Kafka_streamsGrpcDc {
                 let req = GetStoreValueRequest()
                 try reqs.RecvInto(req)
                 let resp = try impl.GetStoreValue(ctx, req)
+                try sink(ctx.EncodeMessage(resp))
+            },
+            Server.Method(name: "FetchWindow", path: "/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", kind: Server.KindUnary) { ctx, reqs, sink in
+                let req = FetchWindowRequest()
+                try reqs.RecvInto(req)
+                let resp = try impl.FetchWindow(ctx, req)
                 try sink(ctx.EncodeMessage(resp))
             },
         ]))

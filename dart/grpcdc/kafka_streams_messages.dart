@@ -61,7 +61,9 @@ enum Operator {
   FILTER,
   SELECT_KEY,
   AGGREGATE,
-  REDUCE
+  REDUCE,
+  WINDOW_TUMBLING,
+  WINDOW_HOPPING
 }
 enum Aggregator {
   AGGREGATOR_UNSPECIFIED,
@@ -74,14 +76,20 @@ class Step implements Marshaler, Unmarshaler {
   Operator operator;
   String param;
   Aggregator aggregator;
+  int windowSizeMs;
+  int windowAdvanceMs;
+  int graceMs;
   Uint8List unknownFields = Uint8List(0);
-  Step([this.operator = Operator.OPERATOR_UNSPECIFIED, this.param = '', this.aggregator = Aggregator.AGGREGATOR_UNSPECIFIED]);
+  Step([this.operator = Operator.OPERATOR_UNSPECIFIED, this.param = '', this.aggregator = Aggregator.AGGREGATOR_UNSPECIFIED, this.windowSizeMs = 0, this.windowAdvanceMs = 0, this.graceMs = 0]);
   @override
   Uint8List marshalDc() {
     final pbW = Kafka_streamsPbWriter();
     if (operator.index != 0) { pbW.tag(1, 0); pbW.varint(operator.index); }
     pbW.stringField(2, param);
     if (aggregator.index != 0) { pbW.tag(3, 0); pbW.varint(aggregator.index); }
+    if (windowSizeMs != 0) { pbW.tag(4, 0); pbW.varint(windowSizeMs); }
+    if (windowAdvanceMs != 0) { pbW.tag(5, 0); pbW.varint(windowAdvanceMs); }
+    if (graceMs != 0) { pbW.tag(6, 0); pbW.varint(graceMs); }
     pbW.raw(unknownFields);
     return pbW.toBytes();
   }
@@ -91,6 +99,9 @@ class Step implements Marshaler, Unmarshaler {
     operator = Operator.OPERATOR_UNSPECIFIED;
     param = '';
     aggregator = Aggregator.AGGREGATOR_UNSPECIFIED;
+    windowSizeMs = 0;
+    windowAdvanceMs = 0;
+    graceMs = 0;
     final pbR = Kafka_streamsPbReader(Uint8List.fromList(data));
     while (true) {
       final pbField = pbR.next();
@@ -104,6 +115,15 @@ class Step implements Marshaler, Unmarshaler {
           break;
         case 3:
           aggregator = Aggregator.values[(pbField.varintValue).toSigned(32)] ;
+          break;
+        case 4:
+          windowSizeMs = pbField.varintValue;
+          break;
+        case 5:
+          windowAdvanceMs = pbField.varintValue;
+          break;
+        case 6:
+          graceMs = pbField.varintValue;
           break;
         default:
           unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
@@ -491,6 +511,108 @@ class GetStoreValueResponse implements Marshaler, Unmarshaler {
           key = utf8.decode(pbField.bytesValue);
           break;
         case 3:
+          value = pbField.varintValue;
+          break;
+        default:
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
+          break;
+      }
+    }
+  }
+}
+class FetchWindowRequest implements Marshaler, Unmarshaler {
+  String topology;
+  String key;
+  int windowStartMs;
+  int windowEndMs;
+  Uint8List unknownFields = Uint8List(0);
+  FetchWindowRequest([this.topology = '', this.key = '', this.windowStartMs = 0, this.windowEndMs = 0]);
+  @override
+  Uint8List marshalDc() {
+    final pbW = Kafka_streamsPbWriter();
+    pbW.stringField(1, topology);
+    pbW.stringField(2, key);
+    if (windowStartMs != 0) { pbW.tag(3, 0); pbW.varint(windowStartMs); }
+    if (windowEndMs != 0) { pbW.tag(4, 0); pbW.varint(windowEndMs); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
+  }
+  @override
+  void unmarshalDc(List<int> data) {
+    unknownFields = Uint8List(0);
+    topology = '';
+    key = '';
+    windowStartMs = 0;
+    windowEndMs = 0;
+    final pbR = Kafka_streamsPbReader(Uint8List.fromList(data));
+    while (true) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
+        case 1:
+          topology = utf8.decode(pbField.bytesValue);
+          break;
+        case 2:
+          key = utf8.decode(pbField.bytesValue);
+          break;
+        case 3:
+          windowStartMs = pbField.varintValue;
+          break;
+        case 4:
+          windowEndMs = pbField.varintValue;
+          break;
+        default:
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
+          break;
+      }
+    }
+  }
+}
+class FetchWindowResponse implements Marshaler, Unmarshaler {
+  bool found;
+  String key;
+  int windowStartMs;
+  int windowEndMs;
+  int value;
+  Uint8List unknownFields = Uint8List(0);
+  FetchWindowResponse([this.found = false, this.key = '', this.windowStartMs = 0, this.windowEndMs = 0, this.value = 0]);
+  @override
+  Uint8List marshalDc() {
+    final pbW = Kafka_streamsPbWriter();
+    if (found) { pbW.tag(1, 0); pbW.varint((found ? 1 : 0)); }
+    pbW.stringField(2, key);
+    if (windowStartMs != 0) { pbW.tag(3, 0); pbW.varint(windowStartMs); }
+    if (windowEndMs != 0) { pbW.tag(4, 0); pbW.varint(windowEndMs); }
+    if (value != 0) { pbW.tag(5, 0); pbW.varint(value); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
+  }
+  @override
+  void unmarshalDc(List<int> data) {
+    unknownFields = Uint8List(0);
+    found = false;
+    key = '';
+    windowStartMs = 0;
+    windowEndMs = 0;
+    value = 0;
+    final pbR = Kafka_streamsPbReader(Uint8List.fromList(data));
+    while (true) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
+        case 1:
+          found = pbField.varintValue != 0;
+          break;
+        case 2:
+          key = utf8.decode(pbField.bytesValue);
+          break;
+        case 3:
+          windowStartMs = pbField.varintValue;
+          break;
+        case 4:
+          windowEndMs = pbField.varintValue;
+          break;
+        case 5:
           value = pbField.varintValue;
           break;
         default:

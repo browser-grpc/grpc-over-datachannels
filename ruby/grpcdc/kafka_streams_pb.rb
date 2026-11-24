@@ -120,6 +120,8 @@ end
     SELECT_KEY = 6
     AGGREGATE = 7
     REDUCE = 8
+    WINDOW_TUMBLING = 9
+    WINDOW_HOPPING = 10
   end
 
   module Aggregator
@@ -131,12 +133,15 @@ end
   end
 
   class Step
-    attr_accessor :operator, :param, :aggregator, :unknown_fields
+    attr_accessor :operator, :param, :aggregator, :window_size_ms, :window_advance_ms, :grace_ms, :unknown_fields
 
-    def initialize(operator: 0, param: "", aggregator: 0)
+    def initialize(operator: 0, param: "", aggregator: 0, window_size_ms: 0, window_advance_ms: 0, grace_ms: 0)
       @operator = operator
       @param = param
       @aggregator = aggregator
+      @window_size_ms = window_size_ms
+      @window_advance_ms = window_advance_ms
+      @grace_ms = grace_ms
       @unknown_fields = "".b
     end
 
@@ -151,6 +156,18 @@ end
       w.tag(3, 0)
       w.varint(@aggregator)
     end
+    if @window_size_ms != 0
+      w.tag(4, 0)
+      w.varint(@window_size_ms)
+    end
+    if @window_advance_ms != 0
+      w.tag(5, 0)
+      w.varint(@window_advance_ms)
+    end
+    if @grace_ms != 0
+      w.tag(6, 0)
+      w.varint(@grace_ms)
+    end
       w.raw(@unknown_fields)
       w.to_bytes
     end
@@ -160,6 +177,9 @@ end
       @operator = 0
       @param = ""
       @aggregator = 0
+      @window_size_ms = 0
+      @window_advance_ms = 0
+      @grace_ms = 0
       r = Reader.new(data)
       loop do
         item = r.field
@@ -173,6 +193,12 @@ end
         @param = bytes_value.dup.force_encoding(Encoding::UTF_8)
       when 3
         @aggregator = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+      when 4
+        @window_size_ms = (((varint_value & 0xffffffffffffffff) ^ 0x8000000000000000) - 0x8000000000000000)
+      when 5
+        @window_advance_ms = (((varint_value & 0xffffffffffffffff) ^ 0x8000000000000000) - 0x8000000000000000)
+      when 6
+        @grace_ms = (((varint_value & 0xffffffffffffffff) ^ 0x8000000000000000) - 0x8000000000000000)
         else
           @unknown_fields = @unknown_fields + raw_value
         end
@@ -181,7 +207,7 @@ end
     end
 
     def ==(other)
-      other.is_a?(Step) && @operator == other.operator && @param == other.param && @aggregator == other.aggregator
+      other.is_a?(Step) && @operator == other.operator && @param == other.param && @aggregator == other.aggregator && @window_size_ms == other.window_size_ms && @window_advance_ms == other.window_advance_ms && @grace_ms == other.grace_ms
     end
   end
 
@@ -650,6 +676,137 @@ end
 
     def ==(other)
       other.is_a?(GetStoreValueResponse) && @found == other.found && @key == other.key && @value == other.value
+    end
+  end
+
+  class FetchWindowRequest
+    attr_accessor :topology, :key, :window_start_ms, :window_end_ms, :unknown_fields
+
+    def initialize(topology: "", key: "", window_start_ms: 0, window_end_ms: 0)
+      @topology = topology
+      @key = key
+      @window_start_ms = window_start_ms
+      @window_end_ms = window_end_ms
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    w.string_field(1, @topology)
+    w.string_field(2, @key)
+    if @window_start_ms != 0
+      w.tag(3, 0)
+      w.varint(@window_start_ms)
+    end
+    if @window_end_ms != 0
+      w.tag(4, 0)
+      w.varint(@window_end_ms)
+    end
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @topology = ""
+      @key = ""
+      @window_start_ms = 0
+      @window_end_ms = 0
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        @topology = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 2
+        @key = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 3
+        @window_start_ms = (((varint_value & 0xffffffffffffffff) ^ 0x8000000000000000) - 0x8000000000000000)
+      when 4
+        @window_end_ms = (((varint_value & 0xffffffffffffffff) ^ 0x8000000000000000) - 0x8000000000000000)
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(FetchWindowRequest) && @topology == other.topology && @key == other.key && @window_start_ms == other.window_start_ms && @window_end_ms == other.window_end_ms
+    end
+  end
+
+  class FetchWindowResponse
+    attr_accessor :found, :key, :window_start_ms, :window_end_ms, :value, :unknown_fields
+
+    def initialize(found: false, key: "", window_start_ms: 0, window_end_ms: 0, value: 0)
+      @found = found
+      @key = key
+      @window_start_ms = window_start_ms
+      @window_end_ms = window_end_ms
+      @value = value
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    if @found
+      w.tag(1, 0)
+      w.varint((@found ? 1 : 0))
+    end
+    w.string_field(2, @key)
+    if @window_start_ms != 0
+      w.tag(3, 0)
+      w.varint(@window_start_ms)
+    end
+    if @window_end_ms != 0
+      w.tag(4, 0)
+      w.varint(@window_end_ms)
+    end
+    if @value != 0
+      w.tag(5, 0)
+      w.varint(@value)
+    end
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @found = false
+      @key = ""
+      @window_start_ms = 0
+      @window_end_ms = 0
+      @value = 0
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        @found = (varint_value != 0)
+      when 2
+        @key = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 3
+        @window_start_ms = (((varint_value & 0xffffffffffffffff) ^ 0x8000000000000000) - 0x8000000000000000)
+      when 4
+        @window_end_ms = (((varint_value & 0xffffffffffffffff) ^ 0x8000000000000000) - 0x8000000000000000)
+      when 5
+        @value = (((varint_value & 0xffffffffffffffff) ^ 0x8000000000000000) - 0x8000000000000000)
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(FetchWindowResponse) && @found == other.found && @key == other.key && @window_start_ms == other.window_start_ms && @window_end_ms == other.window_end_ms && @value == other.value
     end
   end
 

@@ -392,3 +392,76 @@ test("kafka streams aggregation and stateless chain", { skip: !PROXY_ADDR }, asy
   const one = await streams.getStoreValue(new GetStoreValueRequest({ topology: name, key: "1" }));
   assert.equal(one.found, false, "filtered record reached the store");
 });
+
+test("kafka streams tumbling window counts and FetchWindow", { skip: !PROXY_ADDR }, async (t) => {
+  const { dc, kafka, streams } = makeClients();
+  const id = randomUUID().slice(0, 12);
+  const source = `streams-win-in-${id}`;
+  const sink = `streams-win-out-${id}`;
+  const name = `win-${id}`;
+  t.after(async () => {
+    try {
+      await streams.deleteTopology(new DeleteTopologyRequest({ name }));
+      await kafka.deleteTopics(new DeleteTopicsRequest({ topics: [source, sink] }));
+    } catch { /* best effort */ }
+    dc.close();
+  });
+  for (const topic of [source, sink]) {
+    const created = await kafka.createTopics(new CreateTopicsRequest({
+      topics: [new NewTopic({ name: topic, numPartitions: 1, replicationFactor: 1 })],
+      timeoutMs: 15000,
+    }));
+    assert.deepEqual(created.results.map((r) => r.errorCode), [0]);
+  }
+  const { Step, FetchWindowRequest } = await import("../src/kafka_streams_pb.js");
+  const T0 = 1_699_999_980_000n; // 60s-window aligned (T0 % 60000 == 0)
+  const info = await streams.createTopology(new CreateTopologyRequest({
+    topology: new Topology({
+      name,
+      sourceTopic: source,
+      sinkTopic: sink,
+      steps: [
+        new Step({ operator: Operator.SELECT_KEY, param: "value" }),
+        new Step({ operator: Operator.GROUP_BY_KEY }),
+        new Step({ operator: Operator.WINDOW_TUMBLING, windowSizeMs: 60000n }),
+        new Step({ operator: Operator.COUNT }),
+      ],
+    }),
+  }));
+  assert.equal(info.state, "RUNNING");
+  const produceAt = async (word, ts) => {
+    const resp = await kafka.produce(new ProduceRequest({
+      topic: source, partition: 0,
+      records: [new Record({ value: enc(word), timestampMs: ts })],
+    }));
+    assert.equal(resp.errorCode, 0);
+  };
+  // Window A [T0, T0+60s): apple x2, banana x1.
+  // Window B [T0+60s, T0+120s): apple x1.
+  await produceAt("apple", T0 + 1000n);
+  await produceAt("apple", T0 + 2000n);
+  await produceAt("banana", T0 + 3000n);
+  await produceAt("apple", T0 + 61000n);
+  const fetchWin = async (key, start, end) => {
+    let got = null;
+    for (let i = 0; i < 80; i++) {
+      got = await streams.fetchWindow(new FetchWindowRequest({
+        topology: name, key, windowStartMs: start, windowEndMs: end,
+      }));
+      if (got.found) break;
+      await sleep(250);
+    }
+    return got;
+  };
+  const aApple = await fetchWin("apple", T0, T0 + 60000n);
+  assert.equal(aApple.found, true);
+  assert.equal(aApple.value, 2n);
+  const bApple = await fetchWin("apple", T0 + 60000n, T0 + 120000n);
+  assert.equal(bApple.value, 1n);
+  const aBanana = await fetchWin("banana", T0, T0 + 60000n);
+  assert.equal(aBanana.value, 1n);
+  const none = await streams.fetchWindow(new FetchWindowRequest({
+    topology: name, key: "apple", windowStartMs: T0 + 120000n, windowEndMs: T0 + 180000n,
+  }));
+  assert.equal(none.found, false);
+});

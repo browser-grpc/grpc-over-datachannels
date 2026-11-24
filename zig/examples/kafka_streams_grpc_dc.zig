@@ -26,6 +26,8 @@ pub const DeleteTopologyRequest = kafka_streams_messages.DeleteTopologyRequest;
 pub const DeleteTopologyResponse = kafka_streams_messages.DeleteTopologyResponse;
 pub const GetStoreValueRequest = kafka_streams_messages.GetStoreValueRequest;
 pub const GetStoreValueResponse = kafka_streams_messages.GetStoreValueResponse;
+pub const FetchWindowRequest = kafka_streams_messages.FetchWindowRequest;
+pub const FetchWindowResponse = kafka_streams_messages.FetchWindowResponse;
 
 /// Client for grpcdc.kafka.streams.v1.KafkaStreams.
 pub const KafkaStreamsClient = struct {
@@ -70,6 +72,13 @@ pub const KafkaStreamsClient = struct {
         return .{ .ok = resp };
     }
 
+    pub fn fetchWindow(self: *KafkaStreamsClient, req: *const FetchWindowRequest, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(FetchWindowResponse) {
+        var resp = FetchWindowResponse{};
+        const st = self.channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", req, &resp, call_metadata, timeout_ms);
+        if (!st.isOk()) return .{ .status = st };
+        return .{ .ok = resp };
+    }
+
 };
 
 /// Service implementation interface for grpcdc.kafka.streams.v1.KafkaStreams (vtable: Zig has no
@@ -81,6 +90,7 @@ pub const KafkaStreamsServer = struct {
     list_topologies_fn: *const fn (ctx: *anyopaque, call_ctx: *CallContext, req: *const ListTopologiesRequest, resp: *ListTopologiesResponse, alloc: std.mem.Allocator) Status,
     delete_topology_fn: *const fn (ctx: *anyopaque, call_ctx: *CallContext, req: *const DeleteTopologyRequest, resp: *DeleteTopologyResponse, alloc: std.mem.Allocator) Status,
     get_store_value_fn: *const fn (ctx: *anyopaque, call_ctx: *CallContext, req: *const GetStoreValueRequest, resp: *GetStoreValueResponse, alloc: std.mem.Allocator) Status,
+    fetch_window_fn: *const fn (ctx: *anyopaque, call_ctx: *CallContext, req: *const FetchWindowRequest, resp: *FetchWindowResponse, alloc: std.mem.Allocator) Status,
 };
 
 fn kafkaStreamsCreateTopologyAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {
@@ -173,6 +183,24 @@ fn kafkaStreamsGetStoreValueAdapter(ctx: *anyopaque, call_ctx: *CallContext, req
     return sink.send(payload);
 }
 
+fn kafkaStreamsFetchWindowAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {
+    const impl: *KafkaStreamsServer = @ptrCast(@alignCast(ctx));
+    var req = FetchWindowRequest{};
+    switch (reqs.recvInto(&req)) {
+        .message => {},
+        .end => return Status.init(wire.codeInternal, "unary call closed with no request"),
+        .status => |st| return st,
+    }
+    var arena = std.heap.ArenaAllocator.init(reqs.alloc);
+    defer arena.deinit();
+    var resp = FetchWindowResponse{};
+    const st = impl.fetch_window_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
+    if (!st.isOk()) return st;
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
+    defer reqs.alloc.free(payload);
+    return sink.send(payload);
+}
+
 /// Generated gRPC-over-DataChannels stubs for kafka_streams.proto.
 pub const Kafka_streamsGrpcDc = struct {
     /// Register an implementation of grpcdc.kafka.streams.v1.KafkaStreams on a Server.
@@ -185,6 +213,7 @@ pub const Kafka_streamsGrpcDc = struct {
                 .{ .name = "ListTopologies", .path = "/grpcdc.kafka.streams.v1.KafkaStreams/ListTopologies", .kind = .unary, .ctx = impl, .handler = kafkaStreamsListTopologiesAdapter },
                 .{ .name = "DeleteTopology", .path = "/grpcdc.kafka.streams.v1.KafkaStreams/DeleteTopology", .kind = .unary, .ctx = impl, .handler = kafkaStreamsDeleteTopologyAdapter },
                 .{ .name = "GetStoreValue", .path = "/grpcdc.kafka.streams.v1.KafkaStreams/GetStoreValue", .kind = .unary, .ctx = impl, .handler = kafkaStreamsGetStoreValueAdapter },
+                .{ .name = "FetchWindow", .path = "/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", .kind = .unary, .ctx = impl, .handler = kafkaStreamsFetchWindowAdapter },
             },
         });
     }

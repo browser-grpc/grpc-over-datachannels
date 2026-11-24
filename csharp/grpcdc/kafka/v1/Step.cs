@@ -9,18 +9,27 @@ public sealed class Step : IMarshaler, IUnmarshaler {
     public Operator Operator = Operator.OPERATOR_UNSPECIFIED;
     public string Param = "";
     public Aggregator Aggregator = Aggregator.AGGREGATOR_UNSPECIFIED;
+    public long WindowSizeMs = 0;
+    public long WindowAdvanceMs = 0;
+    public long GraceMs = 0;
     public byte[] UnknownFields = new byte[0];
     public Step() {}
-    public Step(Operator operator, string param, Aggregator aggregator) {
+    public Step(Operator operator, string param, Aggregator aggregator, long windowSizeMs, long windowAdvanceMs, long graceMs) {
         Operator = operator;
         Param = param;
         Aggregator = aggregator;
+        WindowSizeMs = windowSizeMs;
+        WindowAdvanceMs = windowAdvanceMs;
+        GraceMs = graceMs;
     }
     public byte[] MarshalDc() {
         var w = new Kafka_streamsPb.Writer();
         if ((int) Operator != 0) { w.Tag(1, 0); w.Varint((int) Operator); }
         w.StringField(2, Param);
         if ((int) Aggregator != 0) { w.Tag(3, 0); w.Varint((int) Aggregator); }
+        if (WindowSizeMs != 0) { w.Tag(4, 0); w.Varint(WindowSizeMs); }
+        if (WindowAdvanceMs != 0) { w.Tag(5, 0); w.Varint(WindowAdvanceMs); }
+        if (GraceMs != 0) { w.Tag(6, 0); w.Varint(GraceMs); }
         w.Raw(UnknownFields);
         return w.ToBytes();
     }
@@ -29,6 +38,9 @@ public sealed class Step : IMarshaler, IUnmarshaler {
         Operator = Operator.OPERATOR_UNSPECIFIED;
         Param = "";
         Aggregator = Aggregator.AGGREGATOR_UNSPECIFIED;
+        WindowSizeMs = 0;
+        WindowAdvanceMs = 0;
+        GraceMs = 0;
         var r = new Kafka_streamsPb.Reader(data);
         Kafka_streamsPb.Field field;
         while ((field = r.Next()) != null) {
@@ -43,6 +55,18 @@ public sealed class Step : IMarshaler, IUnmarshaler {
                 }
                 case 3: {
                     Aggregator = (Aggregator) (int) field.VarintValue;
+                    break;
+                }
+                case 4: {
+                    WindowSizeMs = field.VarintValue;
+                    break;
+                }
+                case 5: {
+                    WindowAdvanceMs = field.VarintValue;
+                    break;
+                }
+                case 6: {
+                    GraceMs = field.VarintValue;
                     break;
                 }
                 default: UnknownFields = Kafka_streamsPb.ConcatBytes(UnknownFields, field.RawValue); break;

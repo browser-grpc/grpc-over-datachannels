@@ -46,6 +46,12 @@ object Kafka_streamsGrpcDc {
             return resp
         }
 
+        fun FetchWindow(req: FetchWindowRequest, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): FetchWindowResponse {
+            val resp = FetchWindowResponse()
+            channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", req, resp, metadata, timeout)
+            return resp
+        }
+
         // -- async (coroutine / CompletableFuture) surface ---------------
 
         suspend fun CreateTopologyAsync(req: CreateTopologyRequest, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): TopologyInfo {
@@ -88,6 +94,14 @@ object Kafka_streamsGrpcDc {
             return AsyncPump.future { GetStoreValue(req, metadata, timeout) }
         }
 
+        suspend fun FetchWindowAsync(req: FetchWindowRequest, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): FetchWindowResponse {
+            return AsyncPump.await(FetchWindowFuture(req, metadata, timeout))
+        }
+
+        fun FetchWindowFuture(req: FetchWindowRequest, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): CompletableFuture<FetchWindowResponse> {
+            return AsyncPump.future { FetchWindow(req, metadata, timeout) }
+        }
+
     }
 
     /** Service implementation interface for grpcdc.kafka.streams.v1.KafkaStreams. */
@@ -97,6 +111,7 @@ object Kafka_streamsGrpcDc {
         fun ListTopologies(ctx: Endpoint.CallContext, req: ListTopologiesRequest): ListTopologiesResponse
         fun DeleteTopology(ctx: Endpoint.CallContext, req: DeleteTopologyRequest): DeleteTopologyResponse
         fun GetStoreValue(ctx: Endpoint.CallContext, req: GetStoreValueRequest): GetStoreValueResponse
+        fun FetchWindow(ctx: Endpoint.CallContext, req: FetchWindowRequest): FetchWindowResponse
     }
 
     /** Async service implementation interface for grpcdc.kafka.streams.v1.KafkaStreams. */
@@ -106,6 +121,7 @@ object Kafka_streamsGrpcDc {
         suspend fun ListTopologiesAsync(ctx: Endpoint.CallContext, req: ListTopologiesRequest): ListTopologiesResponse
         suspend fun DeleteTopologyAsync(ctx: Endpoint.CallContext, req: DeleteTopologyRequest): DeleteTopologyResponse
         suspend fun GetStoreValueAsync(ctx: Endpoint.CallContext, req: GetStoreValueRequest): GetStoreValueResponse
+        suspend fun FetchWindowAsync(ctx: Endpoint.CallContext, req: FetchWindowRequest): FetchWindowResponse
     }
 
     private class KafkaStreamsServerAsyncAdapter(private val impl: KafkaStreamsServerAsync) : KafkaStreamsServer {
@@ -127,6 +143,10 @@ object Kafka_streamsGrpcDc {
 
         override fun GetStoreValue(ctx: Endpoint.CallContext, req: GetStoreValueRequest): GetStoreValueResponse {
             return AsyncPump.runSuspend { impl.GetStoreValueAsync(ctx, req) }
+        }
+
+        override fun FetchWindow(ctx: Endpoint.CallContext, req: FetchWindowRequest): FetchWindowResponse {
+            return AsyncPump.runSuspend { impl.FetchWindowAsync(ctx, req) }
         }
 
     }
@@ -161,6 +181,11 @@ object Kafka_streamsGrpcDc {
                         val req = GetStoreValueRequest()
                         reqs.recvInto(req)
                         sink.send(ctx.encodeMessage(impl.GetStoreValue(ctx, req)))
+                    },
+                    Server.Method("FetchWindow", "/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", Server.KIND_UNARY) { ctx, reqs, sink ->
+                        val req = FetchWindowRequest()
+                        reqs.recvInto(req)
+                        sink.send(ctx.encodeMessage(impl.FetchWindow(ctx, req)))
                     }
                 )
             )

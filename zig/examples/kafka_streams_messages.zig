@@ -68,6 +68,8 @@ pub const Operator = enum(i32) {
     SELECT_KEY = 6,
     AGGREGATE = 7,
     REDUCE = 8,
+    WINDOW_TUMBLING = 9,
+    WINDOW_HOPPING = 10,
 };
 
 pub const Aggregator = enum(i32) {
@@ -82,6 +84,9 @@ pub const Step = struct {
     operator: Operator = .OPERATOR_UNSPECIFIED,
     param: []const u8 = "",
     aggregator: Aggregator = .AGGREGATOR_UNSPECIFIED,
+    window_size_ms: i64 = 0,
+    window_advance_ms: i64 = 0,
+    grace_ms: i64 = 0,
     unknown_fields: []const u8 = &.{},
     pub fn marshalDc(self: *const Step, alloc: std.mem.Allocator) []u8 {
         _ = .{ self, alloc };
@@ -90,6 +95,9 @@ pub const Step = struct {
         if (@intFromEnum(self.operator) != 0) { w.tag(1, 0); w.varint(@as(u64, @bitCast(@as(i64, @intFromEnum(self.operator))))); }
         w.stringField(2, self.param);
         if (@intFromEnum(self.aggregator) != 0) { w.tag(3, 0); w.varint(@as(u64, @bitCast(@as(i64, @intFromEnum(self.aggregator))))); }
+        if (self.window_size_ms != 0) { w.tag(4, 0); w.varint(@as(u64, @bitCast(self.window_size_ms))); }
+        if (self.window_advance_ms != 0) { w.tag(5, 0); w.varint(@as(u64, @bitCast(self.window_advance_ms))); }
+        if (self.grace_ms != 0) { w.tag(6, 0); w.varint(@as(u64, @bitCast(self.grace_ms))); }
         w.raw(self.unknown_fields);
         return w.toBytes();
     }
@@ -98,6 +106,9 @@ pub const Step = struct {
         self.operator = .OPERATOR_UNSPECIFIED;
         self.param = "";
         self.aggregator = .AGGREGATOR_UNSPECIFIED;
+        self.window_size_ms = 0;
+        self.window_advance_ms = 0;
+        self.grace_ms = 0;
         self.unknown_fields = &.{};
         var unknown_fields_list = std.ArrayList(u8).empty;
         var r = PbReader.init(data);
@@ -111,6 +122,15 @@ pub const Step = struct {
                 },
                 3 => {
                     self.aggregator = @enumFromInt(@as(i32, @truncate(@as(i64, @bitCast(field.varint_value)))));
+                },
+                4 => {
+                    self.window_size_ms = @as(i64, @bitCast(field.varint_value));
+                },
+                5 => {
+                    self.window_advance_ms = @as(i64, @bitCast(field.varint_value));
+                },
+                6 => {
+                    self.grace_ms = @as(i64, @bitCast(field.varint_value));
                 },
                 else => { unknown_fields_list.appendSlice(alloc, field.raw_value) catch {}; },
             }
@@ -486,6 +506,104 @@ pub const GetStoreValueResponse = struct {
                     self.key = alloc.dupe(u8, field.bytes_value) catch "";
                 },
                 3 => {
+                    self.value = @as(i64, @bitCast(field.varint_value));
+                },
+                else => { unknown_fields_list.appendSlice(alloc, field.raw_value) catch {}; },
+            }
+        }
+        self.unknown_fields = unknown_fields_list.toOwnedSlice(alloc) catch &.{};
+    }
+};
+pub const FetchWindowRequest = struct {
+    topology: []const u8 = "",
+    key: []const u8 = "",
+    window_start_ms: i64 = 0,
+    window_end_ms: i64 = 0,
+    unknown_fields: []const u8 = &.{},
+    pub fn marshalDc(self: *const FetchWindowRequest, alloc: std.mem.Allocator) []u8 {
+        _ = .{ self, alloc };
+        var w = PbWriter.init(alloc);
+        defer w.deinit();
+        w.stringField(1, self.topology);
+        w.stringField(2, self.key);
+        if (self.window_start_ms != 0) { w.tag(3, 0); w.varint(@as(u64, @bitCast(self.window_start_ms))); }
+        if (self.window_end_ms != 0) { w.tag(4, 0); w.varint(@as(u64, @bitCast(self.window_end_ms))); }
+        w.raw(self.unknown_fields);
+        return w.toBytes();
+    }
+    pub fn unmarshalDc(self: *FetchWindowRequest, alloc: std.mem.Allocator, data: []const u8) void {
+        _ = .{ self, alloc, data };
+        self.topology = "";
+        self.key = "";
+        self.window_start_ms = 0;
+        self.window_end_ms = 0;
+        self.unknown_fields = &.{};
+        var unknown_fields_list = std.ArrayList(u8).empty;
+        var r = PbReader.init(data);
+        while (r.next()) |field| {
+            switch (field.number) {
+                1 => {
+                    self.topology = alloc.dupe(u8, field.bytes_value) catch "";
+                },
+                2 => {
+                    self.key = alloc.dupe(u8, field.bytes_value) catch "";
+                },
+                3 => {
+                    self.window_start_ms = @as(i64, @bitCast(field.varint_value));
+                },
+                4 => {
+                    self.window_end_ms = @as(i64, @bitCast(field.varint_value));
+                },
+                else => { unknown_fields_list.appendSlice(alloc, field.raw_value) catch {}; },
+            }
+        }
+        self.unknown_fields = unknown_fields_list.toOwnedSlice(alloc) catch &.{};
+    }
+};
+pub const FetchWindowResponse = struct {
+    found: bool = false,
+    key: []const u8 = "",
+    window_start_ms: i64 = 0,
+    window_end_ms: i64 = 0,
+    value: i64 = 0,
+    unknown_fields: []const u8 = &.{},
+    pub fn marshalDc(self: *const FetchWindowResponse, alloc: std.mem.Allocator) []u8 {
+        _ = .{ self, alloc };
+        var w = PbWriter.init(alloc);
+        defer w.deinit();
+        if (self.found) { w.tag(1, 0); w.varint(@intFromBool(self.found)); }
+        w.stringField(2, self.key);
+        if (self.window_start_ms != 0) { w.tag(3, 0); w.varint(@as(u64, @bitCast(self.window_start_ms))); }
+        if (self.window_end_ms != 0) { w.tag(4, 0); w.varint(@as(u64, @bitCast(self.window_end_ms))); }
+        if (self.value != 0) { w.tag(5, 0); w.varint(@as(u64, @bitCast(self.value))); }
+        w.raw(self.unknown_fields);
+        return w.toBytes();
+    }
+    pub fn unmarshalDc(self: *FetchWindowResponse, alloc: std.mem.Allocator, data: []const u8) void {
+        _ = .{ self, alloc, data };
+        self.found = false;
+        self.key = "";
+        self.window_start_ms = 0;
+        self.window_end_ms = 0;
+        self.value = 0;
+        self.unknown_fields = &.{};
+        var unknown_fields_list = std.ArrayList(u8).empty;
+        var r = PbReader.init(data);
+        while (r.next()) |field| {
+            switch (field.number) {
+                1 => {
+                    self.found = field.varint_value != 0;
+                },
+                2 => {
+                    self.key = alloc.dupe(u8, field.bytes_value) catch "";
+                },
+                3 => {
+                    self.window_start_ms = @as(i64, @bitCast(field.varint_value));
+                },
+                4 => {
+                    self.window_end_ms = @as(i64, @bitCast(field.varint_value));
+                },
+                5 => {
                     self.value = @as(i64, @bitCast(field.varint_value));
                 },
                 else => { unknown_fields_list.appendSlice(alloc, field.raw_value) catch {}; },

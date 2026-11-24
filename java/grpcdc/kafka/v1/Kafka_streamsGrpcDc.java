@@ -107,6 +107,22 @@ public final class Kafka_streamsGrpcDc {
             channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/GetStoreValue", req, resp, metadata, timeout);
             return resp;
         }
+        public FetchWindowResponse FetchWindow(FetchWindowRequest req, Map<String, String> metadata) throws Exception {
+            FetchWindowResponse resp = new FetchWindowResponse();
+            channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", req, resp, metadata);
+            return resp;
+        }
+
+        public FetchWindowResponse FetchWindow(FetchWindowRequest req) throws Exception {
+            return FetchWindow(req, null);
+        }
+
+        /** Deadline variant: timeout propagates as grpc-timeout; expiry raises DEADLINE_EXCEEDED. */
+        public FetchWindowResponse FetchWindow(FetchWindowRequest req, Map<String, String> metadata, java.time.Duration timeout) throws Exception {
+            FetchWindowResponse resp = new FetchWindowResponse();
+            channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", req, resp, metadata, timeout);
+            return resp;
+        }
         public CompletableFuture<TopologyInfo> CreateTopologyAsync(CreateTopologyRequest req, Map<String, String> metadata) {
             return CompletableFuture.supplyAsync(() -> {
                 try {
@@ -172,6 +188,19 @@ public final class Kafka_streamsGrpcDc {
         public CompletableFuture<GetStoreValueResponse> GetStoreValueAsync(GetStoreValueRequest req) {
             return GetStoreValueAsync(req, null);
         }
+        public CompletableFuture<FetchWindowResponse> FetchWindowAsync(FetchWindowRequest req, Map<String, String> metadata) {
+            return CompletableFuture.supplyAsync(() -> {
+                try {
+                    return FetchWindow(req, metadata);
+                } catch (Exception e) {
+                    throw new CompletionException(e);
+                }
+            });
+        }
+
+        public CompletableFuture<FetchWindowResponse> FetchWindowAsync(FetchWindowRequest req) {
+            return FetchWindowAsync(req, null);
+        }
     }
 
     /** Service implementation interface for grpcdc.kafka.streams.v1.KafkaStreams. */
@@ -181,6 +210,7 @@ public final class Kafka_streamsGrpcDc {
         ListTopologiesResponse ListTopologies(Endpoint.CallContext ctx, ListTopologiesRequest req) throws Exception;
         DeleteTopologyResponse DeleteTopology(Endpoint.CallContext ctx, DeleteTopologyRequest req) throws Exception;
         GetStoreValueResponse GetStoreValue(Endpoint.CallContext ctx, GetStoreValueRequest req) throws Exception;
+        FetchWindowResponse FetchWindow(Endpoint.CallContext ctx, FetchWindowRequest req) throws Exception;
     }
 
     /** Async service implementation interface for grpcdc.kafka.streams.v1.KafkaStreams. */
@@ -190,6 +220,7 @@ public final class Kafka_streamsGrpcDc {
         CompletableFuture<ListTopologiesResponse> ListTopologiesAsync(Endpoint.CallContext ctx, ListTopologiesRequest req);
         CompletableFuture<DeleteTopologyResponse> DeleteTopologyAsync(Endpoint.CallContext ctx, DeleteTopologyRequest req);
         CompletableFuture<GetStoreValueResponse> GetStoreValueAsync(Endpoint.CallContext ctx, GetStoreValueRequest req);
+        CompletableFuture<FetchWindowResponse> FetchWindowAsync(Endpoint.CallContext ctx, FetchWindowRequest req);
     }
 
     private static final class KafkaStreamsServerAsyncAdapter implements KafkaStreamsServer {
@@ -249,6 +280,16 @@ public final class Kafka_streamsGrpcDc {
             }
         }
 
+        public FetchWindowResponse FetchWindow(Endpoint.CallContext ctx, FetchWindowRequest req) throws Exception {
+            try {
+                return impl.FetchWindowAsync(ctx, req).join();
+            } catch (CompletionException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof Exception ex) throw ex;
+                throw e;
+            }
+        }
+
     }
 
     /** Register an implementation of grpcdc.kafka.streams.v1.KafkaStreams on a Server. */
@@ -280,6 +321,11 @@ public final class Kafka_streamsGrpcDc {
                         GetStoreValueRequest req = new GetStoreValueRequest();
                         reqs.recvInto(req);
                         sink.send(ctx.encodeMessage(impl.GetStoreValue(ctx, req)));
+                    }),
+                    new Server.Method("FetchWindow", "/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", Server.KIND_UNARY, (ctx, reqs, sink) -> {
+                        FetchWindowRequest req = new FetchWindowRequest();
+                        reqs.recvInto(req);
+                        sink.send(ctx.encodeMessage(impl.FetchWindow(ctx, req)));
                     })
                 )));
     }

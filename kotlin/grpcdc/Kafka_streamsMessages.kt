@@ -60,7 +60,9 @@ enum class Operator(val number: Int) {
     FILTER(5),
     SELECT_KEY(6),
     AGGREGATE(7),
-    REDUCE(8);
+    REDUCE(8),
+    WINDOW_TUMBLING(9),
+    WINDOW_HOPPING(10);
     companion object {
         fun fromNumber(number: Int): Operator =
             when (number) {
@@ -73,6 +75,8 @@ enum class Operator(val number: Int) {
                 6 -> SELECT_KEY
                 7 -> AGGREGATE
                 8 -> REDUCE
+                9 -> WINDOW_TUMBLING
+                10 -> WINDOW_HOPPING
                 else -> OPERATOR_UNSPECIFIED
             }
     }
@@ -101,6 +105,9 @@ enum class Aggregator(val number: Int) {
     var operator: Operator = Operator.OPERATOR_UNSPECIFIED,
     var param: String = "",
     var aggregator: Aggregator = Aggregator.AGGREGATOR_UNSPECIFIED,
+    var windowSizeMs: Long = 0L,
+    var windowAdvanceMs: Long = 0L,
+    var graceMs: Long = 0L,
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
@@ -108,6 +115,9 @@ enum class Aggregator(val number: Int) {
         if (operator.number != 0) { pbW.tag(1, 0); pbW.varint(operator.number.toLong()) }
         pbW.stringField(2, param)
         if (aggregator.number != 0) { pbW.tag(3, 0); pbW.varint(aggregator.number.toLong()) }
+        if (windowSizeMs != 0L) { pbW.tag(4, 0); pbW.varint(windowSizeMs) }
+        if (windowAdvanceMs != 0L) { pbW.tag(5, 0); pbW.varint(windowAdvanceMs) }
+        if (graceMs != 0L) { pbW.tag(6, 0); pbW.varint(graceMs) }
         pbW.raw(unknownFields)
         return pbW.toBytes()
     }
@@ -116,6 +126,9 @@ enum class Aggregator(val number: Int) {
         operator = Operator.OPERATOR_UNSPECIFIED
         param = ""
         aggregator = Aggregator.AGGREGATOR_UNSPECIFIED
+        windowSizeMs = 0L
+        windowAdvanceMs = 0L
+        graceMs = 0L
         val pbR = Kafka_streamsPb.Reader(data)
         while (true) {
             val pbField = pbR.next() ?: break
@@ -128,6 +141,15 @@ enum class Aggregator(val number: Int) {
                 }
                 3 -> {
                     aggregator = Aggregator.fromNumber(pbField.varintValue.toInt())
+                }
+                4 -> {
+                    windowSizeMs = pbField.varintValue
+                }
+                5 -> {
+                    windowAdvanceMs = pbField.varintValue
+                }
+                6 -> {
+                    graceMs = pbField.varintValue
                 }
                 else -> { unknownFields = unknownFields + pbField.rawValue }
             }
@@ -467,6 +489,98 @@ enum class Aggregator(val number: Int) {
                     key = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 3 -> {
+                    value = pbField.varintValue
+                }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
+            }
+        }
+    }
+}
+ class FetchWindowRequest(
+    var topology: String = "",
+    var key: String = "",
+    var windowStartMs: Long = 0L,
+    var windowEndMs: Long = 0L,
+) : Marshaler, Unmarshaler {
+    var unknownFields: ByteArray = ByteArray(0)
+    override fun marshalDc(): ByteArray {
+        val pbW = Kafka_streamsPb.Writer()
+        pbW.stringField(1, topology)
+        pbW.stringField(2, key)
+        if (windowStartMs != 0L) { pbW.tag(3, 0); pbW.varint(windowStartMs) }
+        if (windowEndMs != 0L) { pbW.tag(4, 0); pbW.varint(windowEndMs) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
+    }
+    override fun unmarshalDc(data: ByteArray) {
+        unknownFields = ByteArray(0)
+        topology = ""
+        key = ""
+        windowStartMs = 0L
+        windowEndMs = 0L
+        val pbR = Kafka_streamsPb.Reader(data)
+        while (true) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
+                1 -> {
+                    topology = String(pbField.bytesValue, Charsets.UTF_8)
+                }
+                2 -> {
+                    key = String(pbField.bytesValue, Charsets.UTF_8)
+                }
+                3 -> {
+                    windowStartMs = pbField.varintValue
+                }
+                4 -> {
+                    windowEndMs = pbField.varintValue
+                }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
+            }
+        }
+    }
+}
+ class FetchWindowResponse(
+    var found: Boolean = false,
+    var key: String = "",
+    var windowStartMs: Long = 0L,
+    var windowEndMs: Long = 0L,
+    var value: Long = 0L,
+) : Marshaler, Unmarshaler {
+    var unknownFields: ByteArray = ByteArray(0)
+    override fun marshalDc(): ByteArray {
+        val pbW = Kafka_streamsPb.Writer()
+        if (found) { pbW.tag(1, 0); pbW.varint(if (found) 1L else 0L) }
+        pbW.stringField(2, key)
+        if (windowStartMs != 0L) { pbW.tag(3, 0); pbW.varint(windowStartMs) }
+        if (windowEndMs != 0L) { pbW.tag(4, 0); pbW.varint(windowEndMs) }
+        if (value != 0L) { pbW.tag(5, 0); pbW.varint(value) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
+    }
+    override fun unmarshalDc(data: ByteArray) {
+        unknownFields = ByteArray(0)
+        found = false
+        key = ""
+        windowStartMs = 0L
+        windowEndMs = 0L
+        value = 0L
+        val pbR = Kafka_streamsPb.Reader(data)
+        while (true) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
+                1 -> {
+                    found = pbField.varintValue != 0L
+                }
+                2 -> {
+                    key = String(pbField.bytesValue, Charsets.UTF_8)
+                }
+                3 -> {
+                    windowStartMs = pbField.varintValue
+                }
+                4 -> {
+                    windowEndMs = pbField.varintValue
+                }
+                5 -> {
                     value = pbField.varintValue
                 }
                 else -> { unknownFields = unknownFields + pbField.rawValue }

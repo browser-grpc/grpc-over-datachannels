@@ -51,6 +51,13 @@ class KafkaStreamsClient {
     return resp;
   }
 
+  Future<FetchWindowResponse> fetchWindow(FetchWindowRequest req,
+      {Map<String, String>? metadata, Duration? timeout}) async {
+    final resp = FetchWindowResponse();
+    await _channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", req, resp, metadata: metadata, timeout: timeout);
+    return resp;
+  }
+
 }
 
 /// Service implementation interface for grpcdc.kafka.streams.v1.KafkaStreams.
@@ -60,6 +67,7 @@ abstract class KafkaStreamsServer {
   Future<ListTopologiesResponse> listTopologies(CallContext ctx, ListTopologiesRequest req);
   Future<DeleteTopologyResponse> deleteTopology(CallContext ctx, DeleteTopologyRequest req);
   Future<GetStoreValueResponse> getStoreValue(CallContext ctx, GetStoreValueRequest req);
+  Future<FetchWindowResponse> fetchWindow(CallContext ctx, FetchWindowRequest req);
 }
 
 /// Generated gRPC-over-DataChannels stubs for kafka_streams.proto.
@@ -96,6 +104,12 @@ class Kafka_streamsGrpcDc {
         final req = GetStoreValueRequest();
         await reqs.recvInto(req);
         sink(ctx.encodeMessage(await impl.getStoreValue(ctx, req)));
+      }),
+      Method("FetchWindow", "/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", Server.kindUnary,
+          (ctx, reqs, sink) async {
+        final req = FetchWindowRequest();
+        await reqs.recvInto(req);
+        sink(ctx.encodeMessage(await impl.fetchWindow(ctx, req)));
       }),
     ]));
   }

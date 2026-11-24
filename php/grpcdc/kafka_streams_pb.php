@@ -154,6 +154,8 @@ final class Operator
     public const SELECT_KEY = 6;
     public const AGGREGATE = 7;
     public const REDUCE = 8;
+    public const WINDOW_TUMBLING = 9;
+    public const WINDOW_HOPPING = 10;
 }
 
 final class Aggregator
@@ -170,13 +172,19 @@ class Step
     public int $operator = 0;
     public string $param = "";
     public int $aggregator = 0;
+    public int $windowSizeMs = 0;
+    public int $windowAdvanceMs = 0;
+    public int $graceMs = 0;
 
     public string $unknownFields = "";
-    public function __construct(int $operator = 0, string $param = "", int $aggregator = 0)
+    public function __construct(int $operator = 0, string $param = "", int $aggregator = 0, int $windowSizeMs = 0, int $windowAdvanceMs = 0, int $graceMs = 0)
     {
         $this->operator = $operator;
         $this->param = $param;
         $this->aggregator = $aggregator;
+        $this->windowSizeMs = $windowSizeMs;
+        $this->windowAdvanceMs = $windowAdvanceMs;
+        $this->graceMs = $graceMs;
     }
 
     public function marshalDc(): string
@@ -191,6 +199,18 @@ class Step
             $w->tag(3, 0);
             $w->varint($this->aggregator);
         }
+        if ($this->windowSizeMs !== 0) {
+            $w->tag(4, 0);
+            $w->varint($this->windowSizeMs);
+        }
+        if ($this->windowAdvanceMs !== 0) {
+            $w->tag(5, 0);
+            $w->varint($this->windowAdvanceMs);
+        }
+        if ($this->graceMs !== 0) {
+            $w->tag(6, 0);
+            $w->varint($this->graceMs);
+        }
         $w->raw($this->unknownFields);
         return $w->toBytes();
     }
@@ -201,6 +221,9 @@ class Step
         $this->operator = 0;
         $this->param = "";
         $this->aggregator = 0;
+        $this->windowSizeMs = 0;
+        $this->windowAdvanceMs = 0;
+        $this->graceMs = 0;
         $r = new Reader($data);
         while (($item = $r->field()) !== null) {
             [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;
@@ -213,6 +236,15 @@ class Step
                     break;
                 case 3:
                     $this->aggregator = ((($varintValue & 0xffffffff) >= 0x80000000) ? (($varintValue & 0xffffffff) - 0x100000000) : ($varintValue & 0xffffffff));
+                    break;
+                case 4:
+                    $this->windowSizeMs = $varintValue;
+                    break;
+                case 5:
+                    $this->windowAdvanceMs = $varintValue;
+                    break;
+                case 6:
+                    $this->graceMs = $varintValue;
                     break;
                 default:
                     $this->unknownFields .= $rawValue;
@@ -227,7 +259,10 @@ class Step
         return $other instanceof Step
             && $this->operator === $other->operator
             && $this->param === $other->param
-            && $this->aggregator === $other->aggregator;
+            && $this->aggregator === $other->aggregator
+            && $this->windowSizeMs === $other->windowSizeMs
+            && $this->windowAdvanceMs === $other->windowAdvanceMs
+            && $this->graceMs === $other->graceMs;
     }
 }
 
@@ -795,6 +830,168 @@ class GetStoreValueResponse
         return $other instanceof GetStoreValueResponse
             && $this->found === $other->found
             && $this->key === $other->key
+            && $this->value === $other->value;
+    }
+}
+
+class FetchWindowRequest
+{
+    public string $topology = "";
+    public string $key = "";
+    public int $windowStartMs = 0;
+    public int $windowEndMs = 0;
+
+    public string $unknownFields = "";
+    public function __construct(string $topology = "", string $key = "", int $windowStartMs = 0, int $windowEndMs = 0)
+    {
+        $this->topology = $topology;
+        $this->key = $key;
+        $this->windowStartMs = $windowStartMs;
+        $this->windowEndMs = $windowEndMs;
+    }
+
+    public function marshalDc(): string
+    {
+        $w = new Writer();
+        $w->stringField(1, $this->topology);
+        $w->stringField(2, $this->key);
+        if ($this->windowStartMs !== 0) {
+            $w->tag(3, 0);
+            $w->varint($this->windowStartMs);
+        }
+        if ($this->windowEndMs !== 0) {
+            $w->tag(4, 0);
+            $w->varint($this->windowEndMs);
+        }
+        $w->raw($this->unknownFields);
+        return $w->toBytes();
+    }
+
+    public function unmarshalDc(string $data): self
+    {
+        $this->unknownFields = "";
+        $this->topology = "";
+        $this->key = "";
+        $this->windowStartMs = 0;
+        $this->windowEndMs = 0;
+        $r = new Reader($data);
+        while (($item = $r->field()) !== null) {
+            [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;
+            switch ($num) {
+                case 1:
+                    $this->topology = $bytesValue;
+                    break;
+                case 2:
+                    $this->key = $bytesValue;
+                    break;
+                case 3:
+                    $this->windowStartMs = $varintValue;
+                    break;
+                case 4:
+                    $this->windowEndMs = $varintValue;
+                    break;
+                default:
+                    $this->unknownFields .= $rawValue;
+                    break;
+            }
+        }
+        return $this;
+    }
+
+    public function equals(?object $other): bool
+    {
+        return $other instanceof FetchWindowRequest
+            && $this->topology === $other->topology
+            && $this->key === $other->key
+            && $this->windowStartMs === $other->windowStartMs
+            && $this->windowEndMs === $other->windowEndMs;
+    }
+}
+
+class FetchWindowResponse
+{
+    public bool $found = false;
+    public string $key = "";
+    public int $windowStartMs = 0;
+    public int $windowEndMs = 0;
+    public int $value = 0;
+
+    public string $unknownFields = "";
+    public function __construct(bool $found = false, string $key = "", int $windowStartMs = 0, int $windowEndMs = 0, int $value = 0)
+    {
+        $this->found = $found;
+        $this->key = $key;
+        $this->windowStartMs = $windowStartMs;
+        $this->windowEndMs = $windowEndMs;
+        $this->value = $value;
+    }
+
+    public function marshalDc(): string
+    {
+        $w = new Writer();
+        if ($this->found) {
+            $w->tag(1, 0);
+            $w->varint(($this->found ? 1 : 0));
+        }
+        $w->stringField(2, $this->key);
+        if ($this->windowStartMs !== 0) {
+            $w->tag(3, 0);
+            $w->varint($this->windowStartMs);
+        }
+        if ($this->windowEndMs !== 0) {
+            $w->tag(4, 0);
+            $w->varint($this->windowEndMs);
+        }
+        if ($this->value !== 0) {
+            $w->tag(5, 0);
+            $w->varint($this->value);
+        }
+        $w->raw($this->unknownFields);
+        return $w->toBytes();
+    }
+
+    public function unmarshalDc(string $data): self
+    {
+        $this->unknownFields = "";
+        $this->found = false;
+        $this->key = "";
+        $this->windowStartMs = 0;
+        $this->windowEndMs = 0;
+        $this->value = 0;
+        $r = new Reader($data);
+        while (($item = $r->field()) !== null) {
+            [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;
+            switch ($num) {
+                case 1:
+                    $this->found = ($varintValue !== 0);
+                    break;
+                case 2:
+                    $this->key = $bytesValue;
+                    break;
+                case 3:
+                    $this->windowStartMs = $varintValue;
+                    break;
+                case 4:
+                    $this->windowEndMs = $varintValue;
+                    break;
+                case 5:
+                    $this->value = $varintValue;
+                    break;
+                default:
+                    $this->unknownFields .= $rawValue;
+                    break;
+            }
+        }
+        return $this;
+    }
+
+    public function equals(?object $other): bool
+    {
+        return $other instanceof FetchWindowResponse
+            && $this->found === $other->found
+            && $this->key === $other->key
+            && $this->windowStartMs === $other->windowStartMs
+            && $this->windowEndMs === $other->windowEndMs
             && $this->value === $other->value;
     }
 }

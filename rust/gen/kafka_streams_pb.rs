@@ -135,6 +135,8 @@ pub enum Operator {
     SelectKey = 6,
     Aggregate = 7,
     Reduce = 8,
+    WindowTumbling = 9,
+    WindowHopping = 10,
     Unknown(i32),
 }
 
@@ -150,6 +152,8 @@ impl Operator {
             6 => Operator::SelectKey,
             7 => Operator::Aggregate,
             8 => Operator::Reduce,
+            9 => Operator::WindowTumbling,
+            10 => Operator::WindowHopping,
             _ => Operator::Unknown(v),
         }
     }
@@ -164,6 +168,8 @@ impl Operator {
             Operator::SelectKey => 6,
             Operator::Aggregate => 7,
             Operator::Reduce => 8,
+            Operator::WindowTumbling => 9,
+            Operator::WindowHopping => 10,
             Operator::Unknown(v) => v,
         }
     }
@@ -209,6 +215,9 @@ pub struct Step {
     pub operator: Operator,
     pub param: String,
     pub aggregator: Aggregator,
+    pub window_size_ms: i64,
+    pub window_advance_ms: i64,
+    pub grace_ms: i64,
     pub unknown_fields: Vec<u8>,
 }
 
@@ -218,6 +227,9 @@ impl Default for Step {
             operator: Operator::OperatorUnspecified,
             param: String::new(),
             aggregator: Aggregator::AggregatorUnspecified,
+            window_size_ms: 0,
+            window_advance_ms: 0,
+            grace_ms: 0,
             unknown_fields: Vec::new(),
         }
     }
@@ -229,6 +241,9 @@ impl Step {
         if self.operator != Operator::OperatorUnspecified { pb_append_tag(&mut out, 1, 0); pb_append_varint(&mut out, (self.operator.to_i32() as u64)); }
         pb_append_string_field(&mut out, 2, &self.param);
         if self.aggregator != Aggregator::AggregatorUnspecified { pb_append_tag(&mut out, 3, 0); pb_append_varint(&mut out, (self.aggregator.to_i32() as u64)); }
+        if self.window_size_ms != 0 { pb_append_tag(&mut out, 4, 0); pb_append_varint(&mut out, (self.window_size_ms as u64)); }
+        if self.window_advance_ms != 0 { pb_append_tag(&mut out, 5, 0); pb_append_varint(&mut out, (self.window_advance_ms as u64)); }
+        if self.grace_ms != 0 { pb_append_tag(&mut out, 6, 0); pb_append_varint(&mut out, (self.grace_ms as u64)); }
         out.extend_from_slice(&self.unknown_fields);
         out
     }
@@ -246,6 +261,15 @@ impl Step {
                 }
                 3 => {
                     msg.aggregator = Aggregator::from_i32(field.varint_value as i32);
+                }
+                4 => {
+                    msg.window_size_ms = (field.varint_value as i64);
+                }
+                5 => {
+                    msg.window_advance_ms = (field.varint_value as i64);
+                }
+                6 => {
+                    msg.grace_ms = (field.varint_value as i64);
                 }
                 _ => {
                     msg.unknown_fields.extend_from_slice(&field.raw_value);
@@ -729,6 +753,128 @@ impl GetStoreValueResponse {
                     msg.key = String::from_utf8_lossy(&field.bytes_value).into_owned();
                 }
                 3 => {
+                    msg.value = (field.varint_value as i64);
+                }
+                _ => {
+                    msg.unknown_fields.extend_from_slice(&field.raw_value);
+                }
+            }
+        }
+        Ok(msg)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct FetchWindowRequest {
+    pub topology: String,
+    pub key: String,
+    pub window_start_ms: i64,
+    pub window_end_ms: i64,
+    pub unknown_fields: Vec<u8>,
+}
+
+impl Default for FetchWindowRequest {
+    fn default() -> Self {
+        Self {
+            topology: String::new(),
+            key: String::new(),
+            window_start_ms: 0,
+            window_end_ms: 0,
+            unknown_fields: Vec::new(),
+        }
+    }
+}
+
+impl FetchWindowRequest {
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        pb_append_string_field(&mut out, 1, &self.topology);
+        pb_append_string_field(&mut out, 2, &self.key);
+        if self.window_start_ms != 0 { pb_append_tag(&mut out, 3, 0); pb_append_varint(&mut out, (self.window_start_ms as u64)); }
+        if self.window_end_ms != 0 { pb_append_tag(&mut out, 4, 0); pb_append_varint(&mut out, (self.window_end_ms as u64)); }
+        out.extend_from_slice(&self.unknown_fields);
+        out
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, String> {
+        let mut msg = Self::default();
+        let mut reader = PbReader::new(bytes);
+        while let Some(field) = reader.next()? {
+            match field.number {
+                1 => {
+                    msg.topology = String::from_utf8_lossy(&field.bytes_value).into_owned();
+                }
+                2 => {
+                    msg.key = String::from_utf8_lossy(&field.bytes_value).into_owned();
+                }
+                3 => {
+                    msg.window_start_ms = (field.varint_value as i64);
+                }
+                4 => {
+                    msg.window_end_ms = (field.varint_value as i64);
+                }
+                _ => {
+                    msg.unknown_fields.extend_from_slice(&field.raw_value);
+                }
+            }
+        }
+        Ok(msg)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct FetchWindowResponse {
+    pub found: bool,
+    pub key: String,
+    pub window_start_ms: i64,
+    pub window_end_ms: i64,
+    pub value: i64,
+    pub unknown_fields: Vec<u8>,
+}
+
+impl Default for FetchWindowResponse {
+    fn default() -> Self {
+        Self {
+            found: false,
+            key: String::new(),
+            window_start_ms: 0,
+            window_end_ms: 0,
+            value: 0,
+            unknown_fields: Vec::new(),
+        }
+    }
+}
+
+impl FetchWindowResponse {
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        if self.found { pb_append_tag(&mut out, 1, 0); pb_append_varint(&mut out, (if self.found { 1u64 } else { 0u64 })); }
+        pb_append_string_field(&mut out, 2, &self.key);
+        if self.window_start_ms != 0 { pb_append_tag(&mut out, 3, 0); pb_append_varint(&mut out, (self.window_start_ms as u64)); }
+        if self.window_end_ms != 0 { pb_append_tag(&mut out, 4, 0); pb_append_varint(&mut out, (self.window_end_ms as u64)); }
+        if self.value != 0 { pb_append_tag(&mut out, 5, 0); pb_append_varint(&mut out, (self.value as u64)); }
+        out.extend_from_slice(&self.unknown_fields);
+        out
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, String> {
+        let mut msg = Self::default();
+        let mut reader = PbReader::new(bytes);
+        while let Some(field) = reader.next()? {
+            match field.number {
+                1 => {
+                    msg.found = (field.varint_value != 0);
+                }
+                2 => {
+                    msg.key = String::from_utf8_lossy(&field.bytes_value).into_owned();
+                }
+                3 => {
+                    msg.window_start_ms = (field.varint_value as i64);
+                }
+                4 => {
+                    msg.window_end_ms = (field.varint_value as i64);
+                }
+                5 => {
                     msg.value = (field.varint_value as i64);
                 }
                 _ => {

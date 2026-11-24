@@ -151,6 +151,8 @@ const (
 	Operator_SELECT_KEY           Operator = 6
 	Operator_AGGREGATE            Operator = 7
 	Operator_REDUCE               Operator = 8
+	Operator_WINDOW_TUMBLING      Operator = 9
+	Operator_WINDOW_HOPPING       Operator = 10
 )
 
 type Aggregator int32
@@ -164,10 +166,13 @@ const (
 )
 
 type Step struct {
-	Operator      Operator
-	Param         string
-	Aggregator    Aggregator
-	UnknownFields []byte
+	Operator        Operator
+	Param           string
+	Aggregator      Aggregator
+	WindowSizeMs    int64
+	WindowAdvanceMs int64
+	GraceMs         int64
+	UnknownFields   []byte
 }
 
 // Reset zeroes the message (restoring explicit defaults),
@@ -186,6 +191,18 @@ func (m *Step) MarshalDC() []byte {
 	if m.Aggregator != 0 {
 		out = KafkaStreamsPbAppendTag(out, 3, 0)
 		out = KafkaStreamsPbAppendVarint(out, uint64(int64(m.Aggregator)))
+	}
+	if m.WindowSizeMs != 0 {
+		out = KafkaStreamsPbAppendTag(out, 4, 0)
+		out = KafkaStreamsPbAppendVarint(out, uint64(m.WindowSizeMs))
+	}
+	if m.WindowAdvanceMs != 0 {
+		out = KafkaStreamsPbAppendTag(out, 5, 0)
+		out = KafkaStreamsPbAppendVarint(out, uint64(m.WindowAdvanceMs))
+	}
+	if m.GraceMs != 0 {
+		out = KafkaStreamsPbAppendTag(out, 6, 0)
+		out = KafkaStreamsPbAppendVarint(out, uint64(m.GraceMs))
 	}
 	out = append(out, m.UnknownFields...)
 	return out
@@ -214,6 +231,18 @@ func (m *Step) UnmarshalDC(data []byte) error {
 		case 3:
 			if v, ok := value.(uint64); ok {
 				m.Aggregator = Aggregator(int32(v))
+			}
+		case 4:
+			if v, ok := value.(uint64); ok {
+				m.WindowSizeMs = int64(v)
+			}
+		case 5:
+			if v, ok := value.(uint64); ok {
+				m.WindowAdvanceMs = int64(v)
+			}
+		case 6:
+			if v, ok := value.(uint64); ok {
+				m.GraceMs = int64(v)
 			}
 		default:
 			m.UnknownFields = append(m.UnknownFields, raw...)
@@ -731,6 +760,146 @@ func (m *GetStoreValueResponse) UnmarshalDC(data []byte) error {
 				m.Key = string(b)
 			}
 		case 3:
+			if v, ok := value.(uint64); ok {
+				m.Value = int64(v)
+			}
+		default:
+			m.UnknownFields = append(m.UnknownFields, raw...)
+		}
+	}
+}
+
+type FetchWindowRequest struct {
+	Topology      string
+	Key           string
+	WindowStartMs int64
+	WindowEndMs   int64
+	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *FetchWindowRequest) Reset() {
+	*m = FetchWindowRequest{}
+}
+
+func (m *FetchWindowRequest) MarshalDC() []byte {
+	var out []byte
+	out = KafkaStreamsPbAppendStringField(out, 1, m.Topology)
+	out = KafkaStreamsPbAppendStringField(out, 2, m.Key)
+	if m.WindowStartMs != 0 {
+		out = KafkaStreamsPbAppendTag(out, 3, 0)
+		out = KafkaStreamsPbAppendVarint(out, uint64(m.WindowStartMs))
+	}
+	if m.WindowEndMs != 0 {
+		out = KafkaStreamsPbAppendTag(out, 4, 0)
+		out = KafkaStreamsPbAppendVarint(out, uint64(m.WindowEndMs))
+	}
+	out = append(out, m.UnknownFields...)
+	return out
+}
+
+func (m *FetchWindowRequest) UnmarshalDC(data []byte) error {
+	m.UnknownFields = nil
+	r := &KafkaStreamsPbReader{buf: data}
+	for {
+		num, _, value, raw, done, err := r.field()
+		if err != nil {
+			return err
+		}
+		if done {
+			return nil
+		}
+		switch num {
+		case 1:
+			if b, ok := value.([]byte); ok {
+				m.Topology = string(b)
+			}
+		case 2:
+			if b, ok := value.([]byte); ok {
+				m.Key = string(b)
+			}
+		case 3:
+			if v, ok := value.(uint64); ok {
+				m.WindowStartMs = int64(v)
+			}
+		case 4:
+			if v, ok := value.(uint64); ok {
+				m.WindowEndMs = int64(v)
+			}
+		default:
+			m.UnknownFields = append(m.UnknownFields, raw...)
+		}
+	}
+}
+
+type FetchWindowResponse struct {
+	Found         bool
+	Key           string
+	WindowStartMs int64
+	WindowEndMs   int64
+	Value         int64
+	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *FetchWindowResponse) Reset() {
+	*m = FetchWindowResponse{}
+}
+
+func (m *FetchWindowResponse) MarshalDC() []byte {
+	var out []byte
+	if m.Found {
+		out = KafkaStreamsPbAppendTag(out, 1, 0)
+		out = KafkaStreamsPbAppendVarint(out, KafkaStreamsPbBoolToUint64(m.Found))
+	}
+	out = KafkaStreamsPbAppendStringField(out, 2, m.Key)
+	if m.WindowStartMs != 0 {
+		out = KafkaStreamsPbAppendTag(out, 3, 0)
+		out = KafkaStreamsPbAppendVarint(out, uint64(m.WindowStartMs))
+	}
+	if m.WindowEndMs != 0 {
+		out = KafkaStreamsPbAppendTag(out, 4, 0)
+		out = KafkaStreamsPbAppendVarint(out, uint64(m.WindowEndMs))
+	}
+	if m.Value != 0 {
+		out = KafkaStreamsPbAppendTag(out, 5, 0)
+		out = KafkaStreamsPbAppendVarint(out, uint64(m.Value))
+	}
+	out = append(out, m.UnknownFields...)
+	return out
+}
+
+func (m *FetchWindowResponse) UnmarshalDC(data []byte) error {
+	m.UnknownFields = nil
+	r := &KafkaStreamsPbReader{buf: data}
+	for {
+		num, _, value, raw, done, err := r.field()
+		if err != nil {
+			return err
+		}
+		if done {
+			return nil
+		}
+		switch num {
+		case 1:
+			if v, ok := value.(uint64); ok {
+				m.Found = v != 0
+			}
+		case 2:
+			if b, ok := value.([]byte); ok {
+				m.Key = string(b)
+			}
+		case 3:
+			if v, ok := value.(uint64); ok {
+				m.WindowStartMs = int64(v)
+			}
+		case 4:
+			if v, ok := value.(uint64); ok {
+				m.WindowEndMs = int64(v)
+			}
+		case 5:
 			if v, ok := value.(uint64); ok {
 				m.Value = int64(v)
 			}

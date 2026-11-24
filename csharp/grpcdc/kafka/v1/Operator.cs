@@ -11,5 +11,7 @@ public enum Operator {
     FILTER = 5,
     SELECT_KEY = 6,
     AGGREGATE = 7,
-    REDUCE = 8
+    REDUCE = 8,
+    WINDOW_TUMBLING = 9,
+    WINDOW_HOPPING = 10
 }

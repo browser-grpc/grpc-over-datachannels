@@ -135,6 +135,9 @@ class KafkaStreamsClient:
     def GetStoreValue(self, req, metadata=None, timeout=None):
         return self._channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/GetStoreValue", req, kafka_streams_pb.GetStoreValueResponse(), metadata, timeout)
 
+    def FetchWindow(self, req, metadata=None, timeout=None):
+        return self._channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", req, kafka_streams_pb.FetchWindowResponse(), metadata, timeout)
+
 class KafkaStreamsClientAsync:
     """Asyncio client: wrap a grpcdc.AsyncChannel (a sync Channel is wrapped)."""
 
@@ -158,6 +161,9 @@ class KafkaStreamsClientAsync:
 
     async def GetStoreValue(self, req, metadata=None, timeout=None):
         return await self._channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/GetStoreValue", req, kafka_streams_pb.GetStoreValueResponse(), metadata, timeout)
+
+    async def FetchWindow(self, req, metadata=None, timeout=None):
+        return await self._channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", req, kafka_streams_pb.FetchWindowResponse(), metadata, timeout)
 
 def register_kafka_streams_server(server, impl):
     def _CreateTopology_handler(ctx, reqs, sink):
@@ -185,6 +191,11 @@ def register_kafka_streams_server(server, impl):
         resp = impl.GetStoreValue(ctx, req)
         sink.send(ctx.encode_message(resp))
 
+    def _FetchWindow_handler(ctx, reqs, sink):
+        req = reqs.recv_into(kafka_streams_pb.FetchWindowRequest())
+        resp = impl.FetchWindow(ctx, req)
+        sink.send(ctx.encode_message(resp))
+
     server.register_service(grpcdc.ServiceDesc(
         "grpcdc.kafka.streams.v1.KafkaStreams",
         [
@@ -193,5 +204,6 @@ def register_kafka_streams_server(server, impl):
         grpcdc.Method("ListTopologies", "/grpcdc.kafka.streams.v1.KafkaStreams/ListTopologies", grpcdc.KIND_UNARY, _ListTopologies_handler),
         grpcdc.Method("DeleteTopology", "/grpcdc.kafka.streams.v1.KafkaStreams/DeleteTopology", grpcdc.KIND_UNARY, _DeleteTopology_handler),
         grpcdc.Method("GetStoreValue", "/grpcdc.kafka.streams.v1.KafkaStreams/GetStoreValue", grpcdc.KIND_UNARY, _GetStoreValue_handler),
+        grpcdc.Method("FetchWindow", "/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", grpcdc.KIND_UNARY, _FetchWindow_handler),
         ],
     ))

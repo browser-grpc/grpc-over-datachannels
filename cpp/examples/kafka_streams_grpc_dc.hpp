@@ -61,6 +61,13 @@ struct Kafka_streamsGrpcDc {
       return resp;
     }
 
+    FetchWindowResponse FetchWindow(FetchWindowRequest req,
+                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      FetchWindowResponse resp;
+      channel_->Unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", req, resp, metadata, timeout);
+      return resp;
+    }
+
     // -- async (std::future) surface -------------------------------------
 
     std::future<TopologyInfo> CreateTopologyAsync(
@@ -91,6 +98,12 @@ struct Kafka_streamsGrpcDc {
         GetStoreValueRequest req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
       return std::async(std::launch::async,
                         [this, req, metadata, timeout] { return GetStoreValue(req, metadata, timeout); });
+    }
+
+    std::future<FetchWindowResponse> FetchWindowAsync(
+        FetchWindowRequest req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      return std::async(std::launch::async,
+                        [this, req, metadata, timeout] { return FetchWindow(req, metadata, timeout); });
     }
 
    private:
@@ -141,6 +154,13 @@ struct Kafka_streamsGrpcDc {
       co_return resp;
     }
 
+    grpcdc::Task<FetchWindowResponse> FetchWindow(FetchWindowRequest req,
+                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      FetchWindowResponse resp;
+      co_await channel_->Unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", req, resp, metadata, timeout);
+      co_return resp;
+    }
+
    private:
     std::shared_ptr<grpcdc::AsyncChannel> channel_;
   };
@@ -159,6 +179,8 @@ struct Kafka_streamsGrpcDc {
                                DeleteTopologyRequest& req) = 0;
     virtual GetStoreValueResponse GetStoreValue(grpcdc::Endpoint::CallContext& ctx,
                                GetStoreValueRequest& req) = 0;
+    virtual FetchWindowResponse FetchWindow(grpcdc::Endpoint::CallContext& ctx,
+                               FetchWindowRequest& req) = 0;
   };
 
   /// Async service implementation interface for grpcdc.kafka.streams.v1.KafkaStreams.
@@ -174,6 +196,8 @@ struct Kafka_streamsGrpcDc {
         grpcdc::Endpoint::CallContext& ctx, DeleteTopologyRequest& req) = 0;
     virtual std::future<GetStoreValueResponse> GetStoreValueAsync(
         grpcdc::Endpoint::CallContext& ctx, GetStoreValueRequest& req) = 0;
+    virtual std::future<FetchWindowResponse> FetchWindowAsync(
+        grpcdc::Endpoint::CallContext& ctx, FetchWindowRequest& req) = 0;
   };
 
  private:
@@ -199,6 +223,10 @@ struct Kafka_streamsGrpcDc {
     GetStoreValueResponse GetStoreValue(grpcdc::Endpoint::CallContext& ctx,
                        GetStoreValueRequest& req) override {
       return impl_->GetStoreValueAsync(ctx, req).get();
+    }
+    FetchWindowResponse FetchWindow(grpcdc::Endpoint::CallContext& ctx,
+                       FetchWindowRequest& req) override {
+      return impl_->FetchWindowAsync(ctx, req).get();
     }
 
    private:
@@ -259,6 +287,16 @@ struct Kafka_streamsGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                GetStoreValueResponse resp = impl.GetStoreValue(mutable_ctx, req);
+               sink(ctx.EncodeMessage(resp));
+             }},
+            {"FetchWindow", "/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", grpcdc::Server::kKindUnary,
+             [&impl](const grpcdc::Endpoint::CallContext& ctx,
+                     grpcdc::Server::RequestStream& reqs,
+                     grpcdc::Server::ServerSink& sink) {
+               FetchWindowRequest req;
+               reqs.RecvInto(req);
+               auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
+               FetchWindowResponse resp = impl.FetchWindow(mutable_ctx, req);
                sink(ctx.EncodeMessage(resp));
              }},
         }});

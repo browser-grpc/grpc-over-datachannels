@@ -119,6 +119,8 @@ class Operator:
     SELECT_KEY = 6
     AGGREGATE = 7
     REDUCE = 8
+    WINDOW_TUMBLING = 9
+    WINDOW_HOPPING = 10
 
 
 class Aggregator:
@@ -133,10 +135,13 @@ class Aggregator:
 class Step:
     """Message grpcdc.kafka.streams.v1.Step."""
 
-    def __init__(self, operator=0, param="", aggregator=0):
+    def __init__(self, operator=0, param="", aggregator=0, window_size_ms=0, window_advance_ms=0, grace_ms=0):
         self.operator = operator
         self.param = param
         self.aggregator = aggregator
+        self.window_size_ms = window_size_ms
+        self.window_advance_ms = window_advance_ms
+        self.grace_ms = grace_ms
         self.unknown_fields = b""
 
     def marshal_dc(self):
@@ -144,6 +149,9 @@ class Step:
         out = _append_varint_field(out, 1, self.operator)
         out = _append_string_field(out, 2, self.param)
         out = _append_varint_field(out, 3, self.aggregator)
+        out = _append_varint_field(out, 4, self.window_size_ms)
+        out = _append_varint_field(out, 5, self.window_advance_ms)
+        out = _append_varint_field(out, 6, self.grace_ms)
         out += self.unknown_fields
         return bytes(out)
 
@@ -152,6 +160,9 @@ class Step:
         self.operator = 0
         self.param = ""
         self.aggregator = 0
+        self.window_size_ms = 0
+        self.window_advance_ms = 0
+        self.grace_ms = 0
         reader = _Reader(data)
         while True:
             item = reader.field()
@@ -164,6 +175,12 @@ class Step:
                 self.param = value.decode("utf-8")
             elif num == 3:
                 self.aggregator = _as_int32(value)
+            elif num == 4:
+                self.window_size_ms = _as_int64(value)
+            elif num == 5:
+                self.window_advance_ms = _as_int64(value)
+            elif num == 6:
+                self.grace_ms = _as_int64(value)
             else:
                 self.unknown_fields = self.unknown_fields + raw
 
@@ -171,7 +188,7 @@ class Step:
         return isinstance(other, Step) and self.__dict__ == other.__dict__
 
     def __repr__(self):
-        return f"Step(operator={self.operator!r}, param={self.param!r}, aggregator={self.aggregator!r})"
+        return f"Step(operator={self.operator!r}, param={self.param!r}, aggregator={self.aggregator!r}, window_size_ms={self.window_size_ms!r}, window_advance_ms={self.window_advance_ms!r}, grace_ms={self.grace_ms!r})"
 
 
 class Topology:
@@ -587,5 +604,108 @@ class GetStoreValueResponse:
 
     def __repr__(self):
         return f"GetStoreValueResponse(found={self.found!r}, key={self.key!r}, value={self.value!r})"
+
+
+class FetchWindowRequest:
+    """Message grpcdc.kafka.streams.v1.FetchWindowRequest."""
+
+    def __init__(self, topology="", key="", window_start_ms=0, window_end_ms=0):
+        self.topology = topology
+        self.key = key
+        self.window_start_ms = window_start_ms
+        self.window_end_ms = window_end_ms
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        out = _append_string_field(out, 1, self.topology)
+        out = _append_string_field(out, 2, self.key)
+        out = _append_varint_field(out, 3, self.window_start_ms)
+        out = _append_varint_field(out, 4, self.window_end_ms)
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.topology = ""
+        self.key = ""
+        self.window_start_ms = 0
+        self.window_end_ms = 0
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                self.topology = value.decode("utf-8")
+            elif num == 2:
+                self.key = value.decode("utf-8")
+            elif num == 3:
+                self.window_start_ms = _as_int64(value)
+            elif num == 4:
+                self.window_end_ms = _as_int64(value)
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, FetchWindowRequest) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"FetchWindowRequest(topology={self.topology!r}, key={self.key!r}, window_start_ms={self.window_start_ms!r}, window_end_ms={self.window_end_ms!r})"
+
+
+class FetchWindowResponse:
+    """Message grpcdc.kafka.streams.v1.FetchWindowResponse."""
+
+    def __init__(self, found=False, key="", window_start_ms=0, window_end_ms=0, value=0):
+        self.found = found
+        self.key = key
+        self.window_start_ms = window_start_ms
+        self.window_end_ms = window_end_ms
+        self.value = value
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        out = _append_varint_field(out, 1, (1 if self.found else 0))
+        out = _append_string_field(out, 2, self.key)
+        out = _append_varint_field(out, 3, self.window_start_ms)
+        out = _append_varint_field(out, 4, self.window_end_ms)
+        out = _append_varint_field(out, 5, self.value)
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.found = False
+        self.key = ""
+        self.window_start_ms = 0
+        self.window_end_ms = 0
+        self.value = 0
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                self.found = (value != 0)
+            elif num == 2:
+                self.key = value.decode("utf-8")
+            elif num == 3:
+                self.window_start_ms = _as_int64(value)
+            elif num == 4:
+                self.window_end_ms = _as_int64(value)
+            elif num == 5:
+                self.value = _as_int64(value)
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, FetchWindowResponse) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"FetchWindowResponse(found={self.found!r}, key={self.key!r}, window_start_ms={self.window_start_ms!r}, window_end_ms={self.window_end_ms!r}, value={self.value!r})"
 
 

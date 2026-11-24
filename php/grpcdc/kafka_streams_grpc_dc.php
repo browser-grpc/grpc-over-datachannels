@@ -273,6 +273,11 @@ class KafkaStreamsClient
         return $this->channel->unary("/grpcdc.kafka.streams.v1.KafkaStreams/GetStoreValue", $req, new \KafkaStreamsPb\GetStoreValueResponse(), $metadata, $timeout);
     }
 
+    public function FetchWindow(\KafkaStreamsPb\FetchWindowRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaStreamsPb\FetchWindowResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", $req, new \KafkaStreamsPb\FetchWindowResponse(), $metadata, $timeout);
+    }
+
 }
 
 // Fiber client: wraps a Grpcdc\FiberChannel (a sync Channel is wrapped).
@@ -310,6 +315,11 @@ class KafkaStreamsClientFiber
         return $this->channel->unary("/grpcdc.kafka.streams.v1.KafkaStreams/GetStoreValue", $req, new \KafkaStreamsPb\GetStoreValueResponse(), $metadata, $timeout);
     }
 
+    public function FetchWindow(\KafkaStreamsPb\FetchWindowRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaStreamsPb\FetchWindowResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", $req, new \KafkaStreamsPb\FetchWindowResponse(), $metadata, $timeout);
+    }
+
 }
 
 function registerKafkaStreamsServer(\Grpcdc\Server $server, object $impl): void
@@ -344,6 +354,12 @@ function registerKafkaStreamsServer(\Grpcdc\Server $server, object $impl): void
         $sink->send($ctx->encodeMessage($resp));
     };
 
+    $fetch_windowHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
+        $req = $reqs->recvInto(new \KafkaStreamsPb\FetchWindowRequest());
+        $resp = $impl->FetchWindow($ctx, $req);
+        $sink->send($ctx->encodeMessage($resp));
+    };
+
     $server->registerService(new \Grpcdc\ServiceDesc(
         "grpcdc.kafka.streams.v1.KafkaStreams",
         [
@@ -352,6 +368,7 @@ function registerKafkaStreamsServer(\Grpcdc\Server $server, object $impl): void
             new \Grpcdc\Method("ListTopologies", "/grpcdc.kafka.streams.v1.KafkaStreams/ListTopologies", \Grpcdc\Server::KIND_UNARY, $list_topologiesHandler),
             new \Grpcdc\Method("DeleteTopology", "/grpcdc.kafka.streams.v1.KafkaStreams/DeleteTopology", \Grpcdc\Server::KIND_UNARY, $delete_topologyHandler),
             new \Grpcdc\Method("GetStoreValue", "/grpcdc.kafka.streams.v1.KafkaStreams/GetStoreValue", \Grpcdc\Server::KIND_UNARY, $get_store_valueHandler),
+            new \Grpcdc\Method("FetchWindow", "/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", \Grpcdc\Server::KIND_UNARY, $fetch_windowHandler),
         ]
     ));
 }

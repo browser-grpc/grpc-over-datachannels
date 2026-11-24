@@ -17,6 +17,8 @@ local DeleteTopologyRequest = kafka_streamsMessages.DeleteTopologyRequest
 local DeleteTopologyResponse = kafka_streamsMessages.DeleteTopologyResponse
 local GetStoreValueRequest = kafka_streamsMessages.GetStoreValueRequest
 local GetStoreValueResponse = kafka_streamsMessages.GetStoreValueResponse
+local FetchWindowRequest = kafka_streamsMessages.FetchWindowRequest
+local FetchWindowResponse = kafka_streamsMessages.FetchWindowResponse
 
 local Channel = channelModule.Channel
 local Server = serverModule.Server
@@ -61,6 +63,12 @@ function KafkaStreamsClient:getStoreValue(req, metadata, timeout)
   return resp
 end
 
+function KafkaStreamsClient:fetchWindow(req, metadata, timeout)
+  local resp = FetchWindowResponse.new()
+  self.channel:unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", req, resp, metadata, timeout)
+  return resp
+end
+
 --- Coroutine client for grpcdc.kafka.streams.v1.KafkaStreams.
 local KafkaStreamsClientCoro = {}
 KafkaStreamsClientCoro.__index = KafkaStreamsClientCoro
@@ -96,6 +104,12 @@ end
 function KafkaStreamsClientCoro:getStoreValue(req, metadata, timeout)
   local resp = GetStoreValueResponse.new()
   self.channel:unary("/grpcdc.kafka.streams.v1.KafkaStreams/GetStoreValue", req, resp, metadata, timeout)
+  return resp
+end
+
+function KafkaStreamsClientCoro:fetchWindow(req, metadata, timeout)
+  local resp = FetchWindowResponse.new()
+  self.channel:unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", req, resp, metadata, timeout)
   return resp
 end
 
@@ -154,6 +168,16 @@ local function registerKafkaStreamsServer(server, impl)
           local req = GetStoreValueRequest.new()
           reqs:recvInto(req)
           sink(ctx.encodeMessage(impl:getStoreValue(ctx, req)))
+        end,
+      },
+      {
+        name = "FetchWindow",
+        path = "/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow",
+        kind = Server.KIND_UNARY,
+        handler = function(ctx, reqs, sink)
+          local req = FetchWindowRequest.new()
+          reqs:recvInto(req)
+          sink(ctx.encodeMessage(impl:fetchWindow(ctx, req)))
         end,
       },
     },

@@ -201,6 +201,10 @@ module KafkaStreamsGrpcDc
       @channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/GetStoreValue", req, KafkaStreamsPb::GetStoreValueResponse.new, metadata, timeout: timeout)
     end
 
+    def FetchWindow(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", req, KafkaStreamsPb::FetchWindowResponse.new, metadata, timeout: timeout)
+    end
+
   end
 
   # Fiber client: wraps a Grpcdc::FiberChannel (a sync Channel is wrapped).
@@ -227,6 +231,10 @@ module KafkaStreamsGrpcDc
 
     def GetStoreValue(req, metadata = nil, timeout: nil)
       @channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/GetStoreValue", req, KafkaStreamsPb::GetStoreValueResponse.new, metadata, timeout: timeout)
+    end
+
+    def FetchWindow(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", req, KafkaStreamsPb::FetchWindowResponse.new, metadata, timeout: timeout)
     end
 
   end
@@ -262,6 +270,12 @@ module KafkaStreamsGrpcDc
       sink.send(ctx.encode_message(resp))
     end
 
+    fetch_window_handler = lambda do |ctx, reqs, sink|
+      req = reqs.recv_into(KafkaStreamsPb::FetchWindowRequest.new)
+      resp = impl.FetchWindow(ctx, req)
+      sink.send(ctx.encode_message(resp))
+    end
+
     server.register_service(Grpcdc::ServiceDesc.new(
       "grpcdc.kafka.streams.v1.KafkaStreams",
       [
@@ -270,6 +284,7 @@ module KafkaStreamsGrpcDc
         Grpcdc::Method.new("ListTopologies", "/grpcdc.kafka.streams.v1.KafkaStreams/ListTopologies", Grpcdc::KIND_UNARY, list_topologies_handler),
         Grpcdc::Method.new("DeleteTopology", "/grpcdc.kafka.streams.v1.KafkaStreams/DeleteTopology", Grpcdc::KIND_UNARY, delete_topology_handler),
         Grpcdc::Method.new("GetStoreValue", "/grpcdc.kafka.streams.v1.KafkaStreams/GetStoreValue", Grpcdc::KIND_UNARY, get_store_value_handler),
+        Grpcdc::Method.new("FetchWindow", "/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", Grpcdc::KIND_UNARY, fetch_window_handler),
       ]
     ))
   end

@@ -59,6 +59,13 @@ public static class Kafka_streamsGrpcDc
             return resp;
         }
 
+        public FetchWindowResponse FetchWindow(FetchWindowRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null)
+        {
+            var resp = new FetchWindowResponse();
+            _channel.Unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", req, resp, metadata, timeout);
+            return resp;
+        }
+
         public Task<TopologyInfo> CreateTopologyAsync(CreateTopologyRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,
             CancellationToken cancellationToken = default)
         {
@@ -89,6 +96,12 @@ public static class Kafka_streamsGrpcDc
             return AsyncPump.Run(() => GetStoreValue(req, metadata, timeout), cancellationToken);
         }
 
+        public Task<FetchWindowResponse> FetchWindowAsync(FetchWindowRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,
+            CancellationToken cancellationToken = default)
+        {
+            return AsyncPump.Run(() => FetchWindow(req, metadata, timeout), cancellationToken);
+        }
+
     }
 
     /// <summary>Service implementation interface for grpcdc.kafka.streams.v1.KafkaStreams.</summary>
@@ -99,6 +112,7 @@ public static class Kafka_streamsGrpcDc
         ListTopologiesResponse ListTopologies(Endpoint.CallContext ctx, ListTopologiesRequest req);
         DeleteTopologyResponse DeleteTopology(Endpoint.CallContext ctx, DeleteTopologyRequest req);
         GetStoreValueResponse GetStoreValue(Endpoint.CallContext ctx, GetStoreValueRequest req);
+        FetchWindowResponse FetchWindow(Endpoint.CallContext ctx, FetchWindowRequest req);
     }
 
     /// <summary>Async service implementation interface for grpcdc.kafka.streams.v1.KafkaStreams.</summary>
@@ -109,6 +123,7 @@ public static class Kafka_streamsGrpcDc
         Task<ListTopologiesResponse> ListTopologiesAsync(Endpoint.CallContext ctx, ListTopologiesRequest req);
         Task<DeleteTopologyResponse> DeleteTopologyAsync(Endpoint.CallContext ctx, DeleteTopologyRequest req);
         Task<GetStoreValueResponse> GetStoreValueAsync(Endpoint.CallContext ctx, GetStoreValueRequest req);
+        Task<FetchWindowResponse> FetchWindowAsync(Endpoint.CallContext ctx, FetchWindowRequest req);
     }
 
     private sealed class KafkaStreamsServerAsyncAdapter : KafkaStreamsServer
@@ -143,6 +158,11 @@ public static class Kafka_streamsGrpcDc
         public GetStoreValueResponse GetStoreValue(Endpoint.CallContext ctx, GetStoreValueRequest req)
         {
             return _impl.GetStoreValueAsync(ctx, req).GetAwaiter().GetResult();
+        }
+
+        public FetchWindowResponse FetchWindow(Endpoint.CallContext ctx, FetchWindowRequest req)
+        {
+            return _impl.FetchWindowAsync(ctx, req).GetAwaiter().GetResult();
         }
 
     }
@@ -183,6 +203,12 @@ public static class Kafka_streamsGrpcDc
                     var req = new GetStoreValueRequest();
                     reqs.RecvInto(req);
                     sink(ctx.EncodeMessage(impl.GetStoreValue(ctx, req)));
+                }),
+                new Server.Method("FetchWindow", "/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", Server.KindUnary, (ctx, reqs, sink) =>
+                {
+                    var req = new FetchWindowRequest();
+                    reqs.RecvInto(req);
+                    sink(ctx.EncodeMessage(impl.FetchWindow(ctx, req)));
                 }),
             }));
     }

@@ -124,3 +124,7 @@ streams_msg!(DeleteTopologyRequest);
 streams_msg!(DeleteTopologyResponse);
 streams_msg!(GetStoreValueRequest);
 streams_msg!(GetStoreValueResponse);
+
+streams_msg!(Step);
+streams_msg!(FetchWindowRequest);
+streams_msg!(FetchWindowResponse);

@@ -125,15 +125,17 @@ local DeleteTopologyRequest
 local DeleteTopologyResponse
 local GetStoreValueRequest
 local GetStoreValueResponse
-local Operator = { OPERATOR_UNSPECIFIED = 0, TOKENIZE_WORDS = 1, GROUP_BY_KEY = 2, COUNT = 3, MAP_VALUES = 4, FILTER = 5, SELECT_KEY = 6, AGGREGATE = 7, REDUCE = 8 }
+local FetchWindowRequest
+local FetchWindowResponse
+local Operator = { OPERATOR_UNSPECIFIED = 0, TOKENIZE_WORDS = 1, GROUP_BY_KEY = 2, COUNT = 3, MAP_VALUES = 4, FILTER = 5, SELECT_KEY = 6, AGGREGATE = 7, REDUCE = 8, WINDOW_TUMBLING = 9, WINDOW_HOPPING = 10 }
 
 local Aggregator = { AGGREGATOR_UNSPECIFIED = 0, AGGREGATE_COUNT = 1, AGGREGATE_SUM = 2, AGGREGATE_MIN = 3, AGGREGATE_MAX = 4 }
 
 Step = {}
 Step.__index = Step
 
-function Step.new(operator, param, aggregator)
-  return setmetatable({ operator = operator or 0, param = param or "", aggregator = aggregator or 0, unknownFields = "" }, Step)
+function Step.new(operator, param, aggregator, windowSizeMs, windowAdvanceMs, graceMs)
+  return setmetatable({ operator = operator or 0, param = param or "", aggregator = aggregator or 0, windowSizeMs = windowSizeMs or 0, windowAdvanceMs = windowAdvanceMs or 0, graceMs = graceMs or 0, unknownFields = "" }, Step)
 end
 
 function Step:marshalDc()
@@ -141,6 +143,9 @@ function Step:marshalDc()
     if self.operator ~= 0 then w:tag(1, 0) w:varint(self.operator) end
     w:stringField(2, self.param)
     if self.aggregator ~= 0 then w:tag(3, 0) w:varint(self.aggregator) end
+    if self.windowSizeMs ~= 0 then w:tag(4, 0) w:varint(self.windowSizeMs) end
+    if self.windowAdvanceMs ~= 0 then w:tag(5, 0) w:varint(self.windowAdvanceMs) end
+    if self.graceMs ~= 0 then w:tag(6, 0) w:varint(self.graceMs) end
   w:raw(self.unknownFields)
   return w:toBytes()
 end
@@ -150,6 +155,9 @@ function Step:unmarshalDc(data)
   self.operator = 0
   self.param = ""
   self.aggregator = 0
+  self.windowSizeMs = 0
+  self.windowAdvanceMs = 0
+  self.graceMs = 0
   local r = Reader.new(data)
   while true do
     local field = r:next()
@@ -161,6 +169,12 @@ function Step:unmarshalDc(data)
       self.param = field.bytesValue
     elseif field.number == 3 then
       self.aggregator = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    elseif field.number == 4 then
+      self.windowSizeMs = field.varintValue
+    elseif field.number == 5 then
+      self.windowAdvanceMs = field.varintValue
+    elseif field.number == 6 then
+      self.graceMs = field.varintValue
     else
       self.unknownFields = self.unknownFields .. field.rawValue
     end
@@ -532,6 +546,94 @@ function GetStoreValueResponse:unmarshalDc(data)
   end
 end
 
+FetchWindowRequest = {}
+FetchWindowRequest.__index = FetchWindowRequest
+
+function FetchWindowRequest.new(topology, key, windowStartMs, windowEndMs)
+  return setmetatable({ topology = topology or "", key = key or "", windowStartMs = windowStartMs or 0, windowEndMs = windowEndMs or 0, unknownFields = "" }, FetchWindowRequest)
+end
+
+function FetchWindowRequest:marshalDc()
+  local w = Writer.new()
+    w:stringField(1, self.topology)
+    w:stringField(2, self.key)
+    if self.windowStartMs ~= 0 then w:tag(3, 0) w:varint(self.windowStartMs) end
+    if self.windowEndMs ~= 0 then w:tag(4, 0) w:varint(self.windowEndMs) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function FetchWindowRequest:unmarshalDc(data)
+  self.unknownFields = ""
+  self.topology = ""
+  self.key = ""
+  self.windowStartMs = 0
+  self.windowEndMs = 0
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      self.topology = field.bytesValue
+    elseif field.number == 2 then
+      self.key = field.bytesValue
+    elseif field.number == 3 then
+      self.windowStartMs = field.varintValue
+    elseif field.number == 4 then
+      self.windowEndMs = field.varintValue
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+FetchWindowResponse = {}
+FetchWindowResponse.__index = FetchWindowResponse
+
+function FetchWindowResponse.new(found, key, windowStartMs, windowEndMs, value)
+  return setmetatable({ found = found or false, key = key or "", windowStartMs = windowStartMs or 0, windowEndMs = windowEndMs or 0, value = value or 0, unknownFields = "" }, FetchWindowResponse)
+end
+
+function FetchWindowResponse:marshalDc()
+  local w = Writer.new()
+    if self.found then w:tag(1, 0) w:varint((self.found and 1 or 0)) end
+    w:stringField(2, self.key)
+    if self.windowStartMs ~= 0 then w:tag(3, 0) w:varint(self.windowStartMs) end
+    if self.windowEndMs ~= 0 then w:tag(4, 0) w:varint(self.windowEndMs) end
+    if self.value ~= 0 then w:tag(5, 0) w:varint(self.value) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function FetchWindowResponse:unmarshalDc(data)
+  self.unknownFields = ""
+  self.found = false
+  self.key = ""
+  self.windowStartMs = 0
+  self.windowEndMs = 0
+  self.value = 0
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      self.found = (field.varintValue ~= 0)
+    elseif field.number == 2 then
+      self.key = field.bytesValue
+    elseif field.number == 3 then
+      self.windowStartMs = field.varintValue
+    elseif field.number == 4 then
+      self.windowEndMs = field.varintValue
+    elseif field.number == 5 then
+      self.value = field.varintValue
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
 return {
   Step = Step,
   Topology = Topology,
@@ -544,6 +646,8 @@ return {
   DeleteTopologyResponse = DeleteTopologyResponse,
   GetStoreValueRequest = GetStoreValueRequest,
   GetStoreValueResponse = GetStoreValueResponse,
+  FetchWindowRequest = FetchWindowRequest,
+  FetchWindowResponse = FetchWindowResponse,
   Operator = Operator,
   Aggregator = Aggregator,
 }

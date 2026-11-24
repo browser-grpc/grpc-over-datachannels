@@ -22,6 +22,9 @@ impl KafkaStreamsClient {
     pub async fn get_store_value(&self, req: crate::pb::GetStoreValueRequest) -> Result<crate::pb::GetStoreValueResponse, ::grpc_dc::Status> {
         self.channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/GetStoreValue", req).await
     }
+    pub async fn fetch_window(&self, req: crate::pb::FetchWindowRequest) -> Result<crate::pb::FetchWindowResponse, ::grpc_dc::Status> {
+        self.channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", req).await
+    }
     pub async fn create_topology_with_options(&self, req: crate::pb::CreateTopologyRequest, options: ::grpc_dc::CallOptions) -> Result<crate::pb::TopologyInfo, ::grpc_dc::Status> {
         self.channel.unary_with_options("/grpcdc.kafka.streams.v1.KafkaStreams/CreateTopology", req, options).await
     }
@@ -37,6 +40,9 @@ impl KafkaStreamsClient {
     pub async fn get_store_value_with_options(&self, req: crate::pb::GetStoreValueRequest, options: ::grpc_dc::CallOptions) -> Result<crate::pb::GetStoreValueResponse, ::grpc_dc::Status> {
         self.channel.unary_with_options("/grpcdc.kafka.streams.v1.KafkaStreams/GetStoreValue", req, options).await
     }
+    pub async fn fetch_window_with_options(&self, req: crate::pb::FetchWindowRequest, options: ::grpc_dc::CallOptions) -> Result<crate::pb::FetchWindowResponse, ::grpc_dc::Status> {
+        self.channel.unary_with_options("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", req, options).await
+    }
 }
 
 #[::grpc_dc::async_trait]
@@ -46,6 +52,7 @@ pub trait KafkaStreams: Send + Sync + 'static {
     async fn list_topologies(&self, req: crate::pb::ListTopologiesRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::pb::ListTopologiesResponse, ::grpc_dc::Status>;
     async fn delete_topology(&self, req: crate::pb::DeleteTopologyRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::pb::DeleteTopologyResponse, ::grpc_dc::Status>;
     async fn get_store_value(&self, req: crate::pb::GetStoreValueRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::pb::GetStoreValueResponse, ::grpc_dc::Status>;
+    async fn fetch_window(&self, req: crate::pb::FetchWindowRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::pb::FetchWindowResponse, ::grpc_dc::Status>;
 }
 
 pub fn kafka_streams_service<S: KafkaStreams>(svc: std::sync::Arc<S>) -> ::grpc_dc::ServiceDef {
@@ -55,5 +62,6 @@ pub fn kafka_streams_service<S: KafkaStreams>(svc: std::sync::Arc<S>) -> ::grpc_
         ::grpc_dc::unary_method("ListTopologies", { let svc = svc.clone(); move |req, ctx| { let svc = svc.clone(); async move { svc.list_topologies(req, ctx).await } } }),
         ::grpc_dc::unary_method("DeleteTopology", { let svc = svc.clone(); move |req, ctx| { let svc = svc.clone(); async move { svc.delete_topology(req, ctx).await } } }),
         ::grpc_dc::unary_method("GetStoreValue", { let svc = svc.clone(); move |req, ctx| { let svc = svc.clone(); async move { svc.get_store_value(req, ctx).await } } }),
+        ::grpc_dc::unary_method("FetchWindow", { let svc = svc.clone(); move |req, ctx| { let svc = svc.clone(); async move { svc.fetch_window(req, ctx).await } } }),
     ])
 }

@@ -64,6 +64,8 @@ public enum Operator: Int32 {
     case SELECT_KEY = 6
     case AGGREGATE = 7
     case REDUCE = 8
+    case WINDOW_TUMBLING = 9
+    case WINDOW_HOPPING = 10
 }
 
 public enum Aggregator: Int32 {
@@ -78,18 +80,27 @@ public final class Step: Marshaler, Unmarshaler {
     public var `operator`: Operator = Operator.OPERATOR_UNSPECIFIED
     public var param: String = ""
     public var aggregator: Aggregator = Aggregator.AGGREGATOR_UNSPECIFIED
+    public var windowSizeMs: Int64 = 0
+    public var windowAdvanceMs: Int64 = 0
+    public var graceMs: Int64 = 0
     public var unknownFields: [UInt8] = []
     public init() {}
-    public init(_ `operator`: Operator = Operator.OPERATOR_UNSPECIFIED, _ param: String = "", _ aggregator: Aggregator = Aggregator.AGGREGATOR_UNSPECIFIED) {
+    public init(_ `operator`: Operator = Operator.OPERATOR_UNSPECIFIED, _ param: String = "", _ aggregator: Aggregator = Aggregator.AGGREGATOR_UNSPECIFIED, _ windowSizeMs: Int64 = 0, _ windowAdvanceMs: Int64 = 0, _ graceMs: Int64 = 0) {
         self.`operator` = `operator`
         self.param = param
         self.aggregator = aggregator
+        self.windowSizeMs = windowSizeMs
+        self.windowAdvanceMs = windowAdvanceMs
+        self.graceMs = graceMs
     }
     public func MarshalDc() -> [UInt8] {
         let pbW = Kafka_streamsPb.Writer()
         if `operator`.rawValue != 0 { pbW.Tag(1, 0); pbW.Varint(Int64(`operator`.rawValue)) }
         pbW.StringField(2, param)
         if aggregator.rawValue != 0 { pbW.Tag(3, 0); pbW.Varint(Int64(aggregator.rawValue)) }
+        if windowSizeMs != 0 { pbW.Tag(4, 0); pbW.Varint(UInt64(bitPattern: windowSizeMs)) }
+        if windowAdvanceMs != 0 { pbW.Tag(5, 0); pbW.Varint(UInt64(bitPattern: windowAdvanceMs)) }
+        if graceMs != 0 { pbW.Tag(6, 0); pbW.Varint(UInt64(bitPattern: graceMs)) }
         pbW.Raw(unknownFields)
         return pbW.ToBytes()
     }
@@ -98,6 +109,9 @@ public final class Step: Marshaler, Unmarshaler {
         `operator` = Operator.OPERATOR_UNSPECIFIED
         param = ""
         aggregator = Aggregator.AGGREGATOR_UNSPECIFIED
+        windowSizeMs = 0
+        windowAdvanceMs = 0
+        graceMs = 0
         let pbR = Kafka_streamsPb.Reader(data)
         while true {
             let next: Kafka_streamsPb.Field?
@@ -110,6 +124,12 @@ public final class Step: Marshaler, Unmarshaler {
                 param = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 3:
                 aggregator = Aggregator(rawValue: Int32(truncatingIfNeeded: pbField.varintValue)) ?? Aggregator.AGGREGATOR_UNSPECIFIED
+            case 4:
+                windowSizeMs = Int64(bitPattern: pbField.varintValue)
+            case 5:
+                windowAdvanceMs = Int64(bitPattern: pbField.varintValue)
+            case 6:
+                graceMs = Int64(bitPattern: pbField.varintValue)
             default: unknownFields += pbField.rawValue
             }
         }
@@ -483,6 +503,106 @@ public final class GetStoreValueResponse: Marshaler, Unmarshaler {
             case 2:
                 key = String(decoding: pbField.bytesValue, as: UTF8.self)
             case 3:
+                value = Int64(bitPattern: pbField.varintValue)
+            default: unknownFields += pbField.rawValue
+            }
+        }
+    }
+}
+public final class FetchWindowRequest: Marshaler, Unmarshaler {
+    public var topology: String = ""
+    public var key: String = ""
+    public var windowStartMs: Int64 = 0
+    public var windowEndMs: Int64 = 0
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ topology: String = "", _ key: String = "", _ windowStartMs: Int64 = 0, _ windowEndMs: Int64 = 0) {
+        self.topology = topology
+        self.key = key
+        self.windowStartMs = windowStartMs
+        self.windowEndMs = windowEndMs
+    }
+    public func MarshalDc() -> [UInt8] {
+        let pbW = Kafka_streamsPb.Writer()
+        pbW.StringField(1, topology)
+        pbW.StringField(2, key)
+        if windowStartMs != 0 { pbW.Tag(3, 0); pbW.Varint(UInt64(bitPattern: windowStartMs)) }
+        if windowEndMs != 0 { pbW.Tag(4, 0); pbW.Varint(UInt64(bitPattern: windowEndMs)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
+    }
+    public func UnmarshalDc(_ data: [UInt8]) {
+        unknownFields = []
+        topology = ""
+        key = ""
+        windowStartMs = 0
+        windowEndMs = 0
+        let pbR = Kafka_streamsPb.Reader(data)
+        while true {
+            let next: Kafka_streamsPb.Field?
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
+            case 1:
+                topology = String(decoding: pbField.bytesValue, as: UTF8.self)
+            case 2:
+                key = String(decoding: pbField.bytesValue, as: UTF8.self)
+            case 3:
+                windowStartMs = Int64(bitPattern: pbField.varintValue)
+            case 4:
+                windowEndMs = Int64(bitPattern: pbField.varintValue)
+            default: unknownFields += pbField.rawValue
+            }
+        }
+    }
+}
+public final class FetchWindowResponse: Marshaler, Unmarshaler {
+    public var found: Bool = false
+    public var key: String = ""
+    public var windowStartMs: Int64 = 0
+    public var windowEndMs: Int64 = 0
+    public var value: Int64 = 0
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ found: Bool = false, _ key: String = "", _ windowStartMs: Int64 = 0, _ windowEndMs: Int64 = 0, _ value: Int64 = 0) {
+        self.found = found
+        self.key = key
+        self.windowStartMs = windowStartMs
+        self.windowEndMs = windowEndMs
+        self.value = value
+    }
+    public func MarshalDc() -> [UInt8] {
+        let pbW = Kafka_streamsPb.Writer()
+        if found { pbW.Tag(1, 0); pbW.Varint((found ? Int64(1) : Int64(0))) }
+        pbW.StringField(2, key)
+        if windowStartMs != 0 { pbW.Tag(3, 0); pbW.Varint(UInt64(bitPattern: windowStartMs)) }
+        if windowEndMs != 0 { pbW.Tag(4, 0); pbW.Varint(UInt64(bitPattern: windowEndMs)) }
+        if value != 0 { pbW.Tag(5, 0); pbW.Varint(UInt64(bitPattern: value)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
+    }
+    public func UnmarshalDc(_ data: [UInt8]) {
+        unknownFields = []
+        found = false
+        key = ""
+        windowStartMs = 0
+        windowEndMs = 0
+        value = 0
+        let pbR = Kafka_streamsPb.Reader(data)
+        while true {
+            let next: Kafka_streamsPb.Field?
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
+            case 1:
+                found = pbField.varintValue != 0
+            case 2:
+                key = String(decoding: pbField.bytesValue, as: UTF8.self)
+            case 3:
+                windowStartMs = Int64(bitPattern: pbField.varintValue)
+            case 4:
+                windowEndMs = Int64(bitPattern: pbField.varintValue)
+            case 5:
                 value = Int64(bitPattern: pbField.varintValue)
             default: unknownFields += pbField.rawValue
             }

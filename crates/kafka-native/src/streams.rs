@@ -24,6 +24,7 @@ use tokio::sync::Mutex;
 struct TopologyState {
     info: spb::TopologyInfo,
     store: HashMap<Vec<u8>, i64>,
+    stream_time: i64,
 }
 
 struct TopologyHandle {
@@ -47,6 +48,7 @@ enum Op {
     SelectKey(KeyMode),
     Aggregate(AggKind),
     Reduce(ReduceKind),
+    Window { size_ms: i64, advance_ms: i64, grace_ms: i64 },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -133,6 +135,17 @@ fn resolve_ops(topo: &spb::Topology) -> Result<Vec<Op>, Status> {
                     )))
                 }
             }),
+            spb::Operator::WindowTumbling | spb::Operator::WindowHopping => {
+                if step.window_size_ms <= 0 {
+                    return Err(Status::invalid_argument("WINDOW_* requires window_size_ms > 0"));
+                }
+                let advance = if step.operator == spb::Operator::WindowHopping && step.window_advance_ms > 0 {
+                    step.window_advance_ms
+                } else {
+                    step.window_size_ms
+                };
+                Op::Window { size_ms: step.window_size_ms, advance_ms: advance, grace_ms: step.grace_ms.max(0) }
+            }
             _ => {
                 return Err(Status::invalid_argument(format!(
                     "unsupported operator {:?} in topology chain",
@@ -169,6 +182,7 @@ fn parse_predicate(param: &str) -> Result<Predicate, Status> {
 /// operators (COUNT/AGGREGATE/REDUCE) only after it.
 fn validate_ops(ops: &[Op]) -> Result<(), Status> {
     let mut grouped = false;
+    let mut stateful_seen = false;
     for op in ops {
         match op {
             Op::GroupByKey => {
@@ -177,7 +191,15 @@ fn validate_ops(ops: &[Op]) -> Result<(), Status> {
                 }
                 grouped = true;
             }
+            Op::Window { .. } => {
+                if stateful_seen {
+                    return Err(Status::invalid_argument(
+                        "WINDOW_* must appear before the stateful operator it windows",
+                    ));
+                }
+            }
             Op::Count | Op::Aggregate(_) | Op::Reduce(_) => {
+                stateful_seen = true;
                 if !grouped {
                     return Err(Status::invalid_argument(
                         "stateful operators (COUNT/AGGREGATE/REDUCE) require GROUP_BY_KEY before them",
@@ -188,6 +210,34 @@ fn validate_ops(ops: &[Op]) -> Result<(), Status> {
         }
     }
     Ok(())
+}
+
+/// Window starts containing ts: tumbling is advance == size.
+fn window_starts(ts: i64, size_ms: i64, advance_ms: i64) -> Vec<i64> {
+    if size_ms <= 0 || advance_ms <= 0 {
+        return Vec::new();
+    }
+    let latest = ts.div_euclid(advance_ms) * advance_ms;
+    let mut starts = Vec::new();
+    let mut start = latest;
+    while start + size_ms > ts && start > latest - size_ms {
+        starts.push(start);
+        start -= advance_ms;
+    }
+    starts.reverse();
+    starts
+}
+
+fn store_key(key: &[u8], window: Option<(i64, i64)>) -> Vec<u8> {
+    match window {
+        None => key.to_vec(),
+        Some((start, _end)) => {
+            let mut k = key.to_vec();
+            k.push(0);
+            k.extend_from_slice(&start.to_be_bytes());
+            k
+        }
+    }
 }
 
 /// Back-compat chain check used by the original tests.
@@ -244,6 +294,7 @@ impl StreamsService {
                     ..Default::default()
                 },
                 store: HashMap::new(),
+                stream_time: 0,
             }),
             stop: AtomicBool::new(false),
         });
@@ -303,6 +354,35 @@ impl StreamsService {
     }
 }
 
+impl StreamsService {
+    async fn fetch_window(&self, req: spb::FetchWindowRequest) -> Result<spb::FetchWindowResponse, Status> {
+        let topologies = self.topologies.lock().await;
+        let handle = topologies
+            .get(&req.topology)
+            .ok_or_else(|| Status::new(grpc_dc::Code::NotFound, "unknown topology"))?
+            .clone();
+        drop(topologies);
+        let state = handle.state.lock().await;
+        let key = store_key(req.key.as_bytes(), Some((req.window_start_ms, req.window_end_ms)));
+        match state.store.get(&key) {
+            Some(value) => Ok(spb::FetchWindowResponse {
+                found: true,
+                key: req.key.clone(),
+                window_start_ms: req.window_start_ms,
+                window_end_ms: req.window_end_ms,
+                value: *value,
+                ..Default::default()
+            }),
+            None => Ok(spb::FetchWindowResponse {
+                key: req.key.clone(),
+                window_start_ms: req.window_start_ms,
+                window_end_ms: req.window_end_ms,
+                ..Default::default()
+            }),
+        }
+    }
+}
+
 /// ServiceDef for grpcdc.kafka.streams.v1.KafkaStreams,
 /// registered alongside the Kafka service by the proxy. (The
 /// generated Rust stub assumes a crate::pb layout this crate
@@ -341,6 +421,13 @@ pub fn streams_service(svc: Arc<StreamsService>) -> ServiceDef {
                     async move { svc.delete_topology(req).await }
                 }
             }),
+            grpc_dc::unary_method("FetchWindow", {
+                let svc = svc.clone();
+                move |req, _ctx: CallCtx| {
+                    let svc = svc.clone();
+                    async move { svc.fetch_window(req).await }
+                }
+            }),
             grpc_dc::unary_method("GetStoreValue", {
                 let svc = svc;
                 move |req, _ctx: CallCtx| {
@@ -362,6 +449,8 @@ async fn fail(handle: &TopologyHandle, error: String) {
 struct PipeRec {
     key: Vec<u8>,
     value: Vec<u8>,
+    ts: i64,
+    window: Option<(i64, i64)>,
 }
 
 fn parse_i64(value: &[u8]) -> Option<i64> {
@@ -372,7 +461,13 @@ fn parse_i64(value: &[u8]) -> Option<i64> {
 /// stateful ops; callers pass the topology store. Pure apart
 /// from the store, so restore replays use it too (outputs
 /// discarded there).
-fn apply_pipeline(ops: &[Op], rec: &PipeRec, store: &mut HashMap<Vec<u8>, i64>) -> Vec<PipeRec> {
+struct PipelineCtx<'a> {
+    store: &'a mut HashMap<Vec<u8>, i64>,
+    stream_time: &'a mut i64,
+}
+
+fn apply_pipeline(ops: &[Op], rec: &PipeRec, ctx: &mut PipelineCtx) -> Vec<PipeRec> {
+    let store = &mut *ctx.store;
     let mut current = vec![rec.clone()];
     for op in ops {
         let mut next = Vec::new();
@@ -380,7 +475,7 @@ fn apply_pipeline(ops: &[Op], rec: &PipeRec, store: &mut HashMap<Vec<u8>, i64>) 
             match op {
                 Op::TokenizeWords => {
                     for token in tokenize(&r.value) {
-                        next.push(PipeRec { key: token, value: b"1".to_vec() });
+                        next.push(PipeRec { key: token, value: b"1".to_vec(), ts: r.ts, window: r.window });
                     }
                 }
                 Op::GroupByKey => next.push(r),
@@ -419,14 +514,26 @@ fn apply_pipeline(ops: &[Op], rec: &PipeRec, store: &mut HashMap<Vec<u8>, i64>) 
                     };
                     next.push(PipeRec { key, ..r });
                 }
+                Op::Window { size_ms, advance_ms, grace_ms } => {
+                    if r.ts > *ctx.stream_time {
+                        *ctx.stream_time = r.ts;
+                    }
+                    for start in window_starts(r.ts, *size_ms, *advance_ms) {
+                        let end = start + size_ms;
+                        if end + grace_ms < *ctx.stream_time {
+                            continue; // late record: window closed
+                        }
+                        next.push(PipeRec { window: Some((start, end)), ..r.clone() });
+                    }
+                }
                 Op::Count => {
-                    let entry = store.entry(r.key.clone()).or_insert(0);
+                    let entry = store.entry(store_key(&r.key, r.window)).or_insert(0);
                     *entry += 1;
                     next.push(PipeRec { value: entry.to_string().into_bytes(), ..r });
                 }
                 Op::Aggregate(kind) => {
                     let v = parse_i64(&r.value);
-                    let entry = store.entry(r.key.clone());
+                    let entry = store.entry(store_key(&r.key, r.window));
                     let current_val = match kind {
                         AggKind::Count => {
                             let e = entry.or_insert(0);
@@ -459,7 +566,8 @@ fn apply_pipeline(ops: &[Op], rec: &PipeRec, store: &mut HashMap<Vec<u8>, i64>) 
                 }
                 Op::Reduce(kind) => {
                     let Some(v) = parse_i64(&r.value) else { continue };
-                    let val = match store.get(&r.key) {
+                    let skey = store_key(&r.key, r.window);
+                    let val = match store.get(&skey) {
                         None => v,
                         Some(existing) => match kind {
                             ReduceKind::Sum => existing + v,
@@ -467,7 +575,7 @@ fn apply_pipeline(ops: &[Op], rec: &PipeRec, store: &mut HashMap<Vec<u8>, i64>) 
                             ReduceKind::Max => (*existing).max(v),
                         },
                     };
-                    store.insert(r.key.clone(), val);
+                    store.insert(skey, val);
                     next.push(PipeRec { value: val.to_string().into_bytes(), ..r });
                 }
             }
@@ -542,10 +650,16 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
                     replay = record.offset + 1;
                     {
                         let mut state = handle.state.lock().await;
+                        let TopologyState { store, stream_time, .. } = &mut *state;
                         let _ = apply_pipeline(
                             &ops,
-                            &PipeRec { key: record.key.clone(), value: record.value.clone() },
-                            &mut state.store,
+                            &PipeRec {
+                                key: record.key.clone(),
+                                value: record.value.clone(),
+                                ts: record.timestamp_ms,
+                                window: None,
+                            },
+                            &mut PipelineCtx { store, stream_time },
                         );
                         state.info.records_processed += 1;
                     }
@@ -578,19 +692,41 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
                 next_offset = record.offset + 1;
                 let outputs = {
                     let mut state = handle.state.lock().await;
+                    let TopologyState { store, stream_time, .. } = &mut *state;
                     let outs = apply_pipeline(
                         &ops,
-                        &PipeRec { key: record.key.clone(), value: record.value.clone() },
-                        &mut state.store,
+                        &PipeRec {
+                            key: record.key.clone(),
+                            value: record.value.clone(),
+                            ts: record.timestamp_ms,
+                            window: None,
+                        },
+                        &mut PipelineCtx { store, stream_time },
                     );
                     state.info.records_processed += 1;
                     outs
                 };
                 for out_rec in outputs {
                     let sink_partition = (fnv1a(&out_rec.key) % sink_partitions as u64) as i32;
+                    let headers = match out_rec.window {
+                        Some((start, end)) => vec![
+                            crate::pb::Header {
+                                key: "window-start".to_string(),
+                                value: start.to_string().into_bytes(),
+                                ..Default::default()
+                            },
+                            crate::pb::Header {
+                                key: "window-end".to_string(),
+                                value: end.to_string().into_bytes(),
+                                ..Default::default()
+                            },
+                        ],
+                        None => Vec::new(),
+                    };
                     let out = crate::pb::Record {
                         key: out_rec.key,
                         value: out_rec.value,
+                        headers,
                         ..Default::default()
                     };
                     let produced = broker
@@ -709,7 +845,11 @@ mod tests {
         let ops = resolve_ops(&topo).unwrap();
         let mut store = HashMap::new();
         let run = |v: &str, store: &mut HashMap<Vec<u8>, i64>| {
-            apply_pipeline(&ops, &PipeRec { key: b"k".to_vec(), value: v.as_bytes().to_vec() }, store)
+            apply_pipeline(
+                &ops,
+                &PipeRec { key: b"k".to_vec(), value: v.as_bytes().to_vec(), ts: 0, window: None },
+                &mut PipelineCtx { store, stream_time: &mut 0 },
+            )
         };
         assert!(run("5", &mut store).is_empty(), "filter drops <= 10");
         let out = run("20", &mut store);
@@ -737,10 +877,51 @@ mod tests {
         let mut store = HashMap::new();
         let mut last = Vec::new();
         for v in ["7", "3", "9"] {
-            last = apply_pipeline(&ops, &PipeRec { key: b"a".to_vec(), value: v.as_bytes().to_vec() }, &mut store);
+            last = apply_pipeline(
+                &ops,
+                &PipeRec { key: b"a".to_vec(), value: v.as_bytes().to_vec(), ts: 0, window: None },
+                &mut PipelineCtx { store: &mut store, stream_time: &mut 0 },
+            );
         }
         assert_eq!(last[0].value, b"9".to_vec());
         assert_eq!(store[b"a".as_slice()], 9);
+    }
+
+    #[test]
+    fn window_assignment_tumbling_and_hopping() {
+        assert_eq!(window_starts(0, 1000, 1000), vec![0]);
+        assert_eq!(window_starts(999, 1000, 1000), vec![0]);
+        assert_eq!(window_starts(1000, 1000, 1000), vec![1000]);
+        assert_eq!(window_starts(1500, 1000, 500), vec![500, 1000, 1500].into_iter().filter(|s| *s + 1000 > 1500 && *s <= 1500).collect::<Vec<_>>());
+        assert_eq!(window_starts(1500, 1000, 500), vec![1000, 1500]);
+    }
+
+    #[test]
+    fn windowed_count_pipeline_and_late_drop() {
+        let topo = spb::Topology {
+            steps: vec![
+                spb::Step { operator: spb::Operator::GroupByKey, ..Default::default() },
+                spb::Step { operator: spb::Operator::WindowTumbling, window_size_ms: 1000, ..Default::default() },
+                spb::Step { operator: spb::Operator::Count, ..Default::default() },
+            ],
+            ..Default::default()
+        };
+        let ops = resolve_ops(&topo).unwrap();
+        let mut store = HashMap::new();
+        let mut stream_time = 0i64;
+        let run = |ts: i64, store: &mut HashMap<Vec<u8>, i64>, st: &mut i64| {
+            apply_pipeline(
+                &ops,
+                &PipeRec { key: b"w".to_vec(), value: b"x".to_vec(), ts, window: None },
+                &mut PipelineCtx { store, stream_time: st },
+            )
+        };
+        assert_eq!(run(100, &mut store, &mut stream_time)[0].value, b"1".to_vec());
+        assert_eq!(run(900, &mut store, &mut stream_time)[0].value, b"2".to_vec());
+        assert_eq!(run(1100, &mut store, &mut stream_time)[0].value, b"1".to_vec());
+        // Window [0,1000) closed at stream time 1100 (grace 0):
+        // a late record for it is dropped.
+        assert!(run(500, &mut store, &mut stream_time).is_empty());
     }
 
     #[test]

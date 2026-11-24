@@ -101,6 +101,12 @@ object KafkaStreamsGrpcDc {
             resp
         }
 
+        def FetchWindow(req: FetchWindowRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): FetchWindowResponse = {
+            val resp = new FetchWindowResponse()
+            channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", req, resp, metadata, timeout)
+            resp
+        }
+
         // -- async (scala.concurrent.Future) surface ---------------
 
         def CreateTopologyFuture(req: CreateTopologyRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): scala.concurrent.Future[TopologyInfo] = {
@@ -121,6 +127,10 @@ object KafkaStreamsGrpcDc {
 
         def GetStoreValueFuture(req: GetStoreValueRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): scala.concurrent.Future[GetStoreValueResponse] = {
             grpcdc.Futures { GetStoreValue(req, metadata, timeout) }
+        }
+
+        def FetchWindowFuture(req: FetchWindowRequest, metadata: Map[String, String] = null, timeout: java.time.Duration = null): scala.concurrent.Future[FetchWindowResponse] = {
+            grpcdc.Futures { FetchWindow(req, metadata, timeout) }
         }
 
     }
@@ -152,6 +162,7 @@ object KafkaStreamsGrpcDc {
         def ListTopologies(ctx: grpcdc.Endpoint#CallContext, req: ListTopologiesRequest): ListTopologiesResponse
         def DeleteTopology(ctx: grpcdc.Endpoint#CallContext, req: DeleteTopologyRequest): DeleteTopologyResponse
         def GetStoreValue(ctx: grpcdc.Endpoint#CallContext, req: GetStoreValueRequest): GetStoreValueResponse
+        def FetchWindow(ctx: grpcdc.Endpoint#CallContext, req: FetchWindowRequest): FetchWindowResponse
     }
 
     /** Register an implementation of grpcdc.kafka.streams.v1.KafkaStreams on a Server. */
@@ -187,6 +198,12 @@ object KafkaStreamsGrpcDc {
                 val resp = impl.GetStoreValue(ctx, req)
                 sink.send(ctx.encodeMessage(resp))
             }),
+            grpcdc.Server.Method("FetchWindow", "/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", grpcdc.Server.KIND_UNARY, (ctx, reqs, sink) => {
+                val req = new FetchWindowRequest()
+                reqs.recvInto(req)
+                val resp = impl.FetchWindow(ctx, req)
+                sink.send(ctx.encodeMessage(resp))
+            }),
         )))
     }
 
@@ -197,6 +214,7 @@ object KafkaStreamsGrpcDc {
         def ListTopologiesAsync(ctx: grpcdc.Endpoint#CallContext, req: ListTopologiesRequest): scala.concurrent.Future[ListTopologiesResponse]
         def DeleteTopologyAsync(ctx: grpcdc.Endpoint#CallContext, req: DeleteTopologyRequest): scala.concurrent.Future[DeleteTopologyResponse]
         def GetStoreValueAsync(ctx: grpcdc.Endpoint#CallContext, req: GetStoreValueRequest): scala.concurrent.Future[GetStoreValueResponse]
+        def FetchWindowAsync(ctx: grpcdc.Endpoint#CallContext, req: FetchWindowRequest): scala.concurrent.Future[FetchWindowResponse]
     }
 
     /** Register a Future-based implementation (adapts to the sync trait). */
@@ -216,6 +234,9 @@ object KafkaStreamsGrpcDc {
             }
             def GetStoreValue(ctx: grpcdc.Endpoint#CallContext, req: GetStoreValueRequest): GetStoreValueResponse = {
                 scala.concurrent.Await.result(impl.GetStoreValueAsync(ctx, req), scala.concurrent.duration.Duration.Inf)
+            }
+            def FetchWindow(ctx: grpcdc.Endpoint#CallContext, req: FetchWindowRequest): FetchWindowResponse = {
+                scala.concurrent.Await.result(impl.FetchWindowAsync(ctx, req), scala.concurrent.duration.Duration.Inf)
             }
         })
     }

@@ -188,10 +188,18 @@ list still works for the word-count chain): stateless
 `FILTER` (prefix/contains/key_equals/value_gt/value_lt),
 `SELECT_KEY`, the `GROUP_BY_KEY` marker, and the stateful
 `COUNT`, `AGGREGATE` (COUNT/SUM/MIN/MAX over int64 values),
-and `REDUCE` (sum/min/max fold). Stateful steps require
+and `REDUCE` (sum/min/max fold), plus `WINDOW_TUMBLING` /
+`WINDOW_HOPPING` (window_size_ms / window_advance_ms /
+grace_ms on the step) which make following stateful steps
+aggregate per (key, window) on record timestamps, dropping
+records whose window closed more than grace_ms behind
+stream time; windowed results carry `window-start` /
+`window-end` record headers and are queried with
+`FetchWindow`, while `GetStoreValue` serves unwindowed
+stores. Stateful steps require
 `GROUP_BY_KEY` before them; anything unsupported is
 rejected at `CreateTopology` time rather than silently
-mis-executed. Windows, joins, group-membership assignment,
+mis-executed. Joins, group-membership assignment,
 and exactly-once are not yet implemented (the runtime is
 one task per topology with offset-commit resume). Counts are
 emitted as `(word, decimal-count)` records, sink-partitioned

@@ -147,6 +147,8 @@ object Operator {
   final val SELECT_KEY: Int = 6
   final val AGGREGATE: Int = 7
   final val REDUCE: Int = 8
+  final val WINDOW_TUMBLING: Int = 9
+  final val WINDOW_HOPPING: Int = 10
 }
 
 object Aggregator {
@@ -160,7 +162,10 @@ object Aggregator {
 class Step(
     var operator: Int = 0,
     var param: String = "",
-    var aggregator: Int = 0
+    var aggregator: Int = 0,
+    var windowSizeMs: Long = 0L,
+    var windowAdvanceMs: Long = 0L,
+    var graceMs: Long = 0L
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
@@ -174,6 +179,18 @@ class Step(
       pbW.tag(3, 0)
       pbW.varint((aggregator.toLong))
     }
+    if (windowSizeMs != 0) {
+      pbW.tag(4, 0)
+      pbW.varint(windowSizeMs.toLong)
+    }
+    if (windowAdvanceMs != 0) {
+      pbW.tag(5, 0)
+      pbW.varint(windowAdvanceMs.toLong)
+    }
+    if (graceMs != 0) {
+      pbW.tag(6, 0)
+      pbW.varint(graceMs.toLong)
+    }
     pbW.raw(unknownFields)
     pbW.toBytes
   }
@@ -183,6 +200,9 @@ class Step(
     operator = 0
     param = ""
     aggregator = 0
+    windowSizeMs = 0L
+    windowAdvanceMs = 0L
+    graceMs = 0L
     val pbR = new KafkaStreamsPb.Reader(data)
     var pbField = pbR.next()
     while (pbField != null) {
@@ -193,6 +213,12 @@ class Step(
           param = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 3 =>
           aggregator = pbField.varintValue.toInt
+        case 4 =>
+          windowSizeMs = pbField.varintValue
+        case 5 =>
+          windowAdvanceMs = pbField.varintValue
+        case 6 =>
+          graceMs = pbField.varintValue
         case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
       pbField = pbR.next()
@@ -556,6 +582,113 @@ class GetStoreValueResponse(
         case 2 =>
           key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 3 =>
+          value = pbField.varintValue
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
+      }
+      pbField = pbR.next()
+    }
+  }
+}
+
+class FetchWindowRequest(
+    var topology: String = "",
+    var key: String = "",
+    var windowStartMs: Long = 0L,
+    var windowEndMs: Long = 0L
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val pbW = new KafkaStreamsPb.Writer()
+    pbW.stringField(1, topology)
+    pbW.stringField(2, key)
+    if (windowStartMs != 0) {
+      pbW.tag(3, 0)
+      pbW.varint(windowStartMs.toLong)
+    }
+    if (windowEndMs != 0) {
+      pbW.tag(4, 0)
+      pbW.varint(windowEndMs.toLong)
+    }
+    pbW.raw(unknownFields)
+    pbW.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    topology = ""
+    key = ""
+    windowStartMs = 0L
+    windowEndMs = 0L
+    val pbR = new KafkaStreamsPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
+        case 1 =>
+          topology = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 2 =>
+          key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 3 =>
+          windowStartMs = pbField.varintValue
+        case 4 =>
+          windowEndMs = pbField.varintValue
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
+      }
+      pbField = pbR.next()
+    }
+  }
+}
+
+class FetchWindowResponse(
+    var found: Boolean = false,
+    var key: String = "",
+    var windowStartMs: Long = 0L,
+    var windowEndMs: Long = 0L,
+    var value: Long = 0L
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val pbW = new KafkaStreamsPb.Writer()
+    if (found) {
+      pbW.tag(1, 0)
+      pbW.varint((if (found) 1L else 0L))
+    }
+    pbW.stringField(2, key)
+    if (windowStartMs != 0) {
+      pbW.tag(3, 0)
+      pbW.varint(windowStartMs.toLong)
+    }
+    if (windowEndMs != 0) {
+      pbW.tag(4, 0)
+      pbW.varint(windowEndMs.toLong)
+    }
+    if (value != 0) {
+      pbW.tag(5, 0)
+      pbW.varint(value.toLong)
+    }
+    pbW.raw(unknownFields)
+    pbW.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    found = false
+    key = ""
+    windowStartMs = 0L
+    windowEndMs = 0L
+    value = 0L
+    val pbR = new KafkaStreamsPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
+        case 1 =>
+          found = (pbField.varintValue != 0L)
+        case 2 =>
+          key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 3 =>
+          windowStartMs = pbField.varintValue
+        case 4 =>
+          windowEndMs = pbField.varintValue
+        case 5 =>
           value = pbField.varintValue
         case _ => unknownFields = unknownFields ++ pbField.rawValue
       }

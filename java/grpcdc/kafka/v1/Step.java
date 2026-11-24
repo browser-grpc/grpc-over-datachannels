@@ -6,12 +6,18 @@ public final class Step implements grpcdc.Marshaler, grpcdc.Unmarshaler {
     public Operator operator = Operator.OPERATOR_UNSPECIFIED;
     public String param = "";
     public Aggregator aggregator = Aggregator.AGGREGATOR_UNSPECIFIED;
+    public long windowSizeMs = 0L;
+    public long windowAdvanceMs = 0L;
+    public long graceMs = 0L;
     public byte[] unknownFields = new byte[0];
     public Step() {}
-    public Step(Operator operator, String param, Aggregator aggregator) {
+    public Step(Operator operator, String param, Aggregator aggregator, long windowSizeMs, long windowAdvanceMs, long graceMs) {
         this.operator = operator;
         this.param = param;
         this.aggregator = aggregator;
+        this.windowSizeMs = windowSizeMs;
+        this.windowAdvanceMs = windowAdvanceMs;
+        this.graceMs = graceMs;
     }
 
     @Override
@@ -20,6 +26,9 @@ public final class Step implements grpcdc.Marshaler, grpcdc.Unmarshaler {
         if (operator != null && operator.number != 0) { pbW.tag(1, 0); pbW.varint(operator.number); }
         pbW.stringField(2, param);
         if (aggregator != null && aggregator.number != 0) { pbW.tag(3, 0); pbW.varint(aggregator.number); }
+        if (windowSizeMs != 0) { pbW.tag(4, 0); pbW.varint(windowSizeMs); }
+        if (windowAdvanceMs != 0) { pbW.tag(5, 0); pbW.varint(windowAdvanceMs); }
+        if (graceMs != 0) { pbW.tag(6, 0); pbW.varint(graceMs); }
         pbW.raw(unknownFields);
         return pbW.toBytes();
     }
@@ -30,6 +39,9 @@ public final class Step implements grpcdc.Marshaler, grpcdc.Unmarshaler {
         operator = Operator.OPERATOR_UNSPECIFIED;
         param = "";
         aggregator = Aggregator.AGGREGATOR_UNSPECIFIED;
+        windowSizeMs = 0L;
+        windowAdvanceMs = 0L;
+        graceMs = 0L;
         Kafka_streamsPb.Reader pbR = new Kafka_streamsPb.Reader(data);
         Kafka_streamsPb.Field pbField;
         while ((pbField = pbR.next()) != null) {
@@ -42,6 +54,15 @@ public final class Step implements grpcdc.Marshaler, grpcdc.Unmarshaler {
                 }
                 case 3 -> {
                     aggregator = Aggregator.fromNumber((int) pbField.varintValue);
+                }
+                case 4 -> {
+                    windowSizeMs = pbField.varintValue;
+                }
+                case 5 -> {
+                    windowAdvanceMs = pbField.varintValue;
+                }
+                case 6 -> {
+                    graceMs = pbField.varintValue;
                 }
                 default -> { unknownFields = Kafka_streamsPb.concatBytes(unknownFields, pbField.rawValue); }
             }

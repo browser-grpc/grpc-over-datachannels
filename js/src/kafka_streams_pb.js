@@ -131,15 +131,18 @@ function readFixed(bytes, read) {
   return read(new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength));
 }
 
-export const Operator = { OPERATOR_UNSPECIFIED: 0, TOKENIZE_WORDS: 1, GROUP_BY_KEY: 2, COUNT: 3, MAP_VALUES: 4, FILTER: 5, SELECT_KEY: 6, AGGREGATE: 7, REDUCE: 8 };
+export const Operator = { OPERATOR_UNSPECIFIED: 0, TOKENIZE_WORDS: 1, GROUP_BY_KEY: 2, COUNT: 3, MAP_VALUES: 4, FILTER: 5, SELECT_KEY: 6, AGGREGATE: 7, REDUCE: 8, WINDOW_TUMBLING: 9, WINDOW_HOPPING: 10 };
 
 export const Aggregator = { AGGREGATOR_UNSPECIFIED: 0, AGGREGATE_COUNT: 1, AGGREGATE_SUM: 2, AGGREGATE_MIN: 3, AGGREGATE_MAX: 4 };
 
 export class Step {
-  constructor({ operator = 0, param = "", aggregator = 0 } = {}) {
+  constructor({ operator = 0, param = "", aggregator = 0, windowSizeMs = 0n, windowAdvanceMs = 0n, graceMs = 0n } = {}) {
     this.operator = operator;
     this.param = param;
     this.aggregator = aggregator;
+    this.windowSizeMs = windowSizeMs;
+    this.windowAdvanceMs = windowAdvanceMs;
+    this.graceMs = graceMs;
     this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
@@ -147,6 +150,9 @@ export class Step {
     putVarintField(out, 1, BigInt(msg.operator));
     putStringField(out, 2, msg.param);
     putVarintField(out, 3, BigInt(msg.aggregator));
+    putVarintField(out, 4, BigInt(msg.windowSizeMs));
+    putVarintField(out, 5, BigInt(msg.windowAdvanceMs));
+    putVarintField(out, 6, BigInt(msg.graceMs));
     putRaw(out, msg.unknownFields);
     return new Uint8Array(out);
   }
@@ -169,6 +175,9 @@ export class Step {
       case 1: msg.operator = Number(BigInt.asIntN(32, value)); break;
       case 2: msg.param = textDecoder.decode(value); break;
       case 3: msg.aggregator = Number(BigInt.asIntN(32, value)); break;
+      case 4: msg.windowSizeMs = BigInt.asIntN(64, value); break;
+      case 5: msg.windowAdvanceMs = BigInt.asIntN(64, value); break;
+      case 6: msg.graceMs = BigInt.asIntN(64, value); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
@@ -178,6 +187,9 @@ export class Step {
     this.operator = 0;
     this.param = "";
     this.aggregator = 0;
+    this.windowSizeMs = 0n;
+    this.windowAdvanceMs = 0n;
+    this.graceMs = 0n;
     this.unknownFields = EMPTY_BYTES;
   }
 }
@@ -619,6 +631,112 @@ export class GetStoreValueResponse {
   _reset() {
     this.found = false;
     this.key = "";
+    this.value = 0n;
+    this.unknownFields = EMPTY_BYTES;
+  }
+}
+
+export class FetchWindowRequest {
+  constructor({ topology = "", key = "", windowStartMs = 0n, windowEndMs = 0n } = {}) {
+    this.topology = topology;
+    this.key = key;
+    this.windowStartMs = windowStartMs;
+    this.windowEndMs = windowEndMs;
+    this.unknownFields = EMPTY_BYTES;
+  }
+  static encode(msg) {
+    const out = [];
+    putStringField(out, 1, msg.topology);
+    putStringField(out, 2, msg.key);
+    putVarintField(out, 3, BigInt(msg.windowStartMs));
+    putVarintField(out, 4, BigInt(msg.windowEndMs));
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new FetchWindowRequest();
+    FetchWindowRequest._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    FetchWindowRequest._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.topology = textDecoder.decode(value); break;
+      case 2: msg.key = textDecoder.decode(value); break;
+      case 3: msg.windowStartMs = BigInt.asIntN(64, value); break;
+      case 4: msg.windowEndMs = BigInt.asIntN(64, value); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+  _reset() {
+    this.topology = "";
+    this.key = "";
+    this.windowStartMs = 0n;
+    this.windowEndMs = 0n;
+    this.unknownFields = EMPTY_BYTES;
+  }
+}
+
+export class FetchWindowResponse {
+  constructor({ found = false, key = "", windowStartMs = 0n, windowEndMs = 0n, value = 0n } = {}) {
+    this.found = found;
+    this.key = key;
+    this.windowStartMs = windowStartMs;
+    this.windowEndMs = windowEndMs;
+    this.value = value;
+    this.unknownFields = EMPTY_BYTES;
+  }
+  static encode(msg) {
+    const out = [];
+    putVarintField(out, 1, (msg.found ? 1n : 0n));
+    putStringField(out, 2, msg.key);
+    putVarintField(out, 3, BigInt(msg.windowStartMs));
+    putVarintField(out, 4, BigInt(msg.windowEndMs));
+    putVarintField(out, 5, BigInt(msg.value));
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new FetchWindowResponse();
+    FetchWindowResponse._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    FetchWindowResponse._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.found = value !== 0n; break;
+      case 2: msg.key = textDecoder.decode(value); break;
+      case 3: msg.windowStartMs = BigInt.asIntN(64, value); break;
+      case 4: msg.windowEndMs = BigInt.asIntN(64, value); break;
+      case 5: msg.value = BigInt.asIntN(64, value); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+  _reset() {
+    this.found = false;
+    this.key = "";
+    this.windowStartMs = 0n;
+    this.windowEndMs = 0n;
     this.value = 0n;
     this.unknownFields = EMPTY_BYTES;
   }
