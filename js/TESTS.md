@@ -36,6 +36,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`kafka_native.test.js`](test/kafka_native.test.js) — Kafka end-to-end (broker legs env-gated)
 - [`kafka_native_differential.test.js`](test/kafka_native_differential.test.js) — Kafka end-to-end (broker legs env-gated)
 - [`kafka_streams.test.js`](test/kafka_streams.test.js) — Kafka end-to-end (broker legs env-gated)
+- [`kafka_streams_scenarios.generated.js`](test/kafka_streams_scenarios.generated.js) — Kafka end-to-end (broker legs env-gated)
 - [`oracle.test.js`](test/oracle.test.js) — Official-implementation oracle, via the proxy
 - [`oracle_driver.generated.js`](test/oracle_driver.generated.js) — Official-implementation oracle, via the proxy
 - [`otlp_example.test.js`](test/otlp_example.test.js) — Generated suite/example

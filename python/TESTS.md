@@ -15,6 +15,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`bdd_scenarios_generated.py`](tests/bdd_scenarios_generated.py) — BDD scenario suite (generated)
 - [`bdd_schemas_generated.py`](tests/bdd_schemas_generated.py) — BDD scenario suite (generated)
 - [`interop_service.py`](tests/interop_service.py) — Cross-language interop
+- [`kafka_streams_scenarios_generated.py`](tests/kafka_streams_scenarios_generated.py) — Kafka end-to-end (broker legs env-gated)
 - [`oracle_scenarios_generated.py`](tests/oracle_scenarios_generated.py) — Official-implementation oracle, via the proxy
 - [`test_async.py`](tests/test_async.py) — Generated suite/example
 - [`test_bdd.py`](tests/test_bdd.py) — BDD scenario suite (generated)
@@ -32,6 +33,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`test_interop_server_oracle.py`](tests/test_interop_server_oracle.py) — Official-implementation oracle, via the proxy
 - [`test_kafka_e2e.py`](tests/test_kafka_e2e.py) — Kafka end-to-end (broker legs env-gated)
 - [`test_kafka_native.py`](tests/test_kafka_native.py) — Kafka end-to-end (broker legs env-gated)
+- [`test_kafka_streams.py`](tests/test_kafka_streams.py) — Kafka end-to-end (broker legs env-gated)
 - [`test_oracle.py`](tests/test_oracle.py) — Official-implementation oracle, via the proxy
 - [`test_otlp_tracer.py`](tests/test_otlp_tracer.py) — Tracing: traceparent propagation, span observers, nested calls
 - [`test_pb_messages.py`](tests/test_pb_messages.py) — Generated suite/example
