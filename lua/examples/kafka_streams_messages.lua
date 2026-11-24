@@ -127,7 +127,7 @@ local GetStoreValueRequest
 local GetStoreValueResponse
 local FetchWindowRequest
 local FetchWindowResponse
-local Operator = { OPERATOR_UNSPECIFIED = 0, TOKENIZE_WORDS = 1, GROUP_BY_KEY = 2, COUNT = 3, MAP_VALUES = 4, FILTER = 5, SELECT_KEY = 6, AGGREGATE = 7, REDUCE = 8, WINDOW_TUMBLING = 9, WINDOW_HOPPING = 10 }
+local Operator = { OPERATOR_UNSPECIFIED = 0, TOKENIZE_WORDS = 1, GROUP_BY_KEY = 2, COUNT = 3, MAP_VALUES = 4, FILTER = 5, SELECT_KEY = 6, AGGREGATE = 7, REDUCE = 8, WINDOW_TUMBLING = 9, WINDOW_HOPPING = 10, JOIN_TABLE = 11 }
 
 local Aggregator = { AGGREGATOR_UNSPECIFIED = 0, AGGREGATE_COUNT = 1, AGGREGATE_SUM = 2, AGGREGATE_MIN = 3, AGGREGATE_MAX = 4 }
 
@@ -186,8 +186,8 @@ end
 Topology = {}
 Topology.__index = Topology
 
-function Topology.new(name, applicationId, sourceTopic, sinkTopic, operators, steps, processingGuarantee)
-  return setmetatable({ name = name or "", applicationId = applicationId or "", sourceTopic = sourceTopic or "", sinkTopic = sinkTopic or "", operators = operators or {}, steps = steps or {}, processingGuarantee = processingGuarantee or 0, unknownFields = "" }, Topology)
+function Topology.new(name, applicationId, sourceTopic, sinkTopic, operators, steps, processingGuarantee, tableTopic)
+  return setmetatable({ name = name or "", applicationId = applicationId or "", sourceTopic = sourceTopic or "", sinkTopic = sinkTopic or "", operators = operators or {}, steps = steps or {}, processingGuarantee = processingGuarantee or 0, tableTopic = tableTopic or "", unknownFields = "" }, Topology)
 end
 
 function Topology:marshalDc()
@@ -203,6 +203,7 @@ function Topology:marshalDc()
     end
     for _, x in ipairs(self.steps) do w:bytesField(6, x:marshalDc()) end
     if self.processingGuarantee ~= 0 then w:tag(7, 0) w:varint(self.processingGuarantee) end
+    w:stringField(8, self.tableTopic)
   w:raw(self.unknownFields)
   return w:toBytes()
 end
@@ -216,6 +217,7 @@ function Topology:unmarshalDc(data)
   self.operators = {}
   self.steps = {}
   self.processingGuarantee = 0
+  self.tableTopic = ""
   local r = Reader.new(data)
   while true do
     local field = r:next()
@@ -245,6 +247,8 @@ function Topology:unmarshalDc(data)
       self.steps[#self.steps + 1] = item
     elseif field.number == 7 then
       self.processingGuarantee = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    elseif field.number == 8 then
+      self.tableTopic = field.bytesValue
     else
       self.unknownFields = self.unknownFields .. field.rawValue
     end

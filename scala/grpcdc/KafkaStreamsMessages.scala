@@ -149,6 +149,7 @@ object Operator {
   final val REDUCE: Int = 8
   final val WINDOW_TUMBLING: Int = 9
   final val WINDOW_HOPPING: Int = 10
+  final val JOIN_TABLE: Int = 11
 }
 
 object Aggregator {
@@ -239,7 +240,8 @@ class Topology(
     var sinkTopic: String = "",
     var operators: List[Int] = List.empty,
     var steps: List[Step] = List.empty,
-    var processingGuarantee: Int = 0
+    var processingGuarantee: Int = 0,
+    var tableTopic: String = ""
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
@@ -262,6 +264,7 @@ class Topology(
       pbW.tag(7, 0)
       pbW.varint((processingGuarantee.toLong))
     }
+    pbW.stringField(8, tableTopic)
     pbW.raw(unknownFields)
     pbW.toBytes
   }
@@ -275,6 +278,7 @@ class Topology(
     operators = List.empty
     steps = List.empty
     processingGuarantee = 0
+    tableTopic = ""
     val pbR = new KafkaStreamsPb.Reader(data)
     var pbField = pbR.next()
     while (pbField != null) {
@@ -303,6 +307,8 @@ class Topology(
           steps = steps :+ pbItem
         case 7 =>
           processingGuarantee = pbField.varintValue.toInt
+        case 8 =>
+          tableTopic = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
       pbField = pbR.next()

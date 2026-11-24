@@ -70,6 +70,7 @@ pub const Operator = enum(i32) {
     REDUCE = 8,
     WINDOW_TUMBLING = 9,
     WINDOW_HOPPING = 10,
+    JOIN_TABLE = 11,
 };
 
 pub const Aggregator = enum(i32) {
@@ -152,6 +153,7 @@ pub const Topology = struct {
     operators: []const Operator = &.{},
     steps: []const Step = &.{},
     processing_guarantee: ProcessingGuarantee = .PROCESSING_GUARANTEE_UNSPECIFIED,
+    table_topic: []const u8 = "",
     unknown_fields: []const u8 = &.{},
     pub fn marshalDc(self: *const Topology, alloc: std.mem.Allocator) []u8 {
         _ = .{ self, alloc };
@@ -169,6 +171,7 @@ pub const Topology = struct {
         }
         for (self.steps) |x| w.bytesField(6, x.marshalDc(alloc));
         if (@intFromEnum(self.processing_guarantee) != 0) { w.tag(7, 0); w.varint(@as(u64, @bitCast(@as(i64, @intFromEnum(self.processing_guarantee))))); }
+        w.stringField(8, self.table_topic);
         w.raw(self.unknown_fields);
         return w.toBytes();
     }
@@ -181,6 +184,7 @@ pub const Topology = struct {
         self.operators = &.{};
         self.steps = &.{};
         self.processing_guarantee = .PROCESSING_GUARANTEE_UNSPECIFIED;
+        self.table_topic = "";
         var operators_list = std.ArrayList(Operator).empty;
         var steps_list = std.ArrayList(Step).empty;
         self.unknown_fields = &.{};
@@ -217,6 +221,9 @@ pub const Topology = struct {
                 },
                 7 => {
                     self.processing_guarantee = @enumFromInt(@as(i32, @truncate(@as(i64, @bitCast(field.varint_value)))));
+                },
+                8 => {
+                    self.table_topic = alloc.dupe(u8, field.bytes_value) catch "";
                 },
                 else => { unknown_fields_list.appendSlice(alloc, field.raw_value) catch {}; },
             }

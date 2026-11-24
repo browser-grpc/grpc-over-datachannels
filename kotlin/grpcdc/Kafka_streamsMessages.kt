@@ -62,7 +62,8 @@ enum class Operator(val number: Int) {
     AGGREGATE(7),
     REDUCE(8),
     WINDOW_TUMBLING(9),
-    WINDOW_HOPPING(10);
+    WINDOW_HOPPING(10),
+    JOIN_TABLE(11);
     companion object {
         fun fromNumber(number: Int): Operator =
             when (number) {
@@ -77,6 +78,7 @@ enum class Operator(val number: Int) {
                 8 -> REDUCE
                 9 -> WINDOW_TUMBLING
                 10 -> WINDOW_HOPPING
+                11 -> JOIN_TABLE
                 else -> OPERATOR_UNSPECIFIED
             }
     }
@@ -179,6 +181,7 @@ enum class ProcessingGuarantee(val number: Int) {
     var operators: MutableList<Operator> = mutableListOf(),
     var steps: MutableList<Step> = mutableListOf(),
     var processingGuarantee: ProcessingGuarantee = ProcessingGuarantee.PROCESSING_GUARANTEE_UNSPECIFIED,
+    var tableTopic: String = "",
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
@@ -194,6 +197,7 @@ enum class ProcessingGuarantee(val number: Int) {
         }
         for (pbX in steps) pbW.bytesField(6, pbX.marshalDc())
         if (processingGuarantee.number != 0) { pbW.tag(7, 0); pbW.varint(processingGuarantee.number.toLong()) }
+        pbW.stringField(8, tableTopic)
         pbW.raw(unknownFields)
         return pbW.toBytes()
     }
@@ -206,6 +210,7 @@ enum class ProcessingGuarantee(val number: Int) {
         operators = mutableListOf()
         steps = mutableListOf()
         processingGuarantee = ProcessingGuarantee.PROCESSING_GUARANTEE_UNSPECIFIED
+        tableTopic = ""
         val pbR = Kafka_streamsPb.Reader(data)
         while (true) {
             val pbField = pbR.next() ?: break
@@ -239,6 +244,9 @@ enum class ProcessingGuarantee(val number: Int) {
                 }
                 7 -> {
                     processingGuarantee = ProcessingGuarantee.fromNumber(pbField.varintValue.toInt())
+                }
+                8 -> {
+                    tableTopic = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 else -> { unknownFields = unknownFields + pbField.rawValue }
             }

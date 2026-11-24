@@ -156,6 +156,7 @@ final class Operator
     public const REDUCE = 8;
     public const WINDOW_TUMBLING = 9;
     public const WINDOW_HOPPING = 10;
+    public const JOIN_TABLE = 11;
 }
 
 final class Aggregator
@@ -282,9 +283,10 @@ class Topology
     public array $operators = [];
     public array $steps = [];
     public int $processingGuarantee = 0;
+    public string $tableTopic = "";
 
     public string $unknownFields = "";
-    public function __construct(string $name = "", string $applicationId = "", string $sourceTopic = "", string $sinkTopic = "", array $operators = [], array $steps = [], int $processingGuarantee = 0)
+    public function __construct(string $name = "", string $applicationId = "", string $sourceTopic = "", string $sinkTopic = "", array $operators = [], array $steps = [], int $processingGuarantee = 0, string $tableTopic = "")
     {
         $this->name = $name;
         $this->applicationId = $applicationId;
@@ -293,6 +295,7 @@ class Topology
         $this->operators = $operators;
         $this->steps = $steps;
         $this->processingGuarantee = $processingGuarantee;
+        $this->tableTopic = $tableTopic;
     }
 
     public function marshalDc(): string
@@ -316,6 +319,7 @@ class Topology
             $w->tag(7, 0);
             $w->varint($this->processingGuarantee);
         }
+        $w->stringField(8, $this->tableTopic);
         $w->raw($this->unknownFields);
         return $w->toBytes();
     }
@@ -330,6 +334,7 @@ class Topology
         $this->operators = [];
         $this->steps = [];
         $this->processingGuarantee = 0;
+        $this->tableTopic = "";
         $r = new Reader($data);
         while (($item = $r->field()) !== null) {
             [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;
@@ -365,6 +370,9 @@ class Topology
                 case 7:
                     $this->processingGuarantee = ((($varintValue & 0xffffffff) >= 0x80000000) ? (($varintValue & 0xffffffff) - 0x100000000) : ($varintValue & 0xffffffff));
                     break;
+                case 8:
+                    $this->tableTopic = $bytesValue;
+                    break;
                 default:
                     $this->unknownFields .= $rawValue;
                     break;
@@ -382,7 +390,8 @@ class Topology
             && $this->sinkTopic === $other->sinkTopic
             && $this->operators === $other->operators
             && $this->steps === $other->steps
-            && $this->processingGuarantee === $other->processingGuarantee;
+            && $this->processingGuarantee === $other->processingGuarantee
+            && $this->tableTopic === $other->tableTopic;
     }
 }
 

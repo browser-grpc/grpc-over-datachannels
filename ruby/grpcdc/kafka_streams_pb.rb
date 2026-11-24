@@ -122,6 +122,7 @@ end
     REDUCE = 8
     WINDOW_TUMBLING = 9
     WINDOW_HOPPING = 10
+    JOIN_TABLE = 11
   end
 
   module Aggregator
@@ -218,9 +219,9 @@ end
   end
 
   class Topology
-    attr_accessor :name, :application_id, :source_topic, :sink_topic, :operators, :steps, :processing_guarantee, :unknown_fields
+    attr_accessor :name, :application_id, :source_topic, :sink_topic, :operators, :steps, :processing_guarantee, :table_topic, :unknown_fields
 
-    def initialize(name: "", application_id: "", source_topic: "", sink_topic: "", operators: [], steps: [], processing_guarantee: 0)
+    def initialize(name: "", application_id: "", source_topic: "", sink_topic: "", operators: [], steps: [], processing_guarantee: 0, table_topic: "")
       @name = name
       @application_id = application_id
       @source_topic = source_topic
@@ -228,6 +229,7 @@ end
       @operators = operators
       @steps = steps
       @processing_guarantee = processing_guarantee
+      @table_topic = table_topic
       @unknown_fields = "".b
     end
 
@@ -247,6 +249,7 @@ end
       w.tag(7, 0)
       w.varint(@processing_guarantee)
     end
+    w.string_field(8, @table_topic)
       w.raw(@unknown_fields)
       w.to_bytes
     end
@@ -260,6 +263,7 @@ end
       @operators = []
       @steps = []
       @processing_guarantee = 0
+      @table_topic = ""
       r = Reader.new(data)
       loop do
         item = r.field
@@ -291,6 +295,8 @@ end
         @steps << item
       when 7
         @processing_guarantee = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+      when 8
+        @table_topic = bytes_value.dup.force_encoding(Encoding::UTF_8)
         else
           @unknown_fields = @unknown_fields + raw_value
         end
@@ -299,7 +305,7 @@ end
     end
 
     def ==(other)
-      other.is_a?(Topology) && @name == other.name && @application_id == other.application_id && @source_topic == other.source_topic && @sink_topic == other.sink_topic && @operators == other.operators && @steps == other.steps && @processing_guarantee == other.processing_guarantee
+      other.is_a?(Topology) && @name == other.name && @application_id == other.application_id && @source_topic == other.source_topic && @sink_topic == other.sink_topic && @operators == other.operators && @steps == other.steps && @processing_guarantee == other.processing_guarantee && @table_topic == other.table_topic
     end
   end
 

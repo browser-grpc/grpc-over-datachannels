@@ -153,6 +153,7 @@ const (
 	Operator_REDUCE               Operator = 8
 	Operator_WINDOW_TUMBLING      Operator = 9
 	Operator_WINDOW_HOPPING       Operator = 10
+	Operator_JOIN_TABLE           Operator = 11
 )
 
 type Aggregator int32
@@ -266,6 +267,7 @@ type Topology struct {
 	Operators           []Operator
 	Steps               []*Step
 	ProcessingGuarantee ProcessingGuarantee
+	TableTopic          string
 	UnknownFields       []byte
 }
 
@@ -295,6 +297,7 @@ func (m *Topology) MarshalDC() []byte {
 		out = KafkaStreamsPbAppendTag(out, 7, 0)
 		out = KafkaStreamsPbAppendVarint(out, uint64(int64(m.ProcessingGuarantee)))
 	}
+	out = KafkaStreamsPbAppendStringField(out, 8, m.TableTopic)
 	out = append(out, m.UnknownFields...)
 	return out
 }
@@ -354,6 +357,10 @@ func (m *Topology) UnmarshalDC(data []byte) error {
 		case 7:
 			if v, ok := value.(uint64); ok {
 				m.ProcessingGuarantee = ProcessingGuarantee(int32(v))
+			}
+		case 8:
+			if b, ok := value.([]byte); ok {
+				m.TableTopic = string(b)
 			}
 		default:
 			m.UnknownFields = append(m.UnknownFields, raw...)

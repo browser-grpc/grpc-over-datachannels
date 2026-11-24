@@ -13,9 +13,10 @@ public sealed class Topology : IMarshaler, IUnmarshaler {
     public System.Collections.Generic.List<Operator> Operators = new System.Collections.Generic.List<Operator>();
     public System.Collections.Generic.List<Step> Steps = new System.Collections.Generic.List<Step>();
     public ProcessingGuarantee ProcessingGuarantee = ProcessingGuarantee.PROCESSING_GUARANTEE_UNSPECIFIED;
+    public string TableTopic = "";
     public byte[] UnknownFields = new byte[0];
     public Topology() {}
-    public Topology(string name, string applicationId, string sourceTopic, string sinkTopic, System.Collections.Generic.List<Operator> operators, System.Collections.Generic.List<Step> steps, ProcessingGuarantee processingGuarantee) {
+    public Topology(string name, string applicationId, string sourceTopic, string sinkTopic, System.Collections.Generic.List<Operator> operators, System.Collections.Generic.List<Step> steps, ProcessingGuarantee processingGuarantee, string tableTopic) {
         Name = name;
         ApplicationId = applicationId;
         SourceTopic = sourceTopic;
@@ -23,6 +24,7 @@ public sealed class Topology : IMarshaler, IUnmarshaler {
         Operators = operators;
         Steps = steps;
         ProcessingGuarantee = processingGuarantee;
+        TableTopic = tableTopic;
     }
     public byte[] MarshalDc() {
         var w = new Kafka_streamsPb.Writer();
@@ -37,6 +39,7 @@ public sealed class Topology : IMarshaler, IUnmarshaler {
         }
         if (Steps != null) foreach (var x in Steps) w.BytesField(6, x.MarshalDc());
         if ((int) ProcessingGuarantee != 0) { w.Tag(7, 0); w.Varint((int) ProcessingGuarantee); }
+        w.StringField(8, TableTopic);
         w.Raw(UnknownFields);
         return w.ToBytes();
     }
@@ -49,6 +52,7 @@ public sealed class Topology : IMarshaler, IUnmarshaler {
         Operators = new System.Collections.Generic.List<Operator>();
         Steps = new System.Collections.Generic.List<Step>();
         ProcessingGuarantee = ProcessingGuarantee.PROCESSING_GUARANTEE_UNSPECIFIED;
+        TableTopic = "";
         var r = new Kafka_streamsPb.Reader(data);
         Kafka_streamsPb.Field field;
         while ((field = r.Next()) != null) {
@@ -88,6 +92,10 @@ public sealed class Topology : IMarshaler, IUnmarshaler {
                 }
                 case 7: {
                     ProcessingGuarantee = (ProcessingGuarantee) (int) field.VarintValue;
+                    break;
+                }
+                case 8: {
+                    TableTopic = System.Text.Encoding.UTF8.GetString(field.BytesValue);
                     break;
                 }
                 default: UnknownFields = Kafka_streamsPb.ConcatBytes(UnknownFields, field.RawValue); break;

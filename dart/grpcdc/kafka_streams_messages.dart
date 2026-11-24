@@ -63,7 +63,8 @@ enum Operator {
   AGGREGATE,
   REDUCE,
   WINDOW_TUMBLING,
-  WINDOW_HOPPING
+  WINDOW_HOPPING,
+  JOIN_TABLE
 }
 enum Aggregator {
   AGGREGATOR_UNSPECIFIED,
@@ -145,8 +146,9 @@ class Topology implements Marshaler, Unmarshaler {
   List<Operator> operators;
   List<Step> steps;
   ProcessingGuarantee processingGuarantee;
+  String tableTopic;
   Uint8List unknownFields = Uint8List(0);
-  Topology([this.name = '', this.applicationId = '', this.sourceTopic = '', this.sinkTopic = '', this.processingGuarantee = ProcessingGuarantee.PROCESSING_GUARANTEE_UNSPECIFIED]) : operators = [], steps = [];
+  Topology([this.name = '', this.applicationId = '', this.sourceTopic = '', this.sinkTopic = '', this.processingGuarantee = ProcessingGuarantee.PROCESSING_GUARANTEE_UNSPECIFIED, this.tableTopic = '']) : operators = [], steps = [];
   @override
   Uint8List marshalDc() {
     final pbW = Kafka_streamsPbWriter();
@@ -161,6 +163,7 @@ class Topology implements Marshaler, Unmarshaler {
     }
     for (final pbX in steps) { pbW.bytesField(6, pbX.marshalDc()); }
     if (processingGuarantee.index != 0) { pbW.tag(7, 0); pbW.varint(processingGuarantee.index); }
+    pbW.stringField(8, tableTopic);
     pbW.raw(unknownFields);
     return pbW.toBytes();
   }
@@ -174,6 +177,7 @@ class Topology implements Marshaler, Unmarshaler {
     operators = [];
     steps = [];
     processingGuarantee = ProcessingGuarantee.PROCESSING_GUARANTEE_UNSPECIFIED;
+    tableTopic = '';
     final pbR = Kafka_streamsPbReader(Uint8List.fromList(data));
     while (true) {
       final pbField = pbR.next();
@@ -208,6 +212,9 @@ class Topology implements Marshaler, Unmarshaler {
           break;
         case 7:
           processingGuarantee = ProcessingGuarantee.values[(pbField.varintValue).toSigned(32)] ;
+          break;
+        case 8:
+          tableTopic = utf8.decode(pbField.bytesValue);
           break;
         default:
           unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);

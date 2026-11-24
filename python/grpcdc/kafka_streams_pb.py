@@ -121,6 +121,7 @@ class Operator:
     REDUCE = 8
     WINDOW_TUMBLING = 9
     WINDOW_HOPPING = 10
+    JOIN_TABLE = 11
 
 
 class Aggregator:
@@ -201,7 +202,7 @@ class Step:
 class Topology:
     """Message grpcdc.kafka.streams.v1.Topology."""
 
-    def __init__(self, name="", application_id="", source_topic="", sink_topic="", operators=None, steps=None, processing_guarantee=0):
+    def __init__(self, name="", application_id="", source_topic="", sink_topic="", operators=None, steps=None, processing_guarantee=0, table_topic=""):
         self.name = name
         self.application_id = application_id
         self.source_topic = source_topic
@@ -209,6 +210,7 @@ class Topology:
         self.operators = list(operators) if operators is not None else []
         self.steps = list(steps) if steps is not None else []
         self.processing_guarantee = processing_guarantee
+        self.table_topic = table_topic
         self.unknown_fields = b""
 
     def marshal_dc(self):
@@ -225,6 +227,7 @@ class Topology:
         for v in self.steps:
             out = _append_bytes_field(out, 6, v.marshal_dc())
         out = _append_varint_field(out, 7, self.processing_guarantee)
+        out = _append_string_field(out, 8, self.table_topic)
         out += self.unknown_fields
         return bytes(out)
 
@@ -237,6 +240,7 @@ class Topology:
         self.operators = []
         self.steps = []
         self.processing_guarantee = 0
+        self.table_topic = ""
         reader = _Reader(data)
         while True:
             item = reader.field()
@@ -265,6 +269,8 @@ class Topology:
                 self.steps.append(tmp2)
             elif num == 7:
                 self.processing_guarantee = _as_int32(value)
+            elif num == 8:
+                self.table_topic = value.decode("utf-8")
             else:
                 self.unknown_fields = self.unknown_fields + raw
 
@@ -272,7 +278,7 @@ class Topology:
         return isinstance(other, Topology) and self.__dict__ == other.__dict__
 
     def __repr__(self):
-        return f"Topology(name={self.name!r}, application_id={self.application_id!r}, source_topic={self.source_topic!r}, sink_topic={self.sink_topic!r}, operators={self.operators!r}, steps={self.steps!r}, processing_guarantee={self.processing_guarantee!r})"
+        return f"Topology(name={self.name!r}, application_id={self.application_id!r}, source_topic={self.source_topic!r}, sink_topic={self.sink_topic!r}, operators={self.operators!r}, steps={self.steps!r}, processing_guarantee={self.processing_guarantee!r}, table_topic={self.table_topic!r})"
 
 
 class TopologyInfo:

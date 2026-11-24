@@ -55,6 +55,12 @@ enum Operator {
   // Step.window_advance_ms (a record lands in several
   // overlapping windows).
   WINDOW_HOPPING = 10;
+  // Stream-table inner join against Topology.table_topic,
+  // materialized by the task as a latest-value-per-key
+  // table: a record whose key has a table entry emits
+  // value + param separator (default ":") + table value;
+  // records without a table entry are dropped.
+  JOIN_TABLE = 11;
 }
 
 enum Aggregator {
@@ -106,6 +112,8 @@ message Topology {
   // Parameterized chain; takes precedence over operators.
   repeated Step steps = 6;
   ProcessingGuarantee processing_guarantee = 7;
+  // Materialized table topic for JOIN_TABLE steps.
+  string table_topic = 8;
 }
 
 message TopologyInfo {

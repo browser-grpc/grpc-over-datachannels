@@ -211,8 +211,16 @@ in a Kafka transaction (transactional.id = application_id):
 sink records, the source offset (AddOffsetsToTxn +
 TxnOffsetCommit), and commit markers land atomically;
 read_committed consumers see each emitted record once.
-The default remains at-least-once. Joins are not yet
-implemented. Counts are
+The default remains at-least-once. `JOIN_TABLE` joins the
+stream against `Topology.table_topic`, which the task
+materializes as a latest-value-per-key table (empty value
+deletes): matching records emit
+`value + separator + table value` (separator from the step
+param, default `:`), records with no table entry drop, and
+`GetStoreValue` also answers table lookups. Not yet
+implemented: windowed joins, table-table joins,
+GlobalKTable, session/sliding windows, cogroup, standby
+replicas, processor callbacks, persistent stores. Counts are
 emitted as `(word, decimal-count)` records, sink-partitioned
 by key hash. The store is in memory: a recreated topology restores it by
 replaying the already-committed source range (no sink

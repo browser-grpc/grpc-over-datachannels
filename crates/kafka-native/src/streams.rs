@@ -25,6 +25,7 @@ struct TopologyState {
     info: spb::TopologyInfo,
     store: HashMap<Vec<u8>, i64>,
     stream_time: i64,
+    table: HashMap<Vec<u8>, Vec<u8>>,
 }
 
 struct TopologyHandle {
@@ -36,6 +37,10 @@ pub struct StreamsService {
     broker: Arc<Broker>,
     topologies: Mutex<HashMap<String, Arc<TopologyHandle>>>,
 }
+
+#[cfg(test)]
+static EMPTY_TABLE: std::sync::LazyLock<HashMap<Vec<u8>, Vec<u8>>> =
+    std::sync::LazyLock::new(HashMap::new);
 
 /// Resolved step kinds for the chain engine.
 #[derive(Clone, Debug, PartialEq)]
@@ -49,6 +54,7 @@ enum Op {
     Aggregate(AggKind),
     Reduce(ReduceKind),
     Window { size_ms: i64, advance_ms: i64, grace_ms: i64 },
+    JoinTable { separator: Vec<u8> },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -135,6 +141,15 @@ fn resolve_ops(topo: &spb::Topology) -> Result<Vec<Op>, Status> {
                     )))
                 }
             }),
+            spb::Operator::JoinTable => {
+                if topo.table_topic.is_empty() {
+                    return Err(Status::invalid_argument(
+                        "JOIN_TABLE requires Topology.table_topic",
+                    ));
+                }
+                let sep = if step.param.is_empty() { ":".to_string() } else { step.param.clone() };
+                Op::JoinTable { separator: sep.into_bytes() }
+            }
             spb::Operator::WindowTumbling | spb::Operator::WindowHopping => {
                 if step.window_size_ms <= 0 {
                     return Err(Status::invalid_argument("WINDOW_* requires window_size_ms > 0"));
@@ -295,6 +310,7 @@ impl StreamsService {
                 },
                 store: HashMap::new(),
                 stream_time: 0,
+                table: HashMap::new(),
             }),
             stop: AtomicBool::new(false),
         });
@@ -342,6 +358,21 @@ impl StreamsService {
             .get(&req.topology)
             .ok_or_else(|| Status::new(grpc_dc::Code::NotFound, "unknown topology"))?;
         let state = handle.state.lock().await;
+        // Table lookups share this query surface: a key that
+        // is a table entry (and not an aggregate) answers
+        // with the table's value parsed as int64 when it is
+        // numeric; the join e2e checks table values through
+        // the sink instead for non-numeric payloads.
+        if !state.table.is_empty() && !state.store.contains_key(req.key.as_bytes()) {
+            if let Some(tv) = state.table.get(req.key.as_bytes()) {
+                return Ok(spb::GetStoreValueResponse {
+                    found: true,
+                    key: req.key.clone(),
+                    value: parse_i64(tv).unwrap_or(0),
+                    ..Default::default()
+                });
+            }
+        }
         match state.store.get(req.key.as_bytes()) {
             Some(value) => Ok(spb::GetStoreValueResponse {
                 found: true,
@@ -464,6 +495,7 @@ fn parse_i64(value: &[u8]) -> Option<i64> {
 struct PipelineCtx<'a> {
     store: &'a mut HashMap<Vec<u8>, i64>,
     stream_time: &'a mut i64,
+    table: &'a HashMap<Vec<u8>, Vec<u8>>,
 }
 
 fn apply_pipeline(ops: &[Op], rec: &PipeRec, ctx: &mut PipelineCtx) -> Vec<PipeRec> {
@@ -524,6 +556,14 @@ fn apply_pipeline(ops: &[Op], rec: &PipeRec, ctx: &mut PipelineCtx) -> Vec<PipeR
                             continue; // late record: window closed
                         }
                         next.push(PipeRec { window: Some((start, end)), ..r.clone() });
+                    }
+                }
+                Op::JoinTable { separator } => {
+                    if let Some(tv) = ctx.table.get(&r.key) {
+                        let mut value = r.value.clone();
+                        value.extend_from_slice(separator);
+                        value.extend_from_slice(tv);
+                        next.push(PipeRec { value, ..r });
                     }
                 }
                 Op::Count => {
@@ -738,6 +778,32 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
         }
     }
 
+    // Table materialization for JOIN_TABLE: poll every
+    // table partition from earliest, latest value per key.
+    let mut table_offsets: HashMap<i32, i64> = HashMap::new();
+    let mut table_partitions: Vec<i32> = Vec::new();
+    if !topo.table_topic.is_empty() {
+        match broker.metadata(vec![topo.table_topic.clone()], false).await {
+            Ok(m) => {
+                for t in &m.topics {
+                    if t.name == topo.table_topic {
+                        for part in &t.partitions {
+                            table_partitions.push(part.id);
+                            table_offsets.insert(part.id, 0);
+                        }
+                    }
+                }
+                // Resolve true earliest per partition.
+                for p in &table_partitions {
+                    if let Ok((off, _, _)) = broker.list_offsets(&topo.table_topic, *p, -2, false).await {
+                        table_offsets.insert(*p, off);
+                    }
+                }
+            }
+            Err(e) => return fail(&handle, e.message.clone()).await,
+        }
+    }
+
     // Resume from committed group offsets, else earliest.
     // When a committed offset exists, first restore the
     // store by replaying [earliest, committed) through the
@@ -773,7 +839,7 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
                     replay = record.offset + 1;
                     {
                         let mut state = handle.state.lock().await;
-                        let TopologyState { store, stream_time, .. } = &mut *state;
+                        let TopologyState { store, stream_time, table, .. } = &mut *state;
                         let _ = apply_pipeline(
                             &ops,
                             &PipeRec {
@@ -782,7 +848,7 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
                                 ts: record.timestamp_ms,
                                 window: None,
                             },
-                            &mut PipelineCtx { store, stream_time },
+                            &mut PipelineCtx { store, stream_time, table },
                         );
                         state.info.records_processed += 1;
                     }
@@ -842,6 +908,28 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
             }
         }
         let mut progressed = false;
+        for tp in &table_partitions {
+            let toff = table_offsets[tp];
+            if let Ok(outcome) = broker
+                .fetch(&topo.table_topic, *tp, toff, 100, 1, 4 * 1024 * 1024, false)
+                .await
+            {
+                if outcome.error_code == 0 && !outcome.records.is_empty() {
+                    let mut state = handle.state.lock().await;
+                    for record in &outcome.records {
+                        table_offsets.insert(*tp, record.offset + 1);
+                        if record.key.is_empty() && record.key_null {
+                            continue;
+                        }
+                        if record.value.is_empty() {
+                            state.table.remove(&record.key);
+                        } else {
+                            state.table.insert(record.key.clone(), record.value.clone());
+                        }
+                    }
+                }
+            }
+        }
         let owned = membership.partitions.clone();
         for p in &owned {
             if handle.stop.load(Ordering::Relaxed) {
@@ -868,7 +956,7 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
                 next_offset = record.offset + 1;
                 let outputs = {
                     let mut state = handle.state.lock().await;
-                    let TopologyState { store, stream_time, .. } = &mut *state;
+                    let TopologyState { store, stream_time, table, .. } = &mut *state;
                     let outs = apply_pipeline(
                         &ops,
                         &PipeRec {
@@ -877,7 +965,7 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
                             ts: record.timestamp_ms,
                             window: None,
                         },
-                        &mut PipelineCtx { store, stream_time },
+                        &mut PipelineCtx { store, stream_time, table },
                     );
                     state.info.records_processed += 1;
                     outs
@@ -1126,7 +1214,7 @@ mod tests {
             apply_pipeline(
                 &ops,
                 &PipeRec { key: b"k".to_vec(), value: v.as_bytes().to_vec(), ts: 0, window: None },
-                &mut PipelineCtx { store, stream_time: &mut 0 },
+                &mut PipelineCtx { store, stream_time: &mut 0, table: &EMPTY_TABLE },
             )
         };
         assert!(run("5", &mut store).is_empty(), "filter drops <= 10");
@@ -1158,7 +1246,7 @@ mod tests {
             last = apply_pipeline(
                 &ops,
                 &PipeRec { key: b"a".to_vec(), value: v.as_bytes().to_vec(), ts: 0, window: None },
-                &mut PipelineCtx { store: &mut store, stream_time: &mut 0 },
+                &mut PipelineCtx { store: &mut store, stream_time: &mut 0, table: &EMPTY_TABLE },
             );
         }
         assert_eq!(last[0].value, b"9".to_vec());
@@ -1191,7 +1279,7 @@ mod tests {
             apply_pipeline(
                 &ops,
                 &PipeRec { key: b"w".to_vec(), value: b"x".to_vec(), ts, window: None },
-                &mut PipelineCtx { store, stream_time: st },
+                &mut PipelineCtx { store, stream_time: st, table: &EMPTY_TABLE },
             )
         };
         assert_eq!(run(100, &mut store, &mut stream_time)[0].value, b"1".to_vec());

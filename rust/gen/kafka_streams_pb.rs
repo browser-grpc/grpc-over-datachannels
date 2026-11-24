@@ -137,6 +137,7 @@ pub enum Operator {
     Reduce = 8,
     WindowTumbling = 9,
     WindowHopping = 10,
+    JoinTable = 11,
     Unknown(i32),
 }
 
@@ -154,6 +155,7 @@ impl Operator {
             8 => Operator::Reduce,
             9 => Operator::WindowTumbling,
             10 => Operator::WindowHopping,
+            11 => Operator::JoinTable,
             _ => Operator::Unknown(v),
         }
     }
@@ -170,6 +172,7 @@ impl Operator {
             Operator::Reduce => 8,
             Operator::WindowTumbling => 9,
             Operator::WindowHopping => 10,
+            Operator::JoinTable => 11,
             Operator::Unknown(v) => v,
         }
     }
@@ -318,6 +321,7 @@ pub struct Topology {
     pub operators: Vec<Operator>,
     pub steps: Vec<Step>,
     pub processing_guarantee: ProcessingGuarantee,
+    pub table_topic: String,
     pub unknown_fields: Vec<u8>,
 }
 
@@ -331,6 +335,7 @@ impl Default for Topology {
             operators: Vec::new(),
             steps: Vec::new(),
             processing_guarantee: ProcessingGuarantee::ProcessingGuaranteeUnspecified,
+            table_topic: String::new(),
             unknown_fields: Vec::new(),
         }
     }
@@ -350,6 +355,7 @@ impl Topology {
         }
         for x in &self.steps { pb_append_bytes_field(&mut out, 6, &x.encode()); }
         if self.processing_guarantee != ProcessingGuarantee::ProcessingGuaranteeUnspecified { pb_append_tag(&mut out, 7, 0); pb_append_varint(&mut out, (self.processing_guarantee.to_i32() as u64)); }
+        pb_append_string_field(&mut out, 8, &self.table_topic);
         out.extend_from_slice(&self.unknown_fields);
         out
     }
@@ -387,6 +393,9 @@ impl Topology {
                 }
                 7 => {
                     msg.processing_guarantee = ProcessingGuarantee::from_i32(field.varint_value as i32);
+                }
+                8 => {
+                    msg.table_topic = String::from_utf8_lossy(&field.bytes_value).into_owned();
                 }
                 _ => {
                     msg.unknown_fields.extend_from_slice(&field.raw_value);

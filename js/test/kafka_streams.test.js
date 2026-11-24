@@ -586,3 +586,74 @@ test("kafka streams exactly-once commits sink and offsets atomically", { skip: !
   // eos: 1,2,3 (3 records) + test: 1 (1 record).
   assert.equal(total, 4);
 });
+
+test("kafka streams stream-table join enriches records", { skip: !PROXY_ADDR }, async (t) => {
+  const { dc, kafka, streams } = makeClients();
+  const id = randomUUID().slice(0, 12);
+  const source = `streams-join-in-${id}`;
+  const table = `streams-join-table-${id}`;
+  const sink = `streams-join-out-${id}`;
+  const name = `join-${id}`;
+  t.after(async () => {
+    try {
+      await streams.deleteTopology(new DeleteTopologyRequest({ name }));
+      await kafka.deleteTopics(new DeleteTopicsRequest({ topics: [source, table, sink] }));
+    } catch { /* best effort */ }
+    dc.close();
+  });
+  for (const topic of [source, table, sink]) {
+    const created = await kafka.createTopics(new CreateTopicsRequest({
+      topics: [new NewTopic({ name: topic, numPartitions: 1, replicationFactor: 1 })],
+      timeoutMs: 15000,
+    }));
+    assert.deepEqual(created.results.map((r) => r.errorCode), [0]);
+  }
+  // Table: user id -> profile name.
+  for (const [k, v] of [["u1", "Ada"], ["u2", "Grace"]]) {
+    const resp = await kafka.produce(new ProduceRequest({
+      topic: table, partition: 0,
+      records: [new Record({ key: enc(k), value: enc(v) })],
+    }));
+    assert.equal(resp.errorCode, 0);
+  }
+  const { Step } = await import("../src/kafka_streams_pb.js");
+  const info = await streams.createTopology(new CreateTopologyRequest({
+    topology: new Topology({
+      name,
+      sourceTopic: source,
+      tableTopic: table,
+      sinkTopic: sink,
+      steps: [new Step({ operator: Operator.JOIN_TABLE, param: ":" })],
+    }),
+  }));
+  assert.equal(info.state, "RUNNING");
+  // Source records are pre-keyed by user id; value = event.
+  for (const [k, v] of [["u1", "clicked"], ["u3", "ghost"], ["u2", "bought"]]) {
+    const resp = await kafka.produce(new ProduceRequest({
+      topic: source, partition: 0,
+      records: [new Record({ key: enc(k), value: enc(v) })],
+    }));
+    assert.equal(resp.errorCode, 0);
+  }
+  // Sink must carry enriched values and drop u3 (no table entry).
+  const joined = {};
+  let total = 0;
+  for (let i = 0; i < 60 && total < 2; i++) {
+    const stream = await kafka.consume(new ConsumeRequest({
+      topic: sink, partition: 0, offset: 0n, maxRecords: 50,
+    }));
+    const iter = stream[Symbol.asyncIterator]();
+    const first = await Promise.race([iter.next(), sleep(1000).then(() => null)]);
+    if (first && !first.done) {
+      total = 0;
+      for (const r of first.value.records) {
+        joined[dec(r.key)] = dec(r.value);
+        total++;
+      }
+    }
+    await iter.return?.();
+    if (total < 2) await sleep(250);
+  }
+  assert.deepEqual(joined, { u1: "clicked:Ada", u2: "bought:Grace" });
+  assert.equal(total, 2, "record without a table entry must be dropped");
+});

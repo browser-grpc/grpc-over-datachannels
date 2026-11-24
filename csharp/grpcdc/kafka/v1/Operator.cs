@@ -13,5 +13,6 @@ public enum Operator {
     AGGREGATE = 7,
     REDUCE = 8,
     WINDOW_TUMBLING = 9,
-    WINDOW_HOPPING = 10
+    WINDOW_HOPPING = 10,
+    JOIN_TABLE = 11
 }

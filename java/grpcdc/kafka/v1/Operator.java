@@ -13,7 +13,8 @@ public enum Operator {
         AGGREGATE(7),
         REDUCE(8),
         WINDOW_TUMBLING(9),
-        WINDOW_HOPPING(10);
+        WINDOW_HOPPING(10),
+        JOIN_TABLE(11);
     public final int number;
     Operator(int number) { this.number = number; }
     public static Operator fromNumber(int number) {
@@ -29,6 +30,7 @@ public enum Operator {
             case 8: return REDUCE;
             case 9: return WINDOW_TUMBLING;
             case 10: return WINDOW_HOPPING;
+            case 11: return JOIN_TABLE;
             default: return OPERATOR_UNSPECIFIED;
     }
 }
