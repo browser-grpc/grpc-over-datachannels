@@ -5,9 +5,14 @@ curated release tags on `master`; dates are the tag dates.
 
 ## v0.46.1 — 2026-11-23
 
+- Fix: proto2 `group` fields are now rejected with a clear
+  plugin error in every language (`groups are not supported`)
+  instead of a cryptic generator failure.
 - Fix: release exports from a fresh checkout could fail
   writing a per-language README into a directory the export
   had not created (`emit-language-readme` now creates it).
+- Test: soak-smoke latency cap relaxed to 3 s for shared CI
+  runners (zero failures still required).
 - Test: rendezvous demux pressure loosened for small CI
   runners (8 peers, 350 ms stagger).
 - Struct corpus extended with a proto2 shape (explicit
