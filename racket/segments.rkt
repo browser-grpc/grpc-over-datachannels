@@ -5856,8 +5856,8 @@
         (then "")
         (else
          (fmt "~a    public ~a(~a) {\n" (arg 1) (ref name)
-              (each-sep ", " fields (fmt "~a ~a" (call csPbType) (lower-first (cs-field-name)))))
-         (each fields (fmt "~a        ~a = ~a;\n" (arg 1) (cs-field-name) (lower-first (cs-field-name))))
+              (each-sep ", " fields (fmt "~a ~a" (call csPbType) (cs-param-name))))
+         (each fields (fmt "~a        ~a = ~a;\n" (arg 1) (cs-field-name) (cs-param-name)))
          (fmt "~a    }\n" (arg 1))))
     (fmt "~a    public byte[] MarshalDc() {\n" (arg 1))
     (fmt "~a        var w = new ~a.Writer();\n" (arg 1) (arg 0))
@@ -7845,6 +7845,27 @@
           (if (string=? part "") "" (string-append (string (char-upcase (string-ref part 0))) (substring part 1))))
         (string-split s "_")) ""))
 
+(define cs-keywords
+  '("abstract" "as" "base" "bool" "break" "byte" "case" "catch" "char"
+    "checked" "class" "const" "continue" "decimal" "default" "delegate"
+    "do" "double" "else" "enum" "event" "explicit" "extern" "false"
+    "finally" "fixed" "float" "for" "foreach" "goto" "if" "implicit"
+    "in" "int" "interface" "internal" "is" "lock" "long" "namespace"
+    "new" "null" "object" "operator" "out" "override" "params"
+    "private" "protected" "public" "readonly" "ref" "return" "sbyte"
+    "sealed" "short" "sizeof" "stackalloc" "static" "string" "struct"
+    "switch" "this" "throw" "true" "try" "typeof" "uint" "ulong"
+    "unchecked" "unsafe" "ushort" "using" "virtual" "void" "volatile"
+    "while"))
+
+;; Constructor parameter for a field: camelCase field name,
+;; @-escaped when it collides with a C# keyword (a proto
+;; field literally named `operator` generated uncompilable
+;; C# until this existed).
+(define (seg-cs-param-name model f)
+  (define n (seg-lower-first (seg-cs-field-name model f)))
+  (if (member n cs-keywords) (string-append "@" n) n))
+
 (define (seg-cs-field-name model f)
   (define n (seg-cs-pascal (hash-ref f 'name)))
   (define owner (field-owner model f))
@@ -8192,6 +8213,7 @@
     [(eq? (car seg) 'java-fixed-name)
      (third (assv (hash-ref node 'type) (fixed-scalar-table 'java)))]
     [(eq? (car seg) 'cs-field-name) (seg-cs-field-name model node)]
+    [(eq? (car seg) 'cs-param-name) (seg-cs-param-name model node)]
     [(eq? (car seg) 'cs-entry-ref) (seg-cs-entry-ref model (if (null? (cdr seg)) node (seg-eval (second seg) env)))]
     [(eq? (car seg) 'cs-map-name) (seg-cs-map-name model (if (null? (cdr seg)) node (seg-eval (second seg) env)))]
     [(eq? (car seg) 'cs-scalar-type) (first (scalar-type-entry 'csharp (hash-ref node 'type)))]

@@ -14,8 +14,8 @@ public sealed class Step : IMarshaler, IUnmarshaler {
     public long GraceMs = 0;
     public byte[] UnknownFields = new byte[0];
     public Step() {}
-    public Step(Operator operator, string param, Aggregator aggregator, long windowSizeMs, long windowAdvanceMs, long graceMs) {
-        Operator = operator;
+    public Step(Operator @operator, string param, Aggregator aggregator, long windowSizeMs, long windowAdvanceMs, long graceMs) {
+        Operator = @operator;
         Param = param;
         Aggregator = aggregator;
         WindowSizeMs = windowSizeMs;
