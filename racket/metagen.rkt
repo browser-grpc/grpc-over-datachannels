@@ -67,6 +67,19 @@
   '(define (plugin-main)
      (define request-bytes (port->bytes (current-input-port)))
      (define-values (files parameter) (parse-request request-bytes))
+     ;; Proto2 groups (TYPE_GROUP, 10) are not supported by any
+     ;; generator: fail clearly here instead of a cryptic
+     ;; contract violation deep in a segment program.
+     (define (check-no-groups fields)
+       (for ([f (in-list fields)])
+         (when (= (hash-ref f 'type 0) 10)
+           (error (format "unsupported field type 10 (proto2 group) for field ~a: groups are not supported"
+                          (hash-ref f 'name))))))
+     (define (walk-message msg)
+       (check-no-groups (hash-ref msg 'fields))
+       (for ([n (in-list (hash-ref msg 'nested))]) (walk-message n)))
+     (for ([file (in-list files)])
+       (for ([m (in-list (hash-ref file 'messages))]) (walk-message m)))
      (define params (parse-parameters parameter))
      ;; trace=off|hooks gates stub-level tracing wiring. The
      ;; generated runtimes always carry the (dormant) tracer API;
