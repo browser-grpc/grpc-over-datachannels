@@ -248,8 +248,8 @@ end
 TopologyInfo = {}
 TopologyInfo.__index = TopologyInfo
 
-function TopologyInfo.new(name, applicationId, sourceTopic, sinkTopic, state, recordsProcessed, error)
-  return setmetatable({ name = name or "", applicationId = applicationId or "", sourceTopic = sourceTopic or "", sinkTopic = sinkTopic or "", state = state or "", recordsProcessed = recordsProcessed or 0, error = error or "", unknownFields = "" }, TopologyInfo)
+function TopologyInfo.new(name, applicationId, sourceTopic, sinkTopic, state, recordsProcessed, error, assignedPartitions, generationId)
+  return setmetatable({ name = name or "", applicationId = applicationId or "", sourceTopic = sourceTopic or "", sinkTopic = sinkTopic or "", state = state or "", recordsProcessed = recordsProcessed or 0, error = error or "", assignedPartitions = assignedPartitions or {}, generationId = generationId or 0, unknownFields = "" }, TopologyInfo)
 end
 
 function TopologyInfo:marshalDc()
@@ -261,6 +261,12 @@ function TopologyInfo:marshalDc()
     w:stringField(5, self.state)
     if self.recordsProcessed ~= 0 then w:tag(6, 0) w:varint(self.recordsProcessed) end
     w:stringField(7, self.error)
+    if #self.assignedPartitions > 0 then
+      local payload = {}
+      for _, x in ipairs(self.assignedPartitions) do payload[#payload + 1] = varintBytes(x) end
+      w:bytesField(8, table.concat(payload))
+    end
+    if self.generationId ~= 0 then w:tag(9, 0) w:varint(self.generationId) end
   w:raw(self.unknownFields)
   return w:toBytes()
 end
@@ -274,6 +280,8 @@ function TopologyInfo:unmarshalDc(data)
   self.state = ""
   self.recordsProcessed = 0
   self.error = ""
+  self.assignedPartitions = {}
+  self.generationId = 0
   local r = Reader.new(data)
   while true do
     local field = r:next()
@@ -293,6 +301,18 @@ function TopologyInfo:unmarshalDc(data)
       self.recordsProcessed = field.varintValue
     elseif field.number == 7 then
       self.error = field.bytesValue
+    elseif field.number == 8 then
+      if field.wire == 2 then
+        local sub = Reader.new(field.bytesValue)
+        while not sub:done() do
+          local raw = sub:varint()
+          self.assignedPartitions[#self.assignedPartitions + 1] = ((raw & 0xffffffff) >= 0x80000000 and (raw & 0xffffffff) - 0x100000000 or (raw & 0xffffffff))
+        end
+      else
+        self.assignedPartitions[#self.assignedPartitions + 1] = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+      end
+    elseif field.number == 9 then
+      self.generationId = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
     else
       self.unknownFields = self.unknownFields .. field.rawValue
     end

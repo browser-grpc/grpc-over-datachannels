@@ -258,7 +258,7 @@ export class Topology {
 }
 
 export class TopologyInfo {
-  constructor({ name = "", applicationId = "", sourceTopic = "", sinkTopic = "", state = "", recordsProcessed = 0n, error = "" } = {}) {
+  constructor({ name = "", applicationId = "", sourceTopic = "", sinkTopic = "", state = "", recordsProcessed = 0n, error = "", assignedPartitions = [], generationId = 0 } = {}) {
     this.name = name;
     this.applicationId = applicationId;
     this.sourceTopic = sourceTopic;
@@ -266,6 +266,8 @@ export class TopologyInfo {
     this.state = state;
     this.recordsProcessed = recordsProcessed;
     this.error = error;
+    this.assignedPartitions = assignedPartitions;
+    this.generationId = generationId;
     this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
@@ -277,6 +279,12 @@ export class TopologyInfo {
     putStringField(out, 5, msg.state);
     putVarintField(out, 6, BigInt(msg.recordsProcessed));
     putStringField(out, 7, msg.error);
+    if (msg.assignedPartitions && msg.assignedPartitions.length) {
+      const payload = [];
+      for (const x of msg.assignedPartitions) payload.push(...varintBytes(BigInt(x)));
+      putBytesField(out, 8, payload);
+    }
+    putVarintField(out, 9, BigInt(msg.generationId));
     putRaw(out, msg.unknownFields);
     return new Uint8Array(out);
   }
@@ -303,6 +311,8 @@ export class TopologyInfo {
       case 5: msg.state = textDecoder.decode(value); break;
       case 6: msg.recordsProcessed = BigInt.asIntN(64, value); break;
       case 7: msg.error = textDecoder.decode(value); break;
+      case 8: if (wire === 2) { const r = new Reader(value); while (!r.done) msg.assignedPartitions.push(Number(BigInt.asIntN(32, r.varint()))); } else msg.assignedPartitions.push(Number(BigInt.asIntN(32, value))); break;
+      case 9: msg.generationId = Number(BigInt.asIntN(32, value)); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
@@ -316,6 +326,8 @@ export class TopologyInfo {
     this.state = "";
     this.recordsProcessed = 0n;
     this.error = "";
+    this.assignedPartitions = [];
+    this.generationId = 0;
     this.unknownFields = EMPTY_BYTES;
   }
 }

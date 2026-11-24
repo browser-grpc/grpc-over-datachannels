@@ -213,8 +213,10 @@ class TopologyInfo implements Marshaler, Unmarshaler {
   String state;
   int recordsProcessed;
   String error;
+  List<int> assignedPartitions;
+  int generationId;
   Uint8List unknownFields = Uint8List(0);
-  TopologyInfo([this.name = '', this.applicationId = '', this.sourceTopic = '', this.sinkTopic = '', this.state = '', this.recordsProcessed = 0, this.error = '']);
+  TopologyInfo([this.name = '', this.applicationId = '', this.sourceTopic = '', this.sinkTopic = '', this.state = '', this.recordsProcessed = 0, this.error = '', this.generationId = 0]) : assignedPartitions = [];
   @override
   Uint8List marshalDc() {
     final pbW = Kafka_streamsPbWriter();
@@ -225,6 +227,12 @@ class TopologyInfo implements Marshaler, Unmarshaler {
     pbW.stringField(5, state);
     if (recordsProcessed != 0) { pbW.tag(6, 0); pbW.varint(recordsProcessed); }
     pbW.stringField(7, error);
+    if (assignedPartitions.isNotEmpty) {
+        final pbPayload = Kafka_streamsPbWriter();
+        for (final pbX in assignedPartitions) { pbPayload.varint(pbX); }
+        pbW.bytesField(8, pbPayload.toBytes());
+    }
+    if (generationId != 0) { pbW.tag(9, 0); pbW.varint(generationId); }
     pbW.raw(unknownFields);
     return pbW.toBytes();
   }
@@ -238,6 +246,8 @@ class TopologyInfo implements Marshaler, Unmarshaler {
     state = '';
     recordsProcessed = 0;
     error = '';
+    assignedPartitions = [];
+    generationId = 0;
     final pbR = Kafka_streamsPbReader(Uint8List.fromList(data));
     while (true) {
       final pbField = pbR.next();
@@ -263,6 +273,19 @@ class TopologyInfo implements Marshaler, Unmarshaler {
           break;
         case 7:
           error = utf8.decode(pbField.bytesValue);
+          break;
+        case 8:
+          if (pbField.wire == 2) {
+            final pbSub = Kafka_streamsPbReader(pbField.bytesValue);
+            while (!pbSub.done()) {
+              assignedPartitions.add((pbSub.varint()).toSigned(32));
+            }
+          } else {
+            assignedPartitions.add((pbField.varintValue).toSigned(32));
+          }
+          break;
+        case 9:
+          generationId = (pbField.varintValue).toSigned(32);
           break;
         default:
           unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);

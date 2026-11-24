@@ -13,9 +13,11 @@ public sealed class TopologyInfo : IMarshaler, IUnmarshaler {
     public string State = "";
     public long RecordsProcessed = 0;
     public string Error = "";
+    public System.Collections.Generic.List<int> AssignedPartitions = new System.Collections.Generic.List<int>();
+    public int GenerationId = 0;
     public byte[] UnknownFields = new byte[0];
     public TopologyInfo() {}
-    public TopologyInfo(string name, string applicationId, string sourceTopic, string sinkTopic, string state, long recordsProcessed, string error) {
+    public TopologyInfo(string name, string applicationId, string sourceTopic, string sinkTopic, string state, long recordsProcessed, string error, System.Collections.Generic.List<int> assignedPartitions, int generationId) {
         Name = name;
         ApplicationId = applicationId;
         SourceTopic = sourceTopic;
@@ -23,6 +25,8 @@ public sealed class TopologyInfo : IMarshaler, IUnmarshaler {
         State = state;
         RecordsProcessed = recordsProcessed;
         Error = error;
+        AssignedPartitions = assignedPartitions;
+        GenerationId = generationId;
     }
     public byte[] MarshalDc() {
         var w = new Kafka_streamsPb.Writer();
@@ -33,6 +37,12 @@ public sealed class TopologyInfo : IMarshaler, IUnmarshaler {
         w.StringField(5, State);
         if (RecordsProcessed != 0) { w.Tag(6, 0); w.Varint(RecordsProcessed); }
         w.StringField(7, Error);
+        if (AssignedPartitions != null && AssignedPartitions.Count > 0) {
+            var payload = new Kafka_streamsPb.Writer();
+            foreach (var x in AssignedPartitions) payload.Varint(x);
+            w.BytesField(8, payload.ToBytes());
+        }
+        if (GenerationId != 0) { w.Tag(9, 0); w.Varint(GenerationId); }
         w.Raw(UnknownFields);
         return w.ToBytes();
     }
@@ -45,6 +55,8 @@ public sealed class TopologyInfo : IMarshaler, IUnmarshaler {
         State = "";
         RecordsProcessed = 0;
         Error = "";
+        AssignedPartitions = new System.Collections.Generic.List<int>();
+        GenerationId = 0;
         var r = new Kafka_streamsPb.Reader(data);
         Kafka_streamsPb.Field field;
         while ((field = r.Next()) != null) {
@@ -75,6 +87,21 @@ public sealed class TopologyInfo : IMarshaler, IUnmarshaler {
                 }
                 case 7: {
                     Error = System.Text.Encoding.UTF8.GetString(field.BytesValue);
+                    break;
+                }
+                case 8: {
+                    if (field.Wire == 2) {
+                        var sub = new Kafka_streamsPb.Reader(field.BytesValue);
+                        while (!sub.Done) {
+                            AssignedPartitions.Add((int) sub.Varint());
+                        }
+                    } else {
+                        AssignedPartitions.Add((int) field.VarintValue);
+                    }
+                    break;
+                }
+                case 9: {
+                    GenerationId = (int) field.VarintValue;
                     break;
                 }
                 default: UnknownFields = Kafka_streamsPb.ConcatBytes(UnknownFields, field.RawValue); break;

@@ -215,9 +215,11 @@ public final class TopologyInfo: Marshaler, Unmarshaler {
     public var state: String = ""
     public var recordsProcessed: Int64 = 0
     public var error: String = ""
+    public var assignedPartitions: [Int32] = []
+    public var generationId: Int32 = 0
     public var unknownFields: [UInt8] = []
     public init() {}
-    public init(_ name: String = "", _ applicationId: String = "", _ sourceTopic: String = "", _ sinkTopic: String = "", _ state: String = "", _ recordsProcessed: Int64 = 0, _ error: String = "") {
+    public init(_ name: String = "", _ applicationId: String = "", _ sourceTopic: String = "", _ sinkTopic: String = "", _ state: String = "", _ recordsProcessed: Int64 = 0, _ error: String = "", _ assignedPartitions: [Int32] = [], _ generationId: Int32 = 0) {
         self.name = name
         self.applicationId = applicationId
         self.sourceTopic = sourceTopic
@@ -225,6 +227,8 @@ public final class TopologyInfo: Marshaler, Unmarshaler {
         self.state = state
         self.recordsProcessed = recordsProcessed
         self.error = error
+        self.assignedPartitions = assignedPartitions
+        self.generationId = generationId
     }
     public func MarshalDc() -> [UInt8] {
         let pbW = Kafka_streamsPb.Writer()
@@ -235,6 +239,12 @@ public final class TopologyInfo: Marshaler, Unmarshaler {
         pbW.StringField(5, state)
         if recordsProcessed != 0 { pbW.Tag(6, 0); pbW.Varint(UInt64(bitPattern: recordsProcessed)) }
         pbW.StringField(7, error)
+        if !assignedPartitions.isEmpty {
+            let pbPayload = Kafka_streamsPb.Writer()
+            for pbX in assignedPartitions { pbPayload.Varint(Int64(pbX)) }
+            pbW.BytesField(8, pbPayload.ToBytes())
+        }
+        if generationId != 0 { pbW.Tag(9, 0); pbW.Varint(Int64(generationId)) }
         pbW.Raw(unknownFields)
         return pbW.ToBytes()
     }
@@ -247,6 +257,8 @@ public final class TopologyInfo: Marshaler, Unmarshaler {
         state = ""
         recordsProcessed = 0
         error = ""
+        assignedPartitions = []
+        generationId = 0
         let pbR = Kafka_streamsPb.Reader(data)
         while true {
             let next: Kafka_streamsPb.Field?
@@ -267,6 +279,17 @@ public final class TopologyInfo: Marshaler, Unmarshaler {
                 recordsProcessed = Int64(bitPattern: pbField.varintValue)
             case 7:
                 error = String(decoding: pbField.bytesValue, as: UTF8.self)
+            case 8:
+                if pbField.wire == 2 {
+                    let pbSub = Kafka_streamsPb.Reader(pbField.bytesValue)
+                    while !pbSub.Done() {
+                        assignedPartitions.append(Int32(truncatingIfNeeded: pbSub.Varint()))
+                    }
+                } else {
+                    assignedPartitions.append(Int32(truncatingIfNeeded: pbField.varintValue))
+                }
+            case 9:
+                generationId = Int32(truncatingIfNeeded: pbField.varintValue)
             default: unknownFields += pbField.rawValue
             }
         }

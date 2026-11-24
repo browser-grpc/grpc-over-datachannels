@@ -135,6 +135,8 @@ class TopologyInfo : public grpcdc::Marshaler, public grpcdc::Unmarshaler {
   std::string state = "";
   std::int64_t records_processed = 0;
   std::string error = "";
+  std::vector<std::int32_t> assigned_partitions = {};
+  std::int32_t generation_id = 0;
   grpcdc::Bytes unknown_fields;
   TopologyInfo() = default;
   grpcdc::Bytes MarshalDc() const override;
@@ -356,6 +358,12 @@ inline grpcdc::Bytes TopologyInfo::MarshalDc() const {
     pb_w.StringField(5, state);
     if (records_processed != 0) { pb_w.Tag(6, 0); pb_w.Varint(static_cast<std::uint64_t>(records_processed)); }
     pb_w.StringField(7, error);
+    if (!assigned_partitions.empty()) {
+        pb_kafka_streams::Writer pb_payload;
+        for (auto pb_x : assigned_partitions) pb_payload.Varint(static_cast<std::int64_t>(pb_x));
+        pb_w.BytesField(8, pb_payload.ToBytes());
+    }
+    if (generation_id != 0) { pb_w.Tag(9, 0); pb_w.Varint(static_cast<std::int64_t>(generation_id)); }
     pb_w.Raw(unknown_fields);
     return pb_w.ToBytes();
 }
@@ -369,6 +377,8 @@ inline void TopologyInfo::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
     state = "";
     records_processed = 0;
     error = "";
+    assigned_partitions = {};
+    generation_id = 0;
     pb_kafka_streams::Reader pb_r(pb_data_);
     pb_kafka_streams::Field pb_field;
     while (pb_r.Next(pb_field)) {
@@ -399,6 +409,21 @@ inline void TopologyInfo::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
         }
         case 7: {
             error = std::string(pb_field.bytes.begin(), pb_field.bytes.end());
+            break;
+        }
+        case 8: {
+            if (pb_field.wire == 2) {
+                pb_kafka_streams::Reader pb_sub(pb_field.bytes);
+                while (!pb_sub.Done()) {
+                    assigned_partitions.push_back(static_cast<std::int32_t>(pb_sub.Varint()));
+                }
+            } else {
+                assigned_partitions.push_back(static_cast<std::int32_t>(pb_field.varint));
+            }
+            break;
+        }
+        case 9: {
+            generation_id = static_cast<std::int32_t>(pb_field.varint);
             break;
         }
         default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;

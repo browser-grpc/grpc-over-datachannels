@@ -232,6 +232,8 @@ enum class Aggregator(val number: Int) {
     var state: String = "",
     var recordsProcessed: Long = 0L,
     var error: String = "",
+    var assignedPartitions: MutableList<Int> = mutableListOf(),
+    var generationId: Int = 0,
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
@@ -243,6 +245,12 @@ enum class Aggregator(val number: Int) {
         pbW.stringField(5, state)
         if (recordsProcessed != 0L) { pbW.tag(6, 0); pbW.varint(recordsProcessed) }
         pbW.stringField(7, error)
+        if (assignedPartitions.isNotEmpty()) {
+            val pbPayload = Kafka_streamsPb.Writer()
+            for (pbX in assignedPartitions) pbPayload.varint(pbX.toLong())
+            pbW.bytesField(8, pbPayload.toBytes())
+        }
+        if (generationId != 0) { pbW.tag(9, 0); pbW.varint(generationId.toLong()) }
         pbW.raw(unknownFields)
         return pbW.toBytes()
     }
@@ -255,6 +263,8 @@ enum class Aggregator(val number: Int) {
         state = ""
         recordsProcessed = 0L
         error = ""
+        assignedPartitions = mutableListOf()
+        generationId = 0
         val pbR = Kafka_streamsPb.Reader(data)
         while (true) {
             val pbField = pbR.next() ?: break
@@ -279,6 +289,19 @@ enum class Aggregator(val number: Int) {
                 }
                 7 -> {
                     error = String(pbField.bytesValue, Charsets.UTF_8)
+                }
+                8 -> {
+                    if (pbField.wire == 2) {
+                        val pbSub = Kafka_streamsPb.Reader(pbField.bytesValue)
+                        while (!pbSub.done()) {
+                            assignedPartitions.add(pbSub.varint().toInt())
+                        }
+                    } else {
+                        assignedPartitions.add(pbField.varintValue.toInt())
+                    }
+                }
+                9 -> {
+                    generationId = pbField.varintValue.toInt()
                 }
                 else -> { unknownFields = unknownFields + pbField.rawValue }
             }

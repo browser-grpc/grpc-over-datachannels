@@ -266,7 +266,7 @@ class Topology:
 class TopologyInfo:
     """Message grpcdc.kafka.streams.v1.TopologyInfo."""
 
-    def __init__(self, name="", application_id="", source_topic="", sink_topic="", state="", records_processed=0, error=""):
+    def __init__(self, name="", application_id="", source_topic="", sink_topic="", state="", records_processed=0, error="", assigned_partitions=None, generation_id=0):
         self.name = name
         self.application_id = application_id
         self.source_topic = source_topic
@@ -274,6 +274,8 @@ class TopologyInfo:
         self.state = state
         self.records_processed = records_processed
         self.error = error
+        self.assigned_partitions = list(assigned_partitions) if assigned_partitions is not None else []
+        self.generation_id = generation_id
         self.unknown_fields = b""
 
     def marshal_dc(self):
@@ -285,6 +287,12 @@ class TopologyInfo:
         out = _append_string_field(out, 5, self.state)
         out = _append_varint_field(out, 6, self.records_processed)
         out = _append_string_field(out, 7, self.error)
+        if self.assigned_partitions:
+            payload = bytearray()
+            for v in self.assigned_partitions:
+                payload = _append_varint(payload, v)
+            out = _append_bytes_field(out, 8, bytes(payload))
+        out = _append_varint_field(out, 9, self.generation_id)
         out += self.unknown_fields
         return bytes(out)
 
@@ -297,6 +305,8 @@ class TopologyInfo:
         self.state = ""
         self.records_processed = 0
         self.error = ""
+        self.assigned_partitions = []
+        self.generation_id = 0
         reader = _Reader(data)
         while True:
             item = reader.field()
@@ -317,6 +327,15 @@ class TopologyInfo:
                 self.records_processed = _as_int64(value)
             elif num == 7:
                 self.error = value.decode("utf-8")
+            elif num == 8:
+                if wire == 2:
+                    sub = _Reader(value)
+                    while sub.pos < len(sub.buf):
+                        self.assigned_partitions.append(_as_int32(sub.varint()))
+                else:
+                    self.assigned_partitions.append(_as_int32(value))
+            elif num == 9:
+                self.generation_id = _as_int32(value)
             else:
                 self.unknown_fields = self.unknown_fields + raw
 
@@ -324,7 +343,7 @@ class TopologyInfo:
         return isinstance(other, TopologyInfo) and self.__dict__ == other.__dict__
 
     def __repr__(self):
-        return f"TopologyInfo(name={self.name!r}, application_id={self.application_id!r}, source_topic={self.source_topic!r}, sink_topic={self.sink_topic!r}, state={self.state!r}, records_processed={self.records_processed!r}, error={self.error!r})"
+        return f"TopologyInfo(name={self.name!r}, application_id={self.application_id!r}, source_topic={self.source_topic!r}, sink_topic={self.sink_topic!r}, state={self.state!r}, records_processed={self.records_processed!r}, error={self.error!r}, assigned_partitions={self.assigned_partitions!r}, generation_id={self.generation_id!r})"
 
 
 class CreateTopologyRequest:

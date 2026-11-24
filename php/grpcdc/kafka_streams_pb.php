@@ -377,9 +377,11 @@ class TopologyInfo
     public string $state = "";
     public int $recordsProcessed = 0;
     public string $error = "";
+    public array $assignedPartitions = [];
+    public int $generationId = 0;
 
     public string $unknownFields = "";
-    public function __construct(string $name = "", string $applicationId = "", string $sourceTopic = "", string $sinkTopic = "", string $state = "", int $recordsProcessed = 0, string $error = "")
+    public function __construct(string $name = "", string $applicationId = "", string $sourceTopic = "", string $sinkTopic = "", string $state = "", int $recordsProcessed = 0, string $error = "", array $assignedPartitions = [], int $generationId = 0)
     {
         $this->name = $name;
         $this->applicationId = $applicationId;
@@ -388,6 +390,8 @@ class TopologyInfo
         $this->state = $state;
         $this->recordsProcessed = $recordsProcessed;
         $this->error = $error;
+        $this->assignedPartitions = $assignedPartitions;
+        $this->generationId = $generationId;
     }
 
     public function marshalDc(): string
@@ -403,6 +407,17 @@ class TopologyInfo
             $w->varint($this->recordsProcessed);
         }
         $w->stringField(7, $this->error);
+        if (!empty($this->assignedPartitions)) {
+            $payload = "";
+            foreach ($this->assignedPartitions as $x) {
+                $payload .= pbVarintBytes($x);
+            }
+            $w->bytesField(8, $payload);
+        }
+        if ($this->generationId !== 0) {
+            $w->tag(9, 0);
+            $w->varint($this->generationId);
+        }
         $w->raw($this->unknownFields);
         return $w->toBytes();
     }
@@ -417,6 +432,8 @@ class TopologyInfo
         $this->state = "";
         $this->recordsProcessed = 0;
         $this->error = "";
+        $this->assignedPartitions = [];
+        $this->generationId = 0;
         $r = new Reader($data);
         while (($item = $r->field()) !== null) {
             [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;
@@ -442,6 +459,20 @@ class TopologyInfo
                 case 7:
                     $this->error = $bytesValue;
                     break;
+                case 8:
+                    if ($wire === 2) {
+                        $sub = new Reader($bytesValue);
+                        while (!$sub->done()) {
+                            $raw = $sub->varint();
+                            $this->assignedPartitions[] = ((($raw & 0xffffffff) >= 0x80000000) ? (($raw & 0xffffffff) - 0x100000000) : ($raw & 0xffffffff));
+                        }
+                    } else {
+                        $this->assignedPartitions[] = ((($varintValue & 0xffffffff) >= 0x80000000) ? (($varintValue & 0xffffffff) - 0x100000000) : ($varintValue & 0xffffffff));
+                    }
+                    break;
+                case 9:
+                    $this->generationId = ((($varintValue & 0xffffffff) >= 0x80000000) ? (($varintValue & 0xffffffff) - 0x100000000) : ($varintValue & 0xffffffff));
+                    break;
                 default:
                     $this->unknownFields .= $rawValue;
                     break;
@@ -459,7 +490,9 @@ class TopologyInfo
             && $this->sinkTopic === $other->sinkTopic
             && $this->state === $other->state
             && $this->recordsProcessed === $other->recordsProcessed
-            && $this->error === $other->error;
+            && $this->error === $other->error
+            && $this->assignedPartitions === $other->assignedPartitions
+            && $this->generationId === $other->generationId;
     }
 }
 

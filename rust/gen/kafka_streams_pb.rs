@@ -371,6 +371,8 @@ pub struct TopologyInfo {
     pub state: String,
     pub records_processed: i64,
     pub error: String,
+    pub assigned_partitions: Vec<i32>,
+    pub generation_id: i32,
     pub unknown_fields: Vec<u8>,
 }
 
@@ -384,6 +386,8 @@ impl Default for TopologyInfo {
             state: String::new(),
             records_processed: 0,
             error: String::new(),
+            assigned_partitions: Vec::new(),
+            generation_id: 0,
             unknown_fields: Vec::new(),
         }
     }
@@ -399,6 +403,12 @@ impl TopologyInfo {
         pb_append_string_field(&mut out, 5, &self.state);
         if self.records_processed != 0 { pb_append_tag(&mut out, 6, 0); pb_append_varint(&mut out, (self.records_processed as u64)); }
         pb_append_string_field(&mut out, 7, &self.error);
+        if !self.assigned_partitions.is_empty() {
+            let mut payload = Vec::new();
+            for x in &self.assigned_partitions { pb_append_varint(&mut payload, ((*x) as u64)); }
+            pb_append_bytes_field(&mut out, 8, &payload);
+        }
+        if self.generation_id != 0 { pb_append_tag(&mut out, 9, 0); pb_append_varint(&mut out, (self.generation_id as u64)); }
         out.extend_from_slice(&self.unknown_fields);
         out
     }
@@ -428,6 +438,20 @@ impl TopologyInfo {
                 }
                 7 => {
                     msg.error = String::from_utf8_lossy(&field.bytes_value).into_owned();
+                }
+                8 => {
+                    if field.wire == 2 {
+                        let mut sub = PbReader::new(&field.bytes_value);
+                        while !sub.done() {
+                            let raw = sub.varint()?;
+                            msg.assigned_partitions.push((raw as u32 as i32));
+                        }
+                    } else {
+                        msg.assigned_partitions.push((field.varint_value as u32 as i32));
+                    }
+                }
+                9 => {
+                    msg.generation_id = (field.varint_value as u32 as i32);
                 }
                 _ => {
                     msg.unknown_fields.extend_from_slice(&field.raw_value);

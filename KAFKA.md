@@ -199,9 +199,14 @@ stream time; windowed results carry `window-start` /
 stores. Stateful steps require
 `GROUP_BY_KEY` before them; anything unsupported is
 rejected at `CreateTopology` time rather than silently
-mis-executed. Joins, group-membership assignment,
-and exactly-once are not yet implemented (the runtime is
-one task per topology with offset-commit resume). Counts are
+mis-executed. Each topology task joins its `application_id`
+consumer group (classic JoinGroup/SyncGroup with the range
+assignor; heartbeats, rejoin on fencing/rebalance, leave on
+delete), so instances sharing an application id split the
+source partitions — `TopologyInfo.assigned_partitions` and
+`generation_id` report the live assignment — and offset
+commits carry the member's generation. Joins and
+exactly-once are not yet implemented. Counts are
 emitted as `(word, decimal-count)` records, sink-partitioned
 by key hash. The store is in memory: a recreated topology restores it by
 replaying the already-committed source range (no sink

@@ -13,7 +13,7 @@
 //! by replaying the already-committed source range without
 //! emitting, then resumes live at the committed offset.
 
-use crate::client::Broker;
+use crate::client::{decode_assignment, encode_subscription, Broker};
 use crate::streams_pb as spb;
 use grpc_dc::{CallCtx, ServiceDef, Status};
 use std::collections::HashMap;
@@ -588,18 +588,99 @@ fn apply_pipeline(ops: &[Op], rec: &PipeRec, ctx: &mut PipelineCtx) -> Vec<PipeR
     current
 }
 
+struct Membership {
+    coordinator: Arc<tokio::sync::Mutex<crate::client::Conn>>,
+    generation_id: i32,
+    member_id: String,
+    partitions: Vec<i32>,
+}
+
+/// Join (or rejoin) the topology's consumer group with the
+/// classic protocol and return this member's assignment.
+/// Kafka's range assignor runs on the leader via the shared
+/// compute_assignments used by the Subscribe path.
+async fn join_topology_group(
+    broker: &Broker,
+    app_id: &str,
+    source_topic: &str,
+) -> Result<Membership, Status> {
+    let mut member_id = String::new();
+    for _attempt in 0..50 {
+        let coordinator = broker.coordinator_fresh(app_id, 0).await?;
+        let subscription = encode_subscription(std::slice::from_ref(&source_topic.to_string()));
+        let protocols = vec![
+            ("range".to_string(), subscription.clone()),
+            ("roundrobin".to_string(), subscription),
+        ];
+        let join = broker
+            .join_group(&coordinator, app_id, &member_id, None, 45_000, 300_000, protocols)
+            .await?;
+        if join.error_code == 79 && !join.member_id.is_empty() {
+            member_id = join.member_id;
+            continue;
+        }
+        if matches!(join.error_code, 14 | 15 | 16) {
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            continue;
+        }
+        if join.error_code != 0 {
+            return Err(Status::new(
+                grpc_dc::Code::Internal,
+                format!("kafka JoinGroup for streams topology failed with error {}", join.error_code),
+            ));
+        }
+        member_id = join.member_id.clone();
+        let assignments = if join.leader_id == member_id {
+            Some(crate::service::compute_assignments(broker, &join.protocol_name, &join.members).await?)
+        } else {
+            None
+        };
+        let (err, assignment) = broker
+            .sync_group(
+                &coordinator,
+                app_id,
+                join.generation_id,
+                &member_id,
+                None,
+                &join.protocol_name,
+                assignments.unwrap_or_default(),
+            )
+            .await?;
+        if err != 0 {
+            return Err(Status::new(
+                grpc_dc::Code::Internal,
+                format!("kafka SyncGroup for streams topology failed with error {err}"),
+            ));
+        }
+        let mut partitions: Vec<i32> = decode_assignment(&assignment)
+            .into_iter()
+            .filter(|(t, _)| t == source_topic)
+            .map(|(_, p)| p)
+            .collect();
+        partitions.sort_unstable();
+        partitions.dedup();
+        return Ok(Membership {
+            coordinator,
+            generation_id: join.generation_id,
+            member_id,
+            partitions,
+        });
+    }
+    Err(Status::new(grpc_dc::Code::Internal, "streams topology group join did not settle"))
+}
+
 async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: spb::Topology, app_id: String, ops: Vec<Op>) {
     let meta = match broker.metadata(vec![topo.source_topic.clone()], false).await {
         Ok(m) => m,
         Err(e) => return fail(&handle, e.message.clone()).await,
     };
-    let partitions: Vec<i32> = meta
+    let all_partitions: Vec<i32> = meta
         .topics
         .iter()
         .filter(|t| t.name == topo.source_topic)
         .flat_map(|t| t.partitions.iter().map(|p| p.id))
         .collect();
-    if partitions.is_empty() {
+    if all_partitions.is_empty() {
         return fail(&handle, format!("source topic {} has no partitions", topo.source_topic)).await;
     }
     let sink_meta = match broker.metadata(vec![topo.sink_topic.clone()], false).await {
@@ -614,6 +695,20 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
         .next()
         .unwrap_or(1)
         .max(1);
+
+    // Group membership: this task owns only its assigned
+    // source partitions; other instances with the same
+    // application_id own the rest.
+    let mut membership = match join_topology_group(&broker, &app_id, &topo.source_topic).await {
+        Ok(m) => m,
+        Err(e) => return fail(&handle, e.message.clone()).await,
+    };
+    let partitions = membership.partitions.clone();
+    {
+        let mut state = handle.state.lock().await;
+        state.info.assigned_partitions = partitions.clone();
+        state.info.generation_id = membership.generation_id;
+    }
 
     // Resume from committed group offsets, else earliest.
     // When a committed offset exists, first restore the
@@ -669,13 +764,66 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
         offsets.insert(*p, start);
     }
 
+    let mut last_heartbeat = tokio::time::Instant::now();
     while !handle.stop.load(Ordering::Relaxed) {
+        // Heartbeat at ~3s cadence; fencing/rebalance codes
+        // rejoin and adopt the new assignment (offsets and
+        // the store for newly-owned partitions are restored
+        // below before processing resumes).
+        if last_heartbeat.elapsed() > std::time::Duration::from_secs(3) {
+            last_heartbeat = tokio::time::Instant::now();
+            match broker
+                .heartbeat(
+                    &membership.coordinator,
+                    &app_id,
+                    membership.generation_id,
+                    &membership.member_id,
+                    None,
+                )
+                .await
+            {
+                Ok(0) => {}
+                Ok(27) | Ok(22) | Ok(25) => {
+                    match join_topology_group(&broker, &app_id, &topo.source_topic).await {
+                        Ok(m) => {
+                            membership = m;
+                            for p in membership.partitions.clone() {
+                                if !offsets.contains_key(&p) {
+                                    let start = match broker.offset_fetch(&app_id, &topo.source_topic, p).await {
+                                        Ok((c, _, _)) if c >= 0 => c,
+                                        _ => broker
+                                            .list_offsets(&topo.source_topic, p, -2, false)
+                                            .await
+                                            .map(|(off, _, _)| off)
+                                            .unwrap_or(0),
+                                    };
+                                    offsets.insert(p, start);
+                                }
+                            }
+                            let mut state = handle.state.lock().await;
+                            state.info.assigned_partitions = membership.partitions.clone();
+                            state.info.generation_id = membership.generation_id;
+                        }
+                        Err(e) => return fail(&handle, e.message.clone()).await,
+                    }
+                }
+                Ok(code) => {
+                    return fail(&handle, format!("streams heartbeat failed with error {code}")).await
+                }
+                Err(e) => return fail(&handle, e.message.clone()).await,
+            }
+        }
         let mut progressed = false;
-        for p in &partitions {
+        let owned = membership.partitions.clone();
+        for p in &owned {
             if handle.stop.load(Ordering::Relaxed) {
                 break;
             }
-            let offset = offsets[p];
+            let Some(offset) = offsets.get(p).copied() else {
+                // Newly assigned on rejoin: derive and
+                // restore (see step below) before fetching.
+                continue;
+            };
             let outcome = match broker.fetch(&topo.source_topic, *p, offset, 200, 1, 4 * 1024 * 1024, false).await {
                 Ok(o) => o,
                 Err(e) => return fail(&handle, e.message.clone()).await,
@@ -739,11 +887,28 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
                     }
                 }
             }
-            if let Err(e) = broker
-                .offset_commit(&app_id, -1, "", None, &topo.source_topic, *p, next_offset, "")
+            match broker
+                .offset_commit(
+                    &app_id,
+                    membership.generation_id,
+                    &membership.member_id,
+                    None,
+                    &topo.source_topic,
+                    *p,
+                    next_offset,
+                    "",
+                )
                 .await
             {
-                return fail(&handle, e.message.clone()).await;
+                Ok(0) => {}
+                Ok(code) => {
+                    return fail(
+                        &handle,
+                        format!("offset commit for streams topology failed with error {code}"),
+                    )
+                    .await
+                }
+                Err(e) => return fail(&handle, e.message.clone()).await,
             }
             offsets.insert(*p, next_offset);
         }
@@ -751,6 +916,9 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
             tokio::time::sleep(std::time::Duration::from_millis(150)).await;
         }
     }
+    let _ = broker
+        .leave_group(&membership.coordinator, &app_id, &membership.member_id, None)
+        .await;
 }
 
 #[cfg(test)]

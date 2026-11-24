@@ -10,9 +10,11 @@ public final class TopologyInfo implements grpcdc.Marshaler, grpcdc.Unmarshaler 
     public String state = "";
     public long recordsProcessed = 0L;
     public String error = "";
+    public java.util.List<Integer> assignedPartitions = new java.util.ArrayList<>();
+    public int generationId = 0;
     public byte[] unknownFields = new byte[0];
     public TopologyInfo() {}
-    public TopologyInfo(String name, String applicationId, String sourceTopic, String sinkTopic, String state, long recordsProcessed, String error) {
+    public TopologyInfo(String name, String applicationId, String sourceTopic, String sinkTopic, String state, long recordsProcessed, String error, java.util.List<Integer> assignedPartitions, int generationId) {
         this.name = name;
         this.applicationId = applicationId;
         this.sourceTopic = sourceTopic;
@@ -20,6 +22,8 @@ public final class TopologyInfo implements grpcdc.Marshaler, grpcdc.Unmarshaler 
         this.state = state;
         this.recordsProcessed = recordsProcessed;
         this.error = error;
+        this.assignedPartitions = assignedPartitions;
+        this.generationId = generationId;
     }
 
     @Override
@@ -32,6 +36,12 @@ public final class TopologyInfo implements grpcdc.Marshaler, grpcdc.Unmarshaler 
         pbW.stringField(5, state);
         if (recordsProcessed != 0) { pbW.tag(6, 0); pbW.varint(recordsProcessed); }
         pbW.stringField(7, error);
+        if (assignedPartitions != null && !assignedPartitions.isEmpty()) {
+            Kafka_streamsPb.Writer pbPayload = new Kafka_streamsPb.Writer();
+            for (Integer pbX : assignedPartitions) pbPayload.varint(pbX);
+            pbW.bytesField(8, pbPayload.toBytes());
+        }
+        if (generationId != 0) { pbW.tag(9, 0); pbW.varint(generationId); }
         pbW.raw(unknownFields);
         return pbW.toBytes();
     }
@@ -46,6 +56,8 @@ public final class TopologyInfo implements grpcdc.Marshaler, grpcdc.Unmarshaler 
         state = "";
         recordsProcessed = 0L;
         error = "";
+        assignedPartitions = new java.util.ArrayList<>();
+        generationId = 0;
         Kafka_streamsPb.Reader pbR = new Kafka_streamsPb.Reader(data);
         Kafka_streamsPb.Field pbField;
         while ((pbField = pbR.next()) != null) {
@@ -70,6 +82,19 @@ public final class TopologyInfo implements grpcdc.Marshaler, grpcdc.Unmarshaler 
                 }
                 case 7 -> {
                     error = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                }
+                case 8 -> {
+                    if (pbField.wire == 2) {
+                        Kafka_streamsPb.Reader pbSub = new Kafka_streamsPb.Reader(pbField.bytesValue);
+                        while (!pbSub.done()) {
+                            assignedPartitions.add((int) pbSub.varint());
+                        }
+                    } else {
+                        assignedPartitions.add((int) pbField.varintValue);
+                    }
+                }
+                case 9 -> {
+                    generationId = (int) pbField.varintValue;
                 }
                 default -> { unknownFields = Kafka_streamsPb.concatBytes(unknownFields, pbField.rawValue); }
             }

@@ -1220,7 +1220,7 @@ fn group_error(error_code: i32, message: impl Into<String>) -> crate::pb::GroupS
     }
 }
 
-async fn compute_assignments(
+pub(crate) async fn compute_assignments(
     broker: &Broker,
     protocol: &str,
     members: &[(String, Option<String>, Vec<u8>)],

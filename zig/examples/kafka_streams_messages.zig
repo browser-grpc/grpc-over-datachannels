@@ -222,6 +222,8 @@ pub const TopologyInfo = struct {
     state: []const u8 = "",
     records_processed: i64 = 0,
     error: []const u8 = "",
+    assigned_partitions: []const i32 = &.{},
+    generation_id: i32 = 0,
     unknown_fields: []const u8 = &.{},
     pub fn marshalDc(self: *const TopologyInfo, alloc: std.mem.Allocator) []u8 {
         _ = .{ self, alloc };
@@ -234,6 +236,13 @@ pub const TopologyInfo = struct {
         w.stringField(5, self.state);
         if (self.records_processed != 0) { w.tag(6, 0); w.varint(@as(u64, @bitCast(self.records_processed))); }
         w.stringField(7, self.error);
+        if (self.assigned_partitions.len > 0) {
+            var payload = PbWriter.init(alloc);
+            defer payload.deinit();
+            for (self.assigned_partitions) |x| payload.varint(@as(u64, @bitCast(@as(i64, x))));
+            w.bytesField(8, payload.toBytes());
+        }
+        if (self.generation_id != 0) { w.tag(9, 0); w.varint(@as(u64, @bitCast(@as(i64, self.generation_id)))); }
         w.raw(self.unknown_fields);
         return w.toBytes();
     }
@@ -246,6 +255,9 @@ pub const TopologyInfo = struct {
         self.state = "";
         self.records_processed = 0;
         self.error = "";
+        self.assigned_partitions = &.{};
+        self.generation_id = 0;
+        var assigned_partitions_list = std.ArrayList(i32).empty;
         self.unknown_fields = &.{};
         var unknown_fields_list = std.ArrayList(u8).empty;
         var r = PbReader.init(data);
@@ -272,10 +284,24 @@ pub const TopologyInfo = struct {
                 7 => {
                     self.error = alloc.dupe(u8, field.bytes_value) catch "";
                 },
+                8 => {
+                    if (field.wire == 2) {
+                        var sub = PbReader.init(field.bytes_value);
+                        while (!sub.done()) {
+                            assigned_partitions_list.append(alloc, @as(i32, @truncate(@as(i64, @bitCast(sub.varint()))))) catch {};
+                        }
+                    } else {
+                        assigned_partitions_list.append(alloc, @as(i32, @truncate(@as(i64, @bitCast(field.varint_value))))) catch {};
+                    }
+                },
+                9 => {
+                    self.generation_id = @as(i32, @truncate(@as(i64, @bitCast(field.varint_value))));
+                },
                 else => { unknown_fields_list.appendSlice(alloc, field.raw_value) catch {}; },
             }
         }
         self.unknown_fields = unknown_fields_list.toOwnedSlice(alloc) catch &.{};
+        self.assigned_partitions = assigned_partitions_list.toOwnedSlice(alloc) catch &.{};
     }
 };
 pub const CreateTopologyRequest = struct {

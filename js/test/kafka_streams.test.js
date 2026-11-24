@@ -465,3 +465,69 @@ test("kafka streams tumbling window counts and FetchWindow", { skip: !PROXY_ADDR
   }));
   assert.equal(none.found, false);
 });
+
+test("kafka streams group membership splits partitions", { skip: !PROXY_ADDR }, async (t) => {
+  const { dc, kafka, streams } = makeClients();
+  const id = randomUUID().slice(0, 12);
+  const source = `streams-grp-in-${id}`;
+  const sinkA = `streams-grp-a-${id}`;
+  const sinkB = `streams-grp-b-${id}`;
+  const appId = `streams-app-${id}`;
+  const names = [`m1-${id}`, `m2-${id}`];
+  t.after(async () => {
+    try {
+      for (const n of names) await streams.deleteTopology(new DeleteTopologyRequest({ name: n }));
+      await kafka.deleteTopics(new DeleteTopicsRequest({ topics: [source, sinkA, sinkB] }));
+    } catch { /* best effort */ }
+    dc.close();
+  });
+  for (const topic of [source, sinkA, sinkB]) {
+    const created = await kafka.createTopics(new CreateTopicsRequest({
+      topics: [new NewTopic({ name: topic, numPartitions: 4, replicationFactor: 1 })],
+      timeoutMs: 15000,
+    }));
+    assert.deepEqual(created.results.map((r) => r.errorCode), [0]);
+  }
+  const chain = [Operator.TOKENIZE_WORDS, Operator.GROUP_BY_KEY, Operator.COUNT];
+  const mk = (name, sinkTopic) => streams.createTopology(new CreateTopologyRequest({
+    topology: new Topology({ name, applicationId: appId, sourceTopic: source, sinkTopic, operators: chain }),
+  }));
+  assert.equal((await mk(names[0], sinkA)).state, "RUNNING");
+  assert.equal((await mk(names[1], sinkB)).state, "RUNNING");
+  // Both members join the same group: together they must own
+  // all 4 partitions, disjointly (poll until the rebalance
+  // settles).
+  let a = [], b = [];
+  for (let i = 0; i < 80; i++) {
+    const da = await streams.describeTopology(new DescribeTopologyRequest({ name: names[0] }));
+    const db = await streams.describeTopology(new DescribeTopologyRequest({ name: names[1] }));
+    a = [...da.assignedPartitions].map(Number).sort();
+    b = [...db.assignedPartitions].map(Number).sort();
+    if (a.length + b.length === 4 && new Set([...a, ...b]).size === 4) break;
+    await sleep(250);
+  }
+  assert.deepEqual([...a, ...b].sort(), [0, 1, 2, 3], `assignments a=${a} b=${b}`);
+
+  // Produce one sentence per source partition; the union of
+  // both sinks must hold the full word counts (each word's
+  // records within one partition are counted by its owner).
+  for (let p = 0; p < 4; p++) {
+    const resp = await kafka.produce(new ProduceRequest({
+      topic: source, partition: p,
+      records: [new Record({ value: enc("shared shared word") })],
+    }));
+    assert.equal(resp.errorCode, 0);
+  }
+  // "shared" appears twice per sentence x4 partitions = 8,
+  // split across the two members' stores/sinks.
+  let totalShared = 0;
+  for (let i = 0; i < 80 && totalShared < 8; i++) {
+    totalShared = 0;
+    for (const n of names) {
+      const v = await streams.getStoreValue(new GetStoreValueRequest({ topology: n, key: "shared" }));
+      if (v.found) totalShared += Number(v.value);
+    }
+    if (totalShared < 8) await sleep(250);
+  }
+  assert.equal(totalShared, 8);
+});

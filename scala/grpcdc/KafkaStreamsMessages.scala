@@ -303,7 +303,9 @@ class TopologyInfo(
     var sinkTopic: String = "",
     var state: String = "",
     var recordsProcessed: Long = 0L,
-    var error: String = ""
+    var error: String = "",
+    var assignedPartitions: List[Int] = List.empty,
+    var generationId: Int = 0
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
@@ -318,6 +320,17 @@ class TopologyInfo(
       pbW.varint(recordsProcessed.toLong)
     }
     pbW.stringField(7, error)
+    if (assignedPartitions.nonEmpty) {
+      val pbPayload = new java.io.ByteArrayOutputStream()
+      for (pbX <- assignedPartitions) {
+        pbPayload.write(KafkaStreamsPb.varintBytes((pbX.toLong)))
+      }
+      pbW.bytesField(8, pbPayload.toByteArray)
+    }
+    if (generationId != 0) {
+      pbW.tag(9, 0)
+      pbW.varint((generationId.toLong))
+    }
     pbW.raw(unknownFields)
     pbW.toBytes
   }
@@ -331,6 +344,8 @@ class TopologyInfo(
     state = ""
     recordsProcessed = 0L
     error = ""
+    assignedPartitions = List.empty
+    generationId = 0
     val pbR = new KafkaStreamsPb.Reader(data)
     var pbField = pbR.next()
     while (pbField != null) {
@@ -349,6 +364,18 @@ class TopologyInfo(
           recordsProcessed = pbField.varintValue
         case 7 =>
           error = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 8 =>
+          if (pbField.wire == 2) {
+            val pbSub = new KafkaStreamsPb.Reader(pbField.bytesValue)
+            while (!pbSub.done) {
+              val raw = pbSub.varint()
+              assignedPartitions = assignedPartitions :+ raw.toInt
+            }
+          } else {
+            assignedPartitions = assignedPartitions :+ pbField.varintValue.toInt
+          }
+        case 9 =>
+          generationId = pbField.varintValue.toInt
         case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
       pbField = pbR.next()

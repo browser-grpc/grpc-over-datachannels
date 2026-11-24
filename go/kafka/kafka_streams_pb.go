@@ -345,14 +345,16 @@ func (m *Topology) UnmarshalDC(data []byte) error {
 }
 
 type TopologyInfo struct {
-	Name             string
-	ApplicationId    string
-	SourceTopic      string
-	SinkTopic        string
-	State            string
-	RecordsProcessed int64
-	Error            string
-	UnknownFields    []byte
+	Name               string
+	ApplicationId      string
+	SourceTopic        string
+	SinkTopic          string
+	State              string
+	RecordsProcessed   int64
+	Error              string
+	AssignedPartitions []int32
+	GenerationId       int32
+	UnknownFields      []byte
 }
 
 // Reset zeroes the message (restoring explicit defaults),
@@ -373,6 +375,17 @@ func (m *TopologyInfo) MarshalDC() []byte {
 		out = KafkaStreamsPbAppendVarint(out, uint64(m.RecordsProcessed))
 	}
 	out = KafkaStreamsPbAppendStringField(out, 7, m.Error)
+	if len(m.AssignedPartitions) > 0 {
+		var payload []byte
+		for _, x := range m.AssignedPartitions {
+			payload = KafkaStreamsPbAppendVarint(payload, uint64(int64(x)))
+		}
+		out = KafkaStreamsPbAppendBytesField(out, 8, payload)
+	}
+	if m.GenerationId != 0 {
+		out = KafkaStreamsPbAppendTag(out, 9, 0)
+		out = KafkaStreamsPbAppendVarint(out, uint64(int64(m.GenerationId)))
+	}
 	out = append(out, m.UnknownFields...)
 	return out
 }
@@ -416,6 +429,24 @@ func (m *TopologyInfo) UnmarshalDC(data []byte) error {
 		case 7:
 			if b, ok := value.([]byte); ok {
 				m.Error = string(b)
+			}
+		case 8:
+			switch value := value.(type) {
+			case uint64:
+				m.AssignedPartitions = append(m.AssignedPartitions, int32(value))
+			case []byte:
+				sub := &KafkaStreamsPbReader{buf: value}
+				for sub.pos < len(sub.buf) {
+					v, err := sub.varint()
+					if err != nil {
+						return err
+					}
+					m.AssignedPartitions = append(m.AssignedPartitions, int32(v))
+				}
+			}
+		case 9:
+			if v, ok := value.(uint64); ok {
+				m.GenerationId = int32(v)
 			}
 		default:
 			m.UnknownFields = append(m.UnknownFields, raw...)
