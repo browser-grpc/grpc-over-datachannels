@@ -186,10 +186,11 @@ state stores. v1 supports exactly one operator chain —
 topology — and rejects anything else at `CreateTopology`
 time rather than silently mis-executing it. Counts are
 emitted as `(word, decimal-count)` records, sink-partitioned
-by key hash. The store is in memory: a proxy restart resumes
-from committed offsets with an empty store (counts rebuild
-from the source, as a Streams application reset would), and
-exactly-once transactional processing is future work. The
+by key hash. The store is in memory: a recreated topology restores it by
+replaying the already-committed source range (no sink
+emissions, no double counting) and then resumes live at the
+committed offset; exactly-once transactional processing is
+future work. The
 JS suite `js/test/kafka_streams.test.js` drives the whole
 path (create, produce sentences, sink counts, store queries,
 unsupported-chain rejection) against both brokers in

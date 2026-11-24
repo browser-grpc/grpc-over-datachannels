@@ -11,16 +11,18 @@
 // Skipped otherwise.
 
 import assert from "node:assert/strict";
-import { connect } from "node:net";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
 
 import { Channel } from "../index.js";
+import { dec, enc, sleep, tcpChannelForAddr } from "./kafka_helpers.js";
 import { KafkaStreamsClient } from "../src/kafka_streams_grpc_dc.js";
 import {
   CreateTopologyRequest,
   DeleteTopologyRequest,
+  DescribeTopologyRequest,
   GetStoreValueRequest,
+  ListTopologiesRequest,
   Operator,
   Topology,
 } from "../src/kafka_streams_pb.js";
@@ -35,42 +37,8 @@ import {
 } from "../src/kafka_pb.js";
 
 const PROXY_ADDR = process.env.KAFKA_E2E_PROXY_ADDR ?? "";
-const enc = (s) => new TextEncoder().encode(s);
-const dec = (b) => new TextDecoder().decode(b);
-
-function tcpDataChannel(host, port) {
-  const socket = connect(port, host);
-  let buffer = Buffer.alloc(0);
-  const dc = {
-    readyState: "open",
-    onmessage: null,
-    send(data) {
-      const payload = Buffer.from(data instanceof Uint8Array ? data : new Uint8Array(data));
-      const frame = Buffer.alloc(4 + payload.length);
-      frame.writeUInt32BE(payload.length, 0);
-      payload.copy(frame, 4);
-      socket.write(frame);
-    },
-    close() {
-      socket.destroy();
-    },
-  };
-  socket.on("data", (chunk) => {
-    buffer = Buffer.concat([buffer, chunk]);
-    while (buffer.length >= 4) {
-      const len = buffer.readUInt32BE(0);
-      if (buffer.length < 4 + len) break;
-      const msg = new Uint8Array(buffer.subarray(4, 4 + len));
-      buffer = buffer.subarray(4 + len);
-      dc.onmessage?.({ data: msg.buffer.slice(msg.byteOffset, msg.byteOffset + msg.byteLength) });
-    }
-  });
-  return dc;
-}
-
 function makeClients() {
-  const sep = PROXY_ADDR.lastIndexOf(":");
-  const dc = tcpDataChannel(PROXY_ADDR.slice(0, sep), Number(PROXY_ADDR.slice(sep + 1)));
+  const dc = tcpChannelForAddr(PROXY_ADDR);
   const channel = new Channel(dc);
   return { dc, kafka: new KafkaClient(channel), streams: new KafkaStreamsClient(channel) };
 }
@@ -85,7 +53,94 @@ async function makeTopic(kafka, name) {
   assert.deepEqual(created.results.map((r) => r.errorCode), [0]);
 }
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function setupStreams(t, { partitions = 1 } = {}) {
+  const { dc, kafka, streams } = makeClients();
+  const id = randomUUID().slice(0, 12);
+  const source = `streams-in-${id}`;
+  const sink = `streams-out-${id}`;
+  const name = `wc-${id}`;
+  t.after(async () => {
+    try {
+      await streams.deleteTopology(new DeleteTopologyRequest({ name }));
+      await kafka.deleteTopics(new DeleteTopicsRequest({ topics: [source, sink] }));
+    } catch {
+      /* best effort */
+    }
+    dc.close();
+  });
+  for (const topic of [source, sink]) {
+    const created = await kafka.createTopics(
+      new CreateTopicsRequest({
+        topics: [new NewTopic({ name: topic, numPartitions: partitions, replicationFactor: 1 })],
+        timeoutMs: 15000,
+      }),
+    );
+    assert.deepEqual(created.results.map((r) => r.errorCode), [0]);
+  }
+  const info = await streams.createTopology(
+    new CreateTopologyRequest({
+      topology: new Topology({
+        name,
+        sourceTopic: source,
+        sinkTopic: sink,
+        operators: [Operator.TOKENIZE_WORDS, Operator.GROUP_BY_KEY, Operator.COUNT],
+      }),
+    }),
+  );
+  assert.equal(info.state, "RUNNING");
+  return { kafka, streams, source, sink, name };
+}
+
+async function produceLines(kafka, topic, lines, partition = 0) {
+  for (const line of lines) {
+    const resp = await kafka.produce(
+      new ProduceRequest({
+        topic,
+        partition,
+        records: [new Record({ value: enc(line) })],
+      }),
+    );
+    assert.equal(resp.errorCode, 0);
+  }
+}
+
+async function waitStore(streams, name, word, count) {
+  let got = null;
+  for (let i = 0; i < 80; i++) {
+    got = await streams.getStoreValue(new GetStoreValueRequest({ topology: name, key: word }));
+    if (got.found && got.value === count) return got;
+    await sleep(250);
+  }
+  assert.fail(`store never reached ${word}=${count} (last: found=${got?.found} value=${got?.value})`);
+}
+
+async function drainSink(kafka, sink, partitions) {
+  const finalCounts = {};
+  let total = 0;
+  for (let p = 0; p < partitions; p++) {
+    const stream = await kafka.consume(
+      new ConsumeRequest({ topic: sink, partition: p, offset: 0n, maxRecords: 200 }),
+    );
+    // The consume stream only yields when records exist, so
+    // an empty partition would block forever: race the first
+    // chunk against a timeout and move on when it loses.
+    const iter = stream[Symbol.asyncIterator]();
+    const first = await Promise.race([
+      iter.next(),
+      sleep(3000).then(() => null),
+    ]);
+    if (first && !first.done) {
+      const chunk = first.value;
+      assert.equal(chunk.errorCode, 0);
+      for (const r of chunk.records) {
+        finalCounts[dec(r.key)] = dec(r.value);
+        total++;
+      }
+    }
+    await iter.return?.();
+  }
+  return { finalCounts, total };
+}
 
 test("kafka streams word count over gRPC", { skip: !PROXY_ADDR }, async (t) => {
   const { dc, kafka, streams } = makeClients();
@@ -179,4 +234,102 @@ test("kafka streams word count over gRPC", { skip: !PROXY_ADDR }, async (t) => {
     if (seen >= 7) break;
   }
   assert.deepEqual(finalCounts, { hello: "3", world: "2", streams: "2", of: "1" });
+});
+
+test("kafka streams topology lifecycle errors", { skip: !PROXY_ADDR }, async (t) => {
+  const { dc, streams } = makeClients();
+  t.after(() => dc.close());
+  // Unknown topology: NOT_FOUND everywhere.
+  await assert.rejects(
+    streams.describeTopology(new DescribeTopologyRequest({ name: "nope" })),
+    /unknown topology/,
+  );
+  await assert.rejects(
+    streams.getStoreValue(new GetStoreValueRequest({ topology: "nope", key: "x" })),
+    /unknown topology/,
+  );
+  await assert.rejects(
+    streams.deleteTopology(new DeleteTopologyRequest({ name: "nope" })),
+    /unknown topology/,
+  );
+  // Empty required fields: INVALID_ARGUMENT.
+  await assert.rejects(
+    streams.createTopology(
+      new CreateTopologyRequest({ topology: new Topology({ operators: [] }) }),
+    ),
+  );
+  // List contains a created topology; duplicate create fails;
+  // delete then makes describe fail again.
+  const { kafka, streams: s2, name } = await setupStreams(t);
+  void kafka;
+  const listed = await s2.listTopologies(new ListTopologiesRequest({}));
+  assert.ok(listed.topologies.some((x) => x.name === name && x.state === "RUNNING"));
+  await assert.rejects(
+    s2.createTopology(
+      new CreateTopologyRequest({
+        topology: new Topology({
+          name,
+          sourceTopic: "x",
+          sinkTopic: "y",
+          operators: [Operator.TOKENIZE_WORDS, Operator.GROUP_BY_KEY, Operator.COUNT],
+        }),
+      }),
+    ),
+    /already exists/,
+  );
+  await s2.deleteTopology(new DeleteTopologyRequest({ name }));
+  await assert.rejects(
+    s2.describeTopology(new DescribeTopologyRequest({ name })),
+    /unknown topology/,
+  );
+});
+
+test("kafka streams delete/recreate resumes without double counting", { skip: !PROXY_ADDR }, async (t) => {
+  const { kafka, streams, source, sink, name } = await setupStreams(t);
+  await produceLines(kafka, source, ["one two", "two three"]);
+  await waitStore(streams, name, "two", 2n);
+  await waitStore(streams, name, "one", 1n);
+  const before = (await drainSink(kafka, sink, 1)).finalCounts;
+  assert.deepEqual(before, { one: "1", two: "2", three: "1" });
+
+  // Delete + recreate with the same application id (derived
+  // from the name): the new task must resume from committed
+  // offsets, so the already-counted records are NOT replayed
+  // and the store's final values stay exactly the same once
+  // only the new line is added.
+  await streams.deleteTopology(new DeleteTopologyRequest({ name }));
+  await sleep(500);
+  const recreated = await streams.createTopology(
+    new CreateTopologyRequest({
+      topology: new Topology({
+        name,
+        sourceTopic: source,
+        sinkTopic: sink,
+        operators: [Operator.TOKENIZE_WORDS, Operator.GROUP_BY_KEY, Operator.COUNT],
+      }),
+    }),
+  );
+  assert.equal(recreated.state, "RUNNING");
+  await produceLines(kafka, source, ["three three"]);
+  await waitStore(streams, name, "three", 3n);
+  const two = await streams.getStoreValue(new GetStoreValueRequest({ topology: name, key: "two" }));
+  assert.equal(two.found, true);
+  assert.equal(two.value, 2n, "resume double-counted already-committed records");
+  const after = (await drainSink(kafka, sink, 1)).finalCounts;
+  assert.deepEqual(after, { one: "1", two: "2", three: "3" });
+});
+
+test("kafka streams word count over 3x3 partitions", { skip: !PROXY_ADDR }, async (t) => {
+  const { kafka, streams, source, sink, name } = await setupStreams(t, { partitions: 3 });
+  // Spread input over all source partitions.
+  await produceLines(kafka, source, ["red blue red"], 0);
+  await produceLines(kafka, source, ["blue green"], 1);
+  await produceLines(kafka, source, ["red green blue"], 2);
+  await waitStore(streams, name, "red", 3n);
+  await waitStore(streams, name, "blue", 3n);
+  await waitStore(streams, name, "green", 2n);
+  const { finalCounts, total } = await drainSink(kafka, sink, 3);
+  assert.deepEqual(finalCounts, { red: "3", blue: "3", green: "2" });
+  // Every emitted count increment lands once: 3+2+3 tokens.
+  assert.equal(total, 8);
 });

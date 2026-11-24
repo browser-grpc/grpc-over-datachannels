@@ -7,11 +7,11 @@
 // broker-free.
 
 import assert from "node:assert/strict";
-import { connect } from "node:net";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
 
 import { Channel } from "../index.js";
+import { dec, enc, tcpChannelForAddr } from "./kafka_helpers.js";
 import { http2Channel } from "../src/http2.js";
 import { KafkaClient } from "../src/kafka_grpc_dc.js";
 import {
@@ -35,43 +35,9 @@ const PROXY_ADDR = process.env.KAFKA_E2E_PROXY_ADDR ?? "";
 // HTTP/2 ingress (stock gRPC transport -> grpc-dc-proxy ->
 // kafka_proxy --webrtc-direct): authority of the bridge.
 const HTTP2_ADDR = process.env.KAFKA_E2E_HTTP2_ADDR ?? "";
-const enc = (s) => new TextEncoder().encode(s);
-const dec = (b) => new TextDecoder().decode(b);
-
-/** One length-prefixed TCP connection as a DataChannel-like object. */
-function tcpDataChannel(host, port) {
-  const socket = connect(port, host);
-  let buffer = Buffer.alloc(0);
-  const dc = {
-    readyState: "open",
-    onmessage: null,
-    send(data) {
-      const payload = Buffer.from(data instanceof Uint8Array ? data : new Uint8Array(data));
-      const frame = Buffer.alloc(4 + payload.length);
-      frame.writeUInt32BE(payload.length, 0);
-      payload.copy(frame, 4);
-      socket.write(frame);
-    },
-    close() {
-      socket.destroy();
-    },
-  };
-  socket.on("data", (chunk) => {
-    buffer = Buffer.concat([buffer, chunk]);
-    while (buffer.length >= 4) {
-      const len = buffer.readUInt32BE(0);
-      if (buffer.length < 4 + len) break;
-      const msg = new Uint8Array(buffer.subarray(4, 4 + len));
-      buffer = buffer.subarray(4 + len);
-      dc.onmessage?.({ data: msg.buffer.slice(msg.byteOffset, msg.byteOffset + msg.byteLength) });
-    }
-  });
-  return dc;
-}
 
 async function makeClient(t) {
-  const sep = PROXY_ADDR.lastIndexOf(":");
-  const dc = tcpDataChannel(PROXY_ADDR.slice(0, sep), Number(PROXY_ADDR.slice(sep + 1)));
+  const dc = tcpChannelForAddr(PROXY_ADDR);
   const client = new KafkaClient(new Channel(dc));
   const topic = `js-kafka-e2e-${randomUUID().slice(0, 16)}`;
   // Register cleanup first: if setup fails below, the socket

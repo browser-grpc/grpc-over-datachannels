@@ -60,6 +60,8 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`interop_service_impl.lua`](examples/interop_service_impl.lua) — Cross-language interop
 - [`kafka_grpc_dc.lua`](examples/kafka_grpc_dc.lua) — Kafka end-to-end (broker legs env-gated)
 - [`kafka_messages.lua`](examples/kafka_messages.lua) — Kafka end-to-end (broker legs env-gated)
+- [`kafka_streams_grpc_dc.lua`](examples/kafka_streams_grpc_dc.lua) — Kafka end-to-end (broker legs env-gated)
+- [`kafka_streams_messages.lua`](examples/kafka_streams_messages.lua) — Kafka end-to-end (broker legs env-gated)
 - [`messages_grpc_dc.lua`](examples/messages_grpc_dc.lua) — Generated suite/example
 - [`messages_messages.lua`](examples/messages_messages.lua) — Generated suite/example
 - [`orca_grpc_dc.lua`](examples/orca_grpc_dc.lua) — Generated suite/example

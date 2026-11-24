@@ -7,9 +7,9 @@
 //! (partitioned by key hash), and commits source offsets
 //! under the topology's consumer group after each batch.
 //! Exactly-once transactional processing and standby tasks
-//! are future work; a restarted topology resumes from the
-//! committed offsets with an empty store (counts rebuild
-//! from the source, as a Streams reset would).
+//! are future work; a restarted topology restores its store
+//! by replaying the already-committed source range without
+//! emitting, then resumes live at the committed offset.
 
 use crate::client::Broker;
 use crate::streams_pb as spb;
@@ -49,6 +49,18 @@ fn fnv1a(bytes: &[u8]) -> u64 {
     hash
 }
 
+/// The v1 operator-chain contract: exactly TOKENIZE_WORDS
+/// -> GROUP_BY_KEY -> COUNT, in order, nothing else.
+fn validate_chain(operators: &[spb::Operator]) -> Result<(), Status> {
+    if operators == SUPPORTED {
+        Ok(())
+    } else {
+        Err(Status::invalid_argument(
+            "unsupported operator chain: v1 supports TOKENIZE_WORDS -> GROUP_BY_KEY -> COUNT",
+        ))
+    }
+}
+
 fn tokenize(value: &[u8]) -> Vec<Vec<u8>> {
     let text = String::from_utf8_lossy(value);
     text.split(|c: char| !c.is_alphanumeric())
@@ -67,11 +79,7 @@ impl StreamsService {
         if topo.name.is_empty() || topo.source_topic.is_empty() || topo.sink_topic.is_empty() {
             return Err(Status::invalid_argument("topology name, source_topic, and sink_topic are required"));
         }
-        if topo.operators != SUPPORTED {
-            return Err(Status::invalid_argument(
-                "unsupported operator chain: v1 supports TOKENIZE_WORDS -> GROUP_BY_KEY -> COUNT",
-            ));
-        }
+        validate_chain(&topo.operators)?;
         let app_id = if topo.application_id.is_empty() {
             format!("streams-{}", topo.name)
         } else {
@@ -234,15 +242,46 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
         .max(1);
 
     // Resume from committed group offsets, else earliest.
+    // When a committed offset exists, first restore the
+    // store by replaying [earliest, committed) through the
+    // transform WITHOUT emitting to the sink or committing
+    // (the Streams changelog-restore step; for COUNT the
+    // source itself is the changelog), then go live at the
+    // committed offset. Records are never counted twice.
     let mut offsets: HashMap<i32, i64> = HashMap::new();
     for p in &partitions {
-        let start = match broker.offset_fetch(&app_id, &topo.source_topic, *p).await {
-            Ok((committed, _, _)) if committed >= 0 => committed,
-            _ => match broker.list_offsets(&topo.source_topic, *p, -2, false).await {
-                Ok((off, _, _)) => off,
-                Err(e) => return fail(&handle, e.message.clone()).await,
-            },
+        let committed = match broker.offset_fetch(&app_id, &topo.source_topic, *p).await {
+            Ok((c, _, _)) if c >= 0 => Some(c),
+            _ => None,
         };
+        let earliest = match broker.list_offsets(&topo.source_topic, *p, -2, false).await {
+            Ok((off, _, _)) => off,
+            Err(e) => return fail(&handle, e.message.clone()).await,
+        };
+        let start = committed.unwrap_or(earliest);
+        if start > earliest {
+            let mut replay = earliest;
+            while replay < start && !handle.stop.load(Ordering::Relaxed) {
+                let outcome = match broker.fetch(&topo.source_topic, *p, replay, 200, 1, 4 * 1024 * 1024, false).await {
+                    Ok(o) => o,
+                    Err(e) => return fail(&handle, e.message.clone()).await,
+                };
+                if outcome.records.is_empty() {
+                    break;
+                }
+                for record in &outcome.records {
+                    if record.offset >= start {
+                        break;
+                    }
+                    replay = record.offset + 1;
+                    for token in tokenize(&record.value) {
+                        let mut state = handle.state.lock().await;
+                        *state.store.entry(token).or_insert(0) += 1;
+                    }
+                    handle.state.lock().await.info.records_processed += 1;
+                }
+            }
+        }
         offsets.insert(*p, start);
     }
 
@@ -302,5 +341,65 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
         if !progressed {
             tokio::time::sleep(std::time::Duration::from_millis(150)).await;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn words(value: &str) -> Vec<String> {
+        tokenize(value.as_bytes())
+            .iter()
+            .map(|t| String::from_utf8(t.clone()).unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn tokenize_splits_lowercases_and_strips_punctuation() {
+        assert_eq!(words("Hello, WORLD! hello..."), vec!["hello", "world", "hello"]);
+        assert_eq!(words("one-two_three\tx\ny"), vec!["one", "two", "three", "x", "y"]);
+        assert_eq!(words("a1 B2 c3"), vec!["a1", "b2", "c3"]);
+    }
+
+    #[test]
+    fn tokenize_handles_empty_symbols_and_non_utf8() {
+        assert!(words("").is_empty());
+        assert!(words("  -- !! --  ").is_empty());
+        // Invalid UTF-8 becomes replacement chars, which are
+        // not alphanumeric: no tokens, no panic.
+        assert!(tokenize(&[0xff, 0xfe, b'a']).is_empty() || tokenize(&[0xff, 0xfe, b'a']).len() == 1);
+        assert_eq!(tokenize(b"caf\xc3\xa9 CAF\xc3\x89").len(), 2);
+    }
+
+    #[test]
+    fn chain_validation_accepts_only_the_v1_chain() {
+        assert!(validate_chain(&SUPPORTED).is_ok());
+        assert!(validate_chain(&[]).is_err());
+        assert!(validate_chain(&[spb::Operator::Count]).is_err());
+        assert!(validate_chain(&[
+            spb::Operator::TokenizeWords,
+            spb::Operator::Count,
+            spb::Operator::GroupByKey,
+        ])
+        .is_err());
+        assert!(validate_chain(&[
+            spb::Operator::TokenizeWords,
+            spb::Operator::GroupByKey,
+            spb::Operator::Count,
+            spb::Operator::Count,
+        ])
+        .is_err());
+        assert!(validate_chain(&[spb::Operator::OperatorUnspecified]).is_err());
+    }
+
+    #[test]
+    fn fnv_partition_assignment_is_stable_and_bounded() {
+        for key in ["hello", "world", "streams", "of", ""] {
+            let p = (fnv1a(key.as_bytes()) % 3) as i32;
+            assert!((0..3).contains(&p), "partition out of range for {key}");
+            assert_eq!(p, (fnv1a(key.as_bytes()) % 3) as i32, "unstable for {key}");
+        }
+        assert_ne!(fnv1a(b"hello"), fnv1a(b"world"));
     }
 }
