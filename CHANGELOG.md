@@ -3,7 +3,7 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.47.2 — 2026-11-25
+## v0.47.2 — 2026-11-25 (published to GitHub/npm/PyPI/GHCR/NuGet/Maven Central/GitHub Maven/pub.dev/crates.io/RubyGems/LuaRocks/JSR)
 
 - Crates fix for the v0.47.1 publish: the kafka-native
   export only copied `kafka_pb.rs`/`kafka_grpc_dc.rs` into
