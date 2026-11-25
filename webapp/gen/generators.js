@@ -520,6 +520,7 @@ function segEval(seg, env) {
     case 'java-fixed-size': return FIXED_TABLES.java[node.type][0];
     case 'java-fixed-name': return FIXED_TABLES.java[node.type][1];
     case 'cs-field-name': return cspFieldName(model, node);
+    case 'cs-param-name': return cspParamName(model, node);
     case 'cs-entry-ref': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? cspResolve(model, n.typeName) : n; return cspEntryRef(model, e); }
     case 'cs-map-name': { const n = seg.length > 1 ? segEval(seg[1], env) : node; const e = n.typeName !== undefined ? cspResolve(model, n.typeName) : n; return cspMapHelperName(model, e); }
     case 'cs-scalar-type': return SCALAR_TABLES.csharp.types[node.type][0];
@@ -2864,6 +2865,12 @@ function cspFieldName(model, f) {
   return n;
 }
 
+const CSP_KEYWORDS = new Set(["abstract","as","base","bool","break","byte","case","catch","char","checked","class","const","continue","decimal","default","delegate","do","double","else","enum","event","explicit","extern","false","finally","fixed","float","for","foreach","goto","if","implicit","in","int","interface","internal","is","lock","long","namespace","new","null","object","operator","out","override","params","private","protected","public","readonly","ref","return","sbyte","sealed","short","sizeof","stackalloc","static","string","struct","switch","this","throw","true","try","typeof","uint","ulong","unchecked","unsafe","ushort","using","virtual","void","volatile","while"]);
+function cspParamName(model, f) {
+  const n = lowerFirst(cspFieldName(model, f));
+  return CSP_KEYWORDS.has(n) ? '@' + n : n;
+}
+
 function csQualifyType(pkg, simple, full) {
   if (!full || !pkg || full.startsWith(pkg + '.')) return simple;
   return full[0].toUpperCase() + full.slice(1);
@@ -3000,7 +3007,7 @@ function cspSupportClass(base, pkg, helpersText) {
   return { name: support + '.cs', content };
 }
 
-function cspParamName(model, f) {
+function cspLocalParamName(model, f) {
   const n = cspFieldName(model, f);
   return n[0].toLowerCase() + n.slice(1);
 }

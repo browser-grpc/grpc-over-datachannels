@@ -3,6 +3,36 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.47.0 — 2026-11-25
+
+- Rendezvous: `RendezvousOptions` accepts `stun_servers`
+  and `turn_servers`; each spawned session peer gathers
+  srflx/relay candidates from them (a rendezvous server
+  behind CGNAT can finally be reached). Defaults are empty,
+  preserving host-candidates-only behavior. (Issue #3)
+- Kafka Streams over gRPC: new `grpcdc.kafka.streams.v1`
+  service served by the kafka proxy, generated for every
+  language. Declarative topologies with TOKENIZE_WORDS,
+  MAP_VALUES, FILTER, SELECT_KEY, GROUP_BY_KEY, COUNT,
+  AGGREGATE (COUNT/SUM/MIN/MAX), REDUCE, COGROUP,
+  tumbling/hopping/session/sliding windows, stream-table,
+  global-table, stream-stream, and table-table joins,
+  custom PROCESS processor callbacks (client-hosted
+  StreamsProcessor with proxy-side ProcessorContext state),
+  consumer-group task assignment with standby replicas and
+  warm-store promotion, AT_LEAST_ONCE/EXACTLY_ONCE
+  processing guarantees, changelog-backed persistent state
+  (`state_dir`, transactional under EXACTLY_ONCE), and
+  interactive queries (`GetStoreValue`, `FetchWindow`,
+  `FetchRange`, `FetchWindowRange`). Generator-driven
+  scenario suites run it from JS, Python, Go, and Java
+  against Apache Kafka and Redpanda.
+- Release tooling: version tags are force-moved to the
+  export commit (pub.dev OIDC collision fixed), registry
+  dispatch order and pub.dev waits hardened.
+- Codegen: C# constructor parameters colliding with
+  keywords are @-escaped.
+
 ## v0.46.2 — 2026-11-24 (published to GitHub/npm/PyPI/pub.dev/GHCR/NuGet/Maven Central/GitHub Maven/crates.io/RubyGems/LuaRocks/JSR)
 
 - Rendezvous: `RendezvousOptions` accepts `stun_servers`
