@@ -519,7 +519,7 @@
       "      - name: Wait for GrpcDc indexing (KafkaGrpc restore needs it)\n"
       "        run: |\n"
       "          V=$(grep -oPm1 '(?<=Include=\"GrpcDc\" Version=\")[^\"]+' packages/kafka-csharp/KafkaGrpc.csproj)\n"
-      "          for i in $(seq 1 40); do curl -sf https://api.nuget.org/v3-flatcontainer/grpcdc/index.json | grep -q \"\\\"$V\\\"\" && exit 0; sleep 15; done; echo 'GrpcDc not indexed in time' >&2; exit 1\n"
+      "          for i in $(seq 1 60); do curl -sf https://api.nuget.org/v3-flatcontainer/grpcdc/index.json | grep -q \"\\\"$V\\\"\" && exit 0; sleep 20; done; echo 'GrpcDc not indexed in time' >&2; exit 1\n"
       "      - name: Pack KafkaGrpc\n"
       "        run: dotnet pack packages/kafka-csharp/KafkaGrpc.csproj -c Release -o /tmp/nuget\n"
       "      - name: Pack EventBusGrpc\n"
