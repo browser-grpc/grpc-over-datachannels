@@ -1157,3 +1157,65 @@ test("kafka streams FetchRange and FetchWindowRange scans", { skip: !PROXY_ADDR 
   }));
   assert.equal(wins.entries.length, 0, "unwindowed topology has no window entries");
 });
+
+test("kafka streams EXACTLY_ONCE + state_dir: changelog commits in the batch transaction", { skip: !PROXY_ADDR }, async (t) => {
+  const { dc, kafka, streams } = makeClients();
+  const id = randomUUID().slice(0, 12);
+  const source = `streams-etx-in-${id}`;
+  const sink = `streams-etx-out-${id}`;
+  const name = `etx-${id}`;
+  t.after(async () => {
+    try {
+      await streams.deleteTopology(new DeleteTopologyRequest({ name }));
+      await kafka.deleteTopics(new DeleteTopicsRequest({ topics: [source, sink] }));
+    } catch { /* best effort */ }
+    dc.close();
+  });
+  for (const topic of [source, sink]) {
+    const created = await kafka.createTopics(new CreateTopicsRequest({
+      topics: [new NewTopic({ name: topic, numPartitions: 1, replicationFactor: 1 })],
+      timeoutMs: 15000,
+    }));
+    assert.deepEqual(created.results.map((r) => r.errorCode), [0]);
+  }
+  const { ProcessingGuarantee } = await import("../src/kafka_streams_pb.js");
+  const mk = () => streams.createTopology(new CreateTopologyRequest({
+    topology: new Topology({
+      name, sourceTopic: source, sinkTopic: sink, stateDir: "state",
+      processingGuarantee: ProcessingGuarantee.EXACTLY_ONCE,
+      operators: [Operator.TOKENIZE_WORDS, Operator.GROUP_BY_KEY, Operator.COUNT],
+    }),
+  }));
+  assert.equal((await mk()).state, "RUNNING");
+  await produceLines(kafka, source, ["atomic atomic state"]);
+  await waitStore(streams, name, "atomic", 2n);
+  // The changelog topic exists and holds the snapshot.
+  const meta = await kafka.metadata(new (await import("../src/kafka_pb.js")).MetadataRequest({ topics: [] }));
+  const changelogName = `streams-${name}-store-changelog`;
+  assert.ok(meta.topics.some((x) => x.name === changelogName), "changelog topic missing");
+  // Delete + recreate: restore comes from the changelog
+  // (in-transaction), and read_committed still sees each
+  // sink record exactly once.
+  await streams.deleteTopology(new DeleteTopologyRequest({ name }));
+  await sleep(600);
+  await mk();
+  let restored = null;
+  for (let i = 0; i < 40; i++) {
+    restored = await streams.getStoreValue(new GetStoreValueRequest({ topology: name, key: "atomic" }));
+    if (restored.found && restored.value === 2n) break;
+    await sleep(250);
+  }
+  assert.equal(restored?.value, 2n);
+  const stream = await kafka.consume(new ConsumeRequest({
+    topic: sink, partition: 0, offset: 0n, maxRecords: 50, readCommitted: true,
+  }));
+  const iter = stream[Symbol.asyncIterator]();
+  const first = await Promise.race([iter.next(), sleep(8000).then(() => null)]);
+  assert.ok(first && !first.done);
+  const final = {};
+  let total = 0;
+  for (const r of first.value.records) { final[dec(r.key)] = dec(r.value); total++; }
+  await iter.return?.();
+  assert.deepEqual(final, { atomic: "2", state: "1" });
+  assert.equal(total, 3);
+});

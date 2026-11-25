@@ -178,7 +178,8 @@ message Topology {
   // batch, so a crash can persist a store change whose
   // source offset did not commit; on restore the source
   // record then replays through the restored store (see
-  // KAFKA.md for the exact guarantee).
+  // KAFKA.md). Under EXACTLY_ONCE the changelog produce
+  // joins the batch transaction, closing that caveat.
   string state_dir = 10;
   // Second input: join stream for JOIN_STREAM, right
   // table for JOIN_TABLE_TABLE.

@@ -243,9 +243,9 @@ start (skipping source-range replay); changelog writes are
 at-least-once per batch, so a crash can persist a change
 whose source offset did not commit — that record then
 replays into the restored store and (for COUNT/SUM) counts
-once more; run EXACTLY_ONCE topologies when that matters,
-noting the changelog produce itself is not yet part of
-the batch transaction. Counts are
+once more. Under EXACTLY_ONCE the changelog produce joins
+the batch transaction, so changelog, sink, and offsets
+commit or abort together and the caveat closes. Counts are
 emitted as `(word, decimal-count)` records, sink-partitioned
 by key hash. The store is in memory: a recreated topology restores it by
 replaying the already-committed source range (no sink

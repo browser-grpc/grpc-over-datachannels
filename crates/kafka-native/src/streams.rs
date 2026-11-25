@@ -763,6 +763,75 @@ pub fn streams_service(svc: Arc<StreamsService>) -> ServiceDef {
     )
 }
 
+/// Snapshot the store to the changelog topic. When a
+/// transaction is active the records go through it (added
+/// to the transaction first), so changelog, sink, and
+/// offsets commit atomically under EXACTLY_ONCE.
+async fn snapshot_changelog(
+    broker: &Broker,
+    handle: &TopologyHandle,
+    topic: &str,
+    app_id: &str,
+    txn: Option<&mut TxnState>,
+) -> Result<(), String> {
+    let snapshot: Vec<(Vec<u8>, i64)> = {
+        let st = handle.state.lock().await;
+        st.store.iter().map(|(k, v)| (k.clone(), *v)).collect()
+    };
+    if let Some(t) = txn {
+        let key = (topic.to_string(), 0);
+        if !t.partitions_in_txn.contains(&key) {
+            match broker
+                .add_partitions_to_txn(
+                    app_id,
+                    t.producer_id,
+                    t.producer_epoch,
+                    vec![(topic.to_string(), vec![0])],
+                )
+                .await
+            {
+                Ok(results) => {
+                    if let Some((_, _, err)) = results.first() {
+                        if *err != 0 {
+                            return Err(format!("changelog AddPartitionsToTxn error {err}"));
+                        }
+                    }
+                    t.partitions_in_txn.insert(key);
+                }
+                Err(e) => return Err(e.message.clone()),
+            }
+        }
+        for (k, v) in snapshot {
+            let seq = *t.sequences.get(&(topic.to_string(), 0)).unwrap_or(&0);
+            let rec = crate::pb::Record {
+                key: k,
+                value: v.to_string().into_bytes(),
+                ..Default::default()
+            };
+            match broker
+                .produce(topic, 0, &[rec], -1, 30_000, 0, t.producer_id, t.producer_epoch, seq, Some(app_id))
+                .await
+            {
+                Ok(o) if o.error_code == 0 => {
+                    *t.sequences.entry((topic.to_string(), 0)).or_insert(0) += 1;
+                }
+                Ok(o) => return Err(format!("changelog produce error {}", o.error_code)),
+                Err(e) => return Err(e.message.clone()),
+            }
+        }
+        return Ok(());
+    }
+    for (k, v) in snapshot {
+        let rec = crate::pb::Record {
+            key: k,
+            value: v.to_string().into_bytes(),
+            ..Default::default()
+        };
+        let _ = broker.produce(topic, 0, &[rec], -1, 30_000, 0, -1, -1, -1, None).await;
+    }
+    Ok(())
+}
+
 async fn fail(handle: &TopologyHandle, error: String) {
     let mut state = handle.state.lock().await;
     state.info.state = "FAILED".to_string();
@@ -1881,6 +1950,12 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
                     let _ = broker.end_txn(&app_id, t.producer_id, t.producer_epoch, false).await;
                     return fail(&handle, format!("txn offset commit error {txn_err}")).await;
                 }
+                if let Some(topic) = &changelog {
+                    if let Err(e) = snapshot_changelog(&broker, &handle, topic, &app_id, Some(t)).await {
+                        let _ = broker.end_txn(&app_id, t.producer_id, t.producer_epoch, false).await;
+                        return fail(&handle, e).await;
+                    }
+                }
                 match broker.end_txn(&app_id, t.producer_id, t.producer_epoch, true).await {
                     Ok(0) => {
                         let parts: Vec<(String, i32)> =
@@ -1923,29 +1998,12 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
                 }
             }
             offsets.insert(*p, next_offset);
-            if let Some(topic) = &changelog {
-                // Snapshot the whole store per batch
-                // (at-least-once: a crash may persist a
-                // change whose offset did not commit; the
-                // record then replays into the restored
-                // store, which for COUNT/SUM double-counts
-                // that one record - documented in KAFKA.md;
-                // EXACTLY_ONCE makes changelog+offset atomic
-                // only when the changelog produce joins the
-                // same transaction, which v1 does not do).
-                let snapshot: Vec<(Vec<u8>, i64)> = {
-                    let st = handle.state.lock().await;
-                    st.store.iter().map(|(k, v)| (k.clone(), *v)).collect()
-                };
-                for (k, v) in snapshot {
-                    let rec = crate::pb::Record {
-                        key: k,
-                        value: v.to_string().into_bytes(),
-                        ..Default::default()
-                    };
-                    let _ = broker
-                        .produce(topic, 0, &[rec], -1, 30_000, 0, -1, -1, -1, None)
-                        .await;
+            if txn.is_none() {
+                if let Some(topic) = &changelog {
+                    // At-least-once snapshot after the plain
+                    // offset commit (EXACTLY_ONCE snapshots
+                    // inside the transaction above).
+                    let _ = snapshot_changelog(&broker, &handle, topic, &app_id, None).await;
                 }
             }
         }
