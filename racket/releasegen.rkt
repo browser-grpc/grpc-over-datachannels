@@ -4160,14 +4160,18 @@
 ;; the lib re-exports kafka_pb under that name — without it the
 ;; crate never compiled standalone.
 (copy-kafka-file "rust/gen/kafka_pb.rs" "kafka-rust/src/kafka_pb.rs")
+(copy-kafka-file "rust/gen/kafka_streams_pb.rs" "kafka-rust/src/kafka_streams_pb.rs")
+(copy-kafka-file "rust/gen/kafka_streams_processor_pb.rs" "kafka-rust/src/kafka_streams_processor_pb.rs")
 (copy-kafka-file "rust/gen/kafka_grpc_dc.rs" "kafka-rust/src/kafka_grpc_dc.rs")
+(copy-kafka-file "rust/gen/kafka_streams_grpc_dc.rs" "kafka-rust/src/kafka_streams_grpc_dc.rs")
+(copy-kafka-file "rust/gen/kafka_streams_processor_grpc_dc.rs" "kafka-rust/src/kafka_streams_processor_grpc_dc.rs")
 ;; grpc_dc::Message adapters for the kafka messages: the same
 ;; macro bridge the kafka proxy example uses, shipped in-crate
 ;; (without it the stubs' Channel calls have no Message impls).
 (copy-kafka-file "crates/kafka-native/src/pb_message_impl.rs"
                  "kafka-rust/src/pb_message_impl.rs")
 (emit-kafka-file "kafka-rust/src/lib.rs"
-  "pub mod kafka_pb;\npub mod kafka_grpc_dc;\n\npub use kafka_pb as pb;\n\nmod pb_message_impl;\n")
+  "pub mod kafka_pb;\npub mod kafka_grpc_dc;\npub mod kafka_streams_pb;\npub mod kafka_streams_processor_pb;\npub mod kafka_streams_grpc_dc;\npub mod kafka_streams_processor_grpc_dc;\n\npub use kafka_pb as pb;\npub use kafka_streams_pb as streams_pb;\npub use kafka_streams_processor_pb as processor_pb;\n\nmod pb_message_impl;\n")
 (emit-kafka-file "kafka-rust/Cargo.toml"
   (string-append
    "[package]\nname = \"kafka-grpc\"\nversion = \"" npm-version "\"\nedition = \"2021\"\n"
