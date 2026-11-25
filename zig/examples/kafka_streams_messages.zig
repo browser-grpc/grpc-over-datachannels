@@ -76,6 +76,8 @@ pub const Operator = enum(i32) {
     COGROUP = 14,
     JOIN_GLOBAL_TABLE = 15,
     PROCESS = 16,
+    JOIN_STREAM = 17,
+    JOIN_TABLE_TABLE = 18,
 };
 
 pub const Aggregator = enum(i32) {
@@ -167,6 +169,8 @@ pub const Topology = struct {
     table_topic: []const u8 = "",
     cogroup_sources: []const []const u8 = &.{},
     state_dir: []const u8 = "",
+    join_topic: []const u8 = "",
+    standby_replicas: i32 = 0,
     unknown_fields: []const u8 = &.{},
     pub fn marshalDc(self: *const Topology, alloc: std.mem.Allocator) []u8 {
         _ = .{ self, alloc };
@@ -187,6 +191,8 @@ pub const Topology = struct {
         w.stringField(8, self.table_topic);
         for (self.cogroup_sources) |x| w.bytesField(9, x);
         w.stringField(10, self.state_dir);
+        w.stringField(11, self.join_topic);
+        if (self.standby_replicas != 0) { w.tag(12, 0); w.varint(@as(u64, @bitCast(@as(i64, self.standby_replicas)))); }
         w.raw(self.unknown_fields);
         return w.toBytes();
     }
@@ -202,6 +208,8 @@ pub const Topology = struct {
         self.table_topic = "";
         self.cogroup_sources = &.{};
         self.state_dir = "";
+        self.join_topic = "";
+        self.standby_replicas = 0;
         var operators_list = std.ArrayList(Operator).empty;
         var steps_list = std.ArrayList(Step).empty;
         var cogroup_sources_list = std.ArrayList([]const u8).empty;
@@ -248,6 +256,12 @@ pub const Topology = struct {
                 },
                 10 => {
                     self.state_dir = alloc.dupe(u8, field.bytes_value) catch "";
+                },
+                11 => {
+                    self.join_topic = alloc.dupe(u8, field.bytes_value) catch "";
+                },
+                12 => {
+                    self.standby_replicas = @as(i32, @truncate(@as(i64, @bitCast(field.varint_value))));
                 },
                 else => { unknown_fields_list.appendSlice(alloc, field.raw_value) catch {}; },
             }

@@ -29,6 +29,7 @@ struct TopologyState {
     sessions: HashMap<Vec<u8>, Vec<(i64, i64)>>,
     key_records: HashMap<Vec<u8>, Vec<(i64, Option<i64>)>>,
     processors: HashMap<String, grpc_dc::Channel>,
+    join_buffer: Vec<(Vec<u8>, i64, Vec<u8>, bool)>,
 }
 
 struct TopologyHandle {
@@ -62,6 +63,7 @@ enum Op {
     WindowSliding { size_ms: i64, grace_ms: i64, kind: AggKind },
     Cogroup,
     Process { addr: String },
+    JoinStream { size_ms: i64, grace_ms: i64, separator: Vec<u8> },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -156,6 +158,20 @@ fn resolve_ops(topo: &spb::Topology) -> Result<Vec<Op>, Status> {
                 }
                 let sep = if step.param.is_empty() { ":".to_string() } else { step.param.clone() };
                 Op::JoinTable { separator: sep.into_bytes() }
+            }
+            spb::Operator::JoinStream => {
+                if topo.join_topic.is_empty() {
+                    return Err(Status::invalid_argument("JOIN_STREAM requires Topology.join_topic"));
+                }
+                if step.window_size_ms <= 0 {
+                    return Err(Status::invalid_argument("JOIN_STREAM requires window_size_ms > 0"));
+                }
+                let sep = if step.param.is_empty() { ":".to_string() } else { step.param.clone() };
+                Op::JoinStream {
+                    size_ms: step.window_size_ms,
+                    grace_ms: step.grace_ms.max(0),
+                    separator: sep.into_bytes(),
+                }
             }
             spb::Operator::Process => {
                 let addr = step.param.strip_prefix("tcp://").unwrap_or(&step.param);
@@ -424,6 +440,7 @@ impl StreamsService {
                 sessions: HashMap::new(),
                 key_records: HashMap::new(),
                 processors: HashMap::new(),
+                join_buffer: Vec::new(),
             }),
             stop: AtomicBool::new(false),
         });
@@ -647,6 +664,7 @@ struct PipeRec {
     ts: i64,
     window: Option<(i64, i64)>,
     precomputed: bool,
+    join_side: bool,
 }
 
 fn parse_i64(value: &[u8]) -> Option<i64> {
@@ -665,6 +683,7 @@ struct PipelineCtx<'a> {
     key_records: &'a mut HashMap<Vec<u8>, Vec<(i64, Option<i64>)>>,
     processors: &'a mut HashMap<String, grpc_dc::Channel>,
     topology_name: &'a str,
+    join_buffer: &'a mut Vec<(Vec<u8>, i64, Vec<u8>, bool)>,
 }
 
 impl PipelineCtx<'_> {
@@ -713,7 +732,7 @@ async fn apply_pipeline(ops: &[Op], rec: &PipeRec, ctx: &mut PipelineCtx<'_>) ->
             match op {
                 Op::TokenizeWords => {
                     for token in tokenize(&r.value) {
-                        next.push(PipeRec { key: token, value: b"1".to_vec(), ts: r.ts, window: r.window, precomputed: false });
+                        next.push(PipeRec { key: token, value: b"1".to_vec(), ts: r.ts, window: r.window, precomputed: false, join_side: r.join_side });
                     }
                 }
                 Op::GroupByKey => next.push(r),
@@ -775,6 +794,7 @@ async fn apply_pipeline(ops: &[Op], rec: &PipeRec, ctx: &mut PipelineCtx<'_>) ->
                                     ts: r.ts,
                                     window: r.window,
                                     precomputed: false,
+                                    join_side: r.join_side,
                                 });
                             }
                         }
@@ -788,6 +808,30 @@ async fn apply_pipeline(ops: &[Op], rec: &PipeRec, ctx: &mut PipelineCtx<'_>) ->
                             eprintln!("streams PROCESS to {addr} failed: {}", e.message);
                         }
                     }
+                }
+                Op::JoinStream { size_ms, grace_ms, separator } => {
+                    if r.ts > *ctx.stream_time {
+                        *ctx.stream_time = r.ts;
+                    }
+                    let win_start = r.ts.div_euclid(*size_ms) * size_ms;
+                    // Prune expired buffer entries.
+                    ctx.join_buffer.retain(|(_, ts, _, _)| {
+                        ts.div_euclid(*size_ms) * size_ms + size_ms + grace_ms >= *ctx.stream_time
+                    });
+                    for (k, ts, v, side) in ctx.join_buffer.iter() {
+                        if *side != r.join_side && k == &r.key && ts.div_euclid(*size_ms) * size_ms == win_start {
+                            let (left, right) = if r.join_side {
+                                (v.clone(), r.value.clone())
+                            } else {
+                                (r.value.clone(), v.clone())
+                            };
+                            let mut value = left;
+                            value.extend_from_slice(separator);
+                            value.extend_from_slice(&right);
+                            next.push(PipeRec { value, window: Some((win_start, win_start + size_ms)), ..r.clone() });
+                        }
+                    }
+                    ctx.join_buffer.push((r.key.clone(), r.ts, r.value.clone(), r.join_side));
                 }
                 Op::JoinTable { separator } => {
                     if let Some(tv) = ctx.table.get(&r.key) {
@@ -1081,7 +1125,7 @@ async fn apply_with_state(
     rec: &PipeRec,
     topo_name: &str,
 ) -> Vec<PipeRec> {
-    let (mut store, mut sessions, mut key_records, mut stream_time, table, mut processors) = {
+    let (mut store, mut sessions, mut key_records, mut stream_time, table, mut processors, mut join_buffer) = {
         let st = handle.state.lock().await;
         (
             st.store.clone(),
@@ -1090,6 +1134,7 @@ async fn apply_with_state(
             st.stream_time,
             st.table.clone(),
             st.processors.clone(),
+            st.join_buffer.clone(),
         )
     };
     let store_snapshot = store.clone();
@@ -1104,6 +1149,7 @@ async fn apply_with_state(
             key_records: &mut key_records,
             processors: &mut processors,
             topology_name: topo_name,
+            join_buffer: &mut join_buffer,
         },
     )
     .await;
@@ -1124,6 +1170,7 @@ async fn apply_with_state(
     st.key_records = key_records;
     st.stream_time = stream_time;
     st.processors = processors;
+    st.join_buffer = join_buffer;
     st.info.records_processed += 1;
     outs
 }
@@ -1287,6 +1334,32 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
         }
     }
 
+    // Join stream state: offsets per join partition plus
+    // the sub-chain from JOIN_STREAM onward.
+    let mut join_state: Option<(HashMap<String, HashMap<i32, i64>>, Vec<Op>)> = None;
+    if !topo.join_topic.is_empty() {
+        if let Some(idx) = ops.iter().position(|o| matches!(o, Op::JoinStream { .. })) {
+            let mut parts = HashMap::new();
+            if let Ok(m) = broker.metadata(vec![topo.join_topic.clone()], false).await {
+                for t in &m.topics {
+                    if t.name == topo.join_topic {
+                        for part in &t.partitions {
+                            let off = broker
+                                .list_offsets(&topo.join_topic, part.id, -2, false)
+                                .await
+                                .map(|(o, _, _)| o)
+                                .unwrap_or(0);
+                            parts.insert(part.id, off);
+                        }
+                    }
+                }
+            }
+            let mut by_topic = HashMap::new();
+            by_topic.insert(topo.join_topic.clone(), parts);
+            join_state = Some((by_topic, ops[idx..].to_vec()));
+        }
+    }
+
     // Resume from committed group offsets, else earliest.
     // When a committed offset exists, first restore the
     // store by replaying [earliest, committed) through the
@@ -1330,6 +1403,7 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
                                 ts: record.timestamp_ms,
                                 window: None,
                                 precomputed: false,
+                                join_side: false,
                             },
                             &topo_name,
                         )
@@ -1413,6 +1487,51 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
                 }
             }
         }
+        // Join stream ingestion: records enter the chain
+        // at the JOIN_STREAM step and emit through the
+        // remainder of the chain to the sink.
+        if let Some((joffsets, jops)) = &mut join_state {
+            for (_, parts) in joffsets.iter_mut() {
+                for (tp, toff) in parts.iter_mut() {
+                    if let Ok(outcome) = broker
+                        .fetch(&topo.join_topic, *tp, *toff, 100, 1, 4 * 1024 * 1024, false)
+                        .await
+                    {
+                        if outcome.error_code == 0 && !outcome.records.is_empty() {
+                            for record in &outcome.records {
+                                *toff = record.offset + 1;
+                                let outputs = apply_with_state(
+                                    &handle,
+                                    jops,
+                                    &PipeRec {
+                                        key: record.key.clone(),
+                                        value: record.value.clone(),
+                                        ts: record.timestamp_ms,
+                                        window: None,
+                                        precomputed: false,
+                                        join_side: true,
+                                    },
+                                    &topo_name,
+                                )
+                                .await;
+                                for out_rec in outputs {
+                                    let sink_partition =
+                                        (fnv1a(&out_rec.key) % sink_partitions as u64) as i32;
+                                    let out = crate::pb::Record {
+                                        key: out_rec.key,
+                                        value: out_rec.value,
+                                        ..Default::default()
+                                    };
+                                    let _ = broker
+                                        .produce(&topo.sink_topic, sink_partition, &[out], -1, 30_000, 0, -1, -1, -1, None)
+                                        .await;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         for (topic, parts) in cogroup_offsets.iter_mut() {
             for (tp, toff) in parts.iter_mut() {
                 if let Ok(outcome) = broker
@@ -1464,6 +1583,7 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
                         ts: record.timestamp_ms,
                         window: None,
                         precomputed: false,
+                        join_side: false,
                     },
                     &topo_name,
                 )
@@ -1659,7 +1779,7 @@ mod tests {
     ) -> Vec<PipeRec> {
         apply_pipeline(
             ops,
-            &PipeRec { key: key.to_vec(), value: value.to_vec(), ts, window: None, precomputed: false },
+            &PipeRec { key: key.to_vec(), value: value.to_vec(), ts, window: None, precomputed: false, join_side: false },
             &mut PipelineCtx {
                 store,
                 stream_time,
@@ -1668,6 +1788,7 @@ mod tests {
                 key_records: records,
                 processors: &mut HashMap::new(),
                 topology_name: "test",
+                join_buffer: &mut Vec::new(),
             },
         )
         .await
@@ -1901,6 +2022,38 @@ mod tests {
         let out = run2!(15000, "7");
         assert!(out.iter().any(|r| r.window == Some((5001, 15001)) && r.value == b"12".to_vec()),
             "sliding window must aggregate both records: {out:?}");
+    }
+
+    #[tokio::test]
+    async fn stream_stream_join_matches_same_window_only() {
+        let topo = spb::Topology {
+            join_topic: "right".into(),
+            steps: vec![
+                spb::Step {
+                    operator: spb::Operator::JoinStream,
+                    window_size_ms: 1000,
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let ops = resolve_ops(&topo).unwrap();
+        let mut store: HashMap<Vec<u8>, i64> = HashMap::new();
+        let mut sessions: HashMap<Vec<u8>, Vec<(i64, i64)>> = HashMap::new();
+        let mut records: HashMap<Vec<u8>, Vec<(i64, Option<i64>)>> = HashMap::new();
+        let mut st = 0i64;
+        let mut jb: Vec<(Vec<u8>, i64, Vec<u8>, bool)> = Vec::new();
+        let left = apply_pipeline(&ops, &PipeRec { key: b"k".to_vec(), value: b"L".to_vec(), ts: 100, window: None, precomputed: false, join_side: false },
+            &mut PipelineCtx { store: &mut store, stream_time: &mut st, table: &EMPTY_TABLE, sessions: &mut sessions, key_records: &mut records, processors: &mut HashMap::new(), topology_name: "t", join_buffer: &mut jb }).await;
+        assert!(left.is_empty(), "no match yet");
+        let joined = apply_pipeline(&ops, &PipeRec { key: b"k".to_vec(), value: b"R".to_vec(), ts: 900, window: None, precomputed: false, join_side: true },
+            &mut PipelineCtx { store: &mut store, stream_time: &mut st, table: &EMPTY_TABLE, sessions: &mut sessions, key_records: &mut records, processors: &mut HashMap::new(), topology_name: "t", join_buffer: &mut jb }).await;
+        assert_eq!(joined.len(), 1);
+        assert_eq!(joined[0].value, b"L:R".to_vec());
+        // Different window: no match.
+        let other = apply_pipeline(&ops, &PipeRec { key: b"k".to_vec(), value: b"R2".to_vec(), ts: 2100, window: None, precomputed: false, join_side: true },
+            &mut PipelineCtx { store: &mut store, stream_time: &mut st, table: &EMPTY_TABLE, sessions: &mut sessions, key_records: &mut records, processors: &mut HashMap::new(), topology_name: "t", join_buffer: &mut jb }).await;
+        assert!(other.is_empty());
     }
 
     #[test]

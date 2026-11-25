@@ -13,9 +13,11 @@ public final class Topology implements grpcdc.Marshaler, grpcdc.Unmarshaler {
     public String tableTopic = "";
     public java.util.List<String> cogroupSources = new java.util.ArrayList<>();
     public String stateDir = "";
+    public String joinTopic = "";
+    public int standbyReplicas = 0;
     public byte[] unknownFields = new byte[0];
     public Topology() {}
-    public Topology(String name, String applicationId, String sourceTopic, String sinkTopic, java.util.List<Operator> operators, java.util.List<Step> steps, ProcessingGuarantee processingGuarantee, String tableTopic, java.util.List<String> cogroupSources, String stateDir) {
+    public Topology(String name, String applicationId, String sourceTopic, String sinkTopic, java.util.List<Operator> operators, java.util.List<Step> steps, ProcessingGuarantee processingGuarantee, String tableTopic, java.util.List<String> cogroupSources, String stateDir, String joinTopic, int standbyReplicas) {
         this.name = name;
         this.applicationId = applicationId;
         this.sourceTopic = sourceTopic;
@@ -26,6 +28,8 @@ public final class Topology implements grpcdc.Marshaler, grpcdc.Unmarshaler {
         this.tableTopic = tableTopic;
         this.cogroupSources = cogroupSources;
         this.stateDir = stateDir;
+        this.joinTopic = joinTopic;
+        this.standbyReplicas = standbyReplicas;
     }
 
     @Override
@@ -45,6 +49,8 @@ public final class Topology implements grpcdc.Marshaler, grpcdc.Unmarshaler {
         pbW.stringField(8, tableTopic);
         if (cogroupSources != null) for (String pbX : cogroupSources) pbW.bytesField(9, pbX.getBytes(java.nio.charset.StandardCharsets.UTF_8));
         pbW.stringField(10, stateDir);
+        pbW.stringField(11, joinTopic);
+        if (standbyReplicas != 0) { pbW.tag(12, 0); pbW.varint(standbyReplicas); }
         pbW.raw(unknownFields);
         return pbW.toBytes();
     }
@@ -62,6 +68,8 @@ public final class Topology implements grpcdc.Marshaler, grpcdc.Unmarshaler {
         tableTopic = "";
         cogroupSources = new java.util.ArrayList<>();
         stateDir = "";
+        joinTopic = "";
+        standbyReplicas = 0;
         Kafka_streamsPb.Reader pbR = new Kafka_streamsPb.Reader(data);
         Kafka_streamsPb.Field pbField;
         while ((pbField = pbR.next()) != null) {
@@ -104,6 +112,12 @@ public final class Topology implements grpcdc.Marshaler, grpcdc.Unmarshaler {
                 }
                 case 10 -> {
                     stateDir = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                }
+                case 11 -> {
+                    joinTopic = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
+                }
+                case 12 -> {
+                    standbyReplicas = (int) pbField.varintValue;
                 }
                 default -> { unknownFields = Kafka_streamsPb.concatBytes(unknownFields, pbField.rawValue); }
             }

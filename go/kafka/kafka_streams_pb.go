@@ -159,6 +159,8 @@ const (
 	Operator_COGROUP              Operator = 14
 	Operator_JOIN_GLOBAL_TABLE    Operator = 15
 	Operator_PROCESS              Operator = 16
+	Operator_JOIN_STREAM          Operator = 17
+	Operator_JOIN_TABLE_TABLE     Operator = 18
 )
 
 type Aggregator int32
@@ -284,6 +286,8 @@ type Topology struct {
 	TableTopic          string
 	CogroupSources      []string
 	StateDir            string
+	JoinTopic           string
+	StandbyReplicas     int32
 	UnknownFields       []byte
 }
 
@@ -318,6 +322,11 @@ func (m *Topology) MarshalDC() []byte {
 		out = KafkaStreamsPbAppendBytesField(out, 9, []byte(x))
 	}
 	out = KafkaStreamsPbAppendStringField(out, 10, m.StateDir)
+	out = KafkaStreamsPbAppendStringField(out, 11, m.JoinTopic)
+	if m.StandbyReplicas != 0 {
+		out = KafkaStreamsPbAppendTag(out, 12, 0)
+		out = KafkaStreamsPbAppendVarint(out, uint64(int64(m.StandbyReplicas)))
+	}
 	out = append(out, m.UnknownFields...)
 	return out
 }
@@ -389,6 +398,14 @@ func (m *Topology) UnmarshalDC(data []byte) error {
 		case 10:
 			if b, ok := value.([]byte); ok {
 				m.StateDir = string(b)
+			}
+		case 11:
+			if b, ok := value.([]byte); ok {
+				m.JoinTopic = string(b)
+			}
+		case 12:
+			if v, ok := value.(uint64); ok {
+				m.StandbyReplicas = int32(v)
 			}
 		default:
 			m.UnknownFields = append(m.UnknownFields, raw...)

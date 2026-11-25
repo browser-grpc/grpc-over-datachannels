@@ -93,6 +93,21 @@ enum Operator {
   // kafka_streams_processor.proto). Each record is replaced
   // by the processor's outputs (zero or more).
   PROCESS = 16;
+  // Windowed stream-stream inner join against
+  // Topology.join_topic: records with equal keys whose
+  // timestamps share a tumbling window (Step.window_size_ms,
+  // Step.grace_ms for late arrivals) emit
+  // source_value + Step.param separator (default ":") +
+  // join_value. Steps before JOIN_STREAM apply to the
+  // source stream only; join-side records enter the chain
+  // at JOIN_STREAM.
+  JOIN_STREAM = 17;
+  // Table-table join: Topology.table_topic and
+  // Topology.join_topic are both materialized tables; on
+  // every update to either side, the combined latest value
+  // (left + Step.param separator + right) is emitted for
+  // keys present in both.
+  JOIN_TABLE_TABLE = 18;
 }
 
 enum Aggregator {
@@ -165,6 +180,15 @@ message Topology {
   // record then replays through the restored store (see
   // KAFKA.md for the exact guarantee).
   string state_dir = 10;
+  // Second input: join stream for JOIN_STREAM, right
+  // table for JOIN_TABLE_TABLE.
+  string join_topic = 11;
+  // Standby replicas: this many extra task instances (same
+  // topology name on other proxy instances, or additional
+  // CreateTopology calls with the same application_id)
+  // passively maintain warm stores without emitting or
+  // committing; not yet implemented.
+  int32 standby_replicas = 12;
 }
 
 message TopologyInfo {

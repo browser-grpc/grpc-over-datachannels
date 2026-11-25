@@ -131,7 +131,7 @@ function readFixed(bytes, read) {
   return read(new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength));
 }
 
-export const Operator = { OPERATOR_UNSPECIFIED: 0, TOKENIZE_WORDS: 1, GROUP_BY_KEY: 2, COUNT: 3, MAP_VALUES: 4, FILTER: 5, SELECT_KEY: 6, AGGREGATE: 7, REDUCE: 8, WINDOW_TUMBLING: 9, WINDOW_HOPPING: 10, JOIN_TABLE: 11, WINDOW_SESSION: 12, WINDOW_SLIDING: 13, COGROUP: 14, JOIN_GLOBAL_TABLE: 15, PROCESS: 16 };
+export const Operator = { OPERATOR_UNSPECIFIED: 0, TOKENIZE_WORDS: 1, GROUP_BY_KEY: 2, COUNT: 3, MAP_VALUES: 4, FILTER: 5, SELECT_KEY: 6, AGGREGATE: 7, REDUCE: 8, WINDOW_TUMBLING: 9, WINDOW_HOPPING: 10, JOIN_TABLE: 11, WINDOW_SESSION: 12, WINDOW_SLIDING: 13, COGROUP: 14, JOIN_GLOBAL_TABLE: 15, PROCESS: 16, JOIN_STREAM: 17, JOIN_TABLE_TABLE: 18 };
 
 export const Aggregator = { AGGREGATOR_UNSPECIFIED: 0, AGGREGATE_COUNT: 1, AGGREGATE_SUM: 2, AGGREGATE_MIN: 3, AGGREGATE_MAX: 4 };
 
@@ -201,7 +201,7 @@ export class Step {
 }
 
 export class Topology {
-  constructor({ name = "", applicationId = "", sourceTopic = "", sinkTopic = "", operators = [], steps = [], processingGuarantee = 0, tableTopic = "", cogroupSources = [], stateDir = "" } = {}) {
+  constructor({ name = "", applicationId = "", sourceTopic = "", sinkTopic = "", operators = [], steps = [], processingGuarantee = 0, tableTopic = "", cogroupSources = [], stateDir = "", joinTopic = "", standbyReplicas = 0 } = {}) {
     this.name = name;
     this.applicationId = applicationId;
     this.sourceTopic = sourceTopic;
@@ -212,6 +212,8 @@ export class Topology {
     this.tableTopic = tableTopic;
     this.cogroupSources = cogroupSources;
     this.stateDir = stateDir;
+    this.joinTopic = joinTopic;
+    this.standbyReplicas = standbyReplicas;
     this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
@@ -230,6 +232,8 @@ export class Topology {
     putStringField(out, 8, msg.tableTopic);
     if (msg.cogroupSources) for (const v of msg.cogroupSources) putBytesField(out, 9, textEncoder.encode(v));
     putStringField(out, 10, msg.stateDir);
+    putStringField(out, 11, msg.joinTopic);
+    putVarintField(out, 12, BigInt(msg.standbyReplicas));
     putRaw(out, msg.unknownFields);
     return new Uint8Array(out);
   }
@@ -259,6 +263,8 @@ export class Topology {
       case 8: msg.tableTopic = textDecoder.decode(value); break;
       case 9: msg.cogroupSources.push(textDecoder.decode(value)); break;
       case 10: msg.stateDir = textDecoder.decode(value); break;
+      case 11: msg.joinTopic = textDecoder.decode(value); break;
+      case 12: msg.standbyReplicas = Number(BigInt.asIntN(32, value)); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
@@ -275,6 +281,8 @@ export class Topology {
     this.tableTopic = "";
     this.cogroupSources = [];
     this.stateDir = "";
+    this.joinTopic = "";
+    this.standbyReplicas = 0;
     this.unknownFields = EMPTY_BYTES;
   }
 }

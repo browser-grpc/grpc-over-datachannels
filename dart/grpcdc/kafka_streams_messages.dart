@@ -69,7 +69,9 @@ enum Operator {
   WINDOW_SLIDING,
   COGROUP,
   JOIN_GLOBAL_TABLE,
-  PROCESS
+  PROCESS,
+  JOIN_STREAM,
+  JOIN_TABLE_TABLE
 }
 enum Aggregator {
   AGGREGATOR_UNSPECIFIED,
@@ -160,8 +162,10 @@ class Topology implements Marshaler, Unmarshaler {
   String tableTopic;
   List<String> cogroupSources;
   String stateDir;
+  String joinTopic;
+  int standbyReplicas;
   Uint8List unknownFields = Uint8List(0);
-  Topology([this.name = '', this.applicationId = '', this.sourceTopic = '', this.sinkTopic = '', this.processingGuarantee = ProcessingGuarantee.PROCESSING_GUARANTEE_UNSPECIFIED, this.tableTopic = '', this.stateDir = '']) : operators = [], steps = [], cogroupSources = [];
+  Topology([this.name = '', this.applicationId = '', this.sourceTopic = '', this.sinkTopic = '', this.processingGuarantee = ProcessingGuarantee.PROCESSING_GUARANTEE_UNSPECIFIED, this.tableTopic = '', this.stateDir = '', this.joinTopic = '', this.standbyReplicas = 0]) : operators = [], steps = [], cogroupSources = [];
   @override
   Uint8List marshalDc() {
     final pbW = Kafka_streamsPbWriter();
@@ -179,6 +183,8 @@ class Topology implements Marshaler, Unmarshaler {
     pbW.stringField(8, tableTopic);
     for (final pbX in cogroupSources) { pbW.bytesField(9, utf8.encode(pbX)); }
     pbW.stringField(10, stateDir);
+    pbW.stringField(11, joinTopic);
+    if (standbyReplicas != 0) { pbW.tag(12, 0); pbW.varint(standbyReplicas); }
     pbW.raw(unknownFields);
     return pbW.toBytes();
   }
@@ -195,6 +201,8 @@ class Topology implements Marshaler, Unmarshaler {
     tableTopic = '';
     cogroupSources = [];
     stateDir = '';
+    joinTopic = '';
+    standbyReplicas = 0;
     final pbR = Kafka_streamsPbReader(Uint8List.fromList(data));
     while (true) {
       final pbField = pbR.next();
@@ -238,6 +246,12 @@ class Topology implements Marshaler, Unmarshaler {
           break;
         case 10:
           stateDir = utf8.decode(pbField.bytesValue);
+          break;
+        case 11:
+          joinTopic = utf8.decode(pbField.bytesValue);
+          break;
+        case 12:
+          standbyReplicas = (pbField.varintValue).toSigned(32);
           break;
         default:
           unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);

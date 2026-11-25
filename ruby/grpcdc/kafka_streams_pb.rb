@@ -128,6 +128,8 @@ end
     COGROUP = 14
     JOIN_GLOBAL_TABLE = 15
     PROCESS = 16
+    JOIN_STREAM = 17
+    JOIN_TABLE_TABLE = 18
   end
 
   module Aggregator
@@ -232,9 +234,9 @@ end
   end
 
   class Topology
-    attr_accessor :name, :application_id, :source_topic, :sink_topic, :operators, :steps, :processing_guarantee, :table_topic, :cogroup_sources, :state_dir, :unknown_fields
+    attr_accessor :name, :application_id, :source_topic, :sink_topic, :operators, :steps, :processing_guarantee, :table_topic, :cogroup_sources, :state_dir, :join_topic, :standby_replicas, :unknown_fields
 
-    def initialize(name: "", application_id: "", source_topic: "", sink_topic: "", operators: [], steps: [], processing_guarantee: 0, table_topic: "", cogroup_sources: [], state_dir: "")
+    def initialize(name: "", application_id: "", source_topic: "", sink_topic: "", operators: [], steps: [], processing_guarantee: 0, table_topic: "", cogroup_sources: [], state_dir: "", join_topic: "", standby_replicas: 0)
       @name = name
       @application_id = application_id
       @source_topic = source_topic
@@ -245,6 +247,8 @@ end
       @table_topic = table_topic
       @cogroup_sources = cogroup_sources
       @state_dir = state_dir
+      @join_topic = join_topic
+      @standby_replicas = standby_replicas
       @unknown_fields = "".b
     end
 
@@ -267,6 +271,11 @@ end
     w.string_field(8, @table_topic)
     @cogroup_sources.each { |x| w.bytes_field(9, x) }
     w.string_field(10, @state_dir)
+    w.string_field(11, @join_topic)
+    if @standby_replicas != 0
+      w.tag(12, 0)
+      w.varint(@standby_replicas)
+    end
       w.raw(@unknown_fields)
       w.to_bytes
     end
@@ -283,6 +292,8 @@ end
       @table_topic = ""
       @cogroup_sources = []
       @state_dir = ""
+      @join_topic = ""
+      @standby_replicas = 0
       r = Reader.new(data)
       loop do
         item = r.field
@@ -320,6 +331,10 @@ end
         @cogroup_sources << bytes_value.dup.force_encoding(Encoding::UTF_8)
       when 10
         @state_dir = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 11
+        @join_topic = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 12
+        @standby_replicas = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
         else
           @unknown_fields = @unknown_fields + raw_value
         end
@@ -328,7 +343,7 @@ end
     end
 
     def ==(other)
-      other.is_a?(Topology) && @name == other.name && @application_id == other.application_id && @source_topic == other.source_topic && @sink_topic == other.sink_topic && @operators == other.operators && @steps == other.steps && @processing_guarantee == other.processing_guarantee && @table_topic == other.table_topic && @cogroup_sources == other.cogroup_sources && @state_dir == other.state_dir
+      other.is_a?(Topology) && @name == other.name && @application_id == other.application_id && @source_topic == other.source_topic && @sink_topic == other.sink_topic && @operators == other.operators && @steps == other.steps && @processing_guarantee == other.processing_guarantee && @table_topic == other.table_topic && @cogroup_sources == other.cogroup_sources && @state_dir == other.state_dir && @join_topic == other.join_topic && @standby_replicas == other.standby_replicas
     end
   end
 

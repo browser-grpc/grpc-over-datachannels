@@ -162,6 +162,8 @@ final class Operator
     public const COGROUP = 14;
     public const JOIN_GLOBAL_TABLE = 15;
     public const PROCESS = 16;
+    public const JOIN_STREAM = 17;
+    public const JOIN_TABLE_TABLE = 18;
 }
 
 final class Aggregator
@@ -302,9 +304,11 @@ class Topology
     public string $tableTopic = "";
     public array $cogroupSources = [];
     public string $stateDir = "";
+    public string $joinTopic = "";
+    public int $standbyReplicas = 0;
 
     public string $unknownFields = "";
-    public function __construct(string $name = "", string $applicationId = "", string $sourceTopic = "", string $sinkTopic = "", array $operators = [], array $steps = [], int $processingGuarantee = 0, string $tableTopic = "", array $cogroupSources = [], string $stateDir = "")
+    public function __construct(string $name = "", string $applicationId = "", string $sourceTopic = "", string $sinkTopic = "", array $operators = [], array $steps = [], int $processingGuarantee = 0, string $tableTopic = "", array $cogroupSources = [], string $stateDir = "", string $joinTopic = "", int $standbyReplicas = 0)
     {
         $this->name = $name;
         $this->applicationId = $applicationId;
@@ -316,6 +320,8 @@ class Topology
         $this->tableTopic = $tableTopic;
         $this->cogroupSources = $cogroupSources;
         $this->stateDir = $stateDir;
+        $this->joinTopic = $joinTopic;
+        $this->standbyReplicas = $standbyReplicas;
     }
 
     public function marshalDc(): string
@@ -344,6 +350,11 @@ class Topology
             $w->bytesField(9, $x);
         }
         $w->stringField(10, $this->stateDir);
+        $w->stringField(11, $this->joinTopic);
+        if ($this->standbyReplicas !== 0) {
+            $w->tag(12, 0);
+            $w->varint($this->standbyReplicas);
+        }
         $w->raw($this->unknownFields);
         return $w->toBytes();
     }
@@ -361,6 +372,8 @@ class Topology
         $this->tableTopic = "";
         $this->cogroupSources = [];
         $this->stateDir = "";
+        $this->joinTopic = "";
+        $this->standbyReplicas = 0;
         $r = new Reader($data);
         while (($item = $r->field()) !== null) {
             [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;
@@ -405,6 +418,12 @@ class Topology
                 case 10:
                     $this->stateDir = $bytesValue;
                     break;
+                case 11:
+                    $this->joinTopic = $bytesValue;
+                    break;
+                case 12:
+                    $this->standbyReplicas = ((($varintValue & 0xffffffff) >= 0x80000000) ? (($varintValue & 0xffffffff) - 0x100000000) : ($varintValue & 0xffffffff));
+                    break;
                 default:
                     $this->unknownFields .= $rawValue;
                     break;
@@ -425,7 +444,9 @@ class Topology
             && $this->processingGuarantee === $other->processingGuarantee
             && $this->tableTopic === $other->tableTopic
             && $this->cogroupSources === $other->cogroupSources
-            && $this->stateDir === $other->stateDir;
+            && $this->stateDir === $other->stateDir
+            && $this->joinTopic === $other->joinTopic
+            && $this->standbyReplicas === $other->standbyReplicas;
     }
 }
 

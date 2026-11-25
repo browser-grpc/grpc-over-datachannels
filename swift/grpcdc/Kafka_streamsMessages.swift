@@ -72,6 +72,8 @@ public enum Operator: Int32 {
     case COGROUP = 14
     case JOIN_GLOBAL_TABLE = 15
     case PROCESS = 16
+    case JOIN_STREAM = 17
+    case JOIN_TABLE_TABLE = 18
 }
 
 public enum Aggregator: Int32 {
@@ -164,9 +166,11 @@ public final class Topology: Marshaler, Unmarshaler {
     public var tableTopic: String = ""
     public var cogroupSources: [String] = []
     public var stateDir: String = ""
+    public var joinTopic: String = ""
+    public var standbyReplicas: Int32 = 0
     public var unknownFields: [UInt8] = []
     public init() {}
-    public init(_ name: String = "", _ applicationId: String = "", _ sourceTopic: String = "", _ sinkTopic: String = "", _ operators: [Operator] = [], _ steps: [Step] = [], _ processingGuarantee: ProcessingGuarantee = ProcessingGuarantee.PROCESSING_GUARANTEE_UNSPECIFIED, _ tableTopic: String = "", _ cogroupSources: [String] = [], _ stateDir: String = "") {
+    public init(_ name: String = "", _ applicationId: String = "", _ sourceTopic: String = "", _ sinkTopic: String = "", _ operators: [Operator] = [], _ steps: [Step] = [], _ processingGuarantee: ProcessingGuarantee = ProcessingGuarantee.PROCESSING_GUARANTEE_UNSPECIFIED, _ tableTopic: String = "", _ cogroupSources: [String] = [], _ stateDir: String = "", _ joinTopic: String = "", _ standbyReplicas: Int32 = 0) {
         self.name = name
         self.applicationId = applicationId
         self.sourceTopic = sourceTopic
@@ -177,6 +181,8 @@ public final class Topology: Marshaler, Unmarshaler {
         self.tableTopic = tableTopic
         self.cogroupSources = cogroupSources
         self.stateDir = stateDir
+        self.joinTopic = joinTopic
+        self.standbyReplicas = standbyReplicas
     }
     public func MarshalDc() -> [UInt8] {
         let pbW = Kafka_streamsPb.Writer()
@@ -194,6 +200,8 @@ public final class Topology: Marshaler, Unmarshaler {
         pbW.StringField(8, tableTopic)
         for pbX in cogroupSources { pbW.BytesField(9, [UInt8](pbX.utf8)) }
         pbW.StringField(10, stateDir)
+        pbW.StringField(11, joinTopic)
+        if standbyReplicas != 0 { pbW.Tag(12, 0); pbW.Varint(Int64(standbyReplicas)) }
         pbW.Raw(unknownFields)
         return pbW.ToBytes()
     }
@@ -209,6 +217,8 @@ public final class Topology: Marshaler, Unmarshaler {
         tableTopic = ""
         cogroupSources = []
         stateDir = ""
+        joinTopic = ""
+        standbyReplicas = 0
         let pbR = Kafka_streamsPb.Reader(data)
         while true {
             let next: Kafka_streamsPb.Field?
@@ -244,6 +254,10 @@ public final class Topology: Marshaler, Unmarshaler {
                 cogroupSources.append(String(decoding: pbField.bytesValue, as: UTF8.self))
             case 10:
                 stateDir = String(decoding: pbField.bytesValue, as: UTF8.self)
+            case 11:
+                joinTopic = String(decoding: pbField.bytesValue, as: UTF8.self)
+            case 12:
+                standbyReplicas = Int32(truncatingIfNeeded: pbField.varintValue)
             default: unknownFields += pbField.rawValue
             }
         }

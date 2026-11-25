@@ -16,9 +16,11 @@ public sealed class Topology : IMarshaler, IUnmarshaler {
     public string TableTopic = "";
     public System.Collections.Generic.List<string> CogroupSources = new System.Collections.Generic.List<string>();
     public string StateDir = "";
+    public string JoinTopic = "";
+    public int StandbyReplicas = 0;
     public byte[] UnknownFields = new byte[0];
     public Topology() {}
-    public Topology(string name, string applicationId, string sourceTopic, string sinkTopic, System.Collections.Generic.List<Operator> operators, System.Collections.Generic.List<Step> steps, ProcessingGuarantee processingGuarantee, string tableTopic, System.Collections.Generic.List<string> cogroupSources, string stateDir) {
+    public Topology(string name, string applicationId, string sourceTopic, string sinkTopic, System.Collections.Generic.List<Operator> operators, System.Collections.Generic.List<Step> steps, ProcessingGuarantee processingGuarantee, string tableTopic, System.Collections.Generic.List<string> cogroupSources, string stateDir, string joinTopic, int standbyReplicas) {
         Name = name;
         ApplicationId = applicationId;
         SourceTopic = sourceTopic;
@@ -29,6 +31,8 @@ public sealed class Topology : IMarshaler, IUnmarshaler {
         TableTopic = tableTopic;
         CogroupSources = cogroupSources;
         StateDir = stateDir;
+        JoinTopic = joinTopic;
+        StandbyReplicas = standbyReplicas;
     }
     public byte[] MarshalDc() {
         var w = new Kafka_streamsPb.Writer();
@@ -46,6 +50,8 @@ public sealed class Topology : IMarshaler, IUnmarshaler {
         w.StringField(8, TableTopic);
         if (CogroupSources != null) foreach (var x in CogroupSources) w.BytesField(9, System.Text.Encoding.UTF8.GetBytes(x));
         w.StringField(10, StateDir);
+        w.StringField(11, JoinTopic);
+        if (StandbyReplicas != 0) { w.Tag(12, 0); w.Varint(StandbyReplicas); }
         w.Raw(UnknownFields);
         return w.ToBytes();
     }
@@ -61,6 +67,8 @@ public sealed class Topology : IMarshaler, IUnmarshaler {
         TableTopic = "";
         CogroupSources = new System.Collections.Generic.List<string>();
         StateDir = "";
+        JoinTopic = "";
+        StandbyReplicas = 0;
         var r = new Kafka_streamsPb.Reader(data);
         Kafka_streamsPb.Field field;
         while ((field = r.Next()) != null) {
@@ -112,6 +120,14 @@ public sealed class Topology : IMarshaler, IUnmarshaler {
                 }
                 case 10: {
                     StateDir = System.Text.Encoding.UTF8.GetString(field.BytesValue);
+                    break;
+                }
+                case 11: {
+                    JoinTopic = System.Text.Encoding.UTF8.GetString(field.BytesValue);
+                    break;
+                }
+                case 12: {
+                    StandbyReplicas = (int) field.VarintValue;
                     break;
                 }
                 default: UnknownFields = Kafka_streamsPb.ConcatBytes(UnknownFields, field.RawValue); break;

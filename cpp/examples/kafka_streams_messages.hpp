@@ -46,7 +46,9 @@ enum class Operator : std::int32_t {
   WINDOW_SLIDING = 13,
   COGROUP = 14,
   JOIN_GLOBAL_TABLE = 15,
-  PROCESS = 16
+  PROCESS = 16,
+  JOIN_STREAM = 17,
+  JOIN_TABLE_TABLE = 18
 };
 
 enum class Aggregator : std::int32_t {
@@ -138,6 +140,8 @@ class Topology : public grpcdc::Marshaler, public grpcdc::Unmarshaler {
   std::string table_topic = "";
   std::vector<std::string> cogroup_sources = {};
   std::string state_dir = "";
+  std::string join_topic = "";
+  std::int32_t standby_replicas = 0;
   grpcdc::Bytes unknown_fields;
   Topology() = default;
   grpcdc::Bytes MarshalDc() const override;
@@ -322,6 +326,8 @@ inline grpcdc::Bytes Topology::MarshalDc() const {
     pb_w.StringField(8, table_topic);
     for (const auto& pb_x : cogroup_sources) pb_w.BytesField(9, grpcdc::Bytes(pb_x.begin(), pb_x.end()));
     pb_w.StringField(10, state_dir);
+    pb_w.StringField(11, join_topic);
+    if (standby_replicas != 0) { pb_w.Tag(12, 0); pb_w.Varint(static_cast<std::int64_t>(standby_replicas)); }
     pb_w.Raw(unknown_fields);
     return pb_w.ToBytes();
 }
@@ -338,6 +344,8 @@ inline void Topology::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
     table_topic = "";
     cogroup_sources = {};
     state_dir = "";
+    join_topic = "";
+    standby_replicas = 0;
     pb_kafka_streams::Reader pb_r(pb_data_);
     pb_kafka_streams::Field pb_field;
     while (pb_r.Next(pb_field)) {
@@ -389,6 +397,14 @@ inline void Topology::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
         }
         case 10: {
             state_dir = std::string(pb_field.bytes.begin(), pb_field.bytes.end());
+            break;
+        }
+        case 11: {
+            join_topic = std::string(pb_field.bytes.begin(), pb_field.bytes.end());
+            break;
+        }
+        case 12: {
+            standby_replicas = static_cast<std::int32_t>(pb_field.varint);
             break;
         }
         default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;

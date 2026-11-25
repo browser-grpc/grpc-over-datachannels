@@ -68,7 +68,9 @@ enum class Operator(val number: Int) {
     WINDOW_SLIDING(13),
     COGROUP(14),
     JOIN_GLOBAL_TABLE(15),
-    PROCESS(16);
+    PROCESS(16),
+    JOIN_STREAM(17),
+    JOIN_TABLE_TABLE(18);
     companion object {
         fun fromNumber(number: Int): Operator =
             when (number) {
@@ -89,6 +91,8 @@ enum class Operator(val number: Int) {
                 14 -> COGROUP
                 15 -> JOIN_GLOBAL_TABLE
                 16 -> PROCESS
+                17 -> JOIN_STREAM
+                18 -> JOIN_TABLE_TABLE
                 else -> OPERATOR_UNSPECIFIED
             }
     }
@@ -200,6 +204,8 @@ enum class ProcessingGuarantee(val number: Int) {
     var tableTopic: String = "",
     var cogroupSources: MutableList<String> = mutableListOf(),
     var stateDir: String = "",
+    var joinTopic: String = "",
+    var standbyReplicas: Int = 0,
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
@@ -218,6 +224,8 @@ enum class ProcessingGuarantee(val number: Int) {
         pbW.stringField(8, tableTopic)
         for (pbX in cogroupSources) pbW.bytesField(9, pbX.toByteArray(Charsets.UTF_8))
         pbW.stringField(10, stateDir)
+        pbW.stringField(11, joinTopic)
+        if (standbyReplicas != 0) { pbW.tag(12, 0); pbW.varint(standbyReplicas.toLong()) }
         pbW.raw(unknownFields)
         return pbW.toBytes()
     }
@@ -233,6 +241,8 @@ enum class ProcessingGuarantee(val number: Int) {
         tableTopic = ""
         cogroupSources = mutableListOf()
         stateDir = ""
+        joinTopic = ""
+        standbyReplicas = 0
         val pbR = Kafka_streamsPb.Reader(data)
         while (true) {
             val pbField = pbR.next() ?: break
@@ -275,6 +285,12 @@ enum class ProcessingGuarantee(val number: Int) {
                 }
                 10 -> {
                     stateDir = String(pbField.bytesValue, Charsets.UTF_8)
+                }
+                11 -> {
+                    joinTopic = String(pbField.bytesValue, Charsets.UTF_8)
+                }
+                12 -> {
+                    standbyReplicas = pbField.varintValue.toInt()
                 }
                 else -> { unknownFields = unknownFields + pbField.rawValue }
             }

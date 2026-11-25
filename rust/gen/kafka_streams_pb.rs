@@ -143,6 +143,8 @@ pub enum Operator {
     Cogroup = 14,
     JoinGlobalTable = 15,
     Process = 16,
+    JoinStream = 17,
+    JoinTableTable = 18,
     Unknown(i32),
 }
 
@@ -166,6 +168,8 @@ impl Operator {
             14 => Operator::Cogroup,
             15 => Operator::JoinGlobalTable,
             16 => Operator::Process,
+            17 => Operator::JoinStream,
+            18 => Operator::JoinTableTable,
             _ => Operator::Unknown(v),
         }
     }
@@ -188,6 +192,8 @@ impl Operator {
             Operator::Cogroup => 14,
             Operator::JoinGlobalTable => 15,
             Operator::Process => 16,
+            Operator::JoinStream => 17,
+            Operator::JoinTableTable => 18,
             Operator::Unknown(v) => v,
         }
     }
@@ -345,6 +351,8 @@ pub struct Topology {
     pub table_topic: String,
     pub cogroup_sources: Vec<String>,
     pub state_dir: String,
+    pub join_topic: String,
+    pub standby_replicas: i32,
     pub unknown_fields: Vec<u8>,
 }
 
@@ -361,6 +369,8 @@ impl Default for Topology {
             table_topic: String::new(),
             cogroup_sources: Vec::new(),
             state_dir: String::new(),
+            join_topic: String::new(),
+            standby_replicas: 0,
             unknown_fields: Vec::new(),
         }
     }
@@ -383,6 +393,8 @@ impl Topology {
         pb_append_string_field(&mut out, 8, &self.table_topic);
         for x in &self.cogroup_sources { pb_append_bytes_field(&mut out, 9, x.as_bytes()); }
         pb_append_string_field(&mut out, 10, &self.state_dir);
+        pb_append_string_field(&mut out, 11, &self.join_topic);
+        if self.standby_replicas != 0 { pb_append_tag(&mut out, 12, 0); pb_append_varint(&mut out, (self.standby_replicas as u64)); }
         out.extend_from_slice(&self.unknown_fields);
         out
     }
@@ -429,6 +441,12 @@ impl Topology {
                 }
                 10 => {
                     msg.state_dir = String::from_utf8_lossy(&field.bytes_value).into_owned();
+                }
+                11 => {
+                    msg.join_topic = String::from_utf8_lossy(&field.bytes_value).into_owned();
+                }
+                12 => {
+                    msg.standby_replicas = (field.varint_value as u32 as i32);
                 }
                 _ => {
                     msg.unknown_fields.extend_from_slice(&field.raw_value);

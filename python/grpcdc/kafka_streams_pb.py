@@ -127,6 +127,8 @@ class Operator:
     COGROUP = 14
     JOIN_GLOBAL_TABLE = 15
     PROCESS = 16
+    JOIN_STREAM = 17
+    JOIN_TABLE_TABLE = 18
 
 
 class Aggregator:
@@ -212,7 +214,7 @@ class Step:
 class Topology:
     """Message grpcdc.kafka.streams.v1.Topology."""
 
-    def __init__(self, name="", application_id="", source_topic="", sink_topic="", operators=None, steps=None, processing_guarantee=0, table_topic="", cogroup_sources=None, state_dir=""):
+    def __init__(self, name="", application_id="", source_topic="", sink_topic="", operators=None, steps=None, processing_guarantee=0, table_topic="", cogroup_sources=None, state_dir="", join_topic="", standby_replicas=0):
         self.name = name
         self.application_id = application_id
         self.source_topic = source_topic
@@ -223,6 +225,8 @@ class Topology:
         self.table_topic = table_topic
         self.cogroup_sources = list(cogroup_sources) if cogroup_sources is not None else []
         self.state_dir = state_dir
+        self.join_topic = join_topic
+        self.standby_replicas = standby_replicas
         self.unknown_fields = b""
 
     def marshal_dc(self):
@@ -243,6 +247,8 @@ class Topology:
         for v in self.cogroup_sources:
             out = _append_bytes_field(out, 9, v.encode("utf-8"))
         out = _append_string_field(out, 10, self.state_dir)
+        out = _append_string_field(out, 11, self.join_topic)
+        out = _append_varint_field(out, 12, self.standby_replicas)
         out += self.unknown_fields
         return bytes(out)
 
@@ -258,6 +264,8 @@ class Topology:
         self.table_topic = ""
         self.cogroup_sources = []
         self.state_dir = ""
+        self.join_topic = ""
+        self.standby_replicas = 0
         reader = _Reader(data)
         while True:
             item = reader.field()
@@ -292,6 +300,10 @@ class Topology:
                 self.cogroup_sources.append(value.decode("utf-8"))
             elif num == 10:
                 self.state_dir = value.decode("utf-8")
+            elif num == 11:
+                self.join_topic = value.decode("utf-8")
+            elif num == 12:
+                self.standby_replicas = _as_int32(value)
             else:
                 self.unknown_fields = self.unknown_fields + raw
 
@@ -299,7 +311,7 @@ class Topology:
         return isinstance(other, Topology) and self.__dict__ == other.__dict__
 
     def __repr__(self):
-        return f"Topology(name={self.name!r}, application_id={self.application_id!r}, source_topic={self.source_topic!r}, sink_topic={self.sink_topic!r}, operators={self.operators!r}, steps={self.steps!r}, processing_guarantee={self.processing_guarantee!r}, table_topic={self.table_topic!r}, cogroup_sources={self.cogroup_sources!r}, state_dir={self.state_dir!r})"
+        return f"Topology(name={self.name!r}, application_id={self.application_id!r}, source_topic={self.source_topic!r}, sink_topic={self.sink_topic!r}, operators={self.operators!r}, steps={self.steps!r}, processing_guarantee={self.processing_guarantee!r}, table_topic={self.table_topic!r}, cogroup_sources={self.cogroup_sources!r}, state_dir={self.state_dir!r}, join_topic={self.join_topic!r}, standby_replicas={self.standby_replicas!r})"
 
 
 class TopologyInfo:

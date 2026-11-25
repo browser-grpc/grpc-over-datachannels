@@ -155,6 +155,8 @@ object Operator {
   final val COGROUP: Int = 14
   final val JOIN_GLOBAL_TABLE: Int = 15
   final val PROCESS: Int = 16
+  final val JOIN_STREAM: Int = 17
+  final val JOIN_TABLE_TABLE: Int = 18
 }
 
 object Aggregator {
@@ -256,7 +258,9 @@ class Topology(
     var processingGuarantee: Int = 0,
     var tableTopic: String = "",
     var cogroupSources: List[String] = List.empty,
-    var stateDir: String = ""
+    var stateDir: String = "",
+    var joinTopic: String = "",
+    var standbyReplicas: Int = 0
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
@@ -284,6 +288,11 @@ class Topology(
       pbW.bytesField(9, pbX.getBytes(java.nio.charset.StandardCharsets.UTF_8))
     }
     pbW.stringField(10, stateDir)
+    pbW.stringField(11, joinTopic)
+    if (standbyReplicas != 0) {
+      pbW.tag(12, 0)
+      pbW.varint((standbyReplicas.toLong))
+    }
     pbW.raw(unknownFields)
     pbW.toBytes
   }
@@ -300,6 +309,8 @@ class Topology(
     tableTopic = ""
     cogroupSources = List.empty
     stateDir = ""
+    joinTopic = ""
+    standbyReplicas = 0
     val pbR = new KafkaStreamsPb.Reader(data)
     var pbField = pbR.next()
     while (pbField != null) {
@@ -334,6 +345,10 @@ class Topology(
           cogroupSources = cogroupSources :+ new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case 10 =>
           stateDir = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 11 =>
+          joinTopic = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 12 =>
+          standbyReplicas = pbField.varintValue.toInt
         case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
       pbField = pbR.next()
