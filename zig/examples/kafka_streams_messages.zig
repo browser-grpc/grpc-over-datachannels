@@ -696,3 +696,199 @@ pub const FetchWindowResponse = struct {
         self.unknown_fields = unknown_fields_list.toOwnedSlice(alloc) catch &.{};
     }
 };
+pub const StoreEntry = struct {
+    key: []const u8 = "",
+    value: i64 = 0,
+    window_start_ms: i64 = 0,
+    window_end_ms: i64 = 0,
+    unknown_fields: []const u8 = &.{},
+    pub fn marshalDc(self: *const StoreEntry, alloc: std.mem.Allocator) []u8 {
+        _ = .{ self, alloc };
+        var w = PbWriter.init(alloc);
+        defer w.deinit();
+        w.stringField(1, self.key);
+        if (self.value != 0) { w.tag(2, 0); w.varint(@as(u64, @bitCast(self.value))); }
+        if (self.window_start_ms != 0) { w.tag(3, 0); w.varint(@as(u64, @bitCast(self.window_start_ms))); }
+        if (self.window_end_ms != 0) { w.tag(4, 0); w.varint(@as(u64, @bitCast(self.window_end_ms))); }
+        w.raw(self.unknown_fields);
+        return w.toBytes();
+    }
+    pub fn unmarshalDc(self: *StoreEntry, alloc: std.mem.Allocator, data: []const u8) void {
+        _ = .{ self, alloc, data };
+        self.key = "";
+        self.value = 0;
+        self.window_start_ms = 0;
+        self.window_end_ms = 0;
+        self.unknown_fields = &.{};
+        var unknown_fields_list = std.ArrayList(u8).empty;
+        var r = PbReader.init(data);
+        while (r.next()) |field| {
+            switch (field.number) {
+                1 => {
+                    self.key = alloc.dupe(u8, field.bytes_value) catch "";
+                },
+                2 => {
+                    self.value = @as(i64, @bitCast(field.varint_value));
+                },
+                3 => {
+                    self.window_start_ms = @as(i64, @bitCast(field.varint_value));
+                },
+                4 => {
+                    self.window_end_ms = @as(i64, @bitCast(field.varint_value));
+                },
+                else => { unknown_fields_list.appendSlice(alloc, field.raw_value) catch {}; },
+            }
+        }
+        self.unknown_fields = unknown_fields_list.toOwnedSlice(alloc) catch &.{};
+    }
+};
+pub const FetchRangeRequest = struct {
+    topology: []const u8 = "",
+    prefix: []const u8 = "",
+    limit: i32 = 0,
+    unknown_fields: []const u8 = &.{},
+    pub fn marshalDc(self: *const FetchRangeRequest, alloc: std.mem.Allocator) []u8 {
+        _ = .{ self, alloc };
+        var w = PbWriter.init(alloc);
+        defer w.deinit();
+        w.stringField(1, self.topology);
+        w.stringField(2, self.prefix);
+        if (self.limit != 0) { w.tag(3, 0); w.varint(@as(u64, @bitCast(@as(i64, self.limit)))); }
+        w.raw(self.unknown_fields);
+        return w.toBytes();
+    }
+    pub fn unmarshalDc(self: *FetchRangeRequest, alloc: std.mem.Allocator, data: []const u8) void {
+        _ = .{ self, alloc, data };
+        self.topology = "";
+        self.prefix = "";
+        self.limit = 0;
+        self.unknown_fields = &.{};
+        var unknown_fields_list = std.ArrayList(u8).empty;
+        var r = PbReader.init(data);
+        while (r.next()) |field| {
+            switch (field.number) {
+                1 => {
+                    self.topology = alloc.dupe(u8, field.bytes_value) catch "";
+                },
+                2 => {
+                    self.prefix = alloc.dupe(u8, field.bytes_value) catch "";
+                },
+                3 => {
+                    self.limit = @as(i32, @truncate(@as(i64, @bitCast(field.varint_value))));
+                },
+                else => { unknown_fields_list.appendSlice(alloc, field.raw_value) catch {}; },
+            }
+        }
+        self.unknown_fields = unknown_fields_list.toOwnedSlice(alloc) catch &.{};
+    }
+};
+pub const FetchRangeResponse = struct {
+    entries: []const StoreEntry = &.{},
+    unknown_fields: []const u8 = &.{},
+    pub fn marshalDc(self: *const FetchRangeResponse, alloc: std.mem.Allocator) []u8 {
+        _ = .{ self, alloc };
+        var w = PbWriter.init(alloc);
+        defer w.deinit();
+        for (self.entries) |x| w.bytesField(1, x.marshalDc(alloc));
+        w.raw(self.unknown_fields);
+        return w.toBytes();
+    }
+    pub fn unmarshalDc(self: *FetchRangeResponse, alloc: std.mem.Allocator, data: []const u8) void {
+        _ = .{ self, alloc, data };
+        self.entries = &.{};
+        var entries_list = std.ArrayList(StoreEntry).empty;
+        self.unknown_fields = &.{};
+        var unknown_fields_list = std.ArrayList(u8).empty;
+        var r = PbReader.init(data);
+        while (r.next()) |field| {
+            switch (field.number) {
+                1 => {
+                    var item: StoreEntry = .{};
+                    item.unmarshalDc(alloc, field.bytes_value);
+                    entries_list.append(alloc, item) catch {};
+                },
+                else => { unknown_fields_list.appendSlice(alloc, field.raw_value) catch {}; },
+            }
+        }
+        self.unknown_fields = unknown_fields_list.toOwnedSlice(alloc) catch &.{};
+        self.entries = entries_list.toOwnedSlice(alloc) catch &.{};
+    }
+};
+pub const FetchWindowRangeRequest = struct {
+    topology: []const u8 = "",
+    key: []const u8 = "",
+    from_ms: i64 = 0,
+    to_ms: i64 = 0,
+    unknown_fields: []const u8 = &.{},
+    pub fn marshalDc(self: *const FetchWindowRangeRequest, alloc: std.mem.Allocator) []u8 {
+        _ = .{ self, alloc };
+        var w = PbWriter.init(alloc);
+        defer w.deinit();
+        w.stringField(1, self.topology);
+        w.stringField(2, self.key);
+        if (self.from_ms != 0) { w.tag(3, 0); w.varint(@as(u64, @bitCast(self.from_ms))); }
+        if (self.to_ms != 0) { w.tag(4, 0); w.varint(@as(u64, @bitCast(self.to_ms))); }
+        w.raw(self.unknown_fields);
+        return w.toBytes();
+    }
+    pub fn unmarshalDc(self: *FetchWindowRangeRequest, alloc: std.mem.Allocator, data: []const u8) void {
+        _ = .{ self, alloc, data };
+        self.topology = "";
+        self.key = "";
+        self.from_ms = 0;
+        self.to_ms = 0;
+        self.unknown_fields = &.{};
+        var unknown_fields_list = std.ArrayList(u8).empty;
+        var r = PbReader.init(data);
+        while (r.next()) |field| {
+            switch (field.number) {
+                1 => {
+                    self.topology = alloc.dupe(u8, field.bytes_value) catch "";
+                },
+                2 => {
+                    self.key = alloc.dupe(u8, field.bytes_value) catch "";
+                },
+                3 => {
+                    self.from_ms = @as(i64, @bitCast(field.varint_value));
+                },
+                4 => {
+                    self.to_ms = @as(i64, @bitCast(field.varint_value));
+                },
+                else => { unknown_fields_list.appendSlice(alloc, field.raw_value) catch {}; },
+            }
+        }
+        self.unknown_fields = unknown_fields_list.toOwnedSlice(alloc) catch &.{};
+    }
+};
+pub const FetchWindowRangeResponse = struct {
+    entries: []const StoreEntry = &.{},
+    unknown_fields: []const u8 = &.{},
+    pub fn marshalDc(self: *const FetchWindowRangeResponse, alloc: std.mem.Allocator) []u8 {
+        _ = .{ self, alloc };
+        var w = PbWriter.init(alloc);
+        defer w.deinit();
+        for (self.entries) |x| w.bytesField(1, x.marshalDc(alloc));
+        w.raw(self.unknown_fields);
+        return w.toBytes();
+    }
+    pub fn unmarshalDc(self: *FetchWindowRangeResponse, alloc: std.mem.Allocator, data: []const u8) void {
+        _ = .{ self, alloc, data };
+        self.entries = &.{};
+        var entries_list = std.ArrayList(StoreEntry).empty;
+        self.unknown_fields = &.{};
+        var unknown_fields_list = std.ArrayList(u8).empty;
+        var r = PbReader.init(data);
+        while (r.next()) |field| {
+            switch (field.number) {
+                1 => {
+                    var item: StoreEntry = .{};
+                    item.unmarshalDc(alloc, field.bytes_value);
+                    entries_list.append(alloc, item) catch {};
+                },
+                else => { unknown_fields_list.appendSlice(alloc, field.raw_value) catch {}; },
+            }
+        }
+        self.unknown_fields = unknown_fields_list.toOwnedSlice(alloc) catch &.{};
+        self.entries = entries_list.toOwnedSlice(alloc) catch &.{};
+    }
+};

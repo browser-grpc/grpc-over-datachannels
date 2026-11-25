@@ -784,3 +784,204 @@ class FetchWindowResponse(
   }
 }
 
+class StoreEntry(
+    var key: String = "",
+    var value: Long = 0L,
+    var windowStartMs: Long = 0L,
+    var windowEndMs: Long = 0L
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val pbW = new KafkaStreamsPb.Writer()
+    pbW.stringField(1, key)
+    if (value != 0) {
+      pbW.tag(2, 0)
+      pbW.varint(value.toLong)
+    }
+    if (windowStartMs != 0) {
+      pbW.tag(3, 0)
+      pbW.varint(windowStartMs.toLong)
+    }
+    if (windowEndMs != 0) {
+      pbW.tag(4, 0)
+      pbW.varint(windowEndMs.toLong)
+    }
+    pbW.raw(unknownFields)
+    pbW.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    key = ""
+    value = 0L
+    windowStartMs = 0L
+    windowEndMs = 0L
+    val pbR = new KafkaStreamsPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
+        case 1 =>
+          key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 2 =>
+          value = pbField.varintValue
+        case 3 =>
+          windowStartMs = pbField.varintValue
+        case 4 =>
+          windowEndMs = pbField.varintValue
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
+      }
+      pbField = pbR.next()
+    }
+  }
+}
+
+class FetchRangeRequest(
+    var topology: String = "",
+    var prefix: String = "",
+    var limit: Int = 0
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val pbW = new KafkaStreamsPb.Writer()
+    pbW.stringField(1, topology)
+    pbW.stringField(2, prefix)
+    if (limit != 0) {
+      pbW.tag(3, 0)
+      pbW.varint((limit.toLong))
+    }
+    pbW.raw(unknownFields)
+    pbW.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    topology = ""
+    prefix = ""
+    limit = 0
+    val pbR = new KafkaStreamsPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
+        case 1 =>
+          topology = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 2 =>
+          prefix = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 3 =>
+          limit = pbField.varintValue.toInt
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
+      }
+      pbField = pbR.next()
+    }
+  }
+}
+
+class FetchRangeResponse(
+    var entries: List[StoreEntry] = List.empty
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val pbW = new KafkaStreamsPb.Writer()
+    for (pbX <- entries) {
+      pbW.bytesField(1, pbX.marshalDc())
+    }
+    pbW.raw(unknownFields)
+    pbW.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    entries = List.empty
+    val pbR = new KafkaStreamsPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
+        case 1 =>
+          val pbItem = new StoreEntry()
+          pbItem.unmarshalDc(pbField.bytesValue)
+          entries = entries :+ pbItem
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
+      }
+      pbField = pbR.next()
+    }
+  }
+}
+
+class FetchWindowRangeRequest(
+    var topology: String = "",
+    var key: String = "",
+    var fromMs: Long = 0L,
+    var toMs: Long = 0L
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val pbW = new KafkaStreamsPb.Writer()
+    pbW.stringField(1, topology)
+    pbW.stringField(2, key)
+    if (fromMs != 0) {
+      pbW.tag(3, 0)
+      pbW.varint(fromMs.toLong)
+    }
+    if (toMs != 0) {
+      pbW.tag(4, 0)
+      pbW.varint(toMs.toLong)
+    }
+    pbW.raw(unknownFields)
+    pbW.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    topology = ""
+    key = ""
+    fromMs = 0L
+    toMs = 0L
+    val pbR = new KafkaStreamsPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
+        case 1 =>
+          topology = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 2 =>
+          key = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
+        case 3 =>
+          fromMs = pbField.varintValue
+        case 4 =>
+          toMs = pbField.varintValue
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
+      }
+      pbField = pbR.next()
+    }
+  }
+}
+
+class FetchWindowRangeResponse(
+    var entries: List[StoreEntry] = List.empty
+) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
+  var unknownFields: Array[Byte] = Array.empty[Byte]
+  def marshalDc(): Array[Byte] = {
+    val pbW = new KafkaStreamsPb.Writer()
+    for (pbX <- entries) {
+      pbW.bytesField(1, pbX.marshalDc())
+    }
+    pbW.raw(unknownFields)
+    pbW.toBytes
+  }
+
+  def unmarshalDc(data: Array[Byte]): Unit = {
+    unknownFields = Array.empty[Byte]
+    entries = List.empty
+    val pbR = new KafkaStreamsPb.Reader(data)
+    var pbField = pbR.next()
+    while (pbField != null) {
+      pbField.number match {
+        case 1 =>
+          val pbItem = new StoreEntry()
+          pbItem.unmarshalDc(pbField.bytesValue)
+          entries = entries :+ pbItem
+        case _ => unknownFields = unknownFields ++ pbField.rawValue
+      }
+      pbField = pbR.next()
+    }
+  }
+}
+

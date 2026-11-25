@@ -1111,3 +1111,313 @@ class FetchWindowResponse
     }
 }
 
+class StoreEntry
+{
+    public string $key = "";
+    public int $value = 0;
+    public int $windowStartMs = 0;
+    public int $windowEndMs = 0;
+
+    public string $unknownFields = "";
+    public function __construct(string $key = "", int $value = 0, int $windowStartMs = 0, int $windowEndMs = 0)
+    {
+        $this->key = $key;
+        $this->value = $value;
+        $this->windowStartMs = $windowStartMs;
+        $this->windowEndMs = $windowEndMs;
+    }
+
+    public function marshalDc(): string
+    {
+        $w = new Writer();
+        $w->stringField(1, $this->key);
+        if ($this->value !== 0) {
+            $w->tag(2, 0);
+            $w->varint($this->value);
+        }
+        if ($this->windowStartMs !== 0) {
+            $w->tag(3, 0);
+            $w->varint($this->windowStartMs);
+        }
+        if ($this->windowEndMs !== 0) {
+            $w->tag(4, 0);
+            $w->varint($this->windowEndMs);
+        }
+        $w->raw($this->unknownFields);
+        return $w->toBytes();
+    }
+
+    public function unmarshalDc(string $data): self
+    {
+        $this->unknownFields = "";
+        $this->key = "";
+        $this->value = 0;
+        $this->windowStartMs = 0;
+        $this->windowEndMs = 0;
+        $r = new Reader($data);
+        while (($item = $r->field()) !== null) {
+            [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;
+            switch ($num) {
+                case 1:
+                    $this->key = $bytesValue;
+                    break;
+                case 2:
+                    $this->value = $varintValue;
+                    break;
+                case 3:
+                    $this->windowStartMs = $varintValue;
+                    break;
+                case 4:
+                    $this->windowEndMs = $varintValue;
+                    break;
+                default:
+                    $this->unknownFields .= $rawValue;
+                    break;
+            }
+        }
+        return $this;
+    }
+
+    public function equals(?object $other): bool
+    {
+        return $other instanceof StoreEntry
+            && $this->key === $other->key
+            && $this->value === $other->value
+            && $this->windowStartMs === $other->windowStartMs
+            && $this->windowEndMs === $other->windowEndMs;
+    }
+}
+
+class FetchRangeRequest
+{
+    public string $topology = "";
+    public string $prefix = "";
+    public int $limit = 0;
+
+    public string $unknownFields = "";
+    public function __construct(string $topology = "", string $prefix = "", int $limit = 0)
+    {
+        $this->topology = $topology;
+        $this->prefix = $prefix;
+        $this->limit = $limit;
+    }
+
+    public function marshalDc(): string
+    {
+        $w = new Writer();
+        $w->stringField(1, $this->topology);
+        $w->stringField(2, $this->prefix);
+        if ($this->limit !== 0) {
+            $w->tag(3, 0);
+            $w->varint($this->limit);
+        }
+        $w->raw($this->unknownFields);
+        return $w->toBytes();
+    }
+
+    public function unmarshalDc(string $data): self
+    {
+        $this->unknownFields = "";
+        $this->topology = "";
+        $this->prefix = "";
+        $this->limit = 0;
+        $r = new Reader($data);
+        while (($item = $r->field()) !== null) {
+            [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;
+            switch ($num) {
+                case 1:
+                    $this->topology = $bytesValue;
+                    break;
+                case 2:
+                    $this->prefix = $bytesValue;
+                    break;
+                case 3:
+                    $this->limit = ((($varintValue & 0xffffffff) >= 0x80000000) ? (($varintValue & 0xffffffff) - 0x100000000) : ($varintValue & 0xffffffff));
+                    break;
+                default:
+                    $this->unknownFields .= $rawValue;
+                    break;
+            }
+        }
+        return $this;
+    }
+
+    public function equals(?object $other): bool
+    {
+        return $other instanceof FetchRangeRequest
+            && $this->topology === $other->topology
+            && $this->prefix === $other->prefix
+            && $this->limit === $other->limit;
+    }
+}
+
+class FetchRangeResponse
+{
+    public array $entries = [];
+
+    public string $unknownFields = "";
+    public function __construct(array $entries = [])
+    {
+        $this->entries = $entries;
+    }
+
+    public function marshalDc(): string
+    {
+        $w = new Writer();
+        foreach ($this->entries as $x) {
+            $w->bytesField(1, $x->marshalDc());
+        }
+        $w->raw($this->unknownFields);
+        return $w->toBytes();
+    }
+
+    public function unmarshalDc(string $data): self
+    {
+        $this->unknownFields = "";
+        $this->entries = [];
+        $r = new Reader($data);
+        while (($item = $r->field()) !== null) {
+            [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;
+            switch ($num) {
+                case 1:
+                    $item = new StoreEntry();
+                    $item->unmarshalDc($bytesValue);
+                    $this->entries[] = $item;
+                    break;
+                default:
+                    $this->unknownFields .= $rawValue;
+                    break;
+            }
+        }
+        return $this;
+    }
+
+    public function equals(?object $other): bool
+    {
+        return $other instanceof FetchRangeResponse
+            && $this->entries === $other->entries;
+    }
+}
+
+class FetchWindowRangeRequest
+{
+    public string $topology = "";
+    public string $key = "";
+    public int $fromMs = 0;
+    public int $toMs = 0;
+
+    public string $unknownFields = "";
+    public function __construct(string $topology = "", string $key = "", int $fromMs = 0, int $toMs = 0)
+    {
+        $this->topology = $topology;
+        $this->key = $key;
+        $this->fromMs = $fromMs;
+        $this->toMs = $toMs;
+    }
+
+    public function marshalDc(): string
+    {
+        $w = new Writer();
+        $w->stringField(1, $this->topology);
+        $w->stringField(2, $this->key);
+        if ($this->fromMs !== 0) {
+            $w->tag(3, 0);
+            $w->varint($this->fromMs);
+        }
+        if ($this->toMs !== 0) {
+            $w->tag(4, 0);
+            $w->varint($this->toMs);
+        }
+        $w->raw($this->unknownFields);
+        return $w->toBytes();
+    }
+
+    public function unmarshalDc(string $data): self
+    {
+        $this->unknownFields = "";
+        $this->topology = "";
+        $this->key = "";
+        $this->fromMs = 0;
+        $this->toMs = 0;
+        $r = new Reader($data);
+        while (($item = $r->field()) !== null) {
+            [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;
+            switch ($num) {
+                case 1:
+                    $this->topology = $bytesValue;
+                    break;
+                case 2:
+                    $this->key = $bytesValue;
+                    break;
+                case 3:
+                    $this->fromMs = $varintValue;
+                    break;
+                case 4:
+                    $this->toMs = $varintValue;
+                    break;
+                default:
+                    $this->unknownFields .= $rawValue;
+                    break;
+            }
+        }
+        return $this;
+    }
+
+    public function equals(?object $other): bool
+    {
+        return $other instanceof FetchWindowRangeRequest
+            && $this->topology === $other->topology
+            && $this->key === $other->key
+            && $this->fromMs === $other->fromMs
+            && $this->toMs === $other->toMs;
+    }
+}
+
+class FetchWindowRangeResponse
+{
+    public array $entries = [];
+
+    public string $unknownFields = "";
+    public function __construct(array $entries = [])
+    {
+        $this->entries = $entries;
+    }
+
+    public function marshalDc(): string
+    {
+        $w = new Writer();
+        foreach ($this->entries as $x) {
+            $w->bytesField(1, $x->marshalDc());
+        }
+        $w->raw($this->unknownFields);
+        return $w->toBytes();
+    }
+
+    public function unmarshalDc(string $data): self
+    {
+        $this->unknownFields = "";
+        $this->entries = [];
+        $r = new Reader($data);
+        while (($item = $r->field()) !== null) {
+            [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;
+            switch ($num) {
+                case 1:
+                    $item = new StoreEntry();
+                    $item->unmarshalDc($bytesValue);
+                    $this->entries[] = $item;
+                    break;
+                default:
+                    $this->unknownFields .= $rawValue;
+                    break;
+            }
+        }
+        return $this;
+    }
+
+    public function equals(?object $other): bool
+    {
+        return $other instanceof FetchWindowRangeResponse
+            && $this->entries === $other->entries;
+    }
+}
+

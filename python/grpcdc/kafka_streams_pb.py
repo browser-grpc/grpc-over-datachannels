@@ -779,3 +779,221 @@ class FetchWindowResponse:
         return f"FetchWindowResponse(found={self.found!r}, key={self.key!r}, window_start_ms={self.window_start_ms!r}, window_end_ms={self.window_end_ms!r}, value={self.value!r})"
 
 
+class StoreEntry:
+    """Message grpcdc.kafka.streams.v1.StoreEntry."""
+
+    def __init__(self, key="", value=0, window_start_ms=0, window_end_ms=0):
+        self.key = key
+        self.value = value
+        self.window_start_ms = window_start_ms
+        self.window_end_ms = window_end_ms
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        out = _append_string_field(out, 1, self.key)
+        out = _append_varint_field(out, 2, self.value)
+        out = _append_varint_field(out, 3, self.window_start_ms)
+        out = _append_varint_field(out, 4, self.window_end_ms)
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.key = ""
+        self.value = 0
+        self.window_start_ms = 0
+        self.window_end_ms = 0
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                self.key = value.decode("utf-8")
+            elif num == 2:
+                self.value = _as_int64(value)
+            elif num == 3:
+                self.window_start_ms = _as_int64(value)
+            elif num == 4:
+                self.window_end_ms = _as_int64(value)
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, StoreEntry) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"StoreEntry(key={self.key!r}, value={self.value!r}, window_start_ms={self.window_start_ms!r}, window_end_ms={self.window_end_ms!r})"
+
+
+class FetchRangeRequest:
+    """Message grpcdc.kafka.streams.v1.FetchRangeRequest."""
+
+    def __init__(self, topology="", prefix="", limit=0):
+        self.topology = topology
+        self.prefix = prefix
+        self.limit = limit
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        out = _append_string_field(out, 1, self.topology)
+        out = _append_string_field(out, 2, self.prefix)
+        out = _append_varint_field(out, 3, self.limit)
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.topology = ""
+        self.prefix = ""
+        self.limit = 0
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                self.topology = value.decode("utf-8")
+            elif num == 2:
+                self.prefix = value.decode("utf-8")
+            elif num == 3:
+                self.limit = _as_int32(value)
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, FetchRangeRequest) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"FetchRangeRequest(topology={self.topology!r}, prefix={self.prefix!r}, limit={self.limit!r})"
+
+
+class FetchRangeResponse:
+    """Message grpcdc.kafka.streams.v1.FetchRangeResponse."""
+
+    def __init__(self, entries=None):
+        self.entries = list(entries) if entries is not None else []
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        for v in self.entries:
+            out = _append_bytes_field(out, 1, v.marshal_dc())
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.entries = []
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                tmp = StoreEntry()
+                tmp.unmarshal_dc(value)
+                tmp2 = tmp
+                self.entries.append(tmp2)
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, FetchRangeResponse) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"FetchRangeResponse(entries={self.entries!r})"
+
+
+class FetchWindowRangeRequest:
+    """Message grpcdc.kafka.streams.v1.FetchWindowRangeRequest."""
+
+    def __init__(self, topology="", key="", from_ms=0, to_ms=0):
+        self.topology = topology
+        self.key = key
+        self.from_ms = from_ms
+        self.to_ms = to_ms
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        out = _append_string_field(out, 1, self.topology)
+        out = _append_string_field(out, 2, self.key)
+        out = _append_varint_field(out, 3, self.from_ms)
+        out = _append_varint_field(out, 4, self.to_ms)
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.topology = ""
+        self.key = ""
+        self.from_ms = 0
+        self.to_ms = 0
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                self.topology = value.decode("utf-8")
+            elif num == 2:
+                self.key = value.decode("utf-8")
+            elif num == 3:
+                self.from_ms = _as_int64(value)
+            elif num == 4:
+                self.to_ms = _as_int64(value)
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, FetchWindowRangeRequest) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"FetchWindowRangeRequest(topology={self.topology!r}, key={self.key!r}, from_ms={self.from_ms!r}, to_ms={self.to_ms!r})"
+
+
+class FetchWindowRangeResponse:
+    """Message grpcdc.kafka.streams.v1.FetchWindowRangeResponse."""
+
+    def __init__(self, entries=None):
+        self.entries = list(entries) if entries is not None else []
+        self.unknown_fields = b""
+
+    def marshal_dc(self):
+        out = bytearray()
+        for v in self.entries:
+            out = _append_bytes_field(out, 1, v.marshal_dc())
+        out += self.unknown_fields
+        return bytes(out)
+
+    def unmarshal_dc(self, data):
+        self.unknown_fields = b""
+        self.entries = []
+        reader = _Reader(data)
+        while True:
+            item = reader.field()
+            if item is None:
+                return self
+            num, wire, value, raw = item
+            if num == 1:
+                tmp = StoreEntry()
+                tmp.unmarshal_dc(value)
+                tmp2 = tmp
+                self.entries.append(tmp2)
+            else:
+                self.unknown_fields = self.unknown_fields + raw
+
+    def __eq__(self, other):
+        return isinstance(other, FetchWindowRangeResponse) and self.__dict__ == other.__dict__
+
+    def __repr__(self):
+        return f"FetchWindowRangeResponse(entries={self.entries!r})"
+
+

@@ -52,6 +52,18 @@ public enum Kafka_streamsGrpcDc {
             return resp
         }
 
+        public func FetchRange(_ req: FetchRangeRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> FetchRangeResponse {
+            let resp = FetchRangeResponse()
+            try channel.Unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchRange", req, resp, metadata, timeout)
+            return resp
+        }
+
+        public func FetchWindowRange(_ req: FetchWindowRangeRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) throws -> FetchWindowRangeResponse {
+            let resp = FetchWindowRangeResponse()
+            try channel.Unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindowRange", req, resp, metadata, timeout)
+            return resp
+        }
+
         // -- async (Swift concurrency) surface ---------------------------
         #if canImport(Foundation)
 
@@ -79,6 +91,14 @@ public enum Kafka_streamsGrpcDc {
             try await Task.detached { try self.FetchWindow(req, metadata, timeout) }.value
         }
 
+        public func FetchRangeAsync(_ req: FetchRangeRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> FetchRangeResponse {
+            try await Task.detached { try self.FetchRange(req, metadata, timeout) }.value
+        }
+
+        public func FetchWindowRangeAsync(_ req: FetchWindowRangeRequest, _ metadata: [String: String]? = nil, _ timeout: Double? = nil) async throws -> FetchWindowRangeResponse {
+            try await Task.detached { try self.FetchWindowRange(req, metadata, timeout) }.value
+        }
+
         #endif
     }
 
@@ -90,6 +110,8 @@ public enum Kafka_streamsGrpcDc {
         func DeleteTopology(_ ctx: Endpoint.CallContext, _ req: DeleteTopologyRequest) throws -> DeleteTopologyResponse
         func GetStoreValue(_ ctx: Endpoint.CallContext, _ req: GetStoreValueRequest) throws -> GetStoreValueResponse
         func FetchWindow(_ ctx: Endpoint.CallContext, _ req: FetchWindowRequest) throws -> FetchWindowResponse
+        func FetchRange(_ ctx: Endpoint.CallContext, _ req: FetchRangeRequest) throws -> FetchRangeResponse
+        func FetchWindowRange(_ ctx: Endpoint.CallContext, _ req: FetchWindowRangeRequest) throws -> FetchWindowRangeResponse
     }
 
     #if canImport(Foundation)
@@ -101,6 +123,8 @@ public enum Kafka_streamsGrpcDc {
         func DeleteTopologyAsync(_ ctx: Endpoint.CallContext, _ req: DeleteTopologyRequest) async throws -> DeleteTopologyResponse
         func GetStoreValueAsync(_ ctx: Endpoint.CallContext, _ req: GetStoreValueRequest) async throws -> GetStoreValueResponse
         func FetchWindowAsync(_ ctx: Endpoint.CallContext, _ req: FetchWindowRequest) async throws -> FetchWindowResponse
+        func FetchRangeAsync(_ ctx: Endpoint.CallContext, _ req: FetchRangeRequest) async throws -> FetchRangeResponse
+        func FetchWindowRangeAsync(_ ctx: Endpoint.CallContext, _ req: FetchWindowRangeRequest) async throws -> FetchWindowRangeResponse
     }
 
     #endif
@@ -126,6 +150,12 @@ public enum Kafka_streamsGrpcDc {
         }
         func FetchWindow(_ ctx: Endpoint.CallContext, _ req: FetchWindowRequest) throws -> FetchWindowResponse {
             try RunBlocking { try await self.impl.FetchWindowAsync(ctx, req) }
+        }
+        func FetchRange(_ ctx: Endpoint.CallContext, _ req: FetchRangeRequest) throws -> FetchRangeResponse {
+            try RunBlocking { try await self.impl.FetchRangeAsync(ctx, req) }
+        }
+        func FetchWindowRange(_ ctx: Endpoint.CallContext, _ req: FetchWindowRangeRequest) throws -> FetchWindowRangeResponse {
+            try RunBlocking { try await self.impl.FetchWindowRangeAsync(ctx, req) }
         }
     }
 
@@ -168,6 +198,18 @@ public enum Kafka_streamsGrpcDc {
                 let req = FetchWindowRequest()
                 try reqs.RecvInto(req)
                 let resp = try impl.FetchWindow(ctx, req)
+                try sink(ctx.EncodeMessage(resp))
+            },
+            Server.Method(name: "FetchRange", path: "/grpcdc.kafka.streams.v1.KafkaStreams/FetchRange", kind: Server.KindUnary) { ctx, reqs, sink in
+                let req = FetchRangeRequest()
+                try reqs.RecvInto(req)
+                let resp = try impl.FetchRange(ctx, req)
+                try sink(ctx.EncodeMessage(resp))
+            },
+            Server.Method(name: "FetchWindowRange", path: "/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindowRange", kind: Server.KindUnary) { ctx, reqs, sink in
+                let req = FetchWindowRangeRequest()
+                try reqs.RecvInto(req)
+                let resp = try impl.FetchWindowRange(ctx, req)
                 try sink(ctx.EncodeMessage(resp))
             },
         ]))

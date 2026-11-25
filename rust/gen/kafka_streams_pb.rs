@@ -1005,3 +1005,251 @@ impl FetchWindowResponse {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct StoreEntry {
+    pub key: String,
+    pub value: i64,
+    pub window_start_ms: i64,
+    pub window_end_ms: i64,
+    pub unknown_fields: Vec<u8>,
+}
+
+impl Default for StoreEntry {
+    fn default() -> Self {
+        Self {
+            key: String::new(),
+            value: 0,
+            window_start_ms: 0,
+            window_end_ms: 0,
+            unknown_fields: Vec::new(),
+        }
+    }
+}
+
+impl StoreEntry {
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        pb_append_string_field(&mut out, 1, &self.key);
+        if self.value != 0 { pb_append_tag(&mut out, 2, 0); pb_append_varint(&mut out, (self.value as u64)); }
+        if self.window_start_ms != 0 { pb_append_tag(&mut out, 3, 0); pb_append_varint(&mut out, (self.window_start_ms as u64)); }
+        if self.window_end_ms != 0 { pb_append_tag(&mut out, 4, 0); pb_append_varint(&mut out, (self.window_end_ms as u64)); }
+        out.extend_from_slice(&self.unknown_fields);
+        out
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, String> {
+        let mut msg = Self::default();
+        let mut reader = PbReader::new(bytes);
+        while let Some(field) = reader.next()? {
+            match field.number {
+                1 => {
+                    msg.key = String::from_utf8_lossy(&field.bytes_value).into_owned();
+                }
+                2 => {
+                    msg.value = (field.varint_value as i64);
+                }
+                3 => {
+                    msg.window_start_ms = (field.varint_value as i64);
+                }
+                4 => {
+                    msg.window_end_ms = (field.varint_value as i64);
+                }
+                _ => {
+                    msg.unknown_fields.extend_from_slice(&field.raw_value);
+                }
+            }
+        }
+        Ok(msg)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct FetchRangeRequest {
+    pub topology: String,
+    pub prefix: String,
+    pub limit: i32,
+    pub unknown_fields: Vec<u8>,
+}
+
+impl Default for FetchRangeRequest {
+    fn default() -> Self {
+        Self {
+            topology: String::new(),
+            prefix: String::new(),
+            limit: 0,
+            unknown_fields: Vec::new(),
+        }
+    }
+}
+
+impl FetchRangeRequest {
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        pb_append_string_field(&mut out, 1, &self.topology);
+        pb_append_string_field(&mut out, 2, &self.prefix);
+        if self.limit != 0 { pb_append_tag(&mut out, 3, 0); pb_append_varint(&mut out, (self.limit as u64)); }
+        out.extend_from_slice(&self.unknown_fields);
+        out
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, String> {
+        let mut msg = Self::default();
+        let mut reader = PbReader::new(bytes);
+        while let Some(field) = reader.next()? {
+            match field.number {
+                1 => {
+                    msg.topology = String::from_utf8_lossy(&field.bytes_value).into_owned();
+                }
+                2 => {
+                    msg.prefix = String::from_utf8_lossy(&field.bytes_value).into_owned();
+                }
+                3 => {
+                    msg.limit = (field.varint_value as u32 as i32);
+                }
+                _ => {
+                    msg.unknown_fields.extend_from_slice(&field.raw_value);
+                }
+            }
+        }
+        Ok(msg)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct FetchRangeResponse {
+    pub entries: Vec<StoreEntry>,
+    pub unknown_fields: Vec<u8>,
+}
+
+impl Default for FetchRangeResponse {
+    fn default() -> Self {
+        Self {
+            entries: Vec::new(),
+            unknown_fields: Vec::new(),
+        }
+    }
+}
+
+impl FetchRangeResponse {
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        for x in &self.entries { pb_append_bytes_field(&mut out, 1, &x.encode()); }
+        out.extend_from_slice(&self.unknown_fields);
+        out
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, String> {
+        let mut msg = Self::default();
+        let mut reader = PbReader::new(bytes);
+        while let Some(field) = reader.next()? {
+            match field.number {
+                1 => {
+                    msg.entries.push(StoreEntry::decode(&field.bytes_value)?);
+                }
+                _ => {
+                    msg.unknown_fields.extend_from_slice(&field.raw_value);
+                }
+            }
+        }
+        Ok(msg)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct FetchWindowRangeRequest {
+    pub topology: String,
+    pub key: String,
+    pub from_ms: i64,
+    pub to_ms: i64,
+    pub unknown_fields: Vec<u8>,
+}
+
+impl Default for FetchWindowRangeRequest {
+    fn default() -> Self {
+        Self {
+            topology: String::new(),
+            key: String::new(),
+            from_ms: 0,
+            to_ms: 0,
+            unknown_fields: Vec::new(),
+        }
+    }
+}
+
+impl FetchWindowRangeRequest {
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        pb_append_string_field(&mut out, 1, &self.topology);
+        pb_append_string_field(&mut out, 2, &self.key);
+        if self.from_ms != 0 { pb_append_tag(&mut out, 3, 0); pb_append_varint(&mut out, (self.from_ms as u64)); }
+        if self.to_ms != 0 { pb_append_tag(&mut out, 4, 0); pb_append_varint(&mut out, (self.to_ms as u64)); }
+        out.extend_from_slice(&self.unknown_fields);
+        out
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, String> {
+        let mut msg = Self::default();
+        let mut reader = PbReader::new(bytes);
+        while let Some(field) = reader.next()? {
+            match field.number {
+                1 => {
+                    msg.topology = String::from_utf8_lossy(&field.bytes_value).into_owned();
+                }
+                2 => {
+                    msg.key = String::from_utf8_lossy(&field.bytes_value).into_owned();
+                }
+                3 => {
+                    msg.from_ms = (field.varint_value as i64);
+                }
+                4 => {
+                    msg.to_ms = (field.varint_value as i64);
+                }
+                _ => {
+                    msg.unknown_fields.extend_from_slice(&field.raw_value);
+                }
+            }
+        }
+        Ok(msg)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct FetchWindowRangeResponse {
+    pub entries: Vec<StoreEntry>,
+    pub unknown_fields: Vec<u8>,
+}
+
+impl Default for FetchWindowRangeResponse {
+    fn default() -> Self {
+        Self {
+            entries: Vec::new(),
+            unknown_fields: Vec::new(),
+        }
+    }
+}
+
+impl FetchWindowRangeResponse {
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        for x in &self.entries { pb_append_bytes_field(&mut out, 1, &x.encode()); }
+        out.extend_from_slice(&self.unknown_fields);
+        out
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, String> {
+        let mut msg = Self::default();
+        let mut reader = PbReader::new(bytes);
+        while let Some(field) = reader.next()? {
+            match field.number {
+                1 => {
+                    msg.entries.push(StoreEntry::decode(&field.bytes_value)?);
+                }
+                _ => {
+                    msg.unknown_fields.extend_from_slice(&field.raw_value);
+                }
+            }
+        }
+        Ok(msg)
+    }
+}
+

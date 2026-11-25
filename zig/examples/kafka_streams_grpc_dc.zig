@@ -28,6 +28,10 @@ pub const GetStoreValueRequest = kafka_streams_messages.GetStoreValueRequest;
 pub const GetStoreValueResponse = kafka_streams_messages.GetStoreValueResponse;
 pub const FetchWindowRequest = kafka_streams_messages.FetchWindowRequest;
 pub const FetchWindowResponse = kafka_streams_messages.FetchWindowResponse;
+pub const FetchRangeRequest = kafka_streams_messages.FetchRangeRequest;
+pub const FetchRangeResponse = kafka_streams_messages.FetchRangeResponse;
+pub const FetchWindowRangeRequest = kafka_streams_messages.FetchWindowRangeRequest;
+pub const FetchWindowRangeResponse = kafka_streams_messages.FetchWindowRangeResponse;
 
 /// Client for grpcdc.kafka.streams.v1.KafkaStreams.
 pub const KafkaStreamsClient = struct {
@@ -79,6 +83,20 @@ pub const KafkaStreamsClient = struct {
         return .{ .ok = resp };
     }
 
+    pub fn fetchRange(self: *KafkaStreamsClient, req: *const FetchRangeRequest, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(FetchRangeResponse) {
+        var resp = FetchRangeResponse{};
+        const st = self.channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchRange", req, &resp, call_metadata, timeout_ms);
+        if (!st.isOk()) return .{ .status = st };
+        return .{ .ok = resp };
+    }
+
+    pub fn fetchWindowRange(self: *KafkaStreamsClient, req: *const FetchWindowRangeRequest, call_metadata: ?*const Metadata, timeout_ms: ?u64) status_mod.CallResult(FetchWindowRangeResponse) {
+        var resp = FetchWindowRangeResponse{};
+        const st = self.channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindowRange", req, &resp, call_metadata, timeout_ms);
+        if (!st.isOk()) return .{ .status = st };
+        return .{ .ok = resp };
+    }
+
 };
 
 /// Service implementation interface for grpcdc.kafka.streams.v1.KafkaStreams (vtable: Zig has no
@@ -91,6 +109,8 @@ pub const KafkaStreamsServer = struct {
     delete_topology_fn: *const fn (ctx: *anyopaque, call_ctx: *CallContext, req: *const DeleteTopologyRequest, resp: *DeleteTopologyResponse, alloc: std.mem.Allocator) Status,
     get_store_value_fn: *const fn (ctx: *anyopaque, call_ctx: *CallContext, req: *const GetStoreValueRequest, resp: *GetStoreValueResponse, alloc: std.mem.Allocator) Status,
     fetch_window_fn: *const fn (ctx: *anyopaque, call_ctx: *CallContext, req: *const FetchWindowRequest, resp: *FetchWindowResponse, alloc: std.mem.Allocator) Status,
+    fetch_range_fn: *const fn (ctx: *anyopaque, call_ctx: *CallContext, req: *const FetchRangeRequest, resp: *FetchRangeResponse, alloc: std.mem.Allocator) Status,
+    fetch_window_range_fn: *const fn (ctx: *anyopaque, call_ctx: *CallContext, req: *const FetchWindowRangeRequest, resp: *FetchWindowRangeResponse, alloc: std.mem.Allocator) Status,
 };
 
 fn kafkaStreamsCreateTopologyAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {
@@ -201,6 +221,42 @@ fn kafkaStreamsFetchWindowAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs:
     return sink.send(payload);
 }
 
+fn kafkaStreamsFetchRangeAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {
+    const impl: *KafkaStreamsServer = @ptrCast(@alignCast(ctx));
+    var req = FetchRangeRequest{};
+    switch (reqs.recvInto(&req)) {
+        .message => {},
+        .end => return Status.init(wire.codeInternal, "unary call closed with no request"),
+        .status => |st| return st,
+    }
+    var arena = std.heap.ArenaAllocator.init(reqs.alloc);
+    defer arena.deinit();
+    var resp = FetchRangeResponse{};
+    const st = impl.fetch_range_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
+    if (!st.isOk()) return st;
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
+    defer reqs.alloc.free(payload);
+    return sink.send(payload);
+}
+
+fn kafkaStreamsFetchWindowRangeAdapter(ctx: *anyopaque, call_ctx: *CallContext, reqs: *server_mod.RequestStream, sink: server_mod.Sink) Status {
+    const impl: *KafkaStreamsServer = @ptrCast(@alignCast(ctx));
+    var req = FetchWindowRangeRequest{};
+    switch (reqs.recvInto(&req)) {
+        .message => {},
+        .end => return Status.init(wire.codeInternal, "unary call closed with no request"),
+        .status => |st| return st,
+    }
+    var arena = std.heap.ArenaAllocator.init(reqs.alloc);
+    defer arena.deinit();
+    var resp = FetchWindowRangeResponse{};
+    const st = impl.fetch_window_range_fn(impl.ctx, call_ctx, &req, &resp, arena.allocator());
+    if (!st.isOk()) return st;
+    const payload = grpcdc.codec.marshalForCodec(reqs.alloc, call_ctx.struct_codec, &resp);
+    defer reqs.alloc.free(payload);
+    return sink.send(payload);
+}
+
 /// Generated gRPC-over-DataChannels stubs for kafka_streams.proto.
 pub const Kafka_streamsGrpcDc = struct {
     /// Register an implementation of grpcdc.kafka.streams.v1.KafkaStreams on a Server.
@@ -214,6 +270,8 @@ pub const Kafka_streamsGrpcDc = struct {
                 .{ .name = "DeleteTopology", .path = "/grpcdc.kafka.streams.v1.KafkaStreams/DeleteTopology", .kind = .unary, .ctx = impl, .handler = kafkaStreamsDeleteTopologyAdapter },
                 .{ .name = "GetStoreValue", .path = "/grpcdc.kafka.streams.v1.KafkaStreams/GetStoreValue", .kind = .unary, .ctx = impl, .handler = kafkaStreamsGetStoreValueAdapter },
                 .{ .name = "FetchWindow", .path = "/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", .kind = .unary, .ctx = impl, .handler = kafkaStreamsFetchWindowAdapter },
+                .{ .name = "FetchRange", .path = "/grpcdc.kafka.streams.v1.KafkaStreams/FetchRange", .kind = .unary, .ctx = impl, .handler = kafkaStreamsFetchRangeAdapter },
+                .{ .name = "FetchWindowRange", .path = "/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindowRange", .kind = .unary, .ctx = impl, .handler = kafkaStreamsFetchWindowRangeAdapter },
             },
         });
     }

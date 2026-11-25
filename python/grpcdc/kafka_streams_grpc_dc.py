@@ -138,6 +138,12 @@ class KafkaStreamsClient:
     def FetchWindow(self, req, metadata=None, timeout=None):
         return self._channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", req, kafka_streams_pb.FetchWindowResponse(), metadata, timeout)
 
+    def FetchRange(self, req, metadata=None, timeout=None):
+        return self._channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchRange", req, kafka_streams_pb.FetchRangeResponse(), metadata, timeout)
+
+    def FetchWindowRange(self, req, metadata=None, timeout=None):
+        return self._channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindowRange", req, kafka_streams_pb.FetchWindowRangeResponse(), metadata, timeout)
+
 class KafkaStreamsClientAsync:
     """Asyncio client: wrap a grpcdc.AsyncChannel (a sync Channel is wrapped)."""
 
@@ -164,6 +170,12 @@ class KafkaStreamsClientAsync:
 
     async def FetchWindow(self, req, metadata=None, timeout=None):
         return await self._channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", req, kafka_streams_pb.FetchWindowResponse(), metadata, timeout)
+
+    async def FetchRange(self, req, metadata=None, timeout=None):
+        return await self._channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchRange", req, kafka_streams_pb.FetchRangeResponse(), metadata, timeout)
+
+    async def FetchWindowRange(self, req, metadata=None, timeout=None):
+        return await self._channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindowRange", req, kafka_streams_pb.FetchWindowRangeResponse(), metadata, timeout)
 
 def register_kafka_streams_server(server, impl):
     def _CreateTopology_handler(ctx, reqs, sink):
@@ -196,6 +208,16 @@ def register_kafka_streams_server(server, impl):
         resp = impl.FetchWindow(ctx, req)
         sink.send(ctx.encode_message(resp))
 
+    def _FetchRange_handler(ctx, reqs, sink):
+        req = reqs.recv_into(kafka_streams_pb.FetchRangeRequest())
+        resp = impl.FetchRange(ctx, req)
+        sink.send(ctx.encode_message(resp))
+
+    def _FetchWindowRange_handler(ctx, reqs, sink):
+        req = reqs.recv_into(kafka_streams_pb.FetchWindowRangeRequest())
+        resp = impl.FetchWindowRange(ctx, req)
+        sink.send(ctx.encode_message(resp))
+
     server.register_service(grpcdc.ServiceDesc(
         "grpcdc.kafka.streams.v1.KafkaStreams",
         [
@@ -205,5 +227,7 @@ def register_kafka_streams_server(server, impl):
         grpcdc.Method("DeleteTopology", "/grpcdc.kafka.streams.v1.KafkaStreams/DeleteTopology", grpcdc.KIND_UNARY, _DeleteTopology_handler),
         grpcdc.Method("GetStoreValue", "/grpcdc.kafka.streams.v1.KafkaStreams/GetStoreValue", grpcdc.KIND_UNARY, _GetStoreValue_handler),
         grpcdc.Method("FetchWindow", "/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", grpcdc.KIND_UNARY, _FetchWindow_handler),
+        grpcdc.Method("FetchRange", "/grpcdc.kafka.streams.v1.KafkaStreams/FetchRange", grpcdc.KIND_UNARY, _FetchRange_handler),
+        grpcdc.Method("FetchWindowRange", "/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindowRange", grpcdc.KIND_UNARY, _FetchWindowRange_handler),
         ],
     ))

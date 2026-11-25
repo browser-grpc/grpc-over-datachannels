@@ -1008,3 +1008,285 @@ func (m *FetchWindowResponse) UnmarshalDC(data []byte) error {
 		}
 	}
 }
+
+type StoreEntry struct {
+	Key           string
+	Value         int64
+	WindowStartMs int64
+	WindowEndMs   int64
+	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *StoreEntry) Reset() {
+	*m = StoreEntry{}
+}
+
+func (m *StoreEntry) MarshalDC() []byte {
+	var out []byte
+	out = KafkaStreamsPbAppendStringField(out, 1, m.Key)
+	if m.Value != 0 {
+		out = KafkaStreamsPbAppendTag(out, 2, 0)
+		out = KafkaStreamsPbAppendVarint(out, uint64(m.Value))
+	}
+	if m.WindowStartMs != 0 {
+		out = KafkaStreamsPbAppendTag(out, 3, 0)
+		out = KafkaStreamsPbAppendVarint(out, uint64(m.WindowStartMs))
+	}
+	if m.WindowEndMs != 0 {
+		out = KafkaStreamsPbAppendTag(out, 4, 0)
+		out = KafkaStreamsPbAppendVarint(out, uint64(m.WindowEndMs))
+	}
+	out = append(out, m.UnknownFields...)
+	return out
+}
+
+func (m *StoreEntry) UnmarshalDC(data []byte) error {
+	m.UnknownFields = nil
+	r := &KafkaStreamsPbReader{buf: data}
+	for {
+		num, _, value, raw, done, err := r.field()
+		if err != nil {
+			return err
+		}
+		if done {
+			return nil
+		}
+		switch num {
+		case 1:
+			if b, ok := value.([]byte); ok {
+				m.Key = string(b)
+			}
+		case 2:
+			if v, ok := value.(uint64); ok {
+				m.Value = int64(v)
+			}
+		case 3:
+			if v, ok := value.(uint64); ok {
+				m.WindowStartMs = int64(v)
+			}
+		case 4:
+			if v, ok := value.(uint64); ok {
+				m.WindowEndMs = int64(v)
+			}
+		default:
+			m.UnknownFields = append(m.UnknownFields, raw...)
+		}
+	}
+}
+
+type FetchRangeRequest struct {
+	Topology      string
+	Prefix        string
+	Limit         int32
+	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *FetchRangeRequest) Reset() {
+	*m = FetchRangeRequest{}
+}
+
+func (m *FetchRangeRequest) MarshalDC() []byte {
+	var out []byte
+	out = KafkaStreamsPbAppendStringField(out, 1, m.Topology)
+	out = KafkaStreamsPbAppendStringField(out, 2, m.Prefix)
+	if m.Limit != 0 {
+		out = KafkaStreamsPbAppendTag(out, 3, 0)
+		out = KafkaStreamsPbAppendVarint(out, uint64(int64(m.Limit)))
+	}
+	out = append(out, m.UnknownFields...)
+	return out
+}
+
+func (m *FetchRangeRequest) UnmarshalDC(data []byte) error {
+	m.UnknownFields = nil
+	r := &KafkaStreamsPbReader{buf: data}
+	for {
+		num, _, value, raw, done, err := r.field()
+		if err != nil {
+			return err
+		}
+		if done {
+			return nil
+		}
+		switch num {
+		case 1:
+			if b, ok := value.([]byte); ok {
+				m.Topology = string(b)
+			}
+		case 2:
+			if b, ok := value.([]byte); ok {
+				m.Prefix = string(b)
+			}
+		case 3:
+			if v, ok := value.(uint64); ok {
+				m.Limit = int32(v)
+			}
+		default:
+			m.UnknownFields = append(m.UnknownFields, raw...)
+		}
+	}
+}
+
+type FetchRangeResponse struct {
+	Entries       []*StoreEntry
+	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *FetchRangeResponse) Reset() {
+	*m = FetchRangeResponse{}
+}
+
+func (m *FetchRangeResponse) MarshalDC() []byte {
+	var out []byte
+	for _, x := range m.Entries {
+		out = KafkaStreamsPbAppendBytesField(out, 1, x.MarshalDC())
+	}
+	out = append(out, m.UnknownFields...)
+	return out
+}
+
+func (m *FetchRangeResponse) UnmarshalDC(data []byte) error {
+	m.UnknownFields = nil
+	r := &KafkaStreamsPbReader{buf: data}
+	for {
+		num, _, value, raw, done, err := r.field()
+		if err != nil {
+			return err
+		}
+		if done {
+			return nil
+		}
+		switch num {
+		case 1:
+			if b, ok := value.([]byte); ok {
+				var tmpv *StoreEntry
+				tmp1 := new(StoreEntry)
+				if err := tmp1.UnmarshalDC(b); err != nil {
+					return err
+				}
+				tmpv = tmp1
+				m.Entries = append(m.Entries, tmpv)
+			}
+		default:
+			m.UnknownFields = append(m.UnknownFields, raw...)
+		}
+	}
+}
+
+type FetchWindowRangeRequest struct {
+	Topology      string
+	Key           string
+	FromMs        int64
+	ToMs          int64
+	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *FetchWindowRangeRequest) Reset() {
+	*m = FetchWindowRangeRequest{}
+}
+
+func (m *FetchWindowRangeRequest) MarshalDC() []byte {
+	var out []byte
+	out = KafkaStreamsPbAppendStringField(out, 1, m.Topology)
+	out = KafkaStreamsPbAppendStringField(out, 2, m.Key)
+	if m.FromMs != 0 {
+		out = KafkaStreamsPbAppendTag(out, 3, 0)
+		out = KafkaStreamsPbAppendVarint(out, uint64(m.FromMs))
+	}
+	if m.ToMs != 0 {
+		out = KafkaStreamsPbAppendTag(out, 4, 0)
+		out = KafkaStreamsPbAppendVarint(out, uint64(m.ToMs))
+	}
+	out = append(out, m.UnknownFields...)
+	return out
+}
+
+func (m *FetchWindowRangeRequest) UnmarshalDC(data []byte) error {
+	m.UnknownFields = nil
+	r := &KafkaStreamsPbReader{buf: data}
+	for {
+		num, _, value, raw, done, err := r.field()
+		if err != nil {
+			return err
+		}
+		if done {
+			return nil
+		}
+		switch num {
+		case 1:
+			if b, ok := value.([]byte); ok {
+				m.Topology = string(b)
+			}
+		case 2:
+			if b, ok := value.([]byte); ok {
+				m.Key = string(b)
+			}
+		case 3:
+			if v, ok := value.(uint64); ok {
+				m.FromMs = int64(v)
+			}
+		case 4:
+			if v, ok := value.(uint64); ok {
+				m.ToMs = int64(v)
+			}
+		default:
+			m.UnknownFields = append(m.UnknownFields, raw...)
+		}
+	}
+}
+
+type FetchWindowRangeResponse struct {
+	Entries       []*StoreEntry
+	UnknownFields []byte
+}
+
+// Reset zeroes the message (restoring explicit defaults),
+// so an instance can be safely reused with UnmarshalDC.
+func (m *FetchWindowRangeResponse) Reset() {
+	*m = FetchWindowRangeResponse{}
+}
+
+func (m *FetchWindowRangeResponse) MarshalDC() []byte {
+	var out []byte
+	for _, x := range m.Entries {
+		out = KafkaStreamsPbAppendBytesField(out, 1, x.MarshalDC())
+	}
+	out = append(out, m.UnknownFields...)
+	return out
+}
+
+func (m *FetchWindowRangeResponse) UnmarshalDC(data []byte) error {
+	m.UnknownFields = nil
+	r := &KafkaStreamsPbReader{buf: data}
+	for {
+		num, _, value, raw, done, err := r.field()
+		if err != nil {
+			return err
+		}
+		if done {
+			return nil
+		}
+		switch num {
+		case 1:
+			if b, ok := value.([]byte); ok {
+				var tmpv *StoreEntry
+				tmp1 := new(StoreEntry)
+				if err := tmp1.UnmarshalDC(b); err != nil {
+					return err
+				}
+				tmpv = tmp1
+				m.Entries = append(m.Entries, tmpv)
+			}
+		default:
+			m.UnknownFields = append(m.UnknownFields, raw...)
+		}
+	}
+}

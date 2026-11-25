@@ -147,6 +147,11 @@ processor_msg!(GetStateRequest);
 processor_msg!(GetStateResponse);
 processor_msg!(PutStateRequest);
 processor_msg!(PutStateResponse);
+streams_msg!(StoreEntry);
+streams_msg!(FetchRangeRequest);
+streams_msg!(FetchRangeResponse);
+streams_msg!(FetchWindowRangeRequest);
+streams_msg!(FetchWindowRangeResponse);
 streams_msg!(FetchWindowRequest);
 streams_msg!(FetchWindowResponse);
 

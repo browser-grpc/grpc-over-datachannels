@@ -278,6 +278,16 @@ class KafkaStreamsClient
         return $this->channel->unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", $req, new \KafkaStreamsPb\FetchWindowResponse(), $metadata, $timeout);
     }
 
+    public function FetchRange(\KafkaStreamsPb\FetchRangeRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaStreamsPb\FetchRangeResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchRange", $req, new \KafkaStreamsPb\FetchRangeResponse(), $metadata, $timeout);
+    }
+
+    public function FetchWindowRange(\KafkaStreamsPb\FetchWindowRangeRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaStreamsPb\FetchWindowRangeResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindowRange", $req, new \KafkaStreamsPb\FetchWindowRangeResponse(), $metadata, $timeout);
+    }
+
 }
 
 // Fiber client: wraps a Grpcdc\FiberChannel (a sync Channel is wrapped).
@@ -320,6 +330,16 @@ class KafkaStreamsClientFiber
         return $this->channel->unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", $req, new \KafkaStreamsPb\FetchWindowResponse(), $metadata, $timeout);
     }
 
+    public function FetchRange(\KafkaStreamsPb\FetchRangeRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaStreamsPb\FetchRangeResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchRange", $req, new \KafkaStreamsPb\FetchRangeResponse(), $metadata, $timeout);
+    }
+
+    public function FetchWindowRange(\KafkaStreamsPb\FetchWindowRangeRequest $req, ?array $metadata = null, ?float $timeout = null): \KafkaStreamsPb\FetchWindowRangeResponse
+    {
+        return $this->channel->unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindowRange", $req, new \KafkaStreamsPb\FetchWindowRangeResponse(), $metadata, $timeout);
+    }
+
 }
 
 function registerKafkaStreamsServer(\Grpcdc\Server $server, object $impl): void
@@ -360,6 +380,18 @@ function registerKafkaStreamsServer(\Grpcdc\Server $server, object $impl): void
         $sink->send($ctx->encodeMessage($resp));
     };
 
+    $fetch_rangeHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
+        $req = $reqs->recvInto(new \KafkaStreamsPb\FetchRangeRequest());
+        $resp = $impl->FetchRange($ctx, $req);
+        $sink->send($ctx->encodeMessage($resp));
+    };
+
+    $fetch_window_rangeHandler = function (\Grpcdc\CallContext $ctx, \Grpcdc\RequestStream $reqs, \Grpcdc\ResponseSink $sink) use ($impl) {
+        $req = $reqs->recvInto(new \KafkaStreamsPb\FetchWindowRangeRequest());
+        $resp = $impl->FetchWindowRange($ctx, $req);
+        $sink->send($ctx->encodeMessage($resp));
+    };
+
     $server->registerService(new \Grpcdc\ServiceDesc(
         "grpcdc.kafka.streams.v1.KafkaStreams",
         [
@@ -369,6 +401,8 @@ function registerKafkaStreamsServer(\Grpcdc\Server $server, object $impl): void
             new \Grpcdc\Method("DeleteTopology", "/grpcdc.kafka.streams.v1.KafkaStreams/DeleteTopology", \Grpcdc\Server::KIND_UNARY, $delete_topologyHandler),
             new \Grpcdc\Method("GetStoreValue", "/grpcdc.kafka.streams.v1.KafkaStreams/GetStoreValue", \Grpcdc\Server::KIND_UNARY, $get_store_valueHandler),
             new \Grpcdc\Method("FetchWindow", "/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", \Grpcdc\Server::KIND_UNARY, $fetch_windowHandler),
+            new \Grpcdc\Method("FetchRange", "/grpcdc.kafka.streams.v1.KafkaStreams/FetchRange", \Grpcdc\Server::KIND_UNARY, $fetch_rangeHandler),
+            new \Grpcdc\Method("FetchWindowRange", "/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindowRange", \Grpcdc\Server::KIND_UNARY, $fetch_window_rangeHandler),
         ]
     ));
 }

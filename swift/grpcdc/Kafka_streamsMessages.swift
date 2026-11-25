@@ -688,3 +688,200 @@ public final class FetchWindowResponse: Marshaler, Unmarshaler {
         }
     }
 }
+public final class StoreEntry: Marshaler, Unmarshaler {
+    public var key: String = ""
+    public var value: Int64 = 0
+    public var windowStartMs: Int64 = 0
+    public var windowEndMs: Int64 = 0
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ key: String = "", _ value: Int64 = 0, _ windowStartMs: Int64 = 0, _ windowEndMs: Int64 = 0) {
+        self.key = key
+        self.value = value
+        self.windowStartMs = windowStartMs
+        self.windowEndMs = windowEndMs
+    }
+    public func MarshalDc() -> [UInt8] {
+        let pbW = Kafka_streamsPb.Writer()
+        pbW.StringField(1, key)
+        if value != 0 { pbW.Tag(2, 0); pbW.Varint(UInt64(bitPattern: value)) }
+        if windowStartMs != 0 { pbW.Tag(3, 0); pbW.Varint(UInt64(bitPattern: windowStartMs)) }
+        if windowEndMs != 0 { pbW.Tag(4, 0); pbW.Varint(UInt64(bitPattern: windowEndMs)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
+    }
+    public func UnmarshalDc(_ data: [UInt8]) {
+        unknownFields = []
+        key = ""
+        value = 0
+        windowStartMs = 0
+        windowEndMs = 0
+        let pbR = Kafka_streamsPb.Reader(data)
+        while true {
+            let next: Kafka_streamsPb.Field?
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
+            case 1:
+                key = String(decoding: pbField.bytesValue, as: UTF8.self)
+            case 2:
+                value = Int64(bitPattern: pbField.varintValue)
+            case 3:
+                windowStartMs = Int64(bitPattern: pbField.varintValue)
+            case 4:
+                windowEndMs = Int64(bitPattern: pbField.varintValue)
+            default: unknownFields += pbField.rawValue
+            }
+        }
+    }
+}
+public final class FetchRangeRequest: Marshaler, Unmarshaler {
+    public var topology: String = ""
+    public var prefix: String = ""
+    public var limit: Int32 = 0
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ topology: String = "", _ prefix: String = "", _ limit: Int32 = 0) {
+        self.topology = topology
+        self.prefix = prefix
+        self.limit = limit
+    }
+    public func MarshalDc() -> [UInt8] {
+        let pbW = Kafka_streamsPb.Writer()
+        pbW.StringField(1, topology)
+        pbW.StringField(2, prefix)
+        if limit != 0 { pbW.Tag(3, 0); pbW.Varint(Int64(limit)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
+    }
+    public func UnmarshalDc(_ data: [UInt8]) {
+        unknownFields = []
+        topology = ""
+        prefix = ""
+        limit = 0
+        let pbR = Kafka_streamsPb.Reader(data)
+        while true {
+            let next: Kafka_streamsPb.Field?
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
+            case 1:
+                topology = String(decoding: pbField.bytesValue, as: UTF8.self)
+            case 2:
+                prefix = String(decoding: pbField.bytesValue, as: UTF8.self)
+            case 3:
+                limit = Int32(truncatingIfNeeded: pbField.varintValue)
+            default: unknownFields += pbField.rawValue
+            }
+        }
+    }
+}
+public final class FetchRangeResponse: Marshaler, Unmarshaler {
+    public var entries: [StoreEntry] = []
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ entries: [StoreEntry] = []) {
+        self.entries = entries
+    }
+    public func MarshalDc() -> [UInt8] {
+        let pbW = Kafka_streamsPb.Writer()
+        for pbX in entries { pbW.BytesField(1, pbX.MarshalDc()) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
+    }
+    public func UnmarshalDc(_ data: [UInt8]) {
+        unknownFields = []
+        entries = []
+        let pbR = Kafka_streamsPb.Reader(data)
+        while true {
+            let next: Kafka_streamsPb.Field?
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
+            case 1:
+                let pbItem = StoreEntry()
+                pbItem.UnmarshalDc(pbField.bytesValue)
+                entries.append(pbItem)
+            default: unknownFields += pbField.rawValue
+            }
+        }
+    }
+}
+public final class FetchWindowRangeRequest: Marshaler, Unmarshaler {
+    public var topology: String = ""
+    public var key: String = ""
+    public var fromMs: Int64 = 0
+    public var toMs: Int64 = 0
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ topology: String = "", _ key: String = "", _ fromMs: Int64 = 0, _ toMs: Int64 = 0) {
+        self.topology = topology
+        self.key = key
+        self.fromMs = fromMs
+        self.toMs = toMs
+    }
+    public func MarshalDc() -> [UInt8] {
+        let pbW = Kafka_streamsPb.Writer()
+        pbW.StringField(1, topology)
+        pbW.StringField(2, key)
+        if fromMs != 0 { pbW.Tag(3, 0); pbW.Varint(UInt64(bitPattern: fromMs)) }
+        if toMs != 0 { pbW.Tag(4, 0); pbW.Varint(UInt64(bitPattern: toMs)) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
+    }
+    public func UnmarshalDc(_ data: [UInt8]) {
+        unknownFields = []
+        topology = ""
+        key = ""
+        fromMs = 0
+        toMs = 0
+        let pbR = Kafka_streamsPb.Reader(data)
+        while true {
+            let next: Kafka_streamsPb.Field?
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
+            case 1:
+                topology = String(decoding: pbField.bytesValue, as: UTF8.self)
+            case 2:
+                key = String(decoding: pbField.bytesValue, as: UTF8.self)
+            case 3:
+                fromMs = Int64(bitPattern: pbField.varintValue)
+            case 4:
+                toMs = Int64(bitPattern: pbField.varintValue)
+            default: unknownFields += pbField.rawValue
+            }
+        }
+    }
+}
+public final class FetchWindowRangeResponse: Marshaler, Unmarshaler {
+    public var entries: [StoreEntry] = []
+    public var unknownFields: [UInt8] = []
+    public init() {}
+    public init(_ entries: [StoreEntry] = []) {
+        self.entries = entries
+    }
+    public func MarshalDc() -> [UInt8] {
+        let pbW = Kafka_streamsPb.Writer()
+        for pbX in entries { pbW.BytesField(1, pbX.MarshalDc()) }
+        pbW.Raw(unknownFields)
+        return pbW.ToBytes()
+    }
+    public func UnmarshalDc(_ data: [UInt8]) {
+        unknownFields = []
+        entries = []
+        let pbR = Kafka_streamsPb.Reader(data)
+        while true {
+            let next: Kafka_streamsPb.Field?
+            do { next = try pbR.Next() } catch { break }
+            guard let pbField = next else { break }
+            switch pbField.number {
+            case 1:
+                let pbItem = StoreEntry()
+                pbItem.UnmarshalDc(pbField.bytesValue)
+                entries.append(pbItem)
+            default: unknownFields += pbField.rawValue
+            }
+        }
+    }
+}

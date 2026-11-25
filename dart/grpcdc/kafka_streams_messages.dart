@@ -700,3 +700,205 @@ class FetchWindowResponse implements Marshaler, Unmarshaler {
     }
   }
 }
+class StoreEntry implements Marshaler, Unmarshaler {
+  String key;
+  int value;
+  int windowStartMs;
+  int windowEndMs;
+  Uint8List unknownFields = Uint8List(0);
+  StoreEntry([this.key = '', this.value = 0, this.windowStartMs = 0, this.windowEndMs = 0]);
+  @override
+  Uint8List marshalDc() {
+    final pbW = Kafka_streamsPbWriter();
+    pbW.stringField(1, key);
+    if (value != 0) { pbW.tag(2, 0); pbW.varint(value); }
+    if (windowStartMs != 0) { pbW.tag(3, 0); pbW.varint(windowStartMs); }
+    if (windowEndMs != 0) { pbW.tag(4, 0); pbW.varint(windowEndMs); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
+  }
+  @override
+  void unmarshalDc(List<int> data) {
+    unknownFields = Uint8List(0);
+    key = '';
+    value = 0;
+    windowStartMs = 0;
+    windowEndMs = 0;
+    final pbR = Kafka_streamsPbReader(Uint8List.fromList(data));
+    while (true) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
+        case 1:
+          key = utf8.decode(pbField.bytesValue);
+          break;
+        case 2:
+          value = pbField.varintValue;
+          break;
+        case 3:
+          windowStartMs = pbField.varintValue;
+          break;
+        case 4:
+          windowEndMs = pbField.varintValue;
+          break;
+        default:
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
+          break;
+      }
+    }
+  }
+}
+class FetchRangeRequest implements Marshaler, Unmarshaler {
+  String topology;
+  String prefix;
+  int limit;
+  Uint8List unknownFields = Uint8List(0);
+  FetchRangeRequest([this.topology = '', this.prefix = '', this.limit = 0]);
+  @override
+  Uint8List marshalDc() {
+    final pbW = Kafka_streamsPbWriter();
+    pbW.stringField(1, topology);
+    pbW.stringField(2, prefix);
+    if (limit != 0) { pbW.tag(3, 0); pbW.varint(limit); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
+  }
+  @override
+  void unmarshalDc(List<int> data) {
+    unknownFields = Uint8List(0);
+    topology = '';
+    prefix = '';
+    limit = 0;
+    final pbR = Kafka_streamsPbReader(Uint8List.fromList(data));
+    while (true) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
+        case 1:
+          topology = utf8.decode(pbField.bytesValue);
+          break;
+        case 2:
+          prefix = utf8.decode(pbField.bytesValue);
+          break;
+        case 3:
+          limit = (pbField.varintValue).toSigned(32);
+          break;
+        default:
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
+          break;
+      }
+    }
+  }
+}
+class FetchRangeResponse implements Marshaler, Unmarshaler {
+  List<StoreEntry> entries;
+  Uint8List unknownFields = Uint8List(0);
+  FetchRangeResponse() : entries = [];
+  @override
+  Uint8List marshalDc() {
+    final pbW = Kafka_streamsPbWriter();
+    for (final pbX in entries) { pbW.bytesField(1, pbX.marshalDc()); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
+  }
+  @override
+  void unmarshalDc(List<int> data) {
+    unknownFields = Uint8List(0);
+    entries = [];
+    final pbR = Kafka_streamsPbReader(Uint8List.fromList(data));
+    while (true) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
+        case 1:
+          final item = StoreEntry();
+          item.unmarshalDc(pbField.bytesValue);
+          entries.add(item);
+          break;
+        default:
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
+          break;
+      }
+    }
+  }
+}
+class FetchWindowRangeRequest implements Marshaler, Unmarshaler {
+  String topology;
+  String key;
+  int fromMs;
+  int toMs;
+  Uint8List unknownFields = Uint8List(0);
+  FetchWindowRangeRequest([this.topology = '', this.key = '', this.fromMs = 0, this.toMs = 0]);
+  @override
+  Uint8List marshalDc() {
+    final pbW = Kafka_streamsPbWriter();
+    pbW.stringField(1, topology);
+    pbW.stringField(2, key);
+    if (fromMs != 0) { pbW.tag(3, 0); pbW.varint(fromMs); }
+    if (toMs != 0) { pbW.tag(4, 0); pbW.varint(toMs); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
+  }
+  @override
+  void unmarshalDc(List<int> data) {
+    unknownFields = Uint8List(0);
+    topology = '';
+    key = '';
+    fromMs = 0;
+    toMs = 0;
+    final pbR = Kafka_streamsPbReader(Uint8List.fromList(data));
+    while (true) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
+        case 1:
+          topology = utf8.decode(pbField.bytesValue);
+          break;
+        case 2:
+          key = utf8.decode(pbField.bytesValue);
+          break;
+        case 3:
+          fromMs = pbField.varintValue;
+          break;
+        case 4:
+          toMs = pbField.varintValue;
+          break;
+        default:
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
+          break;
+      }
+    }
+  }
+}
+class FetchWindowRangeResponse implements Marshaler, Unmarshaler {
+  List<StoreEntry> entries;
+  Uint8List unknownFields = Uint8List(0);
+  FetchWindowRangeResponse() : entries = [];
+  @override
+  Uint8List marshalDc() {
+    final pbW = Kafka_streamsPbWriter();
+    for (final pbX in entries) { pbW.bytesField(1, pbX.marshalDc()); }
+    pbW.raw(unknownFields);
+    return pbW.toBytes();
+  }
+  @override
+  void unmarshalDc(List<int> data) {
+    unknownFields = Uint8List(0);
+    entries = [];
+    final pbR = Kafka_streamsPbReader(Uint8List.fromList(data));
+    while (true) {
+      final pbField = pbR.next();
+      if (pbField == null) break;
+      switch (pbField.number) {
+        case 1:
+          final item = StoreEntry();
+          item.unmarshalDc(pbField.bytesValue);
+          entries.add(item);
+          break;
+        default:
+          unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);
+          break;
+      }
+    }
+  }
+}

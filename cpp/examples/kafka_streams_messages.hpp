@@ -28,6 +28,11 @@ class GetStoreValueRequest;
 class GetStoreValueResponse;
 class FetchWindowRequest;
 class FetchWindowResponse;
+class StoreEntry;
+class FetchRangeRequest;
+class FetchRangeResponse;
+class FetchWindowRangeRequest;
+class FetchWindowRangeResponse;
 
 enum class Operator : std::int32_t {
   OPERATOR_UNSPECIFIED = 0,
@@ -248,6 +253,54 @@ class FetchWindowResponse : public grpcdc::Marshaler, public grpcdc::Unmarshaler
   std::int64_t value = 0;
   grpcdc::Bytes unknown_fields;
   FetchWindowResponse() = default;
+  grpcdc::Bytes MarshalDc() const override;
+  void UnmarshalDc(const grpcdc::Bytes& data) override;
+};
+class StoreEntry : public grpcdc::Marshaler, public grpcdc::Unmarshaler {
+ public:
+  std::string key = "";
+  std::int64_t value = 0;
+  std::int64_t window_start_ms = 0;
+  std::int64_t window_end_ms = 0;
+  grpcdc::Bytes unknown_fields;
+  StoreEntry() = default;
+  grpcdc::Bytes MarshalDc() const override;
+  void UnmarshalDc(const grpcdc::Bytes& data) override;
+};
+class FetchRangeRequest : public grpcdc::Marshaler, public grpcdc::Unmarshaler {
+ public:
+  std::string topology = "";
+  std::string prefix = "";
+  std::int32_t limit = 0;
+  grpcdc::Bytes unknown_fields;
+  FetchRangeRequest() = default;
+  grpcdc::Bytes MarshalDc() const override;
+  void UnmarshalDc(const grpcdc::Bytes& data) override;
+};
+class FetchRangeResponse : public grpcdc::Marshaler, public grpcdc::Unmarshaler {
+ public:
+  std::vector<StoreEntry> entries = {};
+  grpcdc::Bytes unknown_fields;
+  FetchRangeResponse() = default;
+  grpcdc::Bytes MarshalDc() const override;
+  void UnmarshalDc(const grpcdc::Bytes& data) override;
+};
+class FetchWindowRangeRequest : public grpcdc::Marshaler, public grpcdc::Unmarshaler {
+ public:
+  std::string topology = "";
+  std::string key = "";
+  std::int64_t from_ms = 0;
+  std::int64_t to_ms = 0;
+  grpcdc::Bytes unknown_fields;
+  FetchWindowRangeRequest() = default;
+  grpcdc::Bytes MarshalDc() const override;
+  void UnmarshalDc(const grpcdc::Bytes& data) override;
+};
+class FetchWindowRangeResponse : public grpcdc::Marshaler, public grpcdc::Unmarshaler {
+ public:
+  std::vector<StoreEntry> entries = {};
+  grpcdc::Bytes unknown_fields;
+  FetchWindowRangeResponse() = default;
   grpcdc::Bytes MarshalDc() const override;
   void UnmarshalDc(const grpcdc::Bytes& data) override;
 };
@@ -768,6 +821,173 @@ inline void FetchWindowResponse::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
         }
         case 5: {
             value = static_cast<std::int64_t>(pb_field.varint);
+            break;
+        }
+        default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;
+      }
+    }
+}
+
+inline grpcdc::Bytes StoreEntry::MarshalDc() const {
+    pb_kafka_streams::Writer pb_w;
+    pb_w.StringField(1, key);
+    if (value != 0) { pb_w.Tag(2, 0); pb_w.Varint(static_cast<std::uint64_t>(value)); }
+    if (window_start_ms != 0) { pb_w.Tag(3, 0); pb_w.Varint(static_cast<std::uint64_t>(window_start_ms)); }
+    if (window_end_ms != 0) { pb_w.Tag(4, 0); pb_w.Varint(static_cast<std::uint64_t>(window_end_ms)); }
+    pb_w.Raw(unknown_fields);
+    return pb_w.ToBytes();
+}
+
+inline void StoreEntry::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
+    unknown_fields.clear();
+    key = "";
+    value = 0;
+    window_start_ms = 0;
+    window_end_ms = 0;
+    pb_kafka_streams::Reader pb_r(pb_data_);
+    pb_kafka_streams::Field pb_field;
+    while (pb_r.Next(pb_field)) {
+      switch (pb_field.number) {
+        case 1: {
+            key = std::string(pb_field.bytes.begin(), pb_field.bytes.end());
+            break;
+        }
+        case 2: {
+            value = static_cast<std::int64_t>(pb_field.varint);
+            break;
+        }
+        case 3: {
+            window_start_ms = static_cast<std::int64_t>(pb_field.varint);
+            break;
+        }
+        case 4: {
+            window_end_ms = static_cast<std::int64_t>(pb_field.varint);
+            break;
+        }
+        default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;
+      }
+    }
+}
+
+inline grpcdc::Bytes FetchRangeRequest::MarshalDc() const {
+    pb_kafka_streams::Writer pb_w;
+    pb_w.StringField(1, topology);
+    pb_w.StringField(2, prefix);
+    if (limit != 0) { pb_w.Tag(3, 0); pb_w.Varint(static_cast<std::int64_t>(limit)); }
+    pb_w.Raw(unknown_fields);
+    return pb_w.ToBytes();
+}
+
+inline void FetchRangeRequest::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
+    unknown_fields.clear();
+    topology = "";
+    prefix = "";
+    limit = 0;
+    pb_kafka_streams::Reader pb_r(pb_data_);
+    pb_kafka_streams::Field pb_field;
+    while (pb_r.Next(pb_field)) {
+      switch (pb_field.number) {
+        case 1: {
+            topology = std::string(pb_field.bytes.begin(), pb_field.bytes.end());
+            break;
+        }
+        case 2: {
+            prefix = std::string(pb_field.bytes.begin(), pb_field.bytes.end());
+            break;
+        }
+        case 3: {
+            limit = static_cast<std::int32_t>(pb_field.varint);
+            break;
+        }
+        default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;
+      }
+    }
+}
+
+inline grpcdc::Bytes FetchRangeResponse::MarshalDc() const {
+    pb_kafka_streams::Writer pb_w;
+    for (const auto& pb_x : entries) pb_w.BytesField(1, pb_x.MarshalDc());
+    pb_w.Raw(unknown_fields);
+    return pb_w.ToBytes();
+}
+
+inline void FetchRangeResponse::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
+    unknown_fields.clear();
+    entries = {};
+    pb_kafka_streams::Reader pb_r(pb_data_);
+    pb_kafka_streams::Field pb_field;
+    while (pb_r.Next(pb_field)) {
+      switch (pb_field.number) {
+        case 1: {
+            StoreEntry pb_item;
+            pb_item.UnmarshalDc(pb_field.bytes);
+            entries.push_back(pb_item);
+            break;
+        }
+        default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;
+      }
+    }
+}
+
+inline grpcdc::Bytes FetchWindowRangeRequest::MarshalDc() const {
+    pb_kafka_streams::Writer pb_w;
+    pb_w.StringField(1, topology);
+    pb_w.StringField(2, key);
+    if (from_ms != 0) { pb_w.Tag(3, 0); pb_w.Varint(static_cast<std::uint64_t>(from_ms)); }
+    if (to_ms != 0) { pb_w.Tag(4, 0); pb_w.Varint(static_cast<std::uint64_t>(to_ms)); }
+    pb_w.Raw(unknown_fields);
+    return pb_w.ToBytes();
+}
+
+inline void FetchWindowRangeRequest::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
+    unknown_fields.clear();
+    topology = "";
+    key = "";
+    from_ms = 0;
+    to_ms = 0;
+    pb_kafka_streams::Reader pb_r(pb_data_);
+    pb_kafka_streams::Field pb_field;
+    while (pb_r.Next(pb_field)) {
+      switch (pb_field.number) {
+        case 1: {
+            topology = std::string(pb_field.bytes.begin(), pb_field.bytes.end());
+            break;
+        }
+        case 2: {
+            key = std::string(pb_field.bytes.begin(), pb_field.bytes.end());
+            break;
+        }
+        case 3: {
+            from_ms = static_cast<std::int64_t>(pb_field.varint);
+            break;
+        }
+        case 4: {
+            to_ms = static_cast<std::int64_t>(pb_field.varint);
+            break;
+        }
+        default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;
+      }
+    }
+}
+
+inline grpcdc::Bytes FetchWindowRangeResponse::MarshalDc() const {
+    pb_kafka_streams::Writer pb_w;
+    for (const auto& pb_x : entries) pb_w.BytesField(1, pb_x.MarshalDc());
+    pb_w.Raw(unknown_fields);
+    return pb_w.ToBytes();
+}
+
+inline void FetchWindowRangeResponse::UnmarshalDc(const grpcdc::Bytes& pb_data_) {
+    unknown_fields.clear();
+    entries = {};
+    pb_kafka_streams::Reader pb_r(pb_data_);
+    pb_kafka_streams::Field pb_field;
+    while (pb_r.Next(pb_field)) {
+      switch (pb_field.number) {
+        case 1: {
+            StoreEntry pb_item;
+            pb_item.UnmarshalDc(pb_field.bytes);
+            entries.push_back(pb_item);
             break;
         }
         default: unknown_fields.insert(unknown_fields.end(), pb_field.raw.begin(), pb_field.raw.end()); break;

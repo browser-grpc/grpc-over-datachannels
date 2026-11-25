@@ -68,6 +68,20 @@ struct Kafka_streamsGrpcDc {
       return resp;
     }
 
+    FetchRangeResponse FetchRange(FetchRangeRequest req,
+                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      FetchRangeResponse resp;
+      channel_->Unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchRange", req, resp, metadata, timeout);
+      return resp;
+    }
+
+    FetchWindowRangeResponse FetchWindowRange(FetchWindowRangeRequest req,
+                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      FetchWindowRangeResponse resp;
+      channel_->Unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindowRange", req, resp, metadata, timeout);
+      return resp;
+    }
+
     // -- async (std::future) surface -------------------------------------
 
     std::future<TopologyInfo> CreateTopologyAsync(
@@ -104,6 +118,18 @@ struct Kafka_streamsGrpcDc {
         FetchWindowRequest req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
       return std::async(std::launch::async,
                         [this, req, metadata, timeout] { return FetchWindow(req, metadata, timeout); });
+    }
+
+    std::future<FetchRangeResponse> FetchRangeAsync(
+        FetchRangeRequest req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      return std::async(std::launch::async,
+                        [this, req, metadata, timeout] { return FetchRange(req, metadata, timeout); });
+    }
+
+    std::future<FetchWindowRangeResponse> FetchWindowRangeAsync(
+        FetchWindowRangeRequest req, const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      return std::async(std::launch::async,
+                        [this, req, metadata, timeout] { return FetchWindowRange(req, metadata, timeout); });
     }
 
    private:
@@ -161,6 +187,20 @@ struct Kafka_streamsGrpcDc {
       co_return resp;
     }
 
+    grpcdc::Task<FetchRangeResponse> FetchRange(FetchRangeRequest req,
+                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      FetchRangeResponse resp;
+      co_await channel_->Unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchRange", req, resp, metadata, timeout);
+      co_return resp;
+    }
+
+    grpcdc::Task<FetchWindowRangeResponse> FetchWindowRange(FetchWindowRangeRequest req,
+                       const grpcdc::Metadata* metadata = nullptr, std::optional<std::chrono::milliseconds> timeout = std::nullopt) {
+      FetchWindowRangeResponse resp;
+      co_await channel_->Unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindowRange", req, resp, metadata, timeout);
+      co_return resp;
+    }
+
    private:
     std::shared_ptr<grpcdc::AsyncChannel> channel_;
   };
@@ -181,6 +221,10 @@ struct Kafka_streamsGrpcDc {
                                GetStoreValueRequest& req) = 0;
     virtual FetchWindowResponse FetchWindow(grpcdc::Endpoint::CallContext& ctx,
                                FetchWindowRequest& req) = 0;
+    virtual FetchRangeResponse FetchRange(grpcdc::Endpoint::CallContext& ctx,
+                               FetchRangeRequest& req) = 0;
+    virtual FetchWindowRangeResponse FetchWindowRange(grpcdc::Endpoint::CallContext& ctx,
+                               FetchWindowRangeRequest& req) = 0;
   };
 
   /// Async service implementation interface for grpcdc.kafka.streams.v1.KafkaStreams.
@@ -198,6 +242,10 @@ struct Kafka_streamsGrpcDc {
         grpcdc::Endpoint::CallContext& ctx, GetStoreValueRequest& req) = 0;
     virtual std::future<FetchWindowResponse> FetchWindowAsync(
         grpcdc::Endpoint::CallContext& ctx, FetchWindowRequest& req) = 0;
+    virtual std::future<FetchRangeResponse> FetchRangeAsync(
+        grpcdc::Endpoint::CallContext& ctx, FetchRangeRequest& req) = 0;
+    virtual std::future<FetchWindowRangeResponse> FetchWindowRangeAsync(
+        grpcdc::Endpoint::CallContext& ctx, FetchWindowRangeRequest& req) = 0;
   };
 
  private:
@@ -227,6 +275,14 @@ struct Kafka_streamsGrpcDc {
     FetchWindowResponse FetchWindow(grpcdc::Endpoint::CallContext& ctx,
                        FetchWindowRequest& req) override {
       return impl_->FetchWindowAsync(ctx, req).get();
+    }
+    FetchRangeResponse FetchRange(grpcdc::Endpoint::CallContext& ctx,
+                       FetchRangeRequest& req) override {
+      return impl_->FetchRangeAsync(ctx, req).get();
+    }
+    FetchWindowRangeResponse FetchWindowRange(grpcdc::Endpoint::CallContext& ctx,
+                       FetchWindowRangeRequest& req) override {
+      return impl_->FetchWindowRangeAsync(ctx, req).get();
     }
 
    private:
@@ -297,6 +353,26 @@ struct Kafka_streamsGrpcDc {
                reqs.RecvInto(req);
                auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
                FetchWindowResponse resp = impl.FetchWindow(mutable_ctx, req);
+               sink(ctx.EncodeMessage(resp));
+             }},
+            {"FetchRange", "/grpcdc.kafka.streams.v1.KafkaStreams/FetchRange", grpcdc::Server::kKindUnary,
+             [&impl](const grpcdc::Endpoint::CallContext& ctx,
+                     grpcdc::Server::RequestStream& reqs,
+                     grpcdc::Server::ServerSink& sink) {
+               FetchRangeRequest req;
+               reqs.RecvInto(req);
+               auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
+               FetchRangeResponse resp = impl.FetchRange(mutable_ctx, req);
+               sink(ctx.EncodeMessage(resp));
+             }},
+            {"FetchWindowRange", "/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindowRange", grpcdc::Server::kKindUnary,
+             [&impl](const grpcdc::Endpoint::CallContext& ctx,
+                     grpcdc::Server::RequestStream& reqs,
+                     grpcdc::Server::ServerSink& sink) {
+               FetchWindowRangeRequest req;
+               reqs.RecvInto(req);
+               auto mutable_ctx = const_cast<grpcdc::Endpoint::CallContext&>(ctx);
+               FetchWindowRangeResponse resp = impl.FetchWindowRange(mutable_ctx, req);
                sink(ctx.EncodeMessage(resp));
              }},
         }});

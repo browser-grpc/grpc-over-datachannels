@@ -58,6 +58,20 @@ class KafkaStreamsClient {
     return resp;
   }
 
+  Future<FetchRangeResponse> fetchRange(FetchRangeRequest req,
+      {Map<String, String>? metadata, Duration? timeout}) async {
+    final resp = FetchRangeResponse();
+    await _channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchRange", req, resp, metadata: metadata, timeout: timeout);
+    return resp;
+  }
+
+  Future<FetchWindowRangeResponse> fetchWindowRange(FetchWindowRangeRequest req,
+      {Map<String, String>? metadata, Duration? timeout}) async {
+    final resp = FetchWindowRangeResponse();
+    await _channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindowRange", req, resp, metadata: metadata, timeout: timeout);
+    return resp;
+  }
+
 }
 
 /// Service implementation interface for grpcdc.kafka.streams.v1.KafkaStreams.
@@ -68,6 +82,8 @@ abstract class KafkaStreamsServer {
   Future<DeleteTopologyResponse> deleteTopology(CallContext ctx, DeleteTopologyRequest req);
   Future<GetStoreValueResponse> getStoreValue(CallContext ctx, GetStoreValueRequest req);
   Future<FetchWindowResponse> fetchWindow(CallContext ctx, FetchWindowRequest req);
+  Future<FetchRangeResponse> fetchRange(CallContext ctx, FetchRangeRequest req);
+  Future<FetchWindowRangeResponse> fetchWindowRange(CallContext ctx, FetchWindowRangeRequest req);
 }
 
 /// Generated gRPC-over-DataChannels stubs for kafka_streams.proto.
@@ -110,6 +126,18 @@ class Kafka_streamsGrpcDc {
         final req = FetchWindowRequest();
         await reqs.recvInto(req);
         sink(ctx.encodeMessage(await impl.fetchWindow(ctx, req)));
+      }),
+      Method("FetchRange", "/grpcdc.kafka.streams.v1.KafkaStreams/FetchRange", Server.kindUnary,
+          (ctx, reqs, sink) async {
+        final req = FetchRangeRequest();
+        await reqs.recvInto(req);
+        sink(ctx.encodeMessage(await impl.fetchRange(ctx, req)));
+      }),
+      Method("FetchWindowRange", "/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindowRange", Server.kindUnary,
+          (ctx, reqs, sink) async {
+        final req = FetchWindowRangeRequest();
+        await reqs.recvInto(req);
+        sink(ctx.encodeMessage(await impl.fetchWindowRange(ctx, req)));
       }),
     ]));
   }

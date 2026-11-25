@@ -60,6 +60,20 @@ func (c *KafkaStreamsClient) FetchWindow(ctx context.Context, req *FetchWindowRe
 	}
 	return resp, nil
 }
+func (c *KafkaStreamsClient) FetchRange(ctx context.Context, req *FetchRangeRequest) (*FetchRangeResponse, error) {
+	resp := new(FetchRangeResponse)
+	if err := c.Channel.Unary(ctx, "/grpcdc.kafka.streams.v1.KafkaStreams/FetchRange", req, resp); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+func (c *KafkaStreamsClient) FetchWindowRange(ctx context.Context, req *FetchWindowRangeRequest) (*FetchWindowRangeResponse, error) {
+	resp := new(FetchWindowRangeResponse)
+	if err := c.Channel.Unary(ctx, "/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindowRange", req, resp); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
 
 type KafkaStreamsServer interface {
 	CreateTopology(context.Context, *CreateTopologyRequest) (*TopologyInfo, error)
@@ -68,6 +82,8 @@ type KafkaStreamsServer interface {
 	DeleteTopology(context.Context, *DeleteTopologyRequest) (*DeleteTopologyResponse, error)
 	GetStoreValue(context.Context, *GetStoreValueRequest) (*GetStoreValueResponse, error)
 	FetchWindow(context.Context, *FetchWindowRequest) (*FetchWindowResponse, error)
+	FetchRange(context.Context, *FetchRangeRequest) (*FetchRangeResponse, error)
+	FetchWindowRange(context.Context, *FetchWindowRangeRequest) (*FetchWindowRangeResponse, error)
 }
 
 func RegisterKafkaStreamsServer(s *grpcdc.Server, srv KafkaStreamsServer) {
@@ -155,6 +171,36 @@ func RegisterKafkaStreamsServer(s *grpcdc.Server, srv KafkaStreamsServer) {
 					return err
 				}
 				resp, err := srv.FetchWindow(ctx, req)
+				if err != nil {
+					return err
+				}
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
+			}},
+			{Name: "FetchRange", Path: "/grpcdc.kafka.streams.v1.KafkaStreams/FetchRange", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
+				req := new(FetchRangeRequest)
+				if err := reqs.RecvInto(req); err != nil {
+					return err
+				}
+				resp, err := srv.FetchRange(ctx, req)
+				if err != nil {
+					return err
+				}
+				encoded, err := grpcdc.EncodeMessageForCall(ctx, resp)
+				if err != nil {
+					return err
+				}
+				return sink.Send(encoded)
+			}},
+			{Name: "FetchWindowRange", Path: "/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindowRange", Kind: grpcdc.KindUnary, Handler: func(ctx context.Context, reqs *grpcdc.RequestStream, sink grpcdc.ServerSink) error {
+				req := new(FetchWindowRangeRequest)
+				if err := reqs.RecvInto(req); err != nil {
+					return err
+				}
+				resp, err := srv.FetchWindowRange(ctx, req)
 				if err != nil {
 					return err
 				}

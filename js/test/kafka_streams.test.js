@@ -1137,3 +1137,23 @@ test("kafka streams table-table join emits on either side update", { skip: !PROX
   }
   assert.deepEqual(seen, ["x=L1|R1", "x=L2|R1"]);
 });
+
+test("kafka streams FetchRange and FetchWindowRange scans", { skip: !PROXY_ADDR }, async (t) => {
+  const { kafka, streams, source, sink, name } = await setupStreams(t);
+  void sink;
+  await produceLines(kafka, source, ["apple apple", "apricot", "banana apple"]);
+  for (const [k, v] of [["apple", 3n], ["apricot", 1n], ["banana", 1n]]) {
+    await waitStore(streams, name, k, v);
+  }
+  const { FetchRangeRequest, FetchWindowRangeRequest } = await import("../src/kafka_streams_pb.js");
+  const range = await streams.fetchRange(new FetchRangeRequest({ topology: name, prefix: "ap", limit: 10 }));
+  assert.deepEqual(range.entries.map((e) => [e.key, e.value]), [["apple", 3n], ["apricot", 1n]]);
+  const limited = await streams.fetchRange(new FetchRangeRequest({ topology: name, prefix: "", limit: 2 }));
+  assert.equal(limited.entries.length, 2);
+  const none = await streams.fetchRange(new FetchRangeRequest({ topology: name, prefix: "zzz" }));
+  assert.equal(none.entries.length, 0);
+  const wins = await streams.fetchWindowRange(new FetchWindowRangeRequest({
+    topology: name, key: "apple", fromMs: 0n, toMs: 9999999999999n,
+  }));
+  assert.equal(wins.entries.length, 0, "unwindowed topology has no window entries");
+});

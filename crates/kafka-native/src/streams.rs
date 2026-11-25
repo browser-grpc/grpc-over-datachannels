@@ -607,6 +607,59 @@ pub fn processor_context_service(svc: Arc<StreamsService>) -> ServiceDef {
     )
 }
 
+/// Split a windowed store key into (key, start, end);
+/// windowed keys are key || 0x00 || start_be64 || end_be64.
+fn split_window_key(k: &[u8]) -> Option<(Vec<u8>, i64, i64)> {
+    if k.len() < 17 {
+        return None;
+    }
+    let sep = k.len() - 17;
+    if k[sep] != 0 {
+        return None;
+    }
+    let start = i64::from_be_bytes(k[sep + 1..sep + 9].try_into().ok()?);
+    let end = i64::from_be_bytes(k[sep + 9..sep + 17].try_into().ok()?);
+    Some((k[..sep].to_vec(), start, end))
+}
+
+/// Prefix scan over the unwindowed store entries.
+fn scan_range(
+    store: &HashMap<Vec<u8>, i64>,
+    prefix: &[u8],
+    limit: usize,
+) -> Vec<(Vec<u8>, i64)> {
+    let mut hits: Vec<(Vec<u8>, i64)> = store
+        .iter()
+        .filter(|(k, _)| split_window_key(k).is_none() && k.starts_with(prefix))
+        .map(|(k, v)| (k.clone(), *v))
+        .collect();
+    hits.sort();
+    hits.truncate(limit.max(1));
+    hits
+}
+
+/// All windows stored for one key within [from_ms, to_ms].
+fn scan_windows(
+    store: &HashMap<Vec<u8>, i64>,
+    key: &[u8],
+    from_ms: i64,
+    to_ms: i64,
+) -> Vec<(i64, i64, i64)> {
+    let mut hits: Vec<(i64, i64, i64)> = store
+        .iter()
+        .filter_map(|(k, v)| {
+            let (kk, start, end) = split_window_key(k)?;
+            if kk == key && start >= from_ms && end <= to_ms {
+                Some((start, end, *v))
+            } else {
+                None
+            }
+        })
+        .collect();
+    hits.sort();
+    hits
+}
+
 /// ServiceDef for grpcdc.kafka.streams.v1.KafkaStreams,
 /// registered alongside the Kafka service by the proxy. (The
 /// generated Rust stub assumes a crate::pb layout this crate
@@ -643,6 +696,53 @@ pub fn streams_service(svc: Arc<StreamsService>) -> ServiceDef {
                 move |req, _ctx: CallCtx| {
                     let svc = svc.clone();
                     async move { svc.delete_topology(req).await }
+                }
+            }),
+            grpc_dc::unary_method("FetchRange", {
+                let svc = svc.clone();
+                move |req: spb::FetchRangeRequest, _ctx: CallCtx| {
+                    let svc = svc.clone();
+                    async move {
+                        let topologies = svc.topologies.lock().await;
+                        let handle = topologies
+                            .get(&req.topology)
+                            .ok_or_else(|| Status::new(grpc_dc::Code::NotFound, "unknown topology"))?;
+                        let state = handle.state.lock().await;
+                        let limit = if req.limit > 0 { req.limit as usize } else { 100 };
+                        let entries = scan_range(&state.store, req.prefix.as_bytes(), limit)
+                            .into_iter()
+                            .map(|(k, v)| spb::StoreEntry {
+                                key: String::from_utf8_lossy(&k).into_owned(),
+                                value: v,
+                                ..Default::default()
+                            })
+                            .collect();
+                        Ok(spb::FetchRangeResponse { entries, ..Default::default() })
+                    }
+                }
+            }),
+            grpc_dc::unary_method("FetchWindowRange", {
+                let svc = svc.clone();
+                move |req: spb::FetchWindowRangeRequest, _ctx: CallCtx| {
+                    let svc = svc.clone();
+                    async move {
+                        let topologies = svc.topologies.lock().await;
+                        let handle = topologies
+                            .get(&req.topology)
+                            .ok_or_else(|| Status::new(grpc_dc::Code::NotFound, "unknown topology"))?;
+                        let state = handle.state.lock().await;
+                        let entries = scan_windows(&state.store, req.key.as_bytes(), req.from_ms, req.to_ms)
+                            .into_iter()
+                            .map(|(start, end, v)| spb::StoreEntry {
+                                key: req.key.clone(),
+                                value: v,
+                                window_start_ms: start,
+                                window_end_ms: end,
+                                ..Default::default()
+                            })
+                            .collect();
+                        Ok(spb::FetchWindowRangeResponse { entries, ..Default::default() })
+                    }
                 }
             }),
             grpc_dc::unary_method("FetchWindow", {
@@ -2150,6 +2250,22 @@ mod tests {
         let other = apply_pipeline(&ops, &PipeRec { key: b"k".to_vec(), value: b"R2".to_vec(), ts: 2100, window: None, precomputed: false, join_side: true },
             &mut PipelineCtx { store: &mut store, stream_time: &mut st, table: &EMPTY_TABLE, sessions: &mut sessions, key_records: &mut records, processors: &mut HashMap::new(), topology_name: "t", join_buffer: &mut jb }).await;
         assert!(other.is_empty());
+    }
+
+    #[test]
+    fn range_and_window_scans() {
+        let mut store: HashMap<Vec<u8>, i64> = HashMap::new();
+        store.insert(b"apple".to_vec(), 3);
+        store.insert(b"apricot".to_vec(), 1);
+        store.insert(b"banana".to_vec(), 2);
+        store.insert(store_key(b"apple", Some((100, 200))), 5);
+        store.insert(store_key(b"apple", Some((200, 300))), 7);
+        let hits = scan_range(&store, b"ap", 100);
+        assert_eq!(hits, vec![(b"apple".to_vec(), 3), (b"apricot".to_vec(), 1)]);
+        assert_eq!(scan_range(&store, b"ap", 1).len(), 1);
+        let wins = scan_windows(&store, b"apple", 0, 250);
+        assert_eq!(wins, vec![(100, 200, 5)]);
+        assert_eq!(scan_windows(&store, b"apple", 0, 300).len(), 2);
     }
 
     #[test]

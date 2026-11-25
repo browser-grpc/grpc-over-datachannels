@@ -123,6 +123,38 @@ public final class Kafka_streamsGrpcDc {
             channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", req, resp, metadata, timeout);
             return resp;
         }
+        public FetchRangeResponse FetchRange(FetchRangeRequest req, Map<String, String> metadata) throws Exception {
+            FetchRangeResponse resp = new FetchRangeResponse();
+            channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchRange", req, resp, metadata);
+            return resp;
+        }
+
+        public FetchRangeResponse FetchRange(FetchRangeRequest req) throws Exception {
+            return FetchRange(req, null);
+        }
+
+        /** Deadline variant: timeout propagates as grpc-timeout; expiry raises DEADLINE_EXCEEDED. */
+        public FetchRangeResponse FetchRange(FetchRangeRequest req, Map<String, String> metadata, java.time.Duration timeout) throws Exception {
+            FetchRangeResponse resp = new FetchRangeResponse();
+            channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchRange", req, resp, metadata, timeout);
+            return resp;
+        }
+        public FetchWindowRangeResponse FetchWindowRange(FetchWindowRangeRequest req, Map<String, String> metadata) throws Exception {
+            FetchWindowRangeResponse resp = new FetchWindowRangeResponse();
+            channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindowRange", req, resp, metadata);
+            return resp;
+        }
+
+        public FetchWindowRangeResponse FetchWindowRange(FetchWindowRangeRequest req) throws Exception {
+            return FetchWindowRange(req, null);
+        }
+
+        /** Deadline variant: timeout propagates as grpc-timeout; expiry raises DEADLINE_EXCEEDED. */
+        public FetchWindowRangeResponse FetchWindowRange(FetchWindowRangeRequest req, Map<String, String> metadata, java.time.Duration timeout) throws Exception {
+            FetchWindowRangeResponse resp = new FetchWindowRangeResponse();
+            channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindowRange", req, resp, metadata, timeout);
+            return resp;
+        }
         public CompletableFuture<TopologyInfo> CreateTopologyAsync(CreateTopologyRequest req, Map<String, String> metadata) {
             return CompletableFuture.supplyAsync(() -> {
                 try {
@@ -201,6 +233,32 @@ public final class Kafka_streamsGrpcDc {
         public CompletableFuture<FetchWindowResponse> FetchWindowAsync(FetchWindowRequest req) {
             return FetchWindowAsync(req, null);
         }
+        public CompletableFuture<FetchRangeResponse> FetchRangeAsync(FetchRangeRequest req, Map<String, String> metadata) {
+            return CompletableFuture.supplyAsync(() -> {
+                try {
+                    return FetchRange(req, metadata);
+                } catch (Exception e) {
+                    throw new CompletionException(e);
+                }
+            });
+        }
+
+        public CompletableFuture<FetchRangeResponse> FetchRangeAsync(FetchRangeRequest req) {
+            return FetchRangeAsync(req, null);
+        }
+        public CompletableFuture<FetchWindowRangeResponse> FetchWindowRangeAsync(FetchWindowRangeRequest req, Map<String, String> metadata) {
+            return CompletableFuture.supplyAsync(() -> {
+                try {
+                    return FetchWindowRange(req, metadata);
+                } catch (Exception e) {
+                    throw new CompletionException(e);
+                }
+            });
+        }
+
+        public CompletableFuture<FetchWindowRangeResponse> FetchWindowRangeAsync(FetchWindowRangeRequest req) {
+            return FetchWindowRangeAsync(req, null);
+        }
     }
 
     /** Service implementation interface for grpcdc.kafka.streams.v1.KafkaStreams. */
@@ -211,6 +269,8 @@ public final class Kafka_streamsGrpcDc {
         DeleteTopologyResponse DeleteTopology(Endpoint.CallContext ctx, DeleteTopologyRequest req) throws Exception;
         GetStoreValueResponse GetStoreValue(Endpoint.CallContext ctx, GetStoreValueRequest req) throws Exception;
         FetchWindowResponse FetchWindow(Endpoint.CallContext ctx, FetchWindowRequest req) throws Exception;
+        FetchRangeResponse FetchRange(Endpoint.CallContext ctx, FetchRangeRequest req) throws Exception;
+        FetchWindowRangeResponse FetchWindowRange(Endpoint.CallContext ctx, FetchWindowRangeRequest req) throws Exception;
     }
 
     /** Async service implementation interface for grpcdc.kafka.streams.v1.KafkaStreams. */
@@ -221,6 +281,8 @@ public final class Kafka_streamsGrpcDc {
         CompletableFuture<DeleteTopologyResponse> DeleteTopologyAsync(Endpoint.CallContext ctx, DeleteTopologyRequest req);
         CompletableFuture<GetStoreValueResponse> GetStoreValueAsync(Endpoint.CallContext ctx, GetStoreValueRequest req);
         CompletableFuture<FetchWindowResponse> FetchWindowAsync(Endpoint.CallContext ctx, FetchWindowRequest req);
+        CompletableFuture<FetchRangeResponse> FetchRangeAsync(Endpoint.CallContext ctx, FetchRangeRequest req);
+        CompletableFuture<FetchWindowRangeResponse> FetchWindowRangeAsync(Endpoint.CallContext ctx, FetchWindowRangeRequest req);
     }
 
     private static final class KafkaStreamsServerAsyncAdapter implements KafkaStreamsServer {
@@ -290,6 +352,26 @@ public final class Kafka_streamsGrpcDc {
             }
         }
 
+        public FetchRangeResponse FetchRange(Endpoint.CallContext ctx, FetchRangeRequest req) throws Exception {
+            try {
+                return impl.FetchRangeAsync(ctx, req).join();
+            } catch (CompletionException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof Exception ex) throw ex;
+                throw e;
+            }
+        }
+
+        public FetchWindowRangeResponse FetchWindowRange(Endpoint.CallContext ctx, FetchWindowRangeRequest req) throws Exception {
+            try {
+                return impl.FetchWindowRangeAsync(ctx, req).join();
+            } catch (CompletionException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof Exception ex) throw ex;
+                throw e;
+            }
+        }
+
     }
 
     /** Register an implementation of grpcdc.kafka.streams.v1.KafkaStreams on a Server. */
@@ -326,6 +408,16 @@ public final class Kafka_streamsGrpcDc {
                         FetchWindowRequest req = new FetchWindowRequest();
                         reqs.recvInto(req);
                         sink.send(ctx.encodeMessage(impl.FetchWindow(ctx, req)));
+                    }),
+                    new Server.Method("FetchRange", "/grpcdc.kafka.streams.v1.KafkaStreams/FetchRange", Server.KIND_UNARY, (ctx, reqs, sink) -> {
+                        FetchRangeRequest req = new FetchRangeRequest();
+                        reqs.recvInto(req);
+                        sink.send(ctx.encodeMessage(impl.FetchRange(ctx, req)));
+                    }),
+                    new Server.Method("FetchWindowRange", "/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindowRange", Server.KIND_UNARY, (ctx, reqs, sink) -> {
+                        FetchWindowRangeRequest req = new FetchWindowRangeRequest();
+                        reqs.recvInto(req);
+                        sink.send(ctx.encodeMessage(impl.FetchWindowRange(ctx, req)));
                     })
                 )));
     }

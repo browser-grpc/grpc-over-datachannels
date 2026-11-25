@@ -784,3 +784,230 @@ export class FetchWindowResponse {
   }
 }
 
+export class StoreEntry {
+  constructor({ key = "", value = 0n, windowStartMs = 0n, windowEndMs = 0n } = {}) {
+    this.key = key;
+    this.value = value;
+    this.windowStartMs = windowStartMs;
+    this.windowEndMs = windowEndMs;
+    this.unknownFields = EMPTY_BYTES;
+  }
+  static encode(msg) {
+    const out = [];
+    putStringField(out, 1, msg.key);
+    putVarintField(out, 2, BigInt(msg.value));
+    putVarintField(out, 3, BigInt(msg.windowStartMs));
+    putVarintField(out, 4, BigInt(msg.windowEndMs));
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new StoreEntry();
+    StoreEntry._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    StoreEntry._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.key = textDecoder.decode(value); break;
+      case 2: msg.value = BigInt.asIntN(64, value); break;
+      case 3: msg.windowStartMs = BigInt.asIntN(64, value); break;
+      case 4: msg.windowEndMs = BigInt.asIntN(64, value); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+  _reset() {
+    this.key = "";
+    this.value = 0n;
+    this.windowStartMs = 0n;
+    this.windowEndMs = 0n;
+    this.unknownFields = EMPTY_BYTES;
+  }
+}
+
+export class FetchRangeRequest {
+  constructor({ topology = "", prefix = "", limit = 0 } = {}) {
+    this.topology = topology;
+    this.prefix = prefix;
+    this.limit = limit;
+    this.unknownFields = EMPTY_BYTES;
+  }
+  static encode(msg) {
+    const out = [];
+    putStringField(out, 1, msg.topology);
+    putStringField(out, 2, msg.prefix);
+    putVarintField(out, 3, BigInt(msg.limit));
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new FetchRangeRequest();
+    FetchRangeRequest._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    FetchRangeRequest._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.topology = textDecoder.decode(value); break;
+      case 2: msg.prefix = textDecoder.decode(value); break;
+      case 3: msg.limit = Number(BigInt.asIntN(32, value)); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+  _reset() {
+    this.topology = "";
+    this.prefix = "";
+    this.limit = 0;
+    this.unknownFields = EMPTY_BYTES;
+  }
+}
+
+export class FetchRangeResponse {
+  constructor({ entries = [] } = {}) {
+    this.entries = entries;
+    this.unknownFields = EMPTY_BYTES;
+  }
+  static encode(msg) {
+    const out = [];
+    if (msg.entries) for (const v of msg.entries) putBytesField(out, 1, StoreEntry.encode(v));
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new FetchRangeResponse();
+    FetchRangeResponse._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    FetchRangeResponse._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.entries.push(StoreEntry.decode(value)); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+  _reset() {
+    this.entries = [];
+    this.unknownFields = EMPTY_BYTES;
+  }
+}
+
+export class FetchWindowRangeRequest {
+  constructor({ topology = "", key = "", fromMs = 0n, toMs = 0n } = {}) {
+    this.topology = topology;
+    this.key = key;
+    this.fromMs = fromMs;
+    this.toMs = toMs;
+    this.unknownFields = EMPTY_BYTES;
+  }
+  static encode(msg) {
+    const out = [];
+    putStringField(out, 1, msg.topology);
+    putStringField(out, 2, msg.key);
+    putVarintField(out, 3, BigInt(msg.fromMs));
+    putVarintField(out, 4, BigInt(msg.toMs));
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new FetchWindowRangeRequest();
+    FetchWindowRangeRequest._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    FetchWindowRangeRequest._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.topology = textDecoder.decode(value); break;
+      case 2: msg.key = textDecoder.decode(value); break;
+      case 3: msg.fromMs = BigInt.asIntN(64, value); break;
+      case 4: msg.toMs = BigInt.asIntN(64, value); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+  _reset() {
+    this.topology = "";
+    this.key = "";
+    this.fromMs = 0n;
+    this.toMs = 0n;
+    this.unknownFields = EMPTY_BYTES;
+  }
+}
+
+export class FetchWindowRangeResponse {
+  constructor({ entries = [] } = {}) {
+    this.entries = entries;
+    this.unknownFields = EMPTY_BYTES;
+  }
+  static encode(msg) {
+    const out = [];
+    if (msg.entries) for (const v of msg.entries) putBytesField(out, 1, StoreEntry.encode(v));
+    putRaw(out, msg.unknownFields);
+    return new Uint8Array(out);
+  }
+  static decode(bytes) {
+    const msg = new FetchWindowRangeResponse();
+    FetchWindowRangeResponse._fill(msg, bytes);
+    return msg;
+  }
+  static decodeInto(msg, bytes) {
+    msg._reset();
+    FetchWindowRangeResponse._fill(msg, bytes);
+    return msg;
+  }
+  static _fill(msg, bytes) {
+    const reader = new Reader(bytes);
+    let f;
+    while ((f = reader.field()) !== null) {
+      const [num, wire, value, raw] = f;
+      switch (num) {
+      case 1: msg.entries.push(StoreEntry.decode(value)); break;
+        default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
+      }
+    }
+    return msg;
+  }
+  _reset() {
+    this.entries = [];
+    this.unknownFields = EMPTY_BYTES;
+  }
+}
+

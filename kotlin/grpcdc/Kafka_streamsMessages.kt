@@ -684,3 +684,180 @@ enum class ProcessingGuarantee(val number: Int) {
         }
     }
 }
+ class StoreEntry(
+    var key: String = "",
+    var value: Long = 0L,
+    var windowStartMs: Long = 0L,
+    var windowEndMs: Long = 0L,
+) : Marshaler, Unmarshaler {
+    var unknownFields: ByteArray = ByteArray(0)
+    override fun marshalDc(): ByteArray {
+        val pbW = Kafka_streamsPb.Writer()
+        pbW.stringField(1, key)
+        if (value != 0L) { pbW.tag(2, 0); pbW.varint(value) }
+        if (windowStartMs != 0L) { pbW.tag(3, 0); pbW.varint(windowStartMs) }
+        if (windowEndMs != 0L) { pbW.tag(4, 0); pbW.varint(windowEndMs) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
+    }
+    override fun unmarshalDc(data: ByteArray) {
+        unknownFields = ByteArray(0)
+        key = ""
+        value = 0L
+        windowStartMs = 0L
+        windowEndMs = 0L
+        val pbR = Kafka_streamsPb.Reader(data)
+        while (true) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
+                1 -> {
+                    key = String(pbField.bytesValue, Charsets.UTF_8)
+                }
+                2 -> {
+                    value = pbField.varintValue
+                }
+                3 -> {
+                    windowStartMs = pbField.varintValue
+                }
+                4 -> {
+                    windowEndMs = pbField.varintValue
+                }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
+            }
+        }
+    }
+}
+ class FetchRangeRequest(
+    var topology: String = "",
+    var prefix: String = "",
+    var limit: Int = 0,
+) : Marshaler, Unmarshaler {
+    var unknownFields: ByteArray = ByteArray(0)
+    override fun marshalDc(): ByteArray {
+        val pbW = Kafka_streamsPb.Writer()
+        pbW.stringField(1, topology)
+        pbW.stringField(2, prefix)
+        if (limit != 0) { pbW.tag(3, 0); pbW.varint(limit.toLong()) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
+    }
+    override fun unmarshalDc(data: ByteArray) {
+        unknownFields = ByteArray(0)
+        topology = ""
+        prefix = ""
+        limit = 0
+        val pbR = Kafka_streamsPb.Reader(data)
+        while (true) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
+                1 -> {
+                    topology = String(pbField.bytesValue, Charsets.UTF_8)
+                }
+                2 -> {
+                    prefix = String(pbField.bytesValue, Charsets.UTF_8)
+                }
+                3 -> {
+                    limit = pbField.varintValue.toInt()
+                }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
+            }
+        }
+    }
+}
+ class FetchRangeResponse(
+    var entries: MutableList<StoreEntry> = mutableListOf(),
+) : Marshaler, Unmarshaler {
+    var unknownFields: ByteArray = ByteArray(0)
+    override fun marshalDc(): ByteArray {
+        val pbW = Kafka_streamsPb.Writer()
+        for (pbX in entries) pbW.bytesField(1, pbX.marshalDc())
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
+    }
+    override fun unmarshalDc(data: ByteArray) {
+        unknownFields = ByteArray(0)
+        entries = mutableListOf()
+        val pbR = Kafka_streamsPb.Reader(data)
+        while (true) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
+                1 -> {
+                    val pbItem = StoreEntry()
+                    pbItem.unmarshalDc(pbField.bytesValue)
+                    entries.add(pbItem)
+                }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
+            }
+        }
+    }
+}
+ class FetchWindowRangeRequest(
+    var topology: String = "",
+    var key: String = "",
+    var fromMs: Long = 0L,
+    var toMs: Long = 0L,
+) : Marshaler, Unmarshaler {
+    var unknownFields: ByteArray = ByteArray(0)
+    override fun marshalDc(): ByteArray {
+        val pbW = Kafka_streamsPb.Writer()
+        pbW.stringField(1, topology)
+        pbW.stringField(2, key)
+        if (fromMs != 0L) { pbW.tag(3, 0); pbW.varint(fromMs) }
+        if (toMs != 0L) { pbW.tag(4, 0); pbW.varint(toMs) }
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
+    }
+    override fun unmarshalDc(data: ByteArray) {
+        unknownFields = ByteArray(0)
+        topology = ""
+        key = ""
+        fromMs = 0L
+        toMs = 0L
+        val pbR = Kafka_streamsPb.Reader(data)
+        while (true) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
+                1 -> {
+                    topology = String(pbField.bytesValue, Charsets.UTF_8)
+                }
+                2 -> {
+                    key = String(pbField.bytesValue, Charsets.UTF_8)
+                }
+                3 -> {
+                    fromMs = pbField.varintValue
+                }
+                4 -> {
+                    toMs = pbField.varintValue
+                }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
+            }
+        }
+    }
+}
+ class FetchWindowRangeResponse(
+    var entries: MutableList<StoreEntry> = mutableListOf(),
+) : Marshaler, Unmarshaler {
+    var unknownFields: ByteArray = ByteArray(0)
+    override fun marshalDc(): ByteArray {
+        val pbW = Kafka_streamsPb.Writer()
+        for (pbX in entries) pbW.bytesField(1, pbX.marshalDc())
+        pbW.raw(unknownFields)
+        return pbW.toBytes()
+    }
+    override fun unmarshalDc(data: ByteArray) {
+        unknownFields = ByteArray(0)
+        entries = mutableListOf()
+        val pbR = Kafka_streamsPb.Reader(data)
+        while (true) {
+            val pbField = pbR.next() ?: break
+            when (pbField.number) {
+                1 -> {
+                    val pbItem = StoreEntry()
+                    pbItem.unmarshalDc(pbField.bytesValue)
+                    entries.add(pbItem)
+                }
+                else -> { unknownFields = unknownFields + pbField.rawValue }
+            }
+        }
+    }
+}

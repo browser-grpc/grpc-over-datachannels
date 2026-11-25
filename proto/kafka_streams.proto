@@ -253,6 +253,37 @@ message FetchWindowResponse {
   int64 value = 5;
 }
 
+message StoreEntry {
+  string key = 1;
+  int64 value = 2;
+  // Windowed stores only: the window this entry belongs to.
+  int64 window_start_ms = 3;
+  int64 window_end_ms = 4;
+}
+
+message FetchRangeRequest {
+  string topology = 1;
+  // Key prefix (UTF-8) to scan; empty scans from the start.
+  string prefix = 2;
+  // Max entries to return (key-ordered); 0 = 100.
+  int32 limit = 3;
+}
+
+message FetchRangeResponse {
+  repeated StoreEntry entries = 1;
+}
+
+message FetchWindowRangeRequest {
+  string topology = 1;
+  string key = 2;
+  int64 from_ms = 3;
+  int64 to_ms = 4;
+}
+
+message FetchWindowRangeResponse {
+  repeated StoreEntry entries = 1;
+}
+
 service KafkaStreams {
   rpc CreateTopology(CreateTopologyRequest) returns (TopologyInfo);
   rpc DescribeTopology(DescribeTopologyRequest) returns (TopologyInfo);
@@ -260,4 +291,6 @@ service KafkaStreams {
   rpc DeleteTopology(DeleteTopologyRequest) returns (DeleteTopologyResponse);
   rpc GetStoreValue(GetStoreValueRequest) returns (GetStoreValueResponse);
   rpc FetchWindow(FetchWindowRequest) returns (FetchWindowResponse);
+  rpc FetchRange(FetchRangeRequest) returns (FetchRangeResponse);
+  rpc FetchWindowRange(FetchWindowRangeRequest) returns (FetchWindowRangeResponse);
 }

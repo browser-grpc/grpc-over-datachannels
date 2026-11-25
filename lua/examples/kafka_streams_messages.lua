@@ -127,6 +127,11 @@ local GetStoreValueRequest
 local GetStoreValueResponse
 local FetchWindowRequest
 local FetchWindowResponse
+local StoreEntry
+local FetchRangeRequest
+local FetchRangeResponse
+local FetchWindowRangeRequest
+local FetchWindowRangeResponse
 local Operator = { OPERATOR_UNSPECIFIED = 0, TOKENIZE_WORDS = 1, GROUP_BY_KEY = 2, COUNT = 3, MAP_VALUES = 4, FILTER = 5, SELECT_KEY = 6, AGGREGATE = 7, REDUCE = 8, WINDOW_TUMBLING = 9, WINDOW_HOPPING = 10, JOIN_TABLE = 11, WINDOW_SESSION = 12, WINDOW_SLIDING = 13, COGROUP = 14, JOIN_GLOBAL_TABLE = 15, PROCESS = 16, JOIN_STREAM = 17, JOIN_TABLE_TABLE = 18 }
 
 local Aggregator = { AGGREGATOR_UNSPECIFIED = 0, AGGREGATE_COUNT = 1, AGGREGATE_SUM = 2, AGGREGATE_MIN = 3, AGGREGATE_MAX = 4 }
@@ -684,6 +689,192 @@ function FetchWindowResponse:unmarshalDc(data)
   end
 end
 
+StoreEntry = {}
+StoreEntry.__index = StoreEntry
+
+function StoreEntry.new(key, value, windowStartMs, windowEndMs)
+  return setmetatable({ key = key or "", value = value or 0, windowStartMs = windowStartMs or 0, windowEndMs = windowEndMs or 0, unknownFields = "" }, StoreEntry)
+end
+
+function StoreEntry:marshalDc()
+  local w = Writer.new()
+    w:stringField(1, self.key)
+    if self.value ~= 0 then w:tag(2, 0) w:varint(self.value) end
+    if self.windowStartMs ~= 0 then w:tag(3, 0) w:varint(self.windowStartMs) end
+    if self.windowEndMs ~= 0 then w:tag(4, 0) w:varint(self.windowEndMs) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function StoreEntry:unmarshalDc(data)
+  self.unknownFields = ""
+  self.key = ""
+  self.value = 0
+  self.windowStartMs = 0
+  self.windowEndMs = 0
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      self.key = field.bytesValue
+    elseif field.number == 2 then
+      self.value = field.varintValue
+    elseif field.number == 3 then
+      self.windowStartMs = field.varintValue
+    elseif field.number == 4 then
+      self.windowEndMs = field.varintValue
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+FetchRangeRequest = {}
+FetchRangeRequest.__index = FetchRangeRequest
+
+function FetchRangeRequest.new(topology, prefix, limit)
+  return setmetatable({ topology = topology or "", prefix = prefix or "", limit = limit or 0, unknownFields = "" }, FetchRangeRequest)
+end
+
+function FetchRangeRequest:marshalDc()
+  local w = Writer.new()
+    w:stringField(1, self.topology)
+    w:stringField(2, self.prefix)
+    if self.limit ~= 0 then w:tag(3, 0) w:varint(self.limit) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function FetchRangeRequest:unmarshalDc(data)
+  self.unknownFields = ""
+  self.topology = ""
+  self.prefix = ""
+  self.limit = 0
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      self.topology = field.bytesValue
+    elseif field.number == 2 then
+      self.prefix = field.bytesValue
+    elseif field.number == 3 then
+      self.limit = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+FetchRangeResponse = {}
+FetchRangeResponse.__index = FetchRangeResponse
+
+function FetchRangeResponse.new(entries)
+  return setmetatable({ entries = entries or {}, unknownFields = "" }, FetchRangeResponse)
+end
+
+function FetchRangeResponse:marshalDc()
+  local w = Writer.new()
+    for _, x in ipairs(self.entries) do w:bytesField(1, x:marshalDc()) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function FetchRangeResponse:unmarshalDc(data)
+  self.unknownFields = ""
+  self.entries = {}
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      local item = StoreEntry.new()
+      item:unmarshalDc(field.bytesValue)
+      self.entries[#self.entries + 1] = item
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+FetchWindowRangeRequest = {}
+FetchWindowRangeRequest.__index = FetchWindowRangeRequest
+
+function FetchWindowRangeRequest.new(topology, key, fromMs, toMs)
+  return setmetatable({ topology = topology or "", key = key or "", fromMs = fromMs or 0, toMs = toMs or 0, unknownFields = "" }, FetchWindowRangeRequest)
+end
+
+function FetchWindowRangeRequest:marshalDc()
+  local w = Writer.new()
+    w:stringField(1, self.topology)
+    w:stringField(2, self.key)
+    if self.fromMs ~= 0 then w:tag(3, 0) w:varint(self.fromMs) end
+    if self.toMs ~= 0 then w:tag(4, 0) w:varint(self.toMs) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function FetchWindowRangeRequest:unmarshalDc(data)
+  self.unknownFields = ""
+  self.topology = ""
+  self.key = ""
+  self.fromMs = 0
+  self.toMs = 0
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      self.topology = field.bytesValue
+    elseif field.number == 2 then
+      self.key = field.bytesValue
+    elseif field.number == 3 then
+      self.fromMs = field.varintValue
+    elseif field.number == 4 then
+      self.toMs = field.varintValue
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
+FetchWindowRangeResponse = {}
+FetchWindowRangeResponse.__index = FetchWindowRangeResponse
+
+function FetchWindowRangeResponse.new(entries)
+  return setmetatable({ entries = entries or {}, unknownFields = "" }, FetchWindowRangeResponse)
+end
+
+function FetchWindowRangeResponse:marshalDc()
+  local w = Writer.new()
+    for _, x in ipairs(self.entries) do w:bytesField(1, x:marshalDc()) end
+  w:raw(self.unknownFields)
+  return w:toBytes()
+end
+
+function FetchWindowRangeResponse:unmarshalDc(data)
+  self.unknownFields = ""
+  self.entries = {}
+  local r = Reader.new(data)
+  while true do
+    local field = r:next()
+    if field == nil then break end
+    if false then
+    elseif field.number == 1 then
+      local item = StoreEntry.new()
+      item:unmarshalDc(field.bytesValue)
+      self.entries[#self.entries + 1] = item
+    else
+      self.unknownFields = self.unknownFields .. field.rawValue
+    end
+  end
+end
+
 return {
   Step = Step,
   Topology = Topology,
@@ -698,6 +889,11 @@ return {
   GetStoreValueResponse = GetStoreValueResponse,
   FetchWindowRequest = FetchWindowRequest,
   FetchWindowResponse = FetchWindowResponse,
+  StoreEntry = StoreEntry,
+  FetchRangeRequest = FetchRangeRequest,
+  FetchRangeResponse = FetchRangeResponse,
+  FetchWindowRangeRequest = FetchWindowRangeRequest,
+  FetchWindowRangeResponse = FetchWindowRangeResponse,
   Operator = Operator,
   Aggregator = Aggregator,
   ProcessingGuarantee = ProcessingGuarantee,

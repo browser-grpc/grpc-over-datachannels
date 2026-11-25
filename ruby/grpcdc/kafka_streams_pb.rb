@@ -893,4 +893,261 @@ end
     end
   end
 
+  class StoreEntry
+    attr_accessor :key, :value, :window_start_ms, :window_end_ms, :unknown_fields
+
+    def initialize(key: "", value: 0, window_start_ms: 0, window_end_ms: 0)
+      @key = key
+      @value = value
+      @window_start_ms = window_start_ms
+      @window_end_ms = window_end_ms
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    w.string_field(1, @key)
+    if @value != 0
+      w.tag(2, 0)
+      w.varint(@value)
+    end
+    if @window_start_ms != 0
+      w.tag(3, 0)
+      w.varint(@window_start_ms)
+    end
+    if @window_end_ms != 0
+      w.tag(4, 0)
+      w.varint(@window_end_ms)
+    end
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @key = ""
+      @value = 0
+      @window_start_ms = 0
+      @window_end_ms = 0
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        @key = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 2
+        @value = (((varint_value & 0xffffffffffffffff) ^ 0x8000000000000000) - 0x8000000000000000)
+      when 3
+        @window_start_ms = (((varint_value & 0xffffffffffffffff) ^ 0x8000000000000000) - 0x8000000000000000)
+      when 4
+        @window_end_ms = (((varint_value & 0xffffffffffffffff) ^ 0x8000000000000000) - 0x8000000000000000)
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(StoreEntry) && @key == other.key && @value == other.value && @window_start_ms == other.window_start_ms && @window_end_ms == other.window_end_ms
+    end
+  end
+
+  class FetchRangeRequest
+    attr_accessor :topology, :prefix, :limit, :unknown_fields
+
+    def initialize(topology: "", prefix: "", limit: 0)
+      @topology = topology
+      @prefix = prefix
+      @limit = limit
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    w.string_field(1, @topology)
+    w.string_field(2, @prefix)
+    if @limit != 0
+      w.tag(3, 0)
+      w.varint(@limit)
+    end
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @topology = ""
+      @prefix = ""
+      @limit = 0
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        @topology = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 2
+        @prefix = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 3
+        @limit = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(FetchRangeRequest) && @topology == other.topology && @prefix == other.prefix && @limit == other.limit
+    end
+  end
+
+  class FetchRangeResponse
+    attr_accessor :entries, :unknown_fields
+
+    def initialize(entries: [])
+      @entries = entries
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    @entries.each { |x| w.bytes_field(1, x.marshal_dc) }
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @entries = []
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        item = StoreEntry.new
+        item.unmarshal_dc(bytes_value)
+        @entries << item
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(FetchRangeResponse) && @entries == other.entries
+    end
+  end
+
+  class FetchWindowRangeRequest
+    attr_accessor :topology, :key, :from_ms, :to_ms, :unknown_fields
+
+    def initialize(topology: "", key: "", from_ms: 0, to_ms: 0)
+      @topology = topology
+      @key = key
+      @from_ms = from_ms
+      @to_ms = to_ms
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    w.string_field(1, @topology)
+    w.string_field(2, @key)
+    if @from_ms != 0
+      w.tag(3, 0)
+      w.varint(@from_ms)
+    end
+    if @to_ms != 0
+      w.tag(4, 0)
+      w.varint(@to_ms)
+    end
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @topology = ""
+      @key = ""
+      @from_ms = 0
+      @to_ms = 0
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        @topology = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 2
+        @key = bytes_value.dup.force_encoding(Encoding::UTF_8)
+      when 3
+        @from_ms = (((varint_value & 0xffffffffffffffff) ^ 0x8000000000000000) - 0x8000000000000000)
+      when 4
+        @to_ms = (((varint_value & 0xffffffffffffffff) ^ 0x8000000000000000) - 0x8000000000000000)
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(FetchWindowRangeRequest) && @topology == other.topology && @key == other.key && @from_ms == other.from_ms && @to_ms == other.to_ms
+    end
+  end
+
+  class FetchWindowRangeResponse
+    attr_accessor :entries, :unknown_fields
+
+    def initialize(entries: [])
+      @entries = entries
+      @unknown_fields = "".b
+    end
+
+    def marshal_dc
+      w = Writer.new
+    @entries.each { |x| w.bytes_field(1, x.marshal_dc) }
+      w.raw(@unknown_fields)
+      w.to_bytes
+    end
+
+    def unmarshal_dc(data)
+      @unknown_fields = "".b
+      @entries = []
+      r = Reader.new(data)
+      loop do
+        item = r.field
+        break if item.nil?
+
+        num, wire, varint_value, bytes_value, fixed_value, raw_value = item
+        case num
+      when 1
+        item = StoreEntry.new
+        item.unmarshal_dc(bytes_value)
+        @entries << item
+        else
+          @unknown_fields = @unknown_fields + raw_value
+        end
+      end
+      self
+    end
+
+    def ==(other)
+      other.is_a?(FetchWindowRangeResponse) && @entries == other.entries
+    end
+  end
+
 end

@@ -52,6 +52,18 @@ object Kafka_streamsGrpcDc {
             return resp
         }
 
+        fun FetchRange(req: FetchRangeRequest, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): FetchRangeResponse {
+            val resp = FetchRangeResponse()
+            channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchRange", req, resp, metadata, timeout)
+            return resp
+        }
+
+        fun FetchWindowRange(req: FetchWindowRangeRequest, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): FetchWindowRangeResponse {
+            val resp = FetchWindowRangeResponse()
+            channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindowRange", req, resp, metadata, timeout)
+            return resp
+        }
+
         // -- async (coroutine / CompletableFuture) surface ---------------
 
         suspend fun CreateTopologyAsync(req: CreateTopologyRequest, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): TopologyInfo {
@@ -102,6 +114,22 @@ object Kafka_streamsGrpcDc {
             return AsyncPump.future { FetchWindow(req, metadata, timeout) }
         }
 
+        suspend fun FetchRangeAsync(req: FetchRangeRequest, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): FetchRangeResponse {
+            return AsyncPump.await(FetchRangeFuture(req, metadata, timeout))
+        }
+
+        fun FetchRangeFuture(req: FetchRangeRequest, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): CompletableFuture<FetchRangeResponse> {
+            return AsyncPump.future { FetchRange(req, metadata, timeout) }
+        }
+
+        suspend fun FetchWindowRangeAsync(req: FetchWindowRangeRequest, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): FetchWindowRangeResponse {
+            return AsyncPump.await(FetchWindowRangeFuture(req, metadata, timeout))
+        }
+
+        fun FetchWindowRangeFuture(req: FetchWindowRangeRequest, metadata: Map<String, String>? = null, timeout: java.time.Duration? = null): CompletableFuture<FetchWindowRangeResponse> {
+            return AsyncPump.future { FetchWindowRange(req, metadata, timeout) }
+        }
+
     }
 
     /** Service implementation interface for grpcdc.kafka.streams.v1.KafkaStreams. */
@@ -112,6 +140,8 @@ object Kafka_streamsGrpcDc {
         fun DeleteTopology(ctx: Endpoint.CallContext, req: DeleteTopologyRequest): DeleteTopologyResponse
         fun GetStoreValue(ctx: Endpoint.CallContext, req: GetStoreValueRequest): GetStoreValueResponse
         fun FetchWindow(ctx: Endpoint.CallContext, req: FetchWindowRequest): FetchWindowResponse
+        fun FetchRange(ctx: Endpoint.CallContext, req: FetchRangeRequest): FetchRangeResponse
+        fun FetchWindowRange(ctx: Endpoint.CallContext, req: FetchWindowRangeRequest): FetchWindowRangeResponse
     }
 
     /** Async service implementation interface for grpcdc.kafka.streams.v1.KafkaStreams. */
@@ -122,6 +152,8 @@ object Kafka_streamsGrpcDc {
         suspend fun DeleteTopologyAsync(ctx: Endpoint.CallContext, req: DeleteTopologyRequest): DeleteTopologyResponse
         suspend fun GetStoreValueAsync(ctx: Endpoint.CallContext, req: GetStoreValueRequest): GetStoreValueResponse
         suspend fun FetchWindowAsync(ctx: Endpoint.CallContext, req: FetchWindowRequest): FetchWindowResponse
+        suspend fun FetchRangeAsync(ctx: Endpoint.CallContext, req: FetchRangeRequest): FetchRangeResponse
+        suspend fun FetchWindowRangeAsync(ctx: Endpoint.CallContext, req: FetchWindowRangeRequest): FetchWindowRangeResponse
     }
 
     private class KafkaStreamsServerAsyncAdapter(private val impl: KafkaStreamsServerAsync) : KafkaStreamsServer {
@@ -147,6 +179,14 @@ object Kafka_streamsGrpcDc {
 
         override fun FetchWindow(ctx: Endpoint.CallContext, req: FetchWindowRequest): FetchWindowResponse {
             return AsyncPump.runSuspend { impl.FetchWindowAsync(ctx, req) }
+        }
+
+        override fun FetchRange(ctx: Endpoint.CallContext, req: FetchRangeRequest): FetchRangeResponse {
+            return AsyncPump.runSuspend { impl.FetchRangeAsync(ctx, req) }
+        }
+
+        override fun FetchWindowRange(ctx: Endpoint.CallContext, req: FetchWindowRangeRequest): FetchWindowRangeResponse {
+            return AsyncPump.runSuspend { impl.FetchWindowRangeAsync(ctx, req) }
         }
 
     }
@@ -186,6 +226,16 @@ object Kafka_streamsGrpcDc {
                         val req = FetchWindowRequest()
                         reqs.recvInto(req)
                         sink.send(ctx.encodeMessage(impl.FetchWindow(ctx, req)))
+                    },
+                    Server.Method("FetchRange", "/grpcdc.kafka.streams.v1.KafkaStreams/FetchRange", Server.KIND_UNARY) { ctx, reqs, sink ->
+                        val req = FetchRangeRequest()
+                        reqs.recvInto(req)
+                        sink.send(ctx.encodeMessage(impl.FetchRange(ctx, req)))
+                    },
+                    Server.Method("FetchWindowRange", "/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindowRange", Server.KIND_UNARY) { ctx, reqs, sink ->
+                        val req = FetchWindowRangeRequest()
+                        reqs.recvInto(req)
+                        sink.send(ctx.encodeMessage(impl.FetchWindowRange(ctx, req)))
                     }
                 )
             )

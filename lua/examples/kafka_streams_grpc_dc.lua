@@ -19,6 +19,10 @@ local GetStoreValueRequest = kafka_streamsMessages.GetStoreValueRequest
 local GetStoreValueResponse = kafka_streamsMessages.GetStoreValueResponse
 local FetchWindowRequest = kafka_streamsMessages.FetchWindowRequest
 local FetchWindowResponse = kafka_streamsMessages.FetchWindowResponse
+local FetchRangeRequest = kafka_streamsMessages.FetchRangeRequest
+local FetchRangeResponse = kafka_streamsMessages.FetchRangeResponse
+local FetchWindowRangeRequest = kafka_streamsMessages.FetchWindowRangeRequest
+local FetchWindowRangeResponse = kafka_streamsMessages.FetchWindowRangeResponse
 
 local Channel = channelModule.Channel
 local Server = serverModule.Server
@@ -69,6 +73,18 @@ function KafkaStreamsClient:fetchWindow(req, metadata, timeout)
   return resp
 end
 
+function KafkaStreamsClient:fetchRange(req, metadata, timeout)
+  local resp = FetchRangeResponse.new()
+  self.channel:unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchRange", req, resp, metadata, timeout)
+  return resp
+end
+
+function KafkaStreamsClient:fetchWindowRange(req, metadata, timeout)
+  local resp = FetchWindowRangeResponse.new()
+  self.channel:unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindowRange", req, resp, metadata, timeout)
+  return resp
+end
+
 --- Coroutine client for grpcdc.kafka.streams.v1.KafkaStreams.
 local KafkaStreamsClientCoro = {}
 KafkaStreamsClientCoro.__index = KafkaStreamsClientCoro
@@ -110,6 +126,18 @@ end
 function KafkaStreamsClientCoro:fetchWindow(req, metadata, timeout)
   local resp = FetchWindowResponse.new()
   self.channel:unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", req, resp, metadata, timeout)
+  return resp
+end
+
+function KafkaStreamsClientCoro:fetchRange(req, metadata, timeout)
+  local resp = FetchRangeResponse.new()
+  self.channel:unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchRange", req, resp, metadata, timeout)
+  return resp
+end
+
+function KafkaStreamsClientCoro:fetchWindowRange(req, metadata, timeout)
+  local resp = FetchWindowRangeResponse.new()
+  self.channel:unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindowRange", req, resp, metadata, timeout)
   return resp
 end
 
@@ -178,6 +206,26 @@ local function registerKafkaStreamsServer(server, impl)
           local req = FetchWindowRequest.new()
           reqs:recvInto(req)
           sink(ctx.encodeMessage(impl:fetchWindow(ctx, req)))
+        end,
+      },
+      {
+        name = "FetchRange",
+        path = "/grpcdc.kafka.streams.v1.KafkaStreams/FetchRange",
+        kind = Server.KIND_UNARY,
+        handler = function(ctx, reqs, sink)
+          local req = FetchRangeRequest.new()
+          reqs:recvInto(req)
+          sink(ctx.encodeMessage(impl:fetchRange(ctx, req)))
+        end,
+      },
+      {
+        name = "FetchWindowRange",
+        path = "/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindowRange",
+        kind = Server.KIND_UNARY,
+        handler = function(ctx, reqs, sink)
+          local req = FetchWindowRangeRequest.new()
+          reqs:recvInto(req)
+          sink(ctx.encodeMessage(impl:fetchWindowRange(ctx, req)))
         end,
       },
     },

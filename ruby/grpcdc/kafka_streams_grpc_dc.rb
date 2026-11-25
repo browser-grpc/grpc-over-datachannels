@@ -205,6 +205,14 @@ module KafkaStreamsGrpcDc
       @channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", req, KafkaStreamsPb::FetchWindowResponse.new, metadata, timeout: timeout)
     end
 
+    def FetchRange(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchRange", req, KafkaStreamsPb::FetchRangeResponse.new, metadata, timeout: timeout)
+    end
+
+    def FetchWindowRange(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindowRange", req, KafkaStreamsPb::FetchWindowRangeResponse.new, metadata, timeout: timeout)
+    end
+
   end
 
   # Fiber client: wraps a Grpcdc::FiberChannel (a sync Channel is wrapped).
@@ -235,6 +243,14 @@ module KafkaStreamsGrpcDc
 
     def FetchWindow(req, metadata = nil, timeout: nil)
       @channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", req, KafkaStreamsPb::FetchWindowResponse.new, metadata, timeout: timeout)
+    end
+
+    def FetchRange(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchRange", req, KafkaStreamsPb::FetchRangeResponse.new, metadata, timeout: timeout)
+    end
+
+    def FetchWindowRange(req, metadata = nil, timeout: nil)
+      @channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindowRange", req, KafkaStreamsPb::FetchWindowRangeResponse.new, metadata, timeout: timeout)
     end
 
   end
@@ -276,6 +292,18 @@ module KafkaStreamsGrpcDc
       sink.send(ctx.encode_message(resp))
     end
 
+    fetch_range_handler = lambda do |ctx, reqs, sink|
+      req = reqs.recv_into(KafkaStreamsPb::FetchRangeRequest.new)
+      resp = impl.FetchRange(ctx, req)
+      sink.send(ctx.encode_message(resp))
+    end
+
+    fetch_window_range_handler = lambda do |ctx, reqs, sink|
+      req = reqs.recv_into(KafkaStreamsPb::FetchWindowRangeRequest.new)
+      resp = impl.FetchWindowRange(ctx, req)
+      sink.send(ctx.encode_message(resp))
+    end
+
     server.register_service(Grpcdc::ServiceDesc.new(
       "grpcdc.kafka.streams.v1.KafkaStreams",
       [
@@ -285,6 +313,8 @@ module KafkaStreamsGrpcDc
         Grpcdc::Method.new("DeleteTopology", "/grpcdc.kafka.streams.v1.KafkaStreams/DeleteTopology", Grpcdc::KIND_UNARY, delete_topology_handler),
         Grpcdc::Method.new("GetStoreValue", "/grpcdc.kafka.streams.v1.KafkaStreams/GetStoreValue", Grpcdc::KIND_UNARY, get_store_value_handler),
         Grpcdc::Method.new("FetchWindow", "/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", Grpcdc::KIND_UNARY, fetch_window_handler),
+        Grpcdc::Method.new("FetchRange", "/grpcdc.kafka.streams.v1.KafkaStreams/FetchRange", Grpcdc::KIND_UNARY, fetch_range_handler),
+        Grpcdc::Method.new("FetchWindowRange", "/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindowRange", Grpcdc::KIND_UNARY, fetch_window_range_handler),
       ]
     ))
   end

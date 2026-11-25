@@ -66,6 +66,20 @@ public static class Kafka_streamsGrpcDc
             return resp;
         }
 
+        public FetchRangeResponse FetchRange(FetchRangeRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null)
+        {
+            var resp = new FetchRangeResponse();
+            _channel.Unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchRange", req, resp, metadata, timeout);
+            return resp;
+        }
+
+        public FetchWindowRangeResponse FetchWindowRange(FetchWindowRangeRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null)
+        {
+            var resp = new FetchWindowRangeResponse();
+            _channel.Unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindowRange", req, resp, metadata, timeout);
+            return resp;
+        }
+
         public Task<TopologyInfo> CreateTopologyAsync(CreateTopologyRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,
             CancellationToken cancellationToken = default)
         {
@@ -102,6 +116,18 @@ public static class Kafka_streamsGrpcDc
             return AsyncPump.Run(() => FetchWindow(req, metadata, timeout), cancellationToken);
         }
 
+        public Task<FetchRangeResponse> FetchRangeAsync(FetchRangeRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,
+            CancellationToken cancellationToken = default)
+        {
+            return AsyncPump.Run(() => FetchRange(req, metadata, timeout), cancellationToken);
+        }
+
+        public Task<FetchWindowRangeResponse> FetchWindowRangeAsync(FetchWindowRangeRequest req, IDictionary<string, string> metadata = null, TimeSpan? timeout = null,
+            CancellationToken cancellationToken = default)
+        {
+            return AsyncPump.Run(() => FetchWindowRange(req, metadata, timeout), cancellationToken);
+        }
+
     }
 
     /// <summary>Service implementation interface for grpcdc.kafka.streams.v1.KafkaStreams.</summary>
@@ -113,6 +139,8 @@ public static class Kafka_streamsGrpcDc
         DeleteTopologyResponse DeleteTopology(Endpoint.CallContext ctx, DeleteTopologyRequest req);
         GetStoreValueResponse GetStoreValue(Endpoint.CallContext ctx, GetStoreValueRequest req);
         FetchWindowResponse FetchWindow(Endpoint.CallContext ctx, FetchWindowRequest req);
+        FetchRangeResponse FetchRange(Endpoint.CallContext ctx, FetchRangeRequest req);
+        FetchWindowRangeResponse FetchWindowRange(Endpoint.CallContext ctx, FetchWindowRangeRequest req);
     }
 
     /// <summary>Async service implementation interface for grpcdc.kafka.streams.v1.KafkaStreams.</summary>
@@ -124,6 +152,8 @@ public static class Kafka_streamsGrpcDc
         Task<DeleteTopologyResponse> DeleteTopologyAsync(Endpoint.CallContext ctx, DeleteTopologyRequest req);
         Task<GetStoreValueResponse> GetStoreValueAsync(Endpoint.CallContext ctx, GetStoreValueRequest req);
         Task<FetchWindowResponse> FetchWindowAsync(Endpoint.CallContext ctx, FetchWindowRequest req);
+        Task<FetchRangeResponse> FetchRangeAsync(Endpoint.CallContext ctx, FetchRangeRequest req);
+        Task<FetchWindowRangeResponse> FetchWindowRangeAsync(Endpoint.CallContext ctx, FetchWindowRangeRequest req);
     }
 
     private sealed class KafkaStreamsServerAsyncAdapter : KafkaStreamsServer
@@ -163,6 +193,16 @@ public static class Kafka_streamsGrpcDc
         public FetchWindowResponse FetchWindow(Endpoint.CallContext ctx, FetchWindowRequest req)
         {
             return _impl.FetchWindowAsync(ctx, req).GetAwaiter().GetResult();
+        }
+
+        public FetchRangeResponse FetchRange(Endpoint.CallContext ctx, FetchRangeRequest req)
+        {
+            return _impl.FetchRangeAsync(ctx, req).GetAwaiter().GetResult();
+        }
+
+        public FetchWindowRangeResponse FetchWindowRange(Endpoint.CallContext ctx, FetchWindowRangeRequest req)
+        {
+            return _impl.FetchWindowRangeAsync(ctx, req).GetAwaiter().GetResult();
         }
 
     }
@@ -209,6 +249,18 @@ public static class Kafka_streamsGrpcDc
                     var req = new FetchWindowRequest();
                     reqs.RecvInto(req);
                     sink(ctx.EncodeMessage(impl.FetchWindow(ctx, req)));
+                }),
+                new Server.Method("FetchRange", "/grpcdc.kafka.streams.v1.KafkaStreams/FetchRange", Server.KindUnary, (ctx, reqs, sink) =>
+                {
+                    var req = new FetchRangeRequest();
+                    reqs.RecvInto(req);
+                    sink(ctx.EncodeMessage(impl.FetchRange(ctx, req)));
+                }),
+                new Server.Method("FetchWindowRange", "/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindowRange", Server.KindUnary, (ctx, reqs, sink) =>
+                {
+                    var req = new FetchWindowRangeRequest();
+                    reqs.RecvInto(req);
+                    sink(ctx.EncodeMessage(impl.FetchWindowRange(ctx, req)));
                 }),
             }));
     }
