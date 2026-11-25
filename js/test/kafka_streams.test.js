@@ -1275,3 +1275,121 @@ test("kafka streams standby promotes with a warm store on delete", { skip: !PROX
   }
   assert.equal(got?.value, 3n, "promoted standby lost or double-counted the warm store");
 });
+
+test("kafka streams hopping window counts", { skip: !PROXY_ADDR }, async (t) => {
+  const { dc, kafka, streams } = makeClients();
+  const id = randomUUID().slice(0, 12);
+  const source = `streams-hop-in-${id}`;
+  const sink = `streams-hop-out-${id}`;
+  const name = `hop-${id}`;
+  t.after(async () => {
+    try {
+      await streams.deleteTopology(new DeleteTopologyRequest({ name }));
+      await kafka.deleteTopics(new DeleteTopicsRequest({ topics: [source, sink] }));
+    } catch { /* best effort */ }
+    dc.close();
+  });
+  for (const topic of [source, sink]) {
+    const created = await kafka.createTopics(new CreateTopicsRequest({
+      topics: [new NewTopic({ name: topic, numPartitions: 1, replicationFactor: 1 })],
+      timeoutMs: 15000,
+    }));
+    assert.deepEqual(created.results.map((r) => r.errorCode), [0]);
+  }
+  const { Step, FetchWindowRequest } = await import("../src/kafka_streams_pb.js");
+  const T0 = 1_699_999_980_000n;
+  await streams.createTopology(new CreateTopologyRequest({
+    topology: new Topology({
+      name, sourceTopic: source, sinkTopic: sink,
+      steps: [
+        new Step({ operator: Operator.SELECT_KEY, param: "value" }),
+        new Step({ operator: Operator.GROUP_BY_KEY }),
+        new Step({ operator: Operator.WINDOW_HOPPING, windowSizeMs: 60000n, windowAdvanceMs: 30000n }),
+        new Step({ operator: Operator.COUNT }),
+      ],
+    }),
+  }));
+  const at = async (off) => {
+    const resp = await kafka.produce(new ProduceRequest({
+      topic: source, partition: 0,
+      records: [new Record({ value: enc("tick"), timestampMs: T0 + off })],
+    }));
+    assert.equal(resp.errorCode, 0);
+  };
+  await at(10_000n); // windows [T0-30s, T0+30s) and [T0, T0+60s)
+  await at(40_000n); // windows [T0, T0+60s) and [T0+30s, T0+90s)
+  const fetchWin = async (start, end, want) => {
+    let got = null;
+    for (let i = 0; i < 80; i++) {
+      got = await streams.fetchWindow(new FetchWindowRequest({
+        topology: name, key: "tick", windowStartMs: start, windowEndMs: end,
+      }));
+      if (got.found && got.value === want) return;
+      await sleep(250);
+    }
+    assert.fail(`window [${start},${end}) never reached ${want} (got ${got?.value})`);
+  };
+  await fetchWin(T0 - 30_000n, T0 + 30_000n, 1n);
+  await fetchWin(T0, T0 + 60_000n, 2n);
+  await fetchWin(T0 + 30_000n, T0 + 90_000n, 1n);
+});
+
+test("kafka streams sliding window aggregates by record time", { skip: !PROXY_ADDR }, async (t) => {
+  const { dc, kafka, streams } = makeClients();
+  const id = randomUUID().slice(0, 12);
+  const source = `streams-sld-in-${id}`;
+  const sink = `streams-sld-out-${id}`;
+  const name = `sld-${id}`;
+  t.after(async () => {
+    try {
+      await streams.deleteTopology(new DeleteTopologyRequest({ name }));
+      await kafka.deleteTopics(new DeleteTopicsRequest({ topics: [source, sink] }));
+    } catch { /* best effort */ }
+    dc.close();
+  });
+  for (const topic of [source, sink]) {
+    const created = await kafka.createTopics(new CreateTopicsRequest({
+      topics: [new NewTopic({ name: topic, numPartitions: 1, replicationFactor: 1 })],
+      timeoutMs: 15000,
+    }));
+    assert.deepEqual(created.results.map((r) => r.errorCode), [0]);
+  }
+  const { Step, FetchWindowRequest, Aggregator } = await import("../src/kafka_streams_pb.js");
+  const T0 = 1_699_999_980_000n;
+  await streams.createTopology(new CreateTopologyRequest({
+    topology: new Topology({
+      name, sourceTopic: source, sinkTopic: sink,
+      steps: [
+        new Step({ operator: Operator.GROUP_BY_KEY }),
+        new Step({ operator: Operator.WINDOW_SLIDING, windowSizeMs: 10000n }),
+        new Step({ operator: Operator.AGGREGATE, aggregator: Aggregator.AGGREGATE_COUNT }),
+      ],
+    }),
+  }));
+  // Records are pre-keyed "evt"; each counts 1 per window.
+  const at = async (off) => {
+    const resp = await kafka.produce(new ProduceRequest({
+      topic: source, partition: 0,
+      records: [new Record({ key: enc("evt"), value: enc("x"), timestampMs: T0 + off })],
+    }));
+    assert.equal(resp.errorCode, 0);
+  };
+  await at(0n);
+  await at(5_000n);
+  await at(30_000n);
+  // Window anchored at first record: [T0-9999, T0+1) has 1;
+  // window anchored at second: [T0-4999, T0+5001) has 2.
+  const fetchWin = async (start, end, want) => {
+    let got = null;
+    for (let i = 0; i < 80; i++) {
+      got = await streams.fetchWindow(new FetchWindowRequest({
+        topology: name, key: "evt", windowStartMs: start, windowEndMs: end,
+      }));
+      if (got.found && got.value === want) return;
+      await sleep(250);
+    }
+    assert.fail(`sliding window [${start},${end}) never reached ${want} (got ${got?.value})`);
+  };
+  await fetchWin(T0 - 9_999n, T0 + 1n, 1n);
+  await fetchWin(T0 - 4_999n, T0 + 5_001n, 2n);
+});
