@@ -7,66 +7,66 @@ pub struct KafkaStreamsClient { channel: ::grpc_dc::Channel }
 
 impl KafkaStreamsClient {
     pub fn new(channel: ::grpc_dc::Channel) -> Self { Self { channel } }
-    pub async fn create_topology(&self, req: crate::pb::CreateTopologyRequest) -> Result<crate::pb::TopologyInfo, ::grpc_dc::Status> {
+    pub async fn create_topology(&self, req: crate::streams_pb::CreateTopologyRequest) -> Result<crate::streams_pb::TopologyInfo, ::grpc_dc::Status> {
         self.channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/CreateTopology", req).await
     }
-    pub async fn describe_topology(&self, req: crate::pb::DescribeTopologyRequest) -> Result<crate::pb::TopologyInfo, ::grpc_dc::Status> {
+    pub async fn describe_topology(&self, req: crate::streams_pb::DescribeTopologyRequest) -> Result<crate::streams_pb::TopologyInfo, ::grpc_dc::Status> {
         self.channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/DescribeTopology", req).await
     }
-    pub async fn list_topologies(&self, req: crate::pb::ListTopologiesRequest) -> Result<crate::pb::ListTopologiesResponse, ::grpc_dc::Status> {
+    pub async fn list_topologies(&self, req: crate::streams_pb::ListTopologiesRequest) -> Result<crate::streams_pb::ListTopologiesResponse, ::grpc_dc::Status> {
         self.channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/ListTopologies", req).await
     }
-    pub async fn delete_topology(&self, req: crate::pb::DeleteTopologyRequest) -> Result<crate::pb::DeleteTopologyResponse, ::grpc_dc::Status> {
+    pub async fn delete_topology(&self, req: crate::streams_pb::DeleteTopologyRequest) -> Result<crate::streams_pb::DeleteTopologyResponse, ::grpc_dc::Status> {
         self.channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/DeleteTopology", req).await
     }
-    pub async fn get_store_value(&self, req: crate::pb::GetStoreValueRequest) -> Result<crate::pb::GetStoreValueResponse, ::grpc_dc::Status> {
+    pub async fn get_store_value(&self, req: crate::streams_pb::GetStoreValueRequest) -> Result<crate::streams_pb::GetStoreValueResponse, ::grpc_dc::Status> {
         self.channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/GetStoreValue", req).await
     }
-    pub async fn fetch_window(&self, req: crate::pb::FetchWindowRequest) -> Result<crate::pb::FetchWindowResponse, ::grpc_dc::Status> {
+    pub async fn fetch_window(&self, req: crate::streams_pb::FetchWindowRequest) -> Result<crate::streams_pb::FetchWindowResponse, ::grpc_dc::Status> {
         self.channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", req).await
     }
-    pub async fn fetch_range(&self, req: crate::pb::FetchRangeRequest) -> Result<crate::pb::FetchRangeResponse, ::grpc_dc::Status> {
+    pub async fn fetch_range(&self, req: crate::streams_pb::FetchRangeRequest) -> Result<crate::streams_pb::FetchRangeResponse, ::grpc_dc::Status> {
         self.channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchRange", req).await
     }
-    pub async fn fetch_window_range(&self, req: crate::pb::FetchWindowRangeRequest) -> Result<crate::pb::FetchWindowRangeResponse, ::grpc_dc::Status> {
+    pub async fn fetch_window_range(&self, req: crate::streams_pb::FetchWindowRangeRequest) -> Result<crate::streams_pb::FetchWindowRangeResponse, ::grpc_dc::Status> {
         self.channel.unary("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindowRange", req).await
     }
-    pub async fn create_topology_with_options(&self, req: crate::pb::CreateTopologyRequest, options: ::grpc_dc::CallOptions) -> Result<crate::pb::TopologyInfo, ::grpc_dc::Status> {
+    pub async fn create_topology_with_options(&self, req: crate::streams_pb::CreateTopologyRequest, options: ::grpc_dc::CallOptions) -> Result<crate::streams_pb::TopologyInfo, ::grpc_dc::Status> {
         self.channel.unary_with_options("/grpcdc.kafka.streams.v1.KafkaStreams/CreateTopology", req, options).await
     }
-    pub async fn describe_topology_with_options(&self, req: crate::pb::DescribeTopologyRequest, options: ::grpc_dc::CallOptions) -> Result<crate::pb::TopologyInfo, ::grpc_dc::Status> {
+    pub async fn describe_topology_with_options(&self, req: crate::streams_pb::DescribeTopologyRequest, options: ::grpc_dc::CallOptions) -> Result<crate::streams_pb::TopologyInfo, ::grpc_dc::Status> {
         self.channel.unary_with_options("/grpcdc.kafka.streams.v1.KafkaStreams/DescribeTopology", req, options).await
     }
-    pub async fn list_topologies_with_options(&self, req: crate::pb::ListTopologiesRequest, options: ::grpc_dc::CallOptions) -> Result<crate::pb::ListTopologiesResponse, ::grpc_dc::Status> {
+    pub async fn list_topologies_with_options(&self, req: crate::streams_pb::ListTopologiesRequest, options: ::grpc_dc::CallOptions) -> Result<crate::streams_pb::ListTopologiesResponse, ::grpc_dc::Status> {
         self.channel.unary_with_options("/grpcdc.kafka.streams.v1.KafkaStreams/ListTopologies", req, options).await
     }
-    pub async fn delete_topology_with_options(&self, req: crate::pb::DeleteTopologyRequest, options: ::grpc_dc::CallOptions) -> Result<crate::pb::DeleteTopologyResponse, ::grpc_dc::Status> {
+    pub async fn delete_topology_with_options(&self, req: crate::streams_pb::DeleteTopologyRequest, options: ::grpc_dc::CallOptions) -> Result<crate::streams_pb::DeleteTopologyResponse, ::grpc_dc::Status> {
         self.channel.unary_with_options("/grpcdc.kafka.streams.v1.KafkaStreams/DeleteTopology", req, options).await
     }
-    pub async fn get_store_value_with_options(&self, req: crate::pb::GetStoreValueRequest, options: ::grpc_dc::CallOptions) -> Result<crate::pb::GetStoreValueResponse, ::grpc_dc::Status> {
+    pub async fn get_store_value_with_options(&self, req: crate::streams_pb::GetStoreValueRequest, options: ::grpc_dc::CallOptions) -> Result<crate::streams_pb::GetStoreValueResponse, ::grpc_dc::Status> {
         self.channel.unary_with_options("/grpcdc.kafka.streams.v1.KafkaStreams/GetStoreValue", req, options).await
     }
-    pub async fn fetch_window_with_options(&self, req: crate::pb::FetchWindowRequest, options: ::grpc_dc::CallOptions) -> Result<crate::pb::FetchWindowResponse, ::grpc_dc::Status> {
+    pub async fn fetch_window_with_options(&self, req: crate::streams_pb::FetchWindowRequest, options: ::grpc_dc::CallOptions) -> Result<crate::streams_pb::FetchWindowResponse, ::grpc_dc::Status> {
         self.channel.unary_with_options("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindow", req, options).await
     }
-    pub async fn fetch_range_with_options(&self, req: crate::pb::FetchRangeRequest, options: ::grpc_dc::CallOptions) -> Result<crate::pb::FetchRangeResponse, ::grpc_dc::Status> {
+    pub async fn fetch_range_with_options(&self, req: crate::streams_pb::FetchRangeRequest, options: ::grpc_dc::CallOptions) -> Result<crate::streams_pb::FetchRangeResponse, ::grpc_dc::Status> {
         self.channel.unary_with_options("/grpcdc.kafka.streams.v1.KafkaStreams/FetchRange", req, options).await
     }
-    pub async fn fetch_window_range_with_options(&self, req: crate::pb::FetchWindowRangeRequest, options: ::grpc_dc::CallOptions) -> Result<crate::pb::FetchWindowRangeResponse, ::grpc_dc::Status> {
+    pub async fn fetch_window_range_with_options(&self, req: crate::streams_pb::FetchWindowRangeRequest, options: ::grpc_dc::CallOptions) -> Result<crate::streams_pb::FetchWindowRangeResponse, ::grpc_dc::Status> {
         self.channel.unary_with_options("/grpcdc.kafka.streams.v1.KafkaStreams/FetchWindowRange", req, options).await
     }
 }
 
 #[::grpc_dc::async_trait]
 pub trait KafkaStreams: Send + Sync + 'static {
-    async fn create_topology(&self, req: crate::pb::CreateTopologyRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::pb::TopologyInfo, ::grpc_dc::Status>;
-    async fn describe_topology(&self, req: crate::pb::DescribeTopologyRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::pb::TopologyInfo, ::grpc_dc::Status>;
-    async fn list_topologies(&self, req: crate::pb::ListTopologiesRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::pb::ListTopologiesResponse, ::grpc_dc::Status>;
-    async fn delete_topology(&self, req: crate::pb::DeleteTopologyRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::pb::DeleteTopologyResponse, ::grpc_dc::Status>;
-    async fn get_store_value(&self, req: crate::pb::GetStoreValueRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::pb::GetStoreValueResponse, ::grpc_dc::Status>;
-    async fn fetch_window(&self, req: crate::pb::FetchWindowRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::pb::FetchWindowResponse, ::grpc_dc::Status>;
-    async fn fetch_range(&self, req: crate::pb::FetchRangeRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::pb::FetchRangeResponse, ::grpc_dc::Status>;
-    async fn fetch_window_range(&self, req: crate::pb::FetchWindowRangeRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::pb::FetchWindowRangeResponse, ::grpc_dc::Status>;
+    async fn create_topology(&self, req: crate::streams_pb::CreateTopologyRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::streams_pb::TopologyInfo, ::grpc_dc::Status>;
+    async fn describe_topology(&self, req: crate::streams_pb::DescribeTopologyRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::streams_pb::TopologyInfo, ::grpc_dc::Status>;
+    async fn list_topologies(&self, req: crate::streams_pb::ListTopologiesRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::streams_pb::ListTopologiesResponse, ::grpc_dc::Status>;
+    async fn delete_topology(&self, req: crate::streams_pb::DeleteTopologyRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::streams_pb::DeleteTopologyResponse, ::grpc_dc::Status>;
+    async fn get_store_value(&self, req: crate::streams_pb::GetStoreValueRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::streams_pb::GetStoreValueResponse, ::grpc_dc::Status>;
+    async fn fetch_window(&self, req: crate::streams_pb::FetchWindowRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::streams_pb::FetchWindowResponse, ::grpc_dc::Status>;
+    async fn fetch_range(&self, req: crate::streams_pb::FetchRangeRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::streams_pb::FetchRangeResponse, ::grpc_dc::Status>;
+    async fn fetch_window_range(&self, req: crate::streams_pb::FetchWindowRangeRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::streams_pb::FetchWindowRangeResponse, ::grpc_dc::Status>;
 }
 
 pub fn kafka_streams_service<S: KafkaStreams>(svc: std::sync::Arc<S>) -> ::grpc_dc::ServiceDef {

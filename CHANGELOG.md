@@ -3,6 +3,20 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.47.1 — 2026-11-25
+
+- Crates fix for the v0.47.0 publish: the generated Rust
+  stubs for the Kafka Streams/Processor protos resolved
+  message types against `crate::`/`crate::pb::` because
+  `parse-parameters` split plugin options on `:` and
+  truncated `message_module=crate::streams_pb` to `crate`.
+  The option parser now shields `::`, the streams stubs are
+  generated with `message_module=crate::streams_pb` /
+  `crate::processor_pb`, and the packaged `kafka-grpc` crate
+  builds standalone. (Also ships the v0.47.0
+  `fdd12574` releasegen fix: kafka-rust now includes the
+  streams/processor modules.)
+
 ## v0.47.0 — 2026-11-25 (published to GitHub/npm/PyPI/GHCR/GitHub Maven/pub.dev/RubyGems/LuaRocks/JSR)
 
 - Rendezvous: `RendezvousOptions` accepts `stun_servers`

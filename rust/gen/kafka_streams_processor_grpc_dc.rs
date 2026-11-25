@@ -7,17 +7,17 @@ pub struct StreamsProcessorClient { channel: ::grpc_dc::Channel }
 
 impl StreamsProcessorClient {
     pub fn new(channel: ::grpc_dc::Channel) -> Self { Self { channel } }
-    pub async fn process(&self, req: crate::pb::ProcessRecord) -> Result<crate::pb::ProcessResult, ::grpc_dc::Status> {
+    pub async fn process(&self, req: crate::processor_pb::ProcessRecord) -> Result<crate::processor_pb::ProcessResult, ::grpc_dc::Status> {
         self.channel.unary("/grpcdc.kafka.streams.processor.v1.StreamsProcessor/Process", req).await
     }
-    pub async fn process_with_options(&self, req: crate::pb::ProcessRecord, options: ::grpc_dc::CallOptions) -> Result<crate::pb::ProcessResult, ::grpc_dc::Status> {
+    pub async fn process_with_options(&self, req: crate::processor_pb::ProcessRecord, options: ::grpc_dc::CallOptions) -> Result<crate::processor_pb::ProcessResult, ::grpc_dc::Status> {
         self.channel.unary_with_options("/grpcdc.kafka.streams.processor.v1.StreamsProcessor/Process", req, options).await
     }
 }
 
 #[::grpc_dc::async_trait]
 pub trait StreamsProcessor: Send + Sync + 'static {
-    async fn process(&self, req: crate::pb::ProcessRecord, ctx: ::grpc_dc::CallCtx) -> Result<crate::pb::ProcessResult, ::grpc_dc::Status>;
+    async fn process(&self, req: crate::processor_pb::ProcessRecord, ctx: ::grpc_dc::CallCtx) -> Result<crate::processor_pb::ProcessResult, ::grpc_dc::Status>;
 }
 
 pub fn streams_processor_service<S: StreamsProcessor>(svc: std::sync::Arc<S>) -> ::grpc_dc::ServiceDef {
@@ -29,24 +29,24 @@ pub struct ProcessorContextClient { channel: ::grpc_dc::Channel }
 
 impl ProcessorContextClient {
     pub fn new(channel: ::grpc_dc::Channel) -> Self { Self { channel } }
-    pub async fn get_state(&self, req: crate::pb::GetStateRequest) -> Result<crate::pb::GetStateResponse, ::grpc_dc::Status> {
+    pub async fn get_state(&self, req: crate::processor_pb::GetStateRequest) -> Result<crate::processor_pb::GetStateResponse, ::grpc_dc::Status> {
         self.channel.unary("/grpcdc.kafka.streams.processor.v1.ProcessorContext/GetState", req).await
     }
-    pub async fn put_state(&self, req: crate::pb::PutStateRequest) -> Result<crate::pb::PutStateResponse, ::grpc_dc::Status> {
+    pub async fn put_state(&self, req: crate::processor_pb::PutStateRequest) -> Result<crate::processor_pb::PutStateResponse, ::grpc_dc::Status> {
         self.channel.unary("/grpcdc.kafka.streams.processor.v1.ProcessorContext/PutState", req).await
     }
-    pub async fn get_state_with_options(&self, req: crate::pb::GetStateRequest, options: ::grpc_dc::CallOptions) -> Result<crate::pb::GetStateResponse, ::grpc_dc::Status> {
+    pub async fn get_state_with_options(&self, req: crate::processor_pb::GetStateRequest, options: ::grpc_dc::CallOptions) -> Result<crate::processor_pb::GetStateResponse, ::grpc_dc::Status> {
         self.channel.unary_with_options("/grpcdc.kafka.streams.processor.v1.ProcessorContext/GetState", req, options).await
     }
-    pub async fn put_state_with_options(&self, req: crate::pb::PutStateRequest, options: ::grpc_dc::CallOptions) -> Result<crate::pb::PutStateResponse, ::grpc_dc::Status> {
+    pub async fn put_state_with_options(&self, req: crate::processor_pb::PutStateRequest, options: ::grpc_dc::CallOptions) -> Result<crate::processor_pb::PutStateResponse, ::grpc_dc::Status> {
         self.channel.unary_with_options("/grpcdc.kafka.streams.processor.v1.ProcessorContext/PutState", req, options).await
     }
 }
 
 #[::grpc_dc::async_trait]
 pub trait ProcessorContext: Send + Sync + 'static {
-    async fn get_state(&self, req: crate::pb::GetStateRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::pb::GetStateResponse, ::grpc_dc::Status>;
-    async fn put_state(&self, req: crate::pb::PutStateRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::pb::PutStateResponse, ::grpc_dc::Status>;
+    async fn get_state(&self, req: crate::processor_pb::GetStateRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::processor_pb::GetStateResponse, ::grpc_dc::Status>;
+    async fn put_state(&self, req: crate::processor_pb::PutStateRequest, ctx: ::grpc_dc::CallCtx) -> Result<crate::processor_pb::PutStateResponse, ::grpc_dc::Status>;
 }
 
 pub fn processor_context_service<S: ProcessorContext>(svc: std::sync::Arc<S>) -> ::grpc_dc::ServiceDef {
