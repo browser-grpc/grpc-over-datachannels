@@ -1619,6 +1619,8 @@ BROWSER_SERVER_EOF
   (write-runtime-files "js/test" "interop-service-gen.rkt" (list (emit-js-interop-service)))
   (write-runtime-files "js/test" "bdd-gen.rkt" (list (emit-js-bdd) (emit-bdd-schemas 'js)))
   (write-runtime-files "js/test" "kafka-streams-gen.rkt" (list (emit-js-kafka-streams)))
+  (write-runtime-files "go" "kafka-streams-gen.rkt" (list (emit-go-kafka-streams)))
+  (write-runtime-files "java/tests" "kafka-streams-gen.rkt" (list (emit-java-kafka-streams)))
   (write-runtime-files "browser-test" "bdd-gen.rkt" (list (emit-browser-bdd-scenarios) (emit-browser-bdd-manifest)))
   (write-runtime-files "go" "oracle-gen.rkt" (list (emit-go-oracle-driver)))
   (write-runtime-files "go" "bdd-gen.rkt" (list (emit-go-bdd) (emit-bdd-schemas 'go)))
