@@ -3,7 +3,7 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.47.1 — 2026-11-25
+## v0.47.1 — 2026-11-25 (published to GitHub/npm/PyPI/GHCR/NuGet/Maven Central/GitHub Maven/pub.dev/crates.io/RubyGems/LuaRocks)
 
 - Crates fix for the v0.47.0 publish: the generated Rust
   stubs for the Kafka Streams/Processor protos resolved
