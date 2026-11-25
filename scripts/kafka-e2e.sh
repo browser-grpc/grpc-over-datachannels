@@ -557,9 +557,10 @@ build_clients() {
     # Dart is always rebuilt: the compile is seconds, and a
     # stale prebuilt binary silently lacks new dispatch cases.
     (cd "$ROOT" && mkdir -p dart/build && dart compile exe dart/tests/main.dart -o dart/build/tests) || return 1
-    if [ ! -f "$ROOT/java/build/tests/TestKafkaE2E.class" ]; then
-        (cd "$ROOT/java" && mkdir -p build && javac -encoding UTF-8 -d build $(find grpcdc examples tests -name '*.java')) || return 1
-    fi
+    # Java is always rebuilt: build-if-missing silently ran
+    # stale classes when a new test class was added (the
+    # streams interpreter's first gate run hit exactly that).
+    (cd "$ROOT/java" && mkdir -p build && javac -encoding UTF-8 -d build $(find grpcdc examples tests -name '*.java')) || return 1
     if [ ! -f "$ROOT/kotlin/build/tests.jar" ]; then
         (cd "$ROOT" && mkdir -p kotlin/build && kotlinc -include-runtime kotlin/grpcdc/*.kt kotlin/examples/Pb.kt kotlin/examples/EchoMessages.kt kotlin/examples/EchoRequestStruct.kt kotlin/examples/EchoResponseStruct.kt kotlin/examples/EchoGrpcDc.kt kotlin/examples/EchoServiceImpl.kt kotlin/examples/StdioTransport.kt kotlin/examples/DynamicEchoService.kt kotlin/examples/interop/*.kt kotlin/tests/*.kt -d kotlin/build/tests.jar) || return 1
     fi

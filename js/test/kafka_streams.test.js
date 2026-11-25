@@ -1255,6 +1255,10 @@ test("kafka streams standby promotes with a warm store on delete", { skip: !PROX
   assert.equal(sb.role, "STANDBY");
   await produceLines(kafka, source, ["warm warm store"]);
   await waitStore(streams, primary, "warm", 2n);
+  // The standby must have caught up before promotion,
+  // otherwise it legitimately resumes past these records
+  // with a partial store.
+  await waitStore(streams, standbyName, "warm", 2n);
   // Delete the primary: the standby promotes and keeps
   // counting from its warm store.
   await streams.deleteTopology(new DeleteTopologyRequest({ name: primary }));
