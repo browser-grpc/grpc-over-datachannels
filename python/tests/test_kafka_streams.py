@@ -1,6 +1,6 @@
 """Kafka Streams over gRPC end-to-end (Python interpreter
 of the generated scenarios in kafka_streams_scenarios_generated.py,
-which racket/kafka-streams-spec.rkt stamps for every
+which the streams scenario spec stamps for every
 language; the JS suite interprets the same table).
 
 Env-gated: set KAFKA_E2E_PROXY_ADDR=host:port of a running

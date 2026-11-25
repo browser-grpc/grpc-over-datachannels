@@ -924,7 +924,7 @@ test("kafka streams PROCESS routes through a client-hosted processor", { skip: !
 });
 
 // Generated-scenario legs: cases come from
-// racket/kafka-streams-spec.rkt (one table for every
+// the streams scenario spec (one table for every
 // language; Python interprets the same data). The dedicated
 // tests above cover the operators these scenarios don't.
 import { KAFKA_STREAMS_SCENARIOS } from "./kafka_streams_scenarios.generated.js";

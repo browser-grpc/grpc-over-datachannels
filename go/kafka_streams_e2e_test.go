@@ -1,7 +1,7 @@
 package grpcdc_test
 
 // Kafka Streams generated-scenario interpreter (Go): runs
-// the racket/kafka-streams-spec.rkt table stamped into
+// the the streams scenario spec table stamped into
 // kafka_streams_scenarios_generated.go. Env-gated like the
 // other kafka suites (KAFKA_E2E_PROXY_ADDR).
 

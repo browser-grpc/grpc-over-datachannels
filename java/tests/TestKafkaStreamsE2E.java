@@ -27,7 +27,7 @@ import java.util.Map;
 
 /**
  * Kafka Streams generated-scenario interpreter (Java): runs
- * the racket/kafka-streams-spec.rkt table stamped into
+ * the the streams scenario spec table stamped into
  * KafkaStreamsScenarios. Env-gated like the other kafka
  * suites (KAFKA_E2E_PROXY_ADDR).
  */
