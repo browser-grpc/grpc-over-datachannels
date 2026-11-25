@@ -47,20 +47,33 @@ jobs:
         working-directory: packages/kafka-dart
         run: |
           VER=$(sed -n 's/^version: //p' pubspec.yaml)
-          LATEST=$(curl -sf https://pub.dev/api/packages/kafka_grpc | python3 -c 'import json,sys; print(json.load(sys.stdin)["latest"]["version"])' || echo none)
-          if [ "$LATEST" = "$VER" ]; then
-            echo "kafka_grpc $VER already on pub.dev; skipping"
-          else
-            dart pub publish --force
-          fi
+          latest() { curl -sf https://pub.dev/api/packages/kafka_grpc | python3 -c 'import json,sys; print(json.load(sys.stdin)["latest"]["version"])' || echo none; }
+          # Bounded retry: the version solver lags the
+          # API, so the first publish can fail resolving
+          # grpc_dc $VER seconds after it became visible
+          # (v0.46.2). Retrying is safe: once $VER is the
+          # latest, the loop stops without publishing.
+          deadline=$((SECONDS + 600))
+          until [ "$(latest)" = "$VER" ]; do
+            if [ $SECONDS -ge $deadline ]; then
+              echo "kafka_grpc $VER not published after 600s" >&2
+              exit 1
+            fi
+            dart pub publish --force || true
+            [ "$(latest)" = "$VER" ] || sleep 20
+          done
       - if: "!cancelled()"
         name: Publish eventbus_grpc
         working-directory: packages/eventbus-dart
         run: |
           VER=$(sed -n 's/^version: //p' pubspec.yaml)
-          LATEST=$(curl -sf https://pub.dev/api/packages/eventbus_grpc | python3 -c 'import json,sys; print(json.load(sys.stdin)["latest"]["version"])' || echo none)
-          if [ "$LATEST" = "$VER" ]; then
-            echo "eventbus_grpc $VER already on pub.dev; skipping"
-          else
-            dart pub publish --force
-          fi
+          latest() { curl -sf https://pub.dev/api/packages/eventbus_grpc | python3 -c 'import json,sys; print(json.load(sys.stdin)["latest"]["version"])' || echo none; }
+          deadline=$((SECONDS + 600))
+          until [ "$(latest)" = "$VER" ]; do
+            if [ $SECONDS -ge $deadline ]; then
+              echo "eventbus_grpc $VER not published after 600s" >&2
+              exit 1
+            fi
+            dart pub publish --force || true
+            [ "$(latest)" = "$VER" ] || sleep 20
+          done

@@ -96,6 +96,7 @@ Stack suites run via `make test-webrtc-go`, `make test-webrtc-js`, `make test-we
 - [`streamreset.rs`](rust/tests/streamreset.rs) — Generated suite/example
 - [`trickle.rs`](rust/tests/trickle.rs) — Generated suite/example
 - [`turn.rs`](rust/tests/turn.rs) — Generated suite/example
+- [`turn_fixture.rs`](rust/tests/turn_fixture.rs) — Generated suite/example
 - [`turn_tcp.rs`](rust/tests/turn_tcp.rs) — Generated suite/example
 - [`webrtc_direct.rs`](rust/tests/webrtc_direct.rs) — WebRTC-Direct example/test
 

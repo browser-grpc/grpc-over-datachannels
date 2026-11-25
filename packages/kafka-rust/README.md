@@ -4,7 +4,7 @@ Kafka over gRPC — generated grpcdc.kafka.v1 clients (produce/consume/groups/to
 
 ```toml
 [dependencies]
-kafka-grpc = "0.46.2"
+kafka-grpc = "0.47.0"
 ```
 
 (depends on the `grpc-dc` crate).

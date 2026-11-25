@@ -1,0 +1,65 @@
+// Custom stream processors for grpcdc.kafka.streams.v1:
+// a client hosts StreamsProcessor (generated stubs, any
+// language) and a topology's PROCESS step routes each record
+// through it. The proxy still owns source offsets, group
+// assignment, and transactions; the processor is a pure
+// per-record transform that may also read/write topology
+// state through ProcessorContext, served by the proxy next
+// to KafkaStreams on the same proxy address. Wiring: the
+// PROCESS step's param is the processor's tcp://host:port
+// listen address; the proxy dials it per topology and calls
+// Process per record. The processor reaches ProcessorContext
+// by dialing the proxy address it already uses for
+// KafkaStreams. See KAFKA.md.
+
+syntax = "proto3";
+
+package grpcdc.kafka.streams.processor.v1;
+
+message ProcessRecord {
+  bytes key = 1;
+  bytes value = 2;
+  int64 timestamp_ms = 3;
+  string topology = 4;
+}
+
+message OutRecord {
+  bytes key = 1;
+  bytes value = 2;
+}
+
+message ProcessResult {
+  // Zero or more outputs replace the input record.
+  repeated OutRecord records = 1;
+}
+
+service StreamsProcessor {
+  rpc Process(ProcessRecord) returns (ProcessResult);
+}
+
+message GetStateRequest {
+  string topology = 1;
+  string key = 2;
+}
+
+message GetStateResponse {
+  bool found = 1;
+  int64 value = 2;
+}
+
+message PutStateRequest {
+  string topology = 1;
+  string key = 2;
+  int64 value = 3;
+}
+
+message PutStateResponse {}
+
+// State access for processors, served by the proxy next to
+// KafkaStreams: reads/writes land in the named topology's
+// store, so a processor can enrich from or publish into the
+// state its topology's stateful steps maintain.
+service ProcessorContext {
+  rpc GetState(GetStateRequest) returns (GetStateResponse);
+  rpc PutState(PutStateRequest) returns (PutStateResponse);
+}

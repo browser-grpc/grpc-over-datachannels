@@ -62,6 +62,10 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`interop_service_impl.hpp`](examples/interop_service_impl.hpp) — Cross-language interop
 - [`kafka_grpc_dc.hpp`](examples/kafka_grpc_dc.hpp) — Kafka end-to-end (broker legs env-gated)
 - [`kafka_messages.hpp`](examples/kafka_messages.hpp) — Kafka end-to-end (broker legs env-gated)
+- [`kafka_streams_grpc_dc.hpp`](examples/kafka_streams_grpc_dc.hpp) — Kafka end-to-end (broker legs env-gated)
+- [`kafka_streams_messages.hpp`](examples/kafka_streams_messages.hpp) — Kafka end-to-end (broker legs env-gated)
+- [`kafka_streams_processor_grpc_dc.hpp`](examples/kafka_streams_processor_grpc_dc.hpp) — Kafka end-to-end (broker legs env-gated)
+- [`kafka_streams_processor_messages.hpp`](examples/kafka_streams_processor_messages.hpp) — Kafka end-to-end (broker legs env-gated)
 - [`messages_grpc_dc.hpp`](examples/messages_grpc_dc.hpp) — Generated suite/example
 - [`messages_messages.hpp`](examples/messages_messages.hpp) — Generated suite/example
 - [`orca_grpc_dc.hpp`](examples/orca_grpc_dc.hpp) — Generated suite/example

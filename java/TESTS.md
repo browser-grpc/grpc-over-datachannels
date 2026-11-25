@@ -16,6 +16,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`BddSchemas.java`](tests/BddSchemas.java) — BDD scenario suite (generated)
 - [`Fixtures.java`](tests/Fixtures.java) — Generated suite/example
 - [`InteropCases.java`](tests/InteropCases.java) — Cross-language interop
+- [`KafkaStreamsScenarios.java`](tests/KafkaStreamsScenarios.java) — Kafka end-to-end (broker legs env-gated)
 - [`OracleScenarios.java`](tests/OracleScenarios.java) — Official-implementation oracle, via the proxy
 - [`TestBdd.java`](tests/TestBdd.java) — BDD scenario suite (generated)
 - [`TestBddSchemas.java`](tests/TestBddSchemas.java) — BDD scenario suite (generated)
@@ -30,6 +31,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`TestInteropServerOracle.java`](tests/TestInteropServerOracle.java) — Official-implementation oracle, via the proxy
 - [`TestKafkaE2E.java`](tests/TestKafkaE2E.java) — Kafka end-to-end (broker legs env-gated)
 - [`TestKafkaNative.java`](tests/TestKafkaNative.java) — Kafka end-to-end (broker legs env-gated)
+- [`TestKafkaStreamsE2E.java`](tests/TestKafkaStreamsE2E.java) — Kafka end-to-end (broker legs env-gated)
 - [`TestOracle.java`](tests/TestOracle.java) — Official-implementation oracle, via the proxy
 - [`TestPbMessages.java`](tests/TestPbMessages.java) — Generated suite/example
 - [`TestSidecar.java`](tests/TestSidecar.java) — Sidecar transport

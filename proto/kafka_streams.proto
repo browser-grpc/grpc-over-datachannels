@@ -1,0 +1,301 @@
+// Kafka Streams over gRPC: stream processing hosted by the
+// Rust kafka proxy. Clients describe a topology declaratively;
+// the proxy executes it against the broker (consume with a
+// consumer group, transform, produce, commit), keeps the
+// state stores, and answers interactive queries. This is the
+// Kafka-Streams programming model exposed as generated gRPC
+// stubs instead of the JVM DSL: no Kafka client and no JVM
+// on the calling side.
+//
+// The operator set grows stepwise toward Kafka Streams
+// parity (aggregation, windowing, assignment, exactly-once,
+// joins). Unsupported operators are rejected at
+// CreateTopology time, never silently ignored.
+
+syntax = "proto3";
+
+package grpcdc.kafka.streams.v1;
+
+enum Operator {
+  OPERATOR_UNSPECIFIED = 0;
+  // Split each record value (UTF-8) into lowercase
+  // alphanumeric tokens; emit one record per token with the
+  // token as key and "1" as value.
+  TOKENIZE_WORDS = 1;
+  // Repartition marker: subsequent stateful operators key
+  // their store by the record key. Required before COUNT.
+  GROUP_BY_KEY = 2;
+  // Stateful count per key: increments the topology store
+  // and emits (key, decimal count) downstream.
+  COUNT = 3;
+  // Stateless value transform; Step.param names it:
+  // "upper", "lower", "trim", "reverse".
+  MAP_VALUES = 4;
+  // Stateless filter; Step.param is the predicate:
+  // "prefix:<s>", "contains:<s>", "key_equals:<s>",
+  // "value_gt:<int>", "value_lt:<int>".
+  FILTER = 5;
+  // Rekey: Step.param "value" (default) makes the key the
+  // record value; "upper"/"lower" also case-folds it.
+  SELECT_KEY = 6;
+  // Stateful aggregation per key (after GROUP_BY_KEY);
+  // Step.aggregator selects COUNT/SUM/MIN/MAX over int64
+  // values. Emits (key, decimal aggregate) per input record.
+  AGGREGATE = 7;
+  // Stateful per-key fold (after GROUP_BY_KEY): the first
+  // value seeds the store, later values combine via
+  // Step.param: "sum" (default), "min", "max".
+  REDUCE = 8;
+  // Window assignment on record timestamp (event time):
+  // subsequent stateful steps aggregate per (key, window).
+  // Step.window_size_ms is the window length; late records
+  // (window end + Step.grace_ms behind stream time) drop.
+  WINDOW_TUMBLING = 9;
+  // Like WINDOW_TUMBLING but windows advance by
+  // Step.window_advance_ms (a record lands in several
+  // overlapping windows).
+  WINDOW_HOPPING = 10;
+  // Stream-table inner join against Topology.table_topic,
+  // materialized by the task as a latest-value-per-key
+  // table: a record whose key has a table entry emits
+  // value + param separator (default ":") + table value;
+  // records without a table entry are dropped.
+  JOIN_TABLE = 11;
+  // Session window: records for a key open a session at
+  // their timestamp; sessions merge when their gap is at
+  // most Step.gap_ms. Must be followed by a stateful step
+  // (COUNT/AGGREGATE/REDUCE), whose aggregate is maintained
+  // across merges by this step.
+  WINDOW_SESSION = 12;
+  // Sliding window (Step.window_size_ms): windows are
+  // anchored at record timestamps (start = ts - size + 1,
+  // plus earlier windows still covering the record); the
+  // aggregate for each window is recomputed from the key's
+  // record history. Must be followed by a stateful step.
+  WINDOW_SLIDING = 13;
+  // Cogroup marker: records from Topology.cogroup_sources
+  // (keyed decimal-int64 values) are folded into this
+  // topology's store by key (SUM) as they arrive, sharing
+  // the store with the main chain's stateful steps. The
+  // step itself passes records through unchanged.
+  COGROUP = 14;
+  // Global-table join: like JOIN_TABLE, but the table is
+  // guaranteed fully materialized on every task instance
+  // (all partitions consumed regardless of group
+  // assignment), so lookups never need routing. In this
+  // runtime table materialization is always global, so the
+  // two joins share an implementation; the operator exists
+  // so topologies state the guarantee they rely on.
+  JOIN_GLOBAL_TABLE = 15;
+  // Custom processor callback: Step.param is the
+  // tcp://host:port address of a client-hosted
+  // StreamsProcessor service (see
+  // kafka_streams_processor.proto). Each record is replaced
+  // by the processor's outputs (zero or more).
+  PROCESS = 16;
+  // Windowed stream-stream inner join against
+  // Topology.join_topic: records with equal keys whose
+  // timestamps share a tumbling window (Step.window_size_ms,
+  // Step.grace_ms for late arrivals) emit
+  // source_value + Step.param separator (default ":") +
+  // join_value. Steps before JOIN_STREAM apply to the
+  // source stream only; join-side records enter the chain
+  // at JOIN_STREAM.
+  JOIN_STREAM = 17;
+  // Table-table join: Topology.table_topic and
+  // Topology.join_topic are both materialized tables; on
+  // every update to either side, the combined latest value
+  // (left + Step.param separator + right) is emitted for
+  // keys present in both.
+  JOIN_TABLE_TABLE = 18;
+}
+
+enum Aggregator {
+  AGGREGATOR_UNSPECIFIED = 0;
+  AGGREGATE_COUNT = 1;
+  AGGREGATE_SUM = 2;
+  AGGREGATE_MIN = 3;
+  AGGREGATE_MAX = 4;
+}
+
+// One topology step. Parameterized operators carry their
+// argument in param/aggregator; unparameterized ones leave
+// them empty.
+message Step {
+  Operator operator = 1;
+  string param = 2;
+  Aggregator aggregator = 3;
+  // WINDOW_* only: window length in milliseconds.
+  int64 window_size_ms = 4;
+  // WINDOW_HOPPING only: advance in milliseconds
+  // (0 defaults to window_size_ms).
+  int64 window_advance_ms = 5;
+  // WINDOW_* only: grace period in milliseconds; a record
+  // whose window ended more than this before the largest
+  // timestamp seen so far (stream time) is dropped.
+  int64 grace_ms = 6;
+  // WINDOW_SESSION only: maximum gap between two records
+  // of the same key for them to share a session.
+  int64 gap_ms = 7;
+}
+
+enum ProcessingGuarantee {
+  PROCESSING_GUARANTEE_UNSPECIFIED = 0; // = AT_LEAST_ONCE
+  AT_LEAST_ONCE = 1;
+  // Sink records and source offsets commit atomically via
+  // a Kafka transaction (transactional.id = application_id):
+  // crash/rebalance replay never double-emits to the sink,
+  // at the cost of read_committed visibility latency.
+  EXACTLY_ONCE = 2;
+}
+
+message Topology {
+  string name = 1;
+  // Consumer group id for the source subscription;
+  // empty defaults to "streams-<name>".
+  string application_id = 2;
+  string source_topic = 3;
+  string sink_topic = 4;
+  // Legacy unparameterized chain; used only when steps is
+  // empty.
+  repeated Operator operators = 5;
+  // Parameterized chain; takes precedence over operators.
+  repeated Step steps = 6;
+  ProcessingGuarantee processing_guarantee = 7;
+  // Materialized table topic for JOIN_TABLE steps.
+  string table_topic = 8;
+  // Additional keyed-value topics folded into the store
+  // by a COGROUP step.
+  repeated string cogroup_sources = 9;
+  // Persistent state: when non-empty, the task snapshots
+  // store changes to the changelog topic
+  // "<application_id>-store-changelog" (created on demand)
+  // and restores from it at startup instead of replaying
+  // the source range. The value is a local state directory
+  // name kept for parity with Kafka Streams (this runtime
+  // keeps no local files; the changelog is the state).
+  // Crash semantics: changelog writes are at-least-once per
+  // batch, so a crash can persist a store change whose
+  // source offset did not commit; on restore the source
+  // record then replays through the restored store (see
+  // KAFKA.md). Under EXACTLY_ONCE the changelog produce
+  // joins the batch transaction, closing that caveat.
+  string state_dir = 10;
+  // Second input: join stream for JOIN_STREAM, right
+  // table for JOIN_TABLE_TABLE.
+  string join_topic = 11;
+  // Standby replicas: spawn this many passive task
+  // instances ("<name>-standby-<i>", same application_id)
+  // that maintain warm stores without emitting or
+  // committing. When the active topology is deleted, the
+  // oldest standby promotes in place: it joins the group
+  // and resumes from committed offsets with its warm store
+  // (no restore replay).
+  int32 standby_replicas = 12;
+}
+
+message TopologyInfo {
+  string name = 1;
+  string application_id = 2;
+  string source_topic = 3;
+  string sink_topic = 4;
+  // RUNNING, FAILED, or STOPPED.
+  string state = 5;
+  int64 records_processed = 6;
+  string error = 7;
+  // Source partitions this instance's group member is
+  // currently assigned (the task joins application_id as a
+  // consumer group; members split partitions).
+  repeated int32 assigned_partitions = 8;
+  int32 generation_id = 9;
+  // ACTIVE or STANDBY (see Topology.standby_replicas).
+  string role = 10;
+}
+
+message CreateTopologyRequest {
+  Topology topology = 1;
+}
+
+message DescribeTopologyRequest {
+  string name = 1;
+}
+
+message ListTopologiesRequest {}
+
+message ListTopologiesResponse {
+  repeated TopologyInfo topologies = 1;
+}
+
+message DeleteTopologyRequest {
+  string name = 1;
+}
+
+message DeleteTopologyResponse {}
+
+message GetStoreValueRequest {
+  string topology = 1;
+  string key = 2;
+}
+
+message GetStoreValueResponse {
+  bool found = 1;
+  string key = 2;
+  int64 value = 3;
+}
+
+message FetchWindowRequest {
+  string topology = 1;
+  string key = 2;
+  int64 window_start_ms = 3;
+  int64 window_end_ms = 4;
+}
+
+message FetchWindowResponse {
+  bool found = 1;
+  string key = 2;
+  int64 window_start_ms = 3;
+  int64 window_end_ms = 4;
+  int64 value = 5;
+}
+
+message StoreEntry {
+  string key = 1;
+  int64 value = 2;
+  // Windowed stores only: the window this entry belongs to.
+  int64 window_start_ms = 3;
+  int64 window_end_ms = 4;
+}
+
+message FetchRangeRequest {
+  string topology = 1;
+  // Key prefix (UTF-8) to scan; empty scans from the start.
+  string prefix = 2;
+  // Max entries to return (key-ordered); 0 = 100.
+  int32 limit = 3;
+}
+
+message FetchRangeResponse {
+  repeated StoreEntry entries = 1;
+}
+
+message FetchWindowRangeRequest {
+  string topology = 1;
+  string key = 2;
+  int64 from_ms = 3;
+  int64 to_ms = 4;
+}
+
+message FetchWindowRangeResponse {
+  repeated StoreEntry entries = 1;
+}
+
+service KafkaStreams {
+  rpc CreateTopology(CreateTopologyRequest) returns (TopologyInfo);
+  rpc DescribeTopology(DescribeTopologyRequest) returns (TopologyInfo);
+  rpc ListTopologies(ListTopologiesRequest) returns (ListTopologiesResponse);
+  rpc DeleteTopology(DeleteTopologyRequest) returns (DeleteTopologyResponse);
+  rpc GetStoreValue(GetStoreValueRequest) returns (GetStoreValueResponse);
+  rpc FetchWindow(FetchWindowRequest) returns (FetchWindowResponse);
+  rpc FetchRange(FetchRangeRequest) returns (FetchRangeResponse);
+  rpc FetchWindowRange(FetchWindowRangeRequest) returns (FetchWindowRangeResponse);
+}

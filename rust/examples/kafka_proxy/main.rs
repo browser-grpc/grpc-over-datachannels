@@ -24,7 +24,7 @@
 use bytes::Bytes;
 use grpc_dc::{DcTransport, Server, Status};
 use kafka_native::stub::kafka_service;
-use kafka_native::{KafkaConfig, KafkaService, SaslConfig, TlsConfig};
+use kafka_native::{processor_context_service, streams_service, KafkaConfig, KafkaService, SaslConfig, StreamsService, TlsConfig};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -239,26 +239,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tls,
     }));
 
+    let streams = Arc::new(StreamsService::new(service.broker.clone()));
     match options.mode {
         HostMode::Stdio => {
             let transport: Arc<dyn DcTransport> = Arc::new(StdioDc {
                 tx: tokio::sync::Mutex::new(tokio::io::stdout()),
                 rx: tokio::sync::Mutex::new(tokio::io::stdin()),
             });
-            Server::serve(transport, vec![kafka_service(service)]).await;
+            Server::serve(transport, service_defs(&service, &streams)).await;
         }
         HostMode::Tcp => {
-            serve_tcp(service, options.tcp_addr).await?;
+            serve_tcp(service, streams, options.tcp_addr).await?;
         }
         HostMode::WebRtcDirect => {
-            serve_webrtc_direct(service, options.webrtc_addr).await?;
+            serve_webrtc_direct(service, streams, options.webrtc_addr).await?;
         }
     }
     Ok(())
 }
 
+fn service_defs(
+    service: &Arc<KafkaService>,
+    streams: &Arc<StreamsService>,
+) -> Vec<grpc_dc::ServiceDef> {
+    vec![kafka_service(service.clone()), streams_service(streams.clone()), processor_context_service(streams.clone())]
+}
+
 async fn serve_tcp(
     service: Arc<KafkaService>,
+    streams: Arc<StreamsService>,
     addr: SocketAddr,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let listener = tokio::net::TcpListener::bind(addr).await?;
@@ -266,13 +275,14 @@ async fn serve_tcp(
     loop {
         let (socket, _) = listener.accept().await?;
         let service = service.clone();
+        let streams = streams.clone();
         tokio::spawn(async move {
             let (read_half, write_half) = socket.into_split();
             let transport: Arc<dyn DcTransport> = Arc::new(TcpDc {
                 tx: tokio::sync::Mutex::new(write_half),
                 rx: tokio::sync::Mutex::new(read_half),
             });
-            Server::serve(transport, vec![kafka_service(service)]).await;
+            Server::serve(transport, service_defs(&service, &streams)).await;
         });
     }
 }
@@ -280,6 +290,7 @@ async fn serve_tcp(
 #[cfg(feature = "webrtc")]
 async fn serve_webrtc_direct(
     service: Arc<KafkaService>,
+    streams: Arc<StreamsService>,
     addr: SocketAddr,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use grpc_dc::webrtc_direct::{accept_direct_transport, direct_listener};
@@ -289,8 +300,9 @@ async fn serve_webrtc_direct(
     loop {
         let transport = accept_direct_transport(listener.clone()).await?;
         let service = service.clone();
+        let streams = streams.clone();
         tokio::spawn(async move {
-            Server::serve(transport, vec![kafka_service(service)]).await;
+            Server::serve(transport, service_defs(&service, &streams)).await;
         });
     }
 }
@@ -298,6 +310,7 @@ async fn serve_webrtc_direct(
 #[cfg(not(feature = "webrtc"))]
 async fn serve_webrtc_direct(
     _service: Arc<KafkaService>,
+    _streams: Arc<StreamsService>,
     _addr: SocketAddr,
 ) -> Result<(), Box<dyn std::error::Error>> {
     Err("kafka_proxy was built without the `webrtc` feature".into())

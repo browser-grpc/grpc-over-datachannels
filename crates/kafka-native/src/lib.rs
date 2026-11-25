@@ -20,6 +20,14 @@ mod pb_message_impl;
 #[path = "../../../rust/gen/kafka_grpc_dc.rs"]
 pub mod stub;
 
+#[path = "../../../rust/gen/kafka_streams_pb.rs"]
+pub mod streams_pb;
+
+#[path = "../../../rust/gen/kafka_streams_processor_pb.rs"]
+pub mod processor_pb;
+
+pub mod streams;
+
 pub mod client;
 pub mod codecs;
 pub mod crypto;
@@ -29,3 +37,4 @@ pub mod wire;
 
 pub use client::{Broker, KafkaConfig, SaslConfig, TlsConfig};
 pub use service::KafkaService;
+pub use streams::{processor_context_service, streams_service, StreamsService};

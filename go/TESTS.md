@@ -36,6 +36,8 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`kafka_differential_test.go`](kafka_differential_test.go) — Kafka end-to-end (broker legs env-gated)
 - [`kafka_e2e_test.go`](kafka_e2e_test.go) — Kafka end-to-end (broker legs env-gated)
 - [`kafka_native_test.go`](kafka_native_test.go) — Kafka end-to-end (broker legs env-gated)
+- [`kafka_streams_e2e_test.go`](kafka_streams_e2e_test.go) — Kafka end-to-end (broker legs env-gated)
+- [`kafka_streams_scenarios_generated_test.go`](kafka_streams_scenarios_generated_test.go) — Kafka end-to-end (broker legs env-gated)
 - [`oracle_driver_generated_test.go`](oracle_driver_generated_test.go) — Official-implementation oracle, via the proxy
 - [`oracle_test.go`](oracle_test.go) — Official-implementation oracle, via the proxy
 - [`pb_messages_test.go`](pb_messages_test.go) — Generated suite/example
