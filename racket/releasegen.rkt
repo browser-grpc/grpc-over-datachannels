@@ -4156,9 +4156,11 @@
 (copy-rust-pub "LICENSE" "grpc-rust/LICENSE")
 ;; kafka-grpc: depends on the crates.io grpc-dc (path kept for
 ;; pre-publish resolution from this tree; cargo strips it on
-;; publish). The stubs address message types as crate::pb::*, so
-;; the lib re-exports kafka_pb under that name — without it the
-;; crate never compiled standalone.
+;; publish). The kafka stubs address message types as crate::pb::*,
+;; the streams/processor stubs as crate::streams_pb::* /
+;; crate::processor_pb::* (message_module=... at generation time),
+;; so the lib re-exports the *_pb modules under those names —
+;; without them the crate never compiled standalone.
 (copy-kafka-file "rust/gen/kafka_pb.rs" "kafka-rust/src/kafka_pb.rs")
 (copy-kafka-file "rust/gen/kafka_streams_pb.rs" "kafka-rust/src/kafka_streams_pb.rs")
 (copy-kafka-file "rust/gen/kafka_streams_processor_pb.rs" "kafka-rust/src/kafka_streams_processor_pb.rs")

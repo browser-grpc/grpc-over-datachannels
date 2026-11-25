@@ -303,11 +303,16 @@
                      (equal? (hash-ref f 'type-name) (hash-ref entry 'full))))))))
 
 ;; "message_module=crate::pb,pb_import=./echo_pb.js" -> #hash((sym . str))
+;; Options are separated by ',' or a single ':' (protoc joins repeated
+;; _opt flags with ':'), but a value may itself contain '::' (Rust paths
+;; such as crate::streams_pb): shield '::' before splitting, restore after.
 (define (parse-parameters parameter)
-  (for/hash ([part (in-list (string-split parameter #rx"[,:]"))]
+  (define shielded (string-replace parameter "::" "\u0001"))
+  (for/hash ([part (in-list (string-split shielded #rx"[,:]"))]
              #:when (regexp-match? #rx"=" part))
     (define kv (string-split part "="))
-    (values (string->symbol (first kv)) (second kv))))
+    (values (string->symbol (first kv))
+            (string-replace (second kv) "\u0001" "::"))))
 
 ;; CodeGeneratorResponse: error=1 supported_features=2 file=15(name=1 content=15)
 (define (encode-response files)

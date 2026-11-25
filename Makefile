@@ -251,7 +251,7 @@ kafka-stubs:
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-c=bin/protoc-gen-grpc-dc-c \
 		--grpc-dc-c_out=c/grpcdc -I proto proto/kafka.proto
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-rust=bin/protoc-gen-grpc-dc-rust \
-		--grpc-dc-rust_out=rust/gen -I proto proto/kafka_streams.proto
+		--grpc-dc-rust_out=rust/gen --grpc-dc-rust_opt=message_module=crate::streams_pb -I proto proto/kafka_streams.proto
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-js=bin/protoc-gen-grpc-dc-js \
 		--grpc-dc-js_out=js/src -I proto proto/kafka_streams.proto
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-go=bin/protoc-gen-grpc-dc-go \
@@ -284,7 +284,7 @@ kafka-stubs:
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-c=bin/protoc-gen-grpc-dc-c \
 		--grpc-dc-c_out=c/grpcdc -I proto proto/kafka_streams.proto
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-rust=bin/protoc-gen-grpc-dc-rust \
-		--grpc-dc-rust_out=rust/gen -I proto proto/kafka_streams_processor.proto
+		--grpc-dc-rust_out=rust/gen --grpc-dc-rust_opt=message_module=crate::processor_pb -I proto proto/kafka_streams_processor.proto
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-js=bin/protoc-gen-grpc-dc-js \
 		--grpc-dc-js_out=js/src -I proto proto/kafka_streams_processor.proto
 	$(PROTOC) --plugin=protoc-gen-grpc-dc-go=bin/protoc-gen-grpc-dc-go \

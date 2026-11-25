@@ -455,9 +455,9 @@ function baseName(name) {
 function parseParams(parameter) {
   const params = {};
   if (!parameter) return params;
-  for (const part of parameter.split(/[,:]/)) {
+  for (const part of parameter.replace(/::/g, '\u0001').split(/[,:]/)) {
     const i = part.indexOf('=');
-    if (i >= 0) params[part.slice(0, i)] = part.slice(i + 1);
+    if (i >= 0) params[part.slice(0, i)] = part.slice(i + 1).replace(/\u0001/g, '::');
   }
   return params;
 }

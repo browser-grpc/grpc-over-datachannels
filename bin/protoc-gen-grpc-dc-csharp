@@ -919,12 +919,15 @@
                     (hash-ref entry 'full))))))))
 
 (define (parse-parameters parameter)
+  (define shielded (string-replace parameter "::" "\u0001"))
   (for/hash
-   ((part (in-list (string-split parameter #rx"[,:]")))
+   ((part (in-list (string-split shielded #rx"[,:]")))
     #:when
     (regexp-match? #rx"=" part))
    (define kv (string-split part "="))
-   (values (string->symbol (first kv)) (second kv))))
+   (values
+    (string->symbol (first kv))
+    (string-replace (second kv) "\u0001" "::"))))
 
 (define (encode-response files)
   (apply
