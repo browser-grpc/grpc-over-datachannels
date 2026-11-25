@@ -30,6 +30,7 @@ struct TopologyState {
     key_records: HashMap<Vec<u8>, Vec<(i64, Option<i64>)>>,
     processors: HashMap<String, grpc_dc::Channel>,
     join_buffer: Vec<(Vec<u8>, i64, Vec<u8>, bool)>,
+    table2: HashMap<Vec<u8>, Vec<u8>>,
 }
 
 struct TopologyHandle {
@@ -64,6 +65,7 @@ enum Op {
     Cogroup,
     Process { addr: String },
     JoinStream { size_ms: i64, grace_ms: i64, separator: Vec<u8> },
+    JoinTableTable { separator: Vec<u8> },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -158,6 +160,15 @@ fn resolve_ops(topo: &spb::Topology) -> Result<Vec<Op>, Status> {
                 }
                 let sep = if step.param.is_empty() { ":".to_string() } else { step.param.clone() };
                 Op::JoinTable { separator: sep.into_bytes() }
+            }
+            spb::Operator::JoinTableTable => {
+                if topo.table_topic.is_empty() || topo.join_topic.is_empty() {
+                    return Err(Status::invalid_argument(
+                        "JOIN_TABLE_TABLE requires Topology.table_topic and Topology.join_topic",
+                    ));
+                }
+                let sep = if step.param.is_empty() { ":".to_string() } else { step.param.clone() };
+                Op::JoinTableTable { separator: sep.into_bytes() }
             }
             spb::Operator::JoinStream => {
                 if topo.join_topic.is_empty() {
@@ -441,6 +452,7 @@ impl StreamsService {
                 key_records: HashMap::new(),
                 processors: HashMap::new(),
                 join_buffer: Vec::new(),
+                table2: HashMap::new(),
             }),
             stop: AtomicBool::new(false),
         });
@@ -833,6 +845,7 @@ async fn apply_pipeline(ops: &[Op], rec: &PipeRec, ctx: &mut PipelineCtx<'_>) ->
                     }
                     ctx.join_buffer.push((r.key.clone(), r.ts, r.value.clone(), r.join_side));
                 }
+                Op::JoinTableTable { .. } => next.push(r),
                 Op::JoinTable { separator } => {
                     if let Some(tv) = ctx.table.get(&r.key) {
                         let mut value = r.value.clone();
@@ -1261,6 +1274,35 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
         }
     }
 
+    // Right table for JOIN_TABLE_TABLE.
+    let table_table_separator: Vec<u8> = ops
+        .iter()
+        .find_map(|o| match o {
+            Op::JoinTableTable { separator } => Some(separator.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| b":".to_vec());
+    let has_table_table = ops.iter().any(|o| matches!(o, Op::JoinTableTable { .. }));
+    let mut table2_offsets: HashMap<i32, i64> = HashMap::new();
+    let mut table2_partitions: Vec<i32> = Vec::new();
+    if has_table_table {
+        if let Ok(m) = broker.metadata(vec![topo.join_topic.clone()], false).await {
+            for t in &m.topics {
+                if t.name == topo.join_topic {
+                    for part in &t.partitions {
+                        table2_partitions.push(part.id);
+                        let off = broker
+                            .list_offsets(&topo.join_topic, part.id, -2, false)
+                            .await
+                            .map(|(o, _, _)| o)
+                            .unwrap_or(0);
+                        table2_offsets.insert(part.id, off);
+                    }
+                }
+            }
+        }
+    }
+
     // Cogroup sources: keyed decimal values folded into
     // the store (SUM) as they arrive.
     let mut cogroup_offsets: HashMap<String, HashMap<i32, i64>> = HashMap::new();
@@ -1465,6 +1507,7 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
             }
         }
         let mut progressed = false;
+        let mut left_changed: Vec<Vec<u8>> = Vec::new();
         for tp in &table_partitions {
             let toff = table_offsets[tp];
             if let Ok(outcome) = broker
@@ -1483,7 +1526,58 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
                         } else {
                             state.table.insert(record.key.clone(), record.value.clone());
                         }
+                        left_changed.push(record.key.clone());
                     }
+                }
+            }
+        }
+        if has_table_table {
+            let mut changed: Vec<Vec<u8>> = Vec::new();
+            for tp in &table2_partitions {
+                let toff = table2_offsets[tp];
+                if let Ok(outcome) = broker
+                    .fetch(&topo.join_topic, *tp, toff, 100, 1, 4 * 1024 * 1024, false)
+                    .await
+                {
+                    if outcome.error_code == 0 && !outcome.records.is_empty() {
+                        let mut state = handle.state.lock().await;
+                        for record in &outcome.records {
+                            table2_offsets.insert(*tp, record.offset + 1);
+                            if record.value.is_empty() {
+                                state.table2.remove(&record.key);
+                            } else {
+                                state.table2.insert(record.key.clone(), record.value.clone());
+                            }
+                            changed.push(record.key.clone());
+                        }
+                    }
+                }
+            }
+            changed.extend(left_changed.iter().cloned());
+            if !changed.is_empty() {
+                let combos: Vec<(Vec<u8>, Vec<u8>)> = {
+                    let state = handle.state.lock().await;
+                    changed
+                        .iter()
+                        .filter_map(|k| {
+                            match (state.table.get(k), state.table2.get(k)) {
+                                (Some(l), Some(r)) => {
+                                    let mut v = l.clone();
+                                    v.extend_from_slice(&table_table_separator);
+                                    v.extend_from_slice(r);
+                                    Some((k.clone(), v))
+                                }
+                                _ => None,
+                            }
+                        })
+                        .collect()
+                };
+                for (k, v) in combos {
+                    let sp = (fnv1a(&k) % sink_partitions as u64) as i32;
+                    let out = crate::pb::Record { key: k, value: v, ..Default::default() };
+                    let _ = broker
+                        .produce(&topo.sink_topic, sp, &[out], -1, 30_000, 0, -1, -1, -1, None)
+                        .await;
                 }
             }
         }

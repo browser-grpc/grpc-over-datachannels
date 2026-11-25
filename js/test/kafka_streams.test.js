@@ -1072,3 +1072,57 @@ test("kafka streams windowed stream-stream join", { skip: !PROXY_ADDR }, async (
   assert.deepEqual(joined, { k1: "L1+R1", k2: "L2+R2" });
   assert.equal(total, 2);
 });
+
+test("kafka streams table-table join emits on either side update", { skip: !PROXY_ADDR }, async (t) => {
+  const { dc, kafka, streams } = makeClients();
+  const id = randomUUID().slice(0, 12);
+  const source = `streams-tt-src-${id}`;
+  const left = `streams-tt-left-${id}`;
+  const right = `streams-tt-right-${id}`;
+  const sink = `streams-tt-out-${id}`;
+  const name = `tt-${id}`;
+  t.after(async () => {
+    try {
+      await streams.deleteTopology(new DeleteTopologyRequest({ name }));
+      await kafka.deleteTopics(new DeleteTopicsRequest({ topics: [source, left, right, sink] }));
+    } catch { /* best effort */ }
+    dc.close();
+  });
+  for (const topic of [source, left, right, sink]) {
+    const created = await kafka.createTopics(new CreateTopicsRequest({
+      topics: [new NewTopic({ name: topic, numPartitions: 1, replicationFactor: 1 })],
+      timeoutMs: 15000,
+    }));
+    assert.deepEqual(created.results.map((r) => r.errorCode), [0]);
+  }
+  const { Step } = await import("../src/kafka_streams_pb.js");
+  const info = await streams.createTopology(new CreateTopologyRequest({
+    topology: new Topology({
+      name, sourceTopic: source, tableTopic: left, joinTopic: right, sinkTopic: sink,
+      steps: [new Step({ operator: Operator.JOIN_TABLE_TABLE, param: "|" })],
+    }),
+  }));
+  assert.equal(info.state, "RUNNING");
+  const put = async (topic, k, v) => {
+    const resp = await kafka.produce(new ProduceRequest({
+      topic, partition: 0, records: [new Record({ key: enc(k), value: enc(v) })],
+    }));
+    assert.equal(resp.errorCode, 0);
+  };
+  await put(left, "x", "L1");
+  await put(right, "x", "R1");   // -> x = L1|R1
+  await put(left, "x", "L2");    // -> x = L2|R1 (left update re-emits)
+  const seen = [];
+  for (let i = 0; i < 60 && seen.length < 2; i++) {
+    const stream = await kafka.consume(new ConsumeRequest({ topic: sink, partition: 0, offset: 0n, maxRecords: 50 }));
+    const iter = stream[Symbol.asyncIterator]();
+    const first = await Promise.race([iter.next(), sleep(1000).then(() => null)]);
+    if (first && !first.done) {
+      seen.length = 0;
+      for (const r of first.value.records) seen.push(`${dec(r.key)}=${dec(r.value)}`);
+    }
+    await iter.return?.();
+    if (seen.length < 2) await sleep(250);
+  }
+  assert.deepEqual(seen, ["x=L1|R1", "x=L2|R1"]);
+});
