@@ -3,7 +3,19 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.47.1 — 2026-11-25 (published to GitHub/npm/PyPI/GHCR/NuGet/Maven Central/GitHub Maven/pub.dev/crates.io/RubyGems/LuaRocks)
+## v0.47.2 — 2026-11-25
+
+- Crates fix for the v0.47.1 publish: the kafka-native
+  export only copied `kafka_pb.rs`/`kafka_grpc_dc.rs` into
+  the package's `src/gen/` and rewrote their `#[path]`s;
+  the streams/processor modules still pointed at
+  `../../../rust/gen/`, which is outside the package, so
+  `cargo publish` tarball verification failed. All four
+  generated modules are now copied and rewritten. (The
+  v0.47.1 JSR workflow also failed once on a transient
+  OIDC 503 and succeeded on re-dispatch.)
+
+## v0.47.1 — 2026-11-25 (published to GitHub/npm/PyPI/GHCR/NuGet/Maven Central/GitHub Maven/pub.dev/crates.io/RubyGems/LuaRocks/JSR)
 
 - Crates fix for the v0.47.0 publish: the generated Rust
   stubs for the Kafka Streams/Processor protos resolved
