@@ -184,11 +184,13 @@ message Topology {
   // Second input: join stream for JOIN_STREAM, right
   // table for JOIN_TABLE_TABLE.
   string join_topic = 11;
-  // Standby replicas: this many extra task instances (same
-  // topology name on other proxy instances, or additional
-  // CreateTopology calls with the same application_id)
-  // passively maintain warm stores without emitting or
-  // committing; not yet implemented.
+  // Standby replicas: spawn this many passive task
+  // instances ("<name>-standby-<i>", same application_id)
+  // that maintain warm stores without emitting or
+  // committing. When the active topology is deleted, the
+  // oldest standby promotes in place: it joins the group
+  // and resumes from committed offsets with its warm store
+  // (no restore replay).
   int32 standby_replicas = 12;
 }
 
@@ -206,6 +208,8 @@ message TopologyInfo {
   // consumer group; members split partitions).
   repeated int32 assigned_partitions = 8;
   int32 generation_id = 9;
+  // ACTIVE or STANDBY (see Topology.standby_replicas).
+  string role = 10;
 }
 
 message CreateTopologyRequest {

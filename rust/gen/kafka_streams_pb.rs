@@ -468,6 +468,7 @@ pub struct TopologyInfo {
     pub error: String,
     pub assigned_partitions: Vec<i32>,
     pub generation_id: i32,
+    pub role: String,
     pub unknown_fields: Vec<u8>,
 }
 
@@ -483,6 +484,7 @@ impl Default for TopologyInfo {
             error: String::new(),
             assigned_partitions: Vec::new(),
             generation_id: 0,
+            role: String::new(),
             unknown_fields: Vec::new(),
         }
     }
@@ -504,6 +506,7 @@ impl TopologyInfo {
             pb_append_bytes_field(&mut out, 8, &payload);
         }
         if self.generation_id != 0 { pb_append_tag(&mut out, 9, 0); pb_append_varint(&mut out, (self.generation_id as u64)); }
+        pb_append_string_field(&mut out, 10, &self.role);
         out.extend_from_slice(&self.unknown_fields);
         out
     }
@@ -547,6 +550,9 @@ impl TopologyInfo {
                 }
                 9 => {
                     msg.generation_id = (field.varint_value as u32 as i32);
+                }
+                10 => {
+                    msg.role = String::from_utf8_lossy(&field.bytes_value).into_owned();
                 }
                 _ => {
                     msg.unknown_fields.extend_from_slice(&field.raw_value);

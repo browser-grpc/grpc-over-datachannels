@@ -365,7 +365,8 @@ class TopologyInfo(
     var recordsProcessed: Long = 0L,
     var error: String = "",
     var assignedPartitions: List[Int] = List.empty,
-    var generationId: Int = 0
+    var generationId: Int = 0,
+    var role: String = ""
 ) extends grpcdc.Marshaler with grpcdc.Unmarshaler {
   var unknownFields: Array[Byte] = Array.empty[Byte]
   def marshalDc(): Array[Byte] = {
@@ -391,6 +392,7 @@ class TopologyInfo(
       pbW.tag(9, 0)
       pbW.varint((generationId.toLong))
     }
+    pbW.stringField(10, role)
     pbW.raw(unknownFields)
     pbW.toBytes
   }
@@ -406,6 +408,7 @@ class TopologyInfo(
     error = ""
     assignedPartitions = List.empty
     generationId = 0
+    role = ""
     val pbR = new KafkaStreamsPb.Reader(data)
     var pbField = pbR.next()
     while (pbField != null) {
@@ -436,6 +439,8 @@ class TopologyInfo(
           }
         case 9 =>
           generationId = pbField.varintValue.toInt
+        case 10 =>
+          role = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8)
         case _ => unknownFields = unknownFields ++ pbField.rawValue
       }
       pbField = pbR.next()

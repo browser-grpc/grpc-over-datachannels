@@ -461,9 +461,10 @@ class TopologyInfo
     public string $error = "";
     public array $assignedPartitions = [];
     public int $generationId = 0;
+    public string $role = "";
 
     public string $unknownFields = "";
-    public function __construct(string $name = "", string $applicationId = "", string $sourceTopic = "", string $sinkTopic = "", string $state = "", int $recordsProcessed = 0, string $error = "", array $assignedPartitions = [], int $generationId = 0)
+    public function __construct(string $name = "", string $applicationId = "", string $sourceTopic = "", string $sinkTopic = "", string $state = "", int $recordsProcessed = 0, string $error = "", array $assignedPartitions = [], int $generationId = 0, string $role = "")
     {
         $this->name = $name;
         $this->applicationId = $applicationId;
@@ -474,6 +475,7 @@ class TopologyInfo
         $this->error = $error;
         $this->assignedPartitions = $assignedPartitions;
         $this->generationId = $generationId;
+        $this->role = $role;
     }
 
     public function marshalDc(): string
@@ -500,6 +502,7 @@ class TopologyInfo
             $w->tag(9, 0);
             $w->varint($this->generationId);
         }
+        $w->stringField(10, $this->role);
         $w->raw($this->unknownFields);
         return $w->toBytes();
     }
@@ -516,6 +519,7 @@ class TopologyInfo
         $this->error = "";
         $this->assignedPartitions = [];
         $this->generationId = 0;
+        $this->role = "";
         $r = new Reader($data);
         while (($item = $r->field()) !== null) {
             [$num, $wire, $varintValue, $bytesValue, $fixedValue, $rawValue] = $item;
@@ -555,6 +559,9 @@ class TopologyInfo
                 case 9:
                     $this->generationId = ((($varintValue & 0xffffffff) >= 0x80000000) ? (($varintValue & 0xffffffff) - 0x100000000) : ($varintValue & 0xffffffff));
                     break;
+                case 10:
+                    $this->role = $bytesValue;
+                    break;
                 default:
                     $this->unknownFields .= $rawValue;
                     break;
@@ -574,7 +581,8 @@ class TopologyInfo
             && $this->recordsProcessed === $other->recordsProcessed
             && $this->error === $other->error
             && $this->assignedPartitions === $other->assignedPartitions
-            && $this->generationId === $other->generationId;
+            && $this->generationId === $other->generationId
+            && $this->role === $other->role;
     }
 }
 

@@ -12,9 +12,10 @@ public final class TopologyInfo implements grpcdc.Marshaler, grpcdc.Unmarshaler 
     public String error = "";
     public java.util.List<Integer> assignedPartitions = new java.util.ArrayList<>();
     public int generationId = 0;
+    public String role = "";
     public byte[] unknownFields = new byte[0];
     public TopologyInfo() {}
-    public TopologyInfo(String name, String applicationId, String sourceTopic, String sinkTopic, String state, long recordsProcessed, String error, java.util.List<Integer> assignedPartitions, int generationId) {
+    public TopologyInfo(String name, String applicationId, String sourceTopic, String sinkTopic, String state, long recordsProcessed, String error, java.util.List<Integer> assignedPartitions, int generationId, String role) {
         this.name = name;
         this.applicationId = applicationId;
         this.sourceTopic = sourceTopic;
@@ -24,6 +25,7 @@ public final class TopologyInfo implements grpcdc.Marshaler, grpcdc.Unmarshaler 
         this.error = error;
         this.assignedPartitions = assignedPartitions;
         this.generationId = generationId;
+        this.role = role;
     }
 
     @Override
@@ -42,6 +44,7 @@ public final class TopologyInfo implements grpcdc.Marshaler, grpcdc.Unmarshaler 
             pbW.bytesField(8, pbPayload.toBytes());
         }
         if (generationId != 0) { pbW.tag(9, 0); pbW.varint(generationId); }
+        pbW.stringField(10, role);
         pbW.raw(unknownFields);
         return pbW.toBytes();
     }
@@ -58,6 +61,7 @@ public final class TopologyInfo implements grpcdc.Marshaler, grpcdc.Unmarshaler 
         error = "";
         assignedPartitions = new java.util.ArrayList<>();
         generationId = 0;
+        role = "";
         Kafka_streamsPb.Reader pbR = new Kafka_streamsPb.Reader(data);
         Kafka_streamsPb.Field pbField;
         while ((pbField = pbR.next()) != null) {
@@ -95,6 +99,9 @@ public final class TopologyInfo implements grpcdc.Marshaler, grpcdc.Unmarshaler 
                 }
                 case 9 -> {
                     generationId = (int) pbField.varintValue;
+                }
+                case 10 -> {
+                    role = new String(pbField.bytesValue, java.nio.charset.StandardCharsets.UTF_8);
                 }
                 default -> { unknownFields = Kafka_streamsPb.concatBytes(unknownFields, pbField.rawValue); }
             }

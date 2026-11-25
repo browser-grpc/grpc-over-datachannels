@@ -288,7 +288,7 @@ export class Topology {
 }
 
 export class TopologyInfo {
-  constructor({ name = "", applicationId = "", sourceTopic = "", sinkTopic = "", state = "", recordsProcessed = 0n, error = "", assignedPartitions = [], generationId = 0 } = {}) {
+  constructor({ name = "", applicationId = "", sourceTopic = "", sinkTopic = "", state = "", recordsProcessed = 0n, error = "", assignedPartitions = [], generationId = 0, role = "" } = {}) {
     this.name = name;
     this.applicationId = applicationId;
     this.sourceTopic = sourceTopic;
@@ -298,6 +298,7 @@ export class TopologyInfo {
     this.error = error;
     this.assignedPartitions = assignedPartitions;
     this.generationId = generationId;
+    this.role = role;
     this.unknownFields = EMPTY_BYTES;
   }
   static encode(msg) {
@@ -315,6 +316,7 @@ export class TopologyInfo {
       putBytesField(out, 8, payload);
     }
     putVarintField(out, 9, BigInt(msg.generationId));
+    putStringField(out, 10, msg.role);
     putRaw(out, msg.unknownFields);
     return new Uint8Array(out);
   }
@@ -343,6 +345,7 @@ export class TopologyInfo {
       case 7: msg.error = textDecoder.decode(value); break;
       case 8: if (wire === 2) { const r = new Reader(value); while (!r.done) msg.assignedPartitions.push(Number(BigInt.asIntN(32, r.varint()))); } else msg.assignedPartitions.push(Number(BigInt.asIntN(32, value))); break;
       case 9: msg.generationId = Number(BigInt.asIntN(32, value)); break;
+      case 10: msg.role = textDecoder.decode(value); break;
         default: msg.unknownFields = concatBytes(msg.unknownFields, raw); break;
       }
     }
@@ -358,6 +361,7 @@ export class TopologyInfo {
     this.error = "";
     this.assignedPartitions = [];
     this.generationId = 0;
+    this.role = "";
     this.unknownFields = EMPTY_BYTES;
   }
 }

@@ -15,9 +15,10 @@ public sealed class TopologyInfo : IMarshaler, IUnmarshaler {
     public string Error = "";
     public System.Collections.Generic.List<int> AssignedPartitions = new System.Collections.Generic.List<int>();
     public int GenerationId = 0;
+    public string Role = "";
     public byte[] UnknownFields = new byte[0];
     public TopologyInfo() {}
-    public TopologyInfo(string name, string applicationId, string sourceTopic, string sinkTopic, string state, long recordsProcessed, string error, System.Collections.Generic.List<int> assignedPartitions, int generationId) {
+    public TopologyInfo(string name, string applicationId, string sourceTopic, string sinkTopic, string state, long recordsProcessed, string error, System.Collections.Generic.List<int> assignedPartitions, int generationId, string role) {
         Name = name;
         ApplicationId = applicationId;
         SourceTopic = sourceTopic;
@@ -27,6 +28,7 @@ public sealed class TopologyInfo : IMarshaler, IUnmarshaler {
         Error = error;
         AssignedPartitions = assignedPartitions;
         GenerationId = generationId;
+        Role = role;
     }
     public byte[] MarshalDc() {
         var w = new Kafka_streamsPb.Writer();
@@ -43,6 +45,7 @@ public sealed class TopologyInfo : IMarshaler, IUnmarshaler {
             w.BytesField(8, payload.ToBytes());
         }
         if (GenerationId != 0) { w.Tag(9, 0); w.Varint(GenerationId); }
+        w.StringField(10, Role);
         w.Raw(UnknownFields);
         return w.ToBytes();
     }
@@ -57,6 +60,7 @@ public sealed class TopologyInfo : IMarshaler, IUnmarshaler {
         Error = "";
         AssignedPartitions = new System.Collections.Generic.List<int>();
         GenerationId = 0;
+        Role = "";
         var r = new Kafka_streamsPb.Reader(data);
         Kafka_streamsPb.Field field;
         while ((field = r.Next()) != null) {
@@ -102,6 +106,10 @@ public sealed class TopologyInfo : IMarshaler, IUnmarshaler {
                 }
                 case 9: {
                     GenerationId = (int) field.VarintValue;
+                    break;
+                }
+                case 10: {
+                    Role = System.Text.Encoding.UTF8.GetString(field.BytesValue);
                     break;
                 }
                 default: UnknownFields = Kafka_streamsPb.ConcatBytes(UnknownFields, field.RawValue); break;

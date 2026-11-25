@@ -348,9 +348,9 @@ end
   end
 
   class TopologyInfo
-    attr_accessor :name, :application_id, :source_topic, :sink_topic, :state, :records_processed, :error, :assigned_partitions, :generation_id, :unknown_fields
+    attr_accessor :name, :application_id, :source_topic, :sink_topic, :state, :records_processed, :error, :assigned_partitions, :generation_id, :role, :unknown_fields
 
-    def initialize(name: "", application_id: "", source_topic: "", sink_topic: "", state: "", records_processed: 0, error: "", assigned_partitions: [], generation_id: 0)
+    def initialize(name: "", application_id: "", source_topic: "", sink_topic: "", state: "", records_processed: 0, error: "", assigned_partitions: [], generation_id: 0, role: "")
       @name = name
       @application_id = application_id
       @source_topic = source_topic
@@ -360,6 +360,7 @@ end
       @error = error
       @assigned_partitions = assigned_partitions
       @generation_id = generation_id
+      @role = role
       @unknown_fields = "".b
     end
 
@@ -384,6 +385,7 @@ end
       w.tag(9, 0)
       w.varint(@generation_id)
     end
+    w.string_field(10, @role)
       w.raw(@unknown_fields)
       w.to_bytes
     end
@@ -399,6 +401,7 @@ end
       @error = ""
       @assigned_partitions = []
       @generation_id = 0
+      @role = ""
       r = Reader.new(data)
       loop do
         item = r.field
@@ -432,6 +435,8 @@ end
         end
       when 9
         @generation_id = (((varint_value & 0xffffffff) ^ 0x80000000) - 0x80000000)
+      when 10
+        @role = bytes_value.dup.force_encoding(Encoding::UTF_8)
         else
           @unknown_fields = @unknown_fields + raw_value
         end
@@ -440,7 +445,7 @@ end
     end
 
     def ==(other)
-      other.is_a?(TopologyInfo) && @name == other.name && @application_id == other.application_id && @source_topic == other.source_topic && @sink_topic == other.sink_topic && @state == other.state && @records_processed == other.records_processed && @error == other.error && @assigned_partitions == other.assigned_partitions && @generation_id == other.generation_id
+      other.is_a?(TopologyInfo) && @name == other.name && @application_id == other.application_id && @source_topic == other.source_topic && @sink_topic == other.sink_topic && @state == other.state && @records_processed == other.records_processed && @error == other.error && @assigned_partitions == other.assigned_partitions && @generation_id == other.generation_id && @role == other.role
     end
   end
 

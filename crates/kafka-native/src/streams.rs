@@ -36,6 +36,8 @@ struct TopologyState {
 struct TopologyHandle {
     state: Mutex<TopologyState>,
     stop: AtomicBool,
+    standby: AtomicBool,
+    primary: Option<String>,
 }
 
 pub struct StreamsService {
@@ -443,6 +445,7 @@ impl StreamsService {
                     source_topic: topo.source_topic.clone(),
                     sink_topic: topo.sink_topic.clone(),
                     state: "RUNNING".to_string(),
+                    role: "ACTIVE".to_string(),
                     ..Default::default()
                 },
                 store: HashMap::new(),
@@ -455,10 +458,51 @@ impl StreamsService {
                 table2: HashMap::new(),
             }),
             stop: AtomicBool::new(false),
+            standby: AtomicBool::new(false),
+            primary: None,
         });
         topologies.insert(topo.name.clone(), handle.clone());
         let broker = self.broker.clone();
-        tokio::spawn(run_topology(broker, handle.clone(), topo, app_id, ops));
+        tokio::spawn(run_topology(broker.clone(), handle.clone(), topo.clone(), app_id.clone(), ops.clone(), false));
+        for i in 0..topo.standby_replicas.max(0) {
+            let sname = format!("{}-standby-{i}", topo.name);
+            if topologies.contains_key(&sname) {
+                continue;
+            }
+            let shandle = Arc::new(TopologyHandle {
+                state: Mutex::new(TopologyState {
+                    info: spb::TopologyInfo {
+                        name: sname.clone(),
+                        application_id: app_id.clone(),
+                        source_topic: topo.source_topic.clone(),
+                        sink_topic: topo.sink_topic.clone(),
+                        state: "RUNNING".to_string(),
+                        role: "STANDBY".to_string(),
+                        ..Default::default()
+                    },
+                    store: HashMap::new(),
+                    stream_time: 0,
+                    table: HashMap::new(),
+                    sessions: HashMap::new(),
+                    key_records: HashMap::new(),
+                    processors: HashMap::new(),
+                    join_buffer: Vec::new(),
+                    table2: HashMap::new(),
+                }),
+                stop: AtomicBool::new(false),
+                standby: AtomicBool::new(true),
+                primary: Some(topo.name.clone()),
+            });
+            topologies.insert(sname, shandle.clone());
+            tokio::spawn(run_topology(
+                broker.clone(),
+                shandle,
+                topo.clone(),
+                app_id.clone(),
+                ops.clone(),
+                true,
+            ));
+        }
         let info = handle.state.lock().await.info.clone();
         Ok(info)
     }
@@ -491,6 +535,22 @@ impl StreamsService {
             .ok_or_else(|| Status::new(grpc_dc::Code::NotFound, "unknown topology"))?;
         handle.stop.store(true, Ordering::Relaxed);
         handle.state.lock().await.info.state = "STOPPED".to_string();
+        // Promote the oldest standby of this primary, if
+        // any: it keeps its warm store and takes over.
+        let mut candidates: Vec<(String, Arc<TopologyHandle>)> = topologies
+            .iter()
+            .filter(|(_, h)| {
+                h.primary.as_deref() == Some(req.name.as_str()) && h.standby.load(Ordering::Relaxed)
+            })
+            .map(|(n, h)| (n.clone(), h.clone()))
+            .collect();
+        candidates.sort_by(|a, b| a.0.cmp(&b.0));
+        let promote = candidates.into_iter().next().map(|(_, h)| h);
+        if let Some(h) = promote {
+            h.standby.store(false, Ordering::Relaxed);
+            let mut st = h.state.lock().await;
+            st.info.role = "ACTIVE".to_string();
+        }
         Ok(spb::DeleteTopologyResponse::default())
     }
 
@@ -1357,8 +1417,72 @@ async fn apply_with_state(
     outs
 }
 
-async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: spb::Topology, app_id: String, ops: Vec<Op>) {
+async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: spb::Topology, app_id: String, ops: Vec<Op>, standby: bool) {
     let topo_name = topo.name.clone();
+    if standby {
+        // Passive phase: maintain a warm store from all
+        // source partitions (no group, no emits, no
+        // commits) until promoted or stopped.
+        let meta = broker.metadata(vec![topo.source_topic.clone()], false).await;
+        if let Ok(meta) = meta {
+            let parts: Vec<i32> = meta
+                .topics
+                .iter()
+                .filter(|t| t.name == topo.source_topic)
+                .flat_map(|t| t.partitions.iter().map(|p| p.id))
+                .collect();
+            let mut offs: std::collections::HashMap<i32, i64> = std::collections::HashMap::new();
+            for p in &parts {
+                offs.insert(
+                    *p,
+                    broker
+                        .list_offsets(&topo.source_topic, *p, -2, false)
+                        .await
+                        .map(|(o, _, _)| o)
+                        .unwrap_or(0),
+                );
+            }
+            while handle.standby.load(Ordering::Relaxed) && !handle.stop.load(Ordering::Relaxed) {
+                let mut any = false;
+                for p in &parts {
+                    let off = offs[p];
+                    if let Ok(outcome) =
+                        broker.fetch(&topo.source_topic, *p, off, 200, 1, 4 * 1024 * 1024, false).await
+                    {
+                        if outcome.error_code == 0 && !outcome.records.is_empty() {
+                            any = true;
+                            for record in &outcome.records {
+                                offs.insert(*p, record.offset + 1);
+                                let _ = apply_with_state(
+                                    &handle,
+                                    &ops,
+                                    &PipeRec {
+                                        key: record.key.clone(),
+                                        value: record.value.clone(),
+                                        ts: record.timestamp_ms,
+                                        window: None,
+                                        precomputed: false,
+                                        join_side: false,
+                                    },
+                                    &topo_name,
+                                )
+                                .await;
+                            }
+                        }
+                    }
+                }
+                if !any {
+                    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+                }
+            }
+        }
+        if handle.stop.load(Ordering::Relaxed) {
+            return;
+        }
+        // Promoted: fall through to the active flow. The
+        // warm store already reflects the source, so the
+        // active restore must not replay into it again.
+    }
     let meta = match broker.metadata(vec![topo.source_topic.clone()], false).await {
         Ok(m) => m,
         Err(e) => return fail(&handle, e.message.clone()).await,
@@ -1497,6 +1621,7 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
         }
     }
 
+    let warm = standby;
     // Persistent state: restore the store from the
     // changelog topic when state_dir is set and a changelog
     // exists; source-range replay is then skipped for the
@@ -1506,7 +1631,7 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
     } else {
         Some(changelog_topic(&app_id))
     };
-    let mut changelog_restored = false;
+    let mut changelog_restored = warm;
     if let Some(topic) = &changelog {
         let _ = broker
             .create_topics(vec![(topic.clone(), -1, -1)], 15_000, false)

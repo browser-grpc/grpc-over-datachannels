@@ -270,8 +270,9 @@ class TopologyInfo implements Marshaler, Unmarshaler {
   String error;
   List<int> assignedPartitions;
   int generationId;
+  String role;
   Uint8List unknownFields = Uint8List(0);
-  TopologyInfo([this.name = '', this.applicationId = '', this.sourceTopic = '', this.sinkTopic = '', this.state = '', this.recordsProcessed = 0, this.error = '', this.generationId = 0]) : assignedPartitions = [];
+  TopologyInfo([this.name = '', this.applicationId = '', this.sourceTopic = '', this.sinkTopic = '', this.state = '', this.recordsProcessed = 0, this.error = '', this.generationId = 0, this.role = '']) : assignedPartitions = [];
   @override
   Uint8List marshalDc() {
     final pbW = Kafka_streamsPbWriter();
@@ -288,6 +289,7 @@ class TopologyInfo implements Marshaler, Unmarshaler {
         pbW.bytesField(8, pbPayload.toBytes());
     }
     if (generationId != 0) { pbW.tag(9, 0); pbW.varint(generationId); }
+    pbW.stringField(10, role);
     pbW.raw(unknownFields);
     return pbW.toBytes();
   }
@@ -303,6 +305,7 @@ class TopologyInfo implements Marshaler, Unmarshaler {
     error = '';
     assignedPartitions = [];
     generationId = 0;
+    role = '';
     final pbR = Kafka_streamsPbReader(Uint8List.fromList(data));
     while (true) {
       final pbField = pbR.next();
@@ -341,6 +344,9 @@ class TopologyInfo implements Marshaler, Unmarshaler {
           break;
         case 9:
           generationId = (pbField.varintValue).toSigned(32);
+          break;
+        case 10:
+          role = utf8.decode(pbField.bytesValue);
           break;
         default:
           unknownFields = Uint8List.fromList([...unknownFields, ...pbField.rawValue]);

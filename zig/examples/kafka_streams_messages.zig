@@ -282,6 +282,7 @@ pub const TopologyInfo = struct {
     error: []const u8 = "",
     assigned_partitions: []const i32 = &.{},
     generation_id: i32 = 0,
+    role: []const u8 = "",
     unknown_fields: []const u8 = &.{},
     pub fn marshalDc(self: *const TopologyInfo, alloc: std.mem.Allocator) []u8 {
         _ = .{ self, alloc };
@@ -301,6 +302,7 @@ pub const TopologyInfo = struct {
             w.bytesField(8, payload.toBytes());
         }
         if (self.generation_id != 0) { w.tag(9, 0); w.varint(@as(u64, @bitCast(@as(i64, self.generation_id)))); }
+        w.stringField(10, self.role);
         w.raw(self.unknown_fields);
         return w.toBytes();
     }
@@ -315,6 +317,7 @@ pub const TopologyInfo = struct {
         self.error = "";
         self.assigned_partitions = &.{};
         self.generation_id = 0;
+        self.role = "";
         var assigned_partitions_list = std.ArrayList(i32).empty;
         self.unknown_fields = &.{};
         var unknown_fields_list = std.ArrayList(u8).empty;
@@ -354,6 +357,9 @@ pub const TopologyInfo = struct {
                 },
                 9 => {
                     self.generation_id = @as(i32, @truncate(@as(i64, @bitCast(field.varint_value))));
+                },
+                10 => {
+                    self.role = alloc.dupe(u8, field.bytes_value) catch "";
                 },
                 else => { unknown_fields_list.appendSlice(alloc, field.raw_value) catch {}; },
             }

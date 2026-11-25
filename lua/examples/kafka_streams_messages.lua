@@ -283,8 +283,8 @@ end
 TopologyInfo = {}
 TopologyInfo.__index = TopologyInfo
 
-function TopologyInfo.new(name, applicationId, sourceTopic, sinkTopic, state, recordsProcessed, error, assignedPartitions, generationId)
-  return setmetatable({ name = name or "", applicationId = applicationId or "", sourceTopic = sourceTopic or "", sinkTopic = sinkTopic or "", state = state or "", recordsProcessed = recordsProcessed or 0, error = error or "", assignedPartitions = assignedPartitions or {}, generationId = generationId or 0, unknownFields = "" }, TopologyInfo)
+function TopologyInfo.new(name, applicationId, sourceTopic, sinkTopic, state, recordsProcessed, error, assignedPartitions, generationId, role)
+  return setmetatable({ name = name or "", applicationId = applicationId or "", sourceTopic = sourceTopic or "", sinkTopic = sinkTopic or "", state = state or "", recordsProcessed = recordsProcessed or 0, error = error or "", assignedPartitions = assignedPartitions or {}, generationId = generationId or 0, role = role or "", unknownFields = "" }, TopologyInfo)
 end
 
 function TopologyInfo:marshalDc()
@@ -302,6 +302,7 @@ function TopologyInfo:marshalDc()
       w:bytesField(8, table.concat(payload))
     end
     if self.generationId ~= 0 then w:tag(9, 0) w:varint(self.generationId) end
+    w:stringField(10, self.role)
   w:raw(self.unknownFields)
   return w:toBytes()
 end
@@ -317,6 +318,7 @@ function TopologyInfo:unmarshalDc(data)
   self.error = ""
   self.assignedPartitions = {}
   self.generationId = 0
+  self.role = ""
   local r = Reader.new(data)
   while true do
     local field = r:next()
@@ -348,6 +350,8 @@ function TopologyInfo:unmarshalDc(data)
       end
     elseif field.number == 9 then
       self.generationId = ((field.varintValue & 0xffffffff) >= 0x80000000 and (field.varintValue & 0xffffffff) - 0x100000000 or (field.varintValue & 0xffffffff))
+    elseif field.number == 10 then
+      self.role = field.bytesValue
     else
       self.unknownFields = self.unknownFields .. field.rawValue
     end

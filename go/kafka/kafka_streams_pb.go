@@ -423,6 +423,7 @@ type TopologyInfo struct {
 	Error              string
 	AssignedPartitions []int32
 	GenerationId       int32
+	Role               string
 	UnknownFields      []byte
 }
 
@@ -455,6 +456,7 @@ func (m *TopologyInfo) MarshalDC() []byte {
 		out = KafkaStreamsPbAppendTag(out, 9, 0)
 		out = KafkaStreamsPbAppendVarint(out, uint64(int64(m.GenerationId)))
 	}
+	out = KafkaStreamsPbAppendStringField(out, 10, m.Role)
 	out = append(out, m.UnknownFields...)
 	return out
 }
@@ -516,6 +518,10 @@ func (m *TopologyInfo) UnmarshalDC(data []byte) error {
 		case 9:
 			if v, ok := value.(uint64); ok {
 				m.GenerationId = int32(v)
+			}
+		case 10:
+			if b, ok := value.([]byte); ok {
+				m.Role = string(b)
 			}
 		default:
 			m.UnknownFields = append(m.UnknownFields, raw...)

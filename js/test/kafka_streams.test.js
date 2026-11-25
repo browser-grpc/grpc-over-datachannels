@@ -1219,3 +1219,59 @@ test("kafka streams EXACTLY_ONCE + state_dir: changelog commits in the batch tra
   assert.deepEqual(final, { atomic: "2", state: "1" });
   assert.equal(total, 3);
 });
+
+test("kafka streams standby promotes with a warm store on delete", { skip: !PROXY_ADDR }, async (t) => {
+  const { kafka, streams, source, sink, name } = await setupStreams(t);
+  void name;
+  // setupStreams' topology shares this test's topics but
+  // has its own app id; delete it and build the primary.
+  const base = await streams.listTopologies(new ListTopologiesRequest({}));
+  for (const info of base.topologies) {
+    if (info.sourceTopic === source) {
+      await streams.deleteTopology(new DeleteTopologyRequest({ name: info.name }));
+    }
+  }
+  await sleep(600);
+  const primary = `sb-${randomUUID().slice(0, 8)}`;
+  const mk = streams.createTopology(new CreateTopologyRequest({
+    topology: new Topology({
+      name: primary, sourceTopic: source, sinkTopic: sink, standbyReplicas: 1,
+      operators: [Operator.TOKENIZE_WORDS, Operator.GROUP_BY_KEY, Operator.COUNT],
+    }),
+  }));
+  assert.equal((await mk).state, "RUNNING");
+  const standbyName = `${primary}-standby-0`;
+  // No client cleanup for the promoted standby here:
+  // setupStreams' after hook closes the shared channel
+  // first (hook order), and the per-test proxy is discarded
+  // by the harness anyway.
+  let sb = null;
+  for (let i = 0; i < 40; i++) {
+    try {
+      sb = await streams.describeTopology(new DescribeTopologyRequest({ name: standbyName }));
+      break;
+    } catch { await sleep(250); }
+  }
+  assert.equal(sb.role, "STANDBY");
+  await produceLines(kafka, source, ["warm warm store"]);
+  await waitStore(streams, primary, "warm", 2n);
+  // Delete the primary: the standby promotes and keeps
+  // counting from its warm store.
+  await streams.deleteTopology(new DeleteTopologyRequest({ name: primary }));
+  let role = "";
+  for (let i = 0; i < 60; i++) {
+    const d = await streams.describeTopology(new DescribeTopologyRequest({ name: standbyName }));
+    role = d.role;
+    if (role === "ACTIVE" && d.assignedPartitions.length >= 1) break;
+    await sleep(250);
+  }
+  assert.equal(role, "ACTIVE");
+  await produceLines(kafka, source, ["warm again"]);
+  let got = null;
+  for (let i = 0; i < 80; i++) {
+    got = await streams.getStoreValue(new GetStoreValueRequest({ topology: standbyName, key: "warm" }));
+    if (got.found && got.value === 3n) break;
+    await sleep(250);
+  }
+  assert.equal(got?.value, 3n, "promoted standby lost or double-counted the warm store");
+});

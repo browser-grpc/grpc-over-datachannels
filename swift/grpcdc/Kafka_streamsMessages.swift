@@ -273,9 +273,10 @@ public final class TopologyInfo: Marshaler, Unmarshaler {
     public var error: String = ""
     public var assignedPartitions: [Int32] = []
     public var generationId: Int32 = 0
+    public var role: String = ""
     public var unknownFields: [UInt8] = []
     public init() {}
-    public init(_ name: String = "", _ applicationId: String = "", _ sourceTopic: String = "", _ sinkTopic: String = "", _ state: String = "", _ recordsProcessed: Int64 = 0, _ error: String = "", _ assignedPartitions: [Int32] = [], _ generationId: Int32 = 0) {
+    public init(_ name: String = "", _ applicationId: String = "", _ sourceTopic: String = "", _ sinkTopic: String = "", _ state: String = "", _ recordsProcessed: Int64 = 0, _ error: String = "", _ assignedPartitions: [Int32] = [], _ generationId: Int32 = 0, _ role: String = "") {
         self.name = name
         self.applicationId = applicationId
         self.sourceTopic = sourceTopic
@@ -285,6 +286,7 @@ public final class TopologyInfo: Marshaler, Unmarshaler {
         self.error = error
         self.assignedPartitions = assignedPartitions
         self.generationId = generationId
+        self.role = role
     }
     public func MarshalDc() -> [UInt8] {
         let pbW = Kafka_streamsPb.Writer()
@@ -301,6 +303,7 @@ public final class TopologyInfo: Marshaler, Unmarshaler {
             pbW.BytesField(8, pbPayload.ToBytes())
         }
         if generationId != 0 { pbW.Tag(9, 0); pbW.Varint(Int64(generationId)) }
+        pbW.StringField(10, role)
         pbW.Raw(unknownFields)
         return pbW.ToBytes()
     }
@@ -315,6 +318,7 @@ public final class TopologyInfo: Marshaler, Unmarshaler {
         error = ""
         assignedPartitions = []
         generationId = 0
+        role = ""
         let pbR = Kafka_streamsPb.Reader(data)
         while true {
             let next: Kafka_streamsPb.Field?
@@ -346,6 +350,8 @@ public final class TopologyInfo: Marshaler, Unmarshaler {
                 }
             case 9:
                 generationId = Int32(truncatingIfNeeded: pbField.varintValue)
+            case 10:
+                role = String(decoding: pbField.bytesValue, as: UTF8.self)
             default: unknownFields += pbField.rawValue
             }
         }

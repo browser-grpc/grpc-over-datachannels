@@ -307,6 +307,7 @@ enum class ProcessingGuarantee(val number: Int) {
     var error: String = "",
     var assignedPartitions: MutableList<Int> = mutableListOf(),
     var generationId: Int = 0,
+    var role: String = "",
 ) : Marshaler, Unmarshaler {
     var unknownFields: ByteArray = ByteArray(0)
     override fun marshalDc(): ByteArray {
@@ -324,6 +325,7 @@ enum class ProcessingGuarantee(val number: Int) {
             pbW.bytesField(8, pbPayload.toBytes())
         }
         if (generationId != 0) { pbW.tag(9, 0); pbW.varint(generationId.toLong()) }
+        pbW.stringField(10, role)
         pbW.raw(unknownFields)
         return pbW.toBytes()
     }
@@ -338,6 +340,7 @@ enum class ProcessingGuarantee(val number: Int) {
         error = ""
         assignedPartitions = mutableListOf()
         generationId = 0
+        role = ""
         val pbR = Kafka_streamsPb.Reader(data)
         while (true) {
             val pbField = pbR.next() ?: break
@@ -375,6 +378,9 @@ enum class ProcessingGuarantee(val number: Int) {
                 }
                 9 -> {
                     generationId = pbField.varintValue.toInt()
+                }
+                10 -> {
+                    role = String(pbField.bytesValue, Charsets.UTF_8)
                 }
                 else -> { unknownFields = unknownFields + pbField.rawValue }
             }
