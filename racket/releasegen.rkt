@@ -2245,7 +2245,8 @@
       (lambda (out) (display stamped out))
       #:exists 'replace))
   (make-directory* (build-path kafka-native-out "crates/kafka-native/src/gen"))
-  (for ([gen (in-list '("kafka_pb.rs" "kafka_grpc_dc.rs"))])
+  (for ([gen (in-list '("kafka_pb.rs" "kafka_grpc_dc.rs"
+                        "kafka_streams_pb.rs" "kafka_streams_processor_pb.rs"))])
     (copy-file (build-path out-dir "rust/gen" gen)
                (build-path kafka-native-out "crates/kafka-native/src/gen" gen)
                #t))
@@ -2255,7 +2256,13 @@
                                     "gen/kafka_pb.rs")]
          [rewritten (string-replace rewritten
                                     "../../../rust/gen/kafka_grpc_dc.rs"
-                                    "gen/kafka_grpc_dc.rs")])
+                                    "gen/kafka_grpc_dc.rs")]
+         [rewritten (string-replace rewritten
+                                    "../../../rust/gen/kafka_streams_pb.rs"
+                                    "gen/kafka_streams_pb.rs")]
+         [rewritten (string-replace rewritten
+                                    "../../../rust/gen/kafka_streams_processor_pb.rs"
+                                    "gen/kafka_streams_processor_pb.rs")])
     (call-with-output-file lib
       (lambda (out) (display rewritten out))
       #:exists 'replace))
