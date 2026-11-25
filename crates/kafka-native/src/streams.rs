@@ -1554,6 +1554,8 @@ async fn run_topology(broker: Arc<Broker>, handle: Arc<TopologyHandle>, topo: sp
                 }
             }
             changed.extend(left_changed.iter().cloned());
+            changed.sort_unstable();
+            changed.dedup();
             if !changed.is_empty() {
                 let combos: Vec<(Vec<u8>, Vec<u8>)> = {
                     let state = handle.state.lock().await;

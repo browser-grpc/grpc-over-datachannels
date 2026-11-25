@@ -1111,6 +1111,17 @@ test("kafka streams table-table join emits on either side update", { skip: !PROX
   };
   await put(left, "x", "L1");
   await put(right, "x", "R1");   // -> x = L1|R1
+  // Wait for the first combined emission before updating
+  // the left side (a single fetch batch would otherwise
+  // collapse L1 and L2 into one emission).
+  for (let i = 0; i < 60; i++) {
+    const stream = await kafka.consume(new ConsumeRequest({ topic: sink, partition: 0, offset: 0n, maxRecords: 50 }));
+    const iter = stream[Symbol.asyncIterator]();
+    const first = await Promise.race([iter.next(), sleep(500).then(() => null)]);
+    await iter.return?.();
+    if (first && !first.done && first.value.records.length >= 1) break;
+    await sleep(250);
+  }
   await put(left, "x", "L2");    // -> x = L2|R1 (left update re-emits)
   const seen = [];
   for (let i = 0; i < 60 && seen.length < 2; i++) {
