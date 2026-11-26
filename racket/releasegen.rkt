@@ -1858,11 +1858,11 @@
          [text (file->string cargo)]
          [bare (if (string-prefix? version "v") (substring version 1) version)]
          [text (string-replace text "grpc-dc = { path = \"../../rust\" }"
-                               (string-append "grpc-dc = { version = \"" bare "\", git = \"https://github.com/browser-grpc/grpc-over-datachannels\", tag = \"" version "\" }"))]
+                               (string-append "grpc-dc = { version = \"" bare "\" }"))]
          [text (string-replace text "kafka-native = { path = \"../../crates/kafka-native\" }"
-                               (string-append "kafka-native = { version = \"" bare "\", git = \"https://github.com/browser-grpc/grpc-over-datachannels\", tag = \"" version "\" }"))]
+                               (string-append "kafka-native = { version = \"" bare "\" }"))]
          [text (string-replace text "kafka-service = { path = \"../../crates/kafka-service\" }"
-                               (string-append "kafka-service = { version = \"" bare "\", git = \"https://github.com/browser-grpc/grpc-over-datachannels\", tag = \"" version "\" }"))]
+                               (string-append "kafka-service = { version = \"" bare "\" }"))]
          [text (string-replace text "version = \"0.1.0\""
                                (string-append "version = \"" bare "\""))])
     (call-with-output-file (build-path kafka-proxy-out "Cargo.toml")
@@ -2321,7 +2321,7 @@
                                   (string-append "version = \"" kn-bare-version "\""))]
          [stamped (string-replace stamped
                                   "grpc-dc = { path = \"../../rust\" }"
-                                  (string-append "grpc-dc = { version = \"" kn-bare-version "\", git = \"https://github.com/browser-grpc/grpc-over-datachannels\", tag = \"" version "\" }"))])
+                                  (string-append "grpc-dc = { version = \"" kn-bare-version "\" }"))])
     (call-with-output-file cargo
       (lambda (out) (display stamped out))
       #:exists 'replace))
@@ -2376,10 +2376,10 @@
                                   (string-append "version = \"" kn-bare-version "\""))]
          [stamped (string-replace stamped
                                   "kafka-native = { path = \"../kafka-native\" }"
-                                  (string-append "kafka-native = { version = \"" kn-bare-version "\", git = \"https://github.com/browser-grpc/grpc-over-datachannels\", tag = \"" version "\" }"))]
+                                  (string-append "kafka-native = { version = \"" kn-bare-version "\" }"))]
          [stamped (string-replace stamped
                                   "grpc-dc = { path = \"../../rust\" }"
-                                  (string-append "grpc-dc = { version = \"" kn-bare-version "\", git = \"https://github.com/browser-grpc/grpc-over-datachannels\", tag = \"" version "\" }"))])
+                                  (string-append "grpc-dc = { version = \"" kn-bare-version "\" }"))])
     (call-with-output-file cargo
       (lambda (out) (display stamped out))
       #:exists 'replace))

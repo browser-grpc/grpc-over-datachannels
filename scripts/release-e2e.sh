@@ -76,8 +76,18 @@ done
 run_lang_image browser-grpc docker/interop.Dockerfile grpc-dc-e2e-interop
 
 # Satellite repos: their own CI Dockerfiles end to end.
-run_lang_image kafka-proxy docker/kafka-proxy-ci.Dockerfile grpc-dc-e2e-kafka-proxy
-run_lang_image kafka-native docker/kafka-native-ci.Dockerfile grpc-dc-e2e-kafka-native
+# kafka-proxy/kafka-native depend on the release's crates.io
+# packages (grpc-dc/kafka-native/kafka-service), so before the
+# registry publish their Docker builds cannot resolve deps;
+# those two legs are verified by the repos' own CI right after
+# the registry publish in release-push.sh.
+BARE_VERSION="${VERSION#v}"
+if curl -sf "https://crates.io/api/v1/crates/grpc-dc/$BARE_VERSION" >/dev/null 2>&1; then
+  run_lang_image kafka-proxy docker/kafka-proxy-ci.Dockerfile grpc-dc-e2e-kafka-proxy
+  run_lang_image kafka-native docker/kafka-native-ci.Dockerfile grpc-dc-e2e-kafka-native
+else
+  echo "== release-e2e: kafka-proxy/kafka-native DEFERRED (grpc-dc $BARE_VERSION not on crates.io yet; verified by repo CI post-publish)"
+fi
 run_lang_image eventbus docker/eventbus-ci.Dockerfile grpc-dc-e2e-eventbus
 
 # PHP trees ship lib/ only: syntax-lint every file (host php,
