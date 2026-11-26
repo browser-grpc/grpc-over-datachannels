@@ -3,6 +3,22 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.47.3 — 2026-11-26
+
+- Kafka de-confusion pass: a "Which Kafka package do I
+  need?" decision guide opens KAFKA.md; every Kafka README
+  (kafka-native, kafka-proxy, kafka-grpc per language) opens
+  with a what-this-is / what-it-is-not positioning block;
+  repo descriptions carry the fixed subtitles
+  (kafka-native = direct in-process library, no gRPC;
+  kafka-grpc = generated gRPC client stubs; kafka-proxy =
+  gateway). No packages or repos renamed.
+- Every generated repo now ships an `AGENTS.md` stating it
+  is a generated export (release snapshot, not the source
+  of truth), emitted by releasegen so it survives the
+  publish sync; generated sibling repos also get homepage
+  and topics aligned on every publish.
+
 ## v0.47.2 — 2026-11-25 (published to GitHub/npm/PyPI/GHCR/NuGet/Maven Central/GitHub Maven/pub.dev/crates.io/RubyGems/LuaRocks/JSR)
 
 - Crates fix for the v0.47.1 publish: the kafka-native
