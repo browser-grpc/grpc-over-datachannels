@@ -1,6 +1,6 @@
 {
   "name": "@browser-grpc/eventbus-grpc",
-  "version": "0.48.2",
+  "version": "0.48.3",
   "license": "Apache-2.0",
   "exports": "./index.js"
 }

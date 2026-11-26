@@ -1,8 +1,8 @@
 package = "kafka-grpc"
-version = "0.48.2-1"
+version = "0.48.3-1"
 source = {
   url = "git+https://github.com/browser-grpc/grpc-over-datachannels",
-  tag = "v0.48.2",
+  tag = "v0.48.3",
 }
 description = {
   summary = "Kafka over gRPC for Lua: generated grpcdc.kafka.v1 clients (produce/consume/groups/topics)",
@@ -11,7 +11,7 @@ description = {
 }
 dependencies = {
   "lua >= 5.4",
-  "grpc-dc >= 0.48.2",
+  "grpc-dc >= 0.48.3",
 }
 build = {
   type = "builtin",
