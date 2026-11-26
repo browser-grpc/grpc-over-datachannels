@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.48.1
+## 0.48.2
 
 - First pub.dev release: the dependency-free Dart
-  runtime (client + server) from grpc-over-datachannels v0.48.1.
+  runtime (client + server) from grpc-over-datachannels v0.48.2.
