@@ -3,7 +3,14 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.48.5 — 2026-11-26
+## v0.48.6 — 2026-11-26
+
+- kafka-native CI fix: restore `default-jdk-headless`
+  in the generated CI image — the Apache Kafka fixture
+  itself needs a JDK (it was dropped when the image was
+  trimmed in v0.48.0).
+
+## v0.48.5 — 2026-11-26 (published to GitHub/npm/PyPI/GHCR/Maven Central/GitHub Maven/pub.dev/crates.io/RubyGems/LuaRocks/JSR)
 
 - kafka-native wheel fix (follow-up): the perl patch
   now uses `|` as the substitution delimiter — the
