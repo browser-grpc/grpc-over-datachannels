@@ -3,6 +3,13 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.48.5 — 2026-11-26
+
+- kafka-native wheel fix (follow-up): the perl patch
+  now uses `|` as the substitution delimiter — the
+  `../kafka-native` path slashes terminated the `/`
+  substitution early on every platform.
+
 ## v0.48.4 — 2026-11-26 (published to GitHub/npm/PyPI/GHCR/Maven Central/GitHub Maven/pub.dev/crates.io/RubyGems/LuaRocks/JSR)
 
 - kafka-native macOS wheel fix: the in-repo
