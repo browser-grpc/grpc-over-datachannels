@@ -318,6 +318,10 @@ repo_discover "$EX_REPO" grpc webrtc examples protobuf browser codegen
 repo_discover "$PHP_REPO" php grpc packagist webrtc protobuf
 repo_discover "$KPHP_REPO" php kafka grpc packagist webrtc
 repo_discover "$EBPHP_REPO" php grpc packagist pubsub webrtc
+# Fixed plain-English subtitles for the three Kafka names (aligned
+# every publish; the same wording opens each repo's README).
+gh repo edit "$KP_REPO" --description "kafka-proxy — gateway exposing Kafka/Redpanda to kafka-grpc clients (generated gRPC service)" 2>/dev/null | grep -v "graphql:" || true
+gh repo edit "$KN_REPO" --description "kafka-native — direct in-process Kafka client library (Rust/C/Python, no gRPC)" 2>/dev/null | grep -v "graphql:" || true
 echo "discoverability: sibling repo homepage+topics aligned"
 
 DEFAULT_BRANCH="$(gh repo view "$REPO" --json defaultBranchRef --jq .defaultBranchRef.name)"

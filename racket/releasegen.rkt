@@ -1690,6 +1690,28 @@
      (string-append
       "# Kafka over gRPC\n"
       "\n"
+      "## Which Kafka package do I need?\n"
+      "\n"
+      "Three names, three different jobs — do not use them interchangeably:\n"
+      "\n"
+      "- **I want Kafka inside my own process** (Rust, C, or Python; no\n"
+      "  gRPC, no extra processes) → **kafka-native**, the in-process\n"
+      "  Kafka protocol client library (crates.io/PyPI `kafka-native`).\n"
+      "- **I want my application or browser to call Kafka through\n"
+      "  generated clients in my language** → **kafka-grpc**, the\n"
+      "  generated `grpcdc.kafka.v1` client stubs for your ecosystem\n"
+      "  (`kafka-grpc` on npm/PyPI/crates.io/Maven/NuGet/pub.dev/\n"
+      "  RubyGems/LuaRocks/Packagist, depending on `grpc-dc`). These are\n"
+      "  client stubs only — not the Kafka protocol implementation.\n"
+      "- **I need to expose a broker to those clients** → run\n"
+      "  **kafka-proxy**, the gateway that serves the `grpcdc.kafka.v1`\n"
+      "  gRPC service and speaks the Kafka binary protocol to Apache\n"
+      "  Kafka or Redpanda.\n"
+      "\n"
+      "Rule of thumb: embedded application → `kafka-native`; service\n"
+      "access from any language or browser → `kafka-grpc` clients plus\n"
+      "a `kafka-proxy` to connect them to the broker.\n"
+      "\n"
       "`proto/kafka.proto` (`grpcdc.kafka.v1.Kafka`) exposes a Kafka\n"
       "cluster through the generated gRPC clients of every supported\n"
       "language, browser and native. A single Rust proxy terminates\n"
@@ -1845,6 +1867,12 @@
    "README.md"
    (string-append
     "# Kafka over gRPC — proxy\n"
+    "\n"
+    "What this is: the runnable **gateway** between `kafka-grpc` clients "
+    "and a broker. It is not a client library — applications use the "
+    "`kafka-grpc` generated stubs to talk to it, or `kafka-native` for "
+    "direct in-process Kafka access with no gRPC. Decision guide: "
+    "[KAFKA.md](KAFKA.md) (\"Which Kafka package do I need?\").\n"
     "\n"
     "A Rust proxy that exposes an Apache Kafka or Redpanda cluster as\n"
     "the generated `grpcdc.kafka.v1.Kafka` gRPC service (see\n"
@@ -2084,6 +2112,12 @@
    "README.md"
    (string-append
     "# Kafka native client\n"
+    "\n"
+    "What this is: the **direct** Kafka client library — the Kafka "
+    "protocol implementation embedded in your process. What it is not: "
+    "a gRPC service or generated stubs. For cross-language/browser "
+    "clients over gRPC, use `kafka-grpc` plus `kafka-proxy`. Decision "
+    "guide: [KAFKA.md](KAFKA.md) (\"Which Kafka package do I need?\").\n"
     "\n"
     "An in-process Kafka protocol client for native applications:\n"
     "the Kafka wire implementation runs in your process — no proxy\n"
@@ -3738,7 +3772,12 @@
      "# kafka-grpc (PHP)\n\n"
      "Generated `grpcdc.kafka.v1` clients for PHP (produce/consume/\n"
      "groups/topics) over the `grpc-dc` runtime. Install:\n"
-     "`composer require browser-grpc/kafka-grpc`.\n"))
+     "`composer require browser-grpc/kafka-grpc`.\n\n"
+     "What this is: generated gRPC client stubs — not the Kafka\n"
+     "protocol implementation. Connect them to a broker via\n"
+     "kafka-proxy, or use kafka-native for direct in-process\n"
+     "Kafka access. See KAFKA.md in the main repo (\"Which Kafka\n"
+     "package do I need?\").\n"))
   (printf "releasegen: kafka-php export: ~a files, leak gate OK\n"
           (length (find-files file-exists? kafka-php-out))))
 (when (non-empty-string? eventbus-php-out)
@@ -3931,7 +3970,11 @@
    "Generated `grpcdc.kafka.v1` clients for Lua (produce/consume/\n"
    "groups/topics) over the `grpc-dc` runtime. Install:\n"
    "`luarocks install kafka-grpc`, then\n"
-   "`require(\"kafka_grpc_dc\")`.\n"))
+   "`require(\"kafka_grpc_dc\")`.\n\n"
+   "What this is: generated gRPC client stubs — not the Kafka\n"
+   "protocol implementation. Connect them to a broker via\n"
+   "kafka-proxy, or use kafka-native for direct in-process\n"
+   "Kafka access. See KAFKA.md in the main repo.\n"))
 (emit-lua-pub (string-append "eventbus-lua/eventbus-grpc-" npm-version "-1.rockspec")
   (rockspec
    "eventbus-grpc"
@@ -4048,6 +4091,16 @@
     (copy-file src dest #t)))
 (define kafka-desc
   "Kafka over gRPC — generated grpcdc.kafka.v1 clients (produce/consume/groups/topics) speaking gRPC over WebRTC DataChannels, via the grpc-dc runtime")
+;; Positioning block for every kafka-grpc README: stubs, not the
+;; protocol implementation. The decision guide lives in KAFKA.md.
+(define kafka-position
+  (string-append
+   "What this is: generated gRPC **client stubs** for the `grpcdc.kafka.v1` "
+   "service — not the Kafka protocol implementation. To connect these "
+   "clients to a broker, run kafka-proxy; for direct in-process Kafka "
+   "access with no gRPC, use kafka-native. Decision guide: "
+   "https://github.com/browser-grpc/grpc-over-datachannels/blob/main/KAFKA.md"
+   " (\"Which Kafka package do I need?\")."))
 ;; --- npm (canonical + GitHub Packages scoped variant) ---
 (copy-kafka-file "js/src/kafka_pb.js" "kafka-js/kafka_pb.js")
 (copy-kafka-file "js/src/kafka_grpc_dc.js" "kafka-js/kafka_grpc_dc.js")
@@ -4064,6 +4117,8 @@
    "  \"license\": \"Apache-2.0\",\n"
    "  \"repository\": {\"type\": \"git\", \"url\": \"git+https://github.com/browser-grpc/grpc-over-datachannels.git\"}\n}\n"))
 (emit-kafka-file "kafka-js/package.json" (kafka-npm-manifest "kafka-grpc" "grpc-dc"))
+(emit-kafka-file "kafka-js/README.md"
+  (string-append "# kafka-grpc (JavaScript)\n\n" kafka-desc " (JavaScript, browser + Node).\n\n" kafka-position "\n\nInstall: `npm install kafka-grpc` (depends on `grpc-dc`).\n"))
 (emit-kafka-file "kafka-js/package.github.json"
   (kafka-npm-manifest "@browser-grpc/kafka-grpc" "@browser-grpc/grpc-dc"))
 (emit-kafka-file "kafka-js/jsr.json"
@@ -4079,7 +4134,7 @@
 ;; the grpc-dc wheel's package init when both are installed
 ;; into the same grpcdc/ directory.
 (emit-kafka-file "kafka-python/README.md"
-  (string-append "# kafka-grpc (Python)\n\n" kafka-desc ".\n\nInstall: `pip install kafka-grpc` (depends on `grpc-dc`).\n"))
+  (string-append "# kafka-grpc (Python)\n\n" kafka-desc ".\n\n" kafka-position "\n\nInstall: `pip install kafka-grpc` (depends on `grpc-dc`).\n"))
 (emit-kafka-file "kafka-python/pyproject.toml"
   (string-append
    "[build-system]\nrequires = [\"setuptools>=61\"]\nbuild-backend = \"setuptools.build_meta\"\n\n"
@@ -4105,7 +4160,7 @@
    "  spec.files = Dir[\"lib/**/*.rb\", \"README.md\", \"LICENSE\"]\n  spec.require_paths = [\"lib\"]\n"
    "  spec.add_runtime_dependency \"grpc-dc\", \"= " npm-version "\"\nend\n"))
 (emit-kafka-file "kafka-ruby/README.md"
-  (string-append "# kafka-grpc (Ruby)\n\n" kafka-desc " (Ruby).\n\n"
+  (string-append "# kafka-grpc (Ruby)\n\n" kafka-desc " (Ruby).\n\n" kafka-position "\n\n"
                  "Install: `gem install kafka-grpc` (depends on `grpc-dc`).\n"))
 (copy-kafka-file "LICENSE" "kafka-ruby/LICENSE")
 ;; --- NuGet (own project, ProjectReference on Grpcdc for pack) ---
@@ -4243,7 +4298,7 @@
    "readme = \"README.md\"\n\n"
    "[dependencies]\ngrpc-dc = { version = \"" npm-version "\", path = \"../../grpc-rust\" }\n"))
 (emit-kafka-file "kafka-rust/README.md"
-  (string-append "# kafka-grpc (Rust)\n\n" kafka-desc " (Rust).\n\n"
+  (string-append "# kafka-grpc (Rust)\n\n" kafka-desc " (Rust).\n\n" kafka-position "\n\n"
                  "```toml\n[dependencies]\nkafka-grpc = \"" npm-version "\"\n```\n\n"
                  "(depends on the `grpc-dc` crate).\n"))
 (copy-rust-pub "LICENSE" "kafka-rust/LICENSE")
@@ -4391,7 +4446,7 @@
    "environment:\n  sdk: \">=3.0.0 <4.0.0\"\n"
    "dependencies:\n  grpc_dc: ^" npm-version "\n"))
 (emit-kafka-file "kafka-dart/README.md"
-  (string-append "# kafka_grpc (Dart)\n\n" kafka-desc " (Dart).\n\n"
+  (string-append "# kafka_grpc (Dart)\n\n" kafka-desc " (Dart).\n\n" kafka-position "\n\n"
                  "Install: `dart pub add kafka_grpc` (depends on `grpc_dc`).\n"))
 (emit-kafka-file "kafka-dart/CHANGELOG.md"
   (string-append "# Changelog\n\n## " npm-version "\n\n"
