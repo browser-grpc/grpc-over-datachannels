@@ -3,7 +3,7 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.48.4 — 2026-11-26
+## v0.48.4 — 2026-11-26 (published to GitHub/npm/PyPI/GHCR/Maven Central/GitHub Maven/pub.dev/crates.io/RubyGems/LuaRocks/JSR)
 
 - kafka-native macOS wheel fix: the in-repo
   `kafka-native` patch for building `kafka-service`
