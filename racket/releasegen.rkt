@@ -2229,7 +2229,7 @@
     "#   docker build -f docker/kafka-native-ci.Dockerfile -t kafka-native-ci .\n"
     "#   docker run --rm kafka-native-ci\n"
     "FROM rust:1-bookworm\n"
-    "RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates procps python3 gcc && rm -rf /var/lib/apt/lists/*\n"
+    "RUN apt-get update && apt-get install -y --no-install-recommends default-jdk-headless curl ca-certificates procps python3 gcc && rm -rf /var/lib/apt/lists/*\n"
     "RUN curl -fsSL https://downloads.apache.org/kafka/4.3.1/kafka_2.13-4.3.1.tgz -o /tmp/kafka.tgz && mkdir -p /opt/kafka && tar -xzf /tmp/kafka.tgz -C /opt/kafka --strip-components=1 && rm /tmp/kafka.tgz\n"
     "ENV KAFKA_HOME=/opt/kafka\n"
     "WORKDIR /src\n"
