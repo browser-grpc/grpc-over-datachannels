@@ -10,7 +10,7 @@ curated release tags on `master`; dates are the tag dates.
   (the version-only `grpc-dc` dependency made the stamped
   lock go dirty during publish in v0.48.0/v0.48.1).
 
-## v0.48.1 — 2026-11-26
+## v0.48.1 — 2026-11-26 (published to GitHub/npm/PyPI/GHCR/NuGet/Maven Central/GitHub Maven/pub.dev/crates.io/RubyGems/LuaRocks/JSR)
 
 - Crates fix for the v0.48.0 publish: `kafka-grpc`'s
   packaged `pb_message_impl.rs` only carried the Kafka
