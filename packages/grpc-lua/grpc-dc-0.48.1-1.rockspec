@@ -1,8 +1,8 @@
 package = "grpc-dc"
-version = "0.48.0-1"
+version = "0.48.1-1"
 source = {
   url = "git+https://github.com/browser-grpc/grpc-over-datachannels",
-  tag = "v0.48.0",
+  tag = "v0.48.1",
 }
 description = {
   summary = "gRPC over WebRTC DataChannels for Lua: dependency-free generated runtime",

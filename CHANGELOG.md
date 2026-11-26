@@ -3,7 +3,18 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.48.0 — 2026-11-26
+## v0.48.1 — 2026-11-26
+
+- Crates fix for the v0.48.0 publish: `kafka-grpc`'s
+  packaged `pb_message_impl.rs` only carried the Kafka
+  message adapters (the streams/processor adapters moved
+  to `kafka-service` in the split); releasegen now appends
+  both halves. Also fixes the kafka-native wheel legs
+  (patch `kafka-native` to the in-repo crate while building
+  `kafka-service`) and the sdist tree (no `rust/`/`webrtc/`
+  copies).
+
+## v0.48.0 — 2026-11-26 (published to GitHub/npm/PyPI/GHCR/NuGet/Maven Central/GitHub Maven/pub.dev/RubyGems/LuaRocks/JSR)
 
 - **Breaking (Rust):** the Kafka code is split by role.
   `kafka_native` now exports only the direct client
