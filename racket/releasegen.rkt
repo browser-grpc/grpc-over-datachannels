@@ -58,7 +58,7 @@
 
 (define allow-prefixes
   (append (map cdr languages)
-          '("webrtc" "wasm" "proto" "fixtures" "examples" "conformance" "crates/kafka-native"
+          '("webrtc" "wasm" "proto" "fixtures" "examples" "conformance" "crates/kafka-native" "crates/kafka-service" "apps/kafka-proxy"
             ;; The shared Rust cores: the Go stack links the
             ;; FFI cdylibs and the JS stack generates its Wasm
             ;; glue from these, so a public clone must carry
@@ -1428,11 +1428,11 @@
 (define docker-specs
   (list
    (list "rust" "rust:1-bookworm"
-         '("RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler nodejs && rm -rf /var/lib/apt/lists/*" "COPY rust ./rust" "COPY conformance ./conformance" "COPY crates/kafka-native ./crates/kafka-native" "COPY webrtc/rust ./webrtc/rust" "COPY fixtures ./fixtures" "COPY bin ./bin" "COPY webapp/testdata ./webapp/testdata" "COPY docs/app/protoc-gen-grpc-dc.mjs ./docs/app/protoc-gen-grpc-dc.mjs" "COPY docs/app/gen ./docs/app/gen" "COPY proto ./proto"
+         '("RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler nodejs && rm -rf /var/lib/apt/lists/*" "COPY rust ./rust" "COPY conformance ./conformance" "COPY crates/kafka-native ./crates/kafka-native" "COPY crates/kafka-service ./crates/kafka-service" "COPY webrtc/rust ./webrtc/rust" "COPY fixtures ./fixtures" "COPY bin ./bin" "COPY webapp/testdata ./webapp/testdata" "COPY docs/app/protoc-gen-grpc-dc.mjs ./docs/app/protoc-gen-grpc-dc.mjs" "COPY docs/app/gen ./docs/app/gen" "COPY proto ./proto"
            "RUN cd rust && cargo fetch --locked && cargo test --locked --no-run")
          "cd rust && cargo test --locked -- --skip official_clients_call_rust_server")
    (list "go" "golang:1.24-bookworm"
-         '("RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler nodejs curl && rm -rf /var/lib/apt/lists/*" "COPY go ./go" "COPY fixtures ./fixtures" "COPY bin ./bin" "COPY webapp/testdata ./webapp/testdata" "COPY docs/app/protoc-gen-grpc-dc.mjs ./docs/app/protoc-gen-grpc-dc.mjs" "COPY docs/app/gen ./docs/app/gen" "COPY proto ./proto" "COPY webrtc/go ./webrtc/go" "COPY webrtc/rust ./webrtc/rust" "COPY rust ./rust" "COPY crates/kafka-native ./crates/kafka-native" "COPY crates/dc-sctp-ffi ./crates/dc-sctp-ffi" "COPY crates/dc-dtls-ffi ./crates/dc-dtls-ffi" "COPY crates/dc-ice-ffi ./crates/dc-ice-ffi" "RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable" "RUN export PATH=\"$HOME/.cargo/bin:$PATH\" && cd crates/dc-sctp-ffi && cargo build --release && cd ../dc-dtls-ffi && cargo build --release && cd ../dc-ice-ffi && cargo build --release && cd ../../rust && cargo build --release" "RUN cd go && go mod edit -replace=github.com/browser-grpc/grpc-over-datachannels/webrtc/go=../webrtc/go && go mod tidy && go build ./...")
+         '("RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler nodejs curl && rm -rf /var/lib/apt/lists/*" "COPY go ./go" "COPY fixtures ./fixtures" "COPY bin ./bin" "COPY webapp/testdata ./webapp/testdata" "COPY docs/app/protoc-gen-grpc-dc.mjs ./docs/app/protoc-gen-grpc-dc.mjs" "COPY docs/app/gen ./docs/app/gen" "COPY proto ./proto" "COPY webrtc/go ./webrtc/go" "COPY webrtc/rust ./webrtc/rust" "COPY rust ./rust" "COPY crates/kafka-native ./crates/kafka-native" "COPY crates/kafka-service ./crates/kafka-service" "COPY crates/dc-sctp-ffi ./crates/dc-sctp-ffi" "COPY crates/dc-dtls-ffi ./crates/dc-dtls-ffi" "COPY crates/dc-ice-ffi ./crates/dc-ice-ffi" "RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable" "RUN export PATH=\"$HOME/.cargo/bin:$PATH\" && cd crates/dc-sctp-ffi && cargo build --release && cd ../dc-dtls-ffi && cargo build --release && cd ../dc-ice-ffi && cargo build --release && cd ../../rust && cargo build --release" "RUN cd go && go mod edit -replace=github.com/browser-grpc/grpc-over-datachannels/webrtc/go=../webrtc/go && go mod tidy && go build ./...")
          "cd go && GRPCDC_STRUCTDC_LIB=/src/rust/target/release/libgrpc_dc.so go test -race -skip 'Sidecar|TestInteropOfficialClientsCallGoServer' ./...")
    (list "js" "node:24-bookworm-slim"
          '("RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler nodejs git curl ca-certificates build-essential && rm -rf /var/lib/apt/lists/*" "COPY js ./js" "COPY webrtc/js ./webrtc/js" "COPY webrtc/rust ./webrtc/rust" "COPY fixtures ./fixtures" "COPY bin ./bin" "COPY webapp/testdata ./webapp/testdata" "COPY docs/app/protoc-gen-grpc-dc.mjs ./docs/app/protoc-gen-grpc-dc.mjs" "COPY docs/app/gen ./docs/app/gen" "COPY proto ./proto" "COPY examples/tracing ./examples/tracing" "COPY crates/dc-sctp-wasm ./crates/dc-sctp-wasm" "COPY crates/dc-dtls-wasm ./crates/dc-dtls-wasm" "COPY crates/dc-ice-wasm ./crates/dc-ice-wasm" "COPY crates/dc-bridge-wasm ./crates/dc-bridge-wasm" "COPY rust ./rust" "RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable && export PATH=\"$HOME/.cargo/bin:$PATH\" && rustup target add wasm32-unknown-unknown && cargo install wasm-bindgen-cli --version 0.2.100" "RUN export PATH=\"$HOME/.cargo/bin:$PATH\" && for c in sctp dtls ice; do (cd crates/dc-$c-wasm && cargo build --release --target wasm32-unknown-unknown && wasm-bindgen --target web --out-dir ../../browser-test/dc_${c}_gen target/wasm32-unknown-unknown/release/dc_${c}_wasm.wasm); done && (cd crates/dc-bridge-wasm && cargo build --release --target wasm32-unknown-unknown && wasm-bindgen --target web --out-dir ../../browser-test/dc_bridge_gen target/wasm32-unknown-unknown/release/dc_bridge_wasm.wasm)")
@@ -1453,14 +1453,14 @@
                         (test-loop "dotnet run --project tests --no-build -- ~a"
                                    '("TestCodec" "TestEcho" "TestBdd" "TestBddSchemas" "TestPbMessages"))))
    (list "cpp" "gcc:14-bookworm"
-         '("RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler nodejs curl ca-certificates && rm -rf /var/lib/apt/lists/*" "COPY cpp ./cpp" "COPY rust ./rust" "COPY webrtc/rust ./webrtc/rust" "COPY crates/kafka-native ./crates/kafka-native" "RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable && export PATH=\"$HOME/.cargo/bin:$PATH\" && cd rust && cargo build --release"  "COPY fixtures ./fixtures" "COPY bin ./bin" "COPY webapp/testdata ./webapp/testdata" "COPY docs/app/protoc-gen-grpc-dc.mjs ./docs/app/protoc-gen-grpc-dc.mjs" "COPY docs/app/gen ./docs/app/gen" "COPY proto ./proto"
+         '("RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler nodejs curl ca-certificates && rm -rf /var/lib/apt/lists/*" "COPY cpp ./cpp" "COPY rust ./rust" "COPY webrtc/rust ./webrtc/rust" "COPY crates/kafka-native ./crates/kafka-native" "COPY crates/kafka-service ./crates/kafka-service" "RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable && export PATH=\"$HOME/.cargo/bin:$PATH\" && cd rust && cargo build --release"  "COPY fixtures ./fixtures" "COPY bin ./bin" "COPY webapp/testdata ./webapp/testdata" "COPY docs/app/protoc-gen-grpc-dc.mjs ./docs/app/protoc-gen-grpc-dc.mjs" "COPY docs/app/gen ./docs/app/gen" "COPY proto ./proto"
            "RUN mkdir -p cpp/build && g++ -std=c++17 -pthread -O1 -Icpp -I. cpp/tests/main.cpp cpp/tests/test_codec.cpp cpp/tests/test_echo.cpp cpp/tests/test_interop.cpp cpp/tests/test_interop_oracle.cpp cpp/tests/test_interop_server_oracle.cpp cpp/tests/test_oracle.cpp cpp/tests/test_dynamic.cpp cpp/tests/test_bdd.cpp cpp/tests/test_deadline.cpp cpp/tests/test_tracing.cpp cpp/tests/test_inline_pump.cpp cpp/tests/test_pb_messages.cpp cpp/tests/test_bdd_schemas.cpp cpp/tests/test_sidecar.cpp cpp/tests/test_bdd_sidecar.cpp cpp/tests/test_eventbus.cpp cpp/tests/test_kafka_e2e.cpp cpp/tests/test_struct_codec.cpp -L rust/target/release -lgrpc_dc -Wl,-rpath,$PWD/rust/target/release -o cpp/build/tests && g++ -std=c++17 -pthread -O1 -Icpp -I. cpp/examples/echo_server_stdio.cpp -L rust/target/release -lgrpc_dc -Wl,-rpath,$PWD/rust/target/release -o cpp/build/echo_server_stdio && g++ -std=c++17 -pthread -O1 -Icpp -I. cpp/examples/echo_client_stdio.cpp -L rust/target/release -lgrpc_dc -Wl,-rpath,$PWD/rust/target/release -o cpp/build/echo_client_stdio && g++ -std=c++17 -pthread -O1 -Icpp -I. cpp/examples/dynamic_echo_server_stdio.cpp -L rust/target/release -lgrpc_dc -Wl,-rpath,$PWD/rust/target/release -o cpp/build/dynamic_echo_server_stdio && g++ -std=c++20 -pthread -O1 -Icpp -I. cpp/tests/test_async.cpp -L rust/target/release -lgrpc_dc -Wl,-rpath,$PWD/rust/target/release -o cpp/build/test_async")
          (string-append "cd cpp && "
                         (test-loop "./build/tests ~a"
                                    '("TestCodec" "TestEcho" "TestBdd" "TestDeadline" "TestBddSchemas" "TestPbMessages"))
                         " && ./build/test_async"))
    (list "swift" "swift:6.2-bookworm"
-         '("RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler nodejs curl ca-certificates && rm -rf /var/lib/apt/lists/*" "COPY swift ./swift" "COPY rust ./rust" "COPY webrtc/rust ./webrtc/rust" "COPY crates/kafka-native ./crates/kafka-native" "RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable && export PATH=\"$HOME/.cargo/bin:$PATH\" && cd rust && cargo build --release"  "COPY fixtures ./fixtures" "COPY bin ./bin" "COPY webapp/testdata ./webapp/testdata" "COPY docs/app/protoc-gen-grpc-dc.mjs ./docs/app/protoc-gen-grpc-dc.mjs" "COPY docs/app/gen ./docs/app/gen" "COPY proto ./proto"
+         '("RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler nodejs curl ca-certificates && rm -rf /var/lib/apt/lists/*" "COPY swift ./swift" "COPY rust ./rust" "COPY webrtc/rust ./webrtc/rust" "COPY crates/kafka-native ./crates/kafka-native" "COPY crates/kafka-service ./crates/kafka-service" "RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable && export PATH=\"$HOME/.cargo/bin:$PATH\" && cd rust && cargo build --release"  "COPY fixtures ./fixtures" "COPY bin ./bin" "COPY webapp/testdata ./webapp/testdata" "COPY docs/app/protoc-gen-grpc-dc.mjs ./docs/app/protoc-gen-grpc-dc.mjs" "COPY docs/app/gen ./docs/app/gen" "COPY proto ./proto"
            "RUN mkdir -p swift/build && swiftc -swift-version 5 -O -L rust/target/release -lgrpc_dc -Xlinker -rpath -Xlinker $PWD/rust/target/release swift/grpcdc/*.swift swift/examples/Pb.swift swift/examples/EchoMessages.swift swift/examples/EchoRequestStruct.swift swift/examples/EchoResponseStruct.swift swift/examples/StructDcBridge.swift swift/examples/EchoGrpcDc.swift swift/examples/EchoServiceImpl.swift swift/examples/StdioTransport.swift swift/examples/DynamicEchoService.swift swift/examples/interop/*.swift $(ls swift/tests/*.swift | grep -v TestKafkaNative.swift) -o swift/build/tests && swiftc -swift-version 5 -O -L rust/target/release -lgrpc_dc -Xlinker -rpath -Xlinker $PWD/rust/target/release swift/grpcdc/*.swift swift/examples/Pb.swift swift/examples/EchoMessages.swift swift/examples/EchoRequestStruct.swift swift/examples/EchoResponseStruct.swift swift/examples/StructDcBridge.swift swift/examples/EchoGrpcDc.swift swift/examples/EchoServiceImpl.swift swift/examples/StdioTransport.swift swift/examples/EchoServerStdio/main.swift -o swift/build/echo_server_stdio && swiftc -swift-version 5 -O -L rust/target/release -lgrpc_dc -Xlinker -rpath -Xlinker $PWD/rust/target/release swift/grpcdc/*.swift swift/examples/Pb.swift swift/examples/EchoMessages.swift swift/examples/EchoRequestStruct.swift swift/examples/EchoResponseStruct.swift swift/examples/StructDcBridge.swift swift/examples/EchoGrpcDc.swift swift/examples/EchoServiceImpl.swift swift/examples/StdioTransport.swift swift/examples/EchoClientStdio/main.swift -o swift/build/echo_client_stdio && swiftc -swift-version 5 -O -L rust/target/release -lgrpc_dc -Xlinker -rpath -Xlinker $PWD/rust/target/release swift/grpcdc/*.swift swift/examples/StdioTransport.swift swift/examples/DynamicEchoService.swift swift/examples/DynamicEchoServerStdio/main.swift -o swift/build/dynamic_echo_server_stdio")
          (string-append "cd swift && "
                         (test-loop "./build/tests ~a"
@@ -1481,14 +1481,14 @@
    (list "zig" "debian:bookworm-slim"
          '("RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler nodejs build-essential && rm -rf /var/lib/apt/lists/*" "RUN apt-get update && apt-get install -y curl xz-utils ca-certificates && case \"$(uname -m)\" in x86_64) A=x86_64 ;; aarch64) A=aarch64 ;; esac && curl -fsSL \"https://ziglang.org/download/0.15.1/zig-${A}-linux-0.15.1.tar.xz\" -o /tmp/zig.tar.xz && mkdir -p /opt/zig && tar -xJf /tmp/zig.tar.xz -C /opt/zig --strip-components=1 && rm /tmp/zig.tar.xz"
            "ENV PATH=\"/opt/zig:${PATH}\""
-           "COPY zig ./zig" "COPY rust ./rust" "COPY webrtc/rust ./webrtc/rust" "COPY crates/kafka-native ./crates/kafka-native" "COPY fixtures ./fixtures" "COPY bin ./bin" "COPY webapp/testdata ./webapp/testdata" "COPY docs/app/protoc-gen-grpc-dc.mjs ./docs/app/protoc-gen-grpc-dc.mjs" "COPY docs/app/gen ./docs/app/gen" "COPY proto ./proto"
+           "COPY zig ./zig" "COPY rust ./rust" "COPY webrtc/rust ./webrtc/rust" "COPY crates/kafka-native ./crates/kafka-native" "COPY crates/kafka-service ./crates/kafka-service" "COPY fixtures ./fixtures" "COPY bin ./bin" "COPY webapp/testdata ./webapp/testdata" "COPY docs/app/protoc-gen-grpc-dc.mjs ./docs/app/protoc-gen-grpc-dc.mjs" "COPY docs/app/gen ./docs/app/gen" "COPY proto ./proto"
            "RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable && export PATH=\"$HOME/.cargo/bin:$PATH\" && cd rust && cargo build --release"
            "RUN cd zig && zig build --prefix build")
          (string-append "cd zig && "
                         (test-loop "./build/bin/tests ~a"
                                    '("TestCodec" "TestEcho" "TestBdd" "TestBddSchemas" "TestPbMessages"))))
    (list "c" "gcc:14-bookworm"
-         '("RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler nodejs curl ca-certificates && rm -rf /var/lib/apt/lists/*" "COPY c ./c" "COPY rust ./rust" "COPY webrtc/rust ./webrtc/rust" "COPY crates/kafka-native ./crates/kafka-native" "RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable && export PATH=\"$HOME/.cargo/bin:$PATH\" && cd rust && cargo build --release"  "COPY fixtures ./fixtures" "COPY bin ./bin" "COPY webapp/testdata ./webapp/testdata" "COPY docs/app/protoc-gen-grpc-dc.mjs ./docs/app/protoc-gen-grpc-dc.mjs" "COPY docs/app/gen ./docs/app/gen" "COPY proto ./proto"
+         '("RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler nodejs curl ca-certificates && rm -rf /var/lib/apt/lists/*" "COPY c ./c" "COPY rust ./rust" "COPY webrtc/rust ./webrtc/rust" "COPY crates/kafka-native ./crates/kafka-native" "COPY crates/kafka-service ./crates/kafka-service" "RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable && export PATH=\"$HOME/.cargo/bin:$PATH\" && cd rust && cargo build --release"  "COPY fixtures ./fixtures" "COPY bin ./bin" "COPY webapp/testdata ./webapp/testdata" "COPY docs/app/protoc-gen-grpc-dc.mjs ./docs/app/protoc-gen-grpc-dc.mjs" "COPY docs/app/gen ./docs/app/gen" "COPY proto ./proto"
            "RUN mkdir -p c/build && gcc -std=c99 -D_DEFAULT_SOURCE -Wall -Wextra -pthread -O1 -Ic -Ic/examples -Ic/tests c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/grpcdc/sidecar_transport.c c/grpcdc/dynamic.c c/examples/stdio_transport.c c/tests/main.c -L rust/target/release -lgrpc_dc -Wl,-rpath,$PWD/rust/target/release -o c/build/tests && gcc -std=c99 -D_DEFAULT_SOURCE -Wall -Wextra -pthread -O1 -Ic -Ic/examples -Ic/tests c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/examples/stdio_transport.c c/examples/echo_server_stdio.c -L rust/target/release -lgrpc_dc -Wl,-rpath,$PWD/rust/target/release -o c/build/echo_server_stdio && gcc -std=c99 -D_DEFAULT_SOURCE -Wall -Wextra -pthread -O1 -Ic -Ic/examples -Ic/tests c/grpcdc/grpcdc.c c/grpcdc/memory_transport.c c/examples/stdio_transport.c c/examples/echo_client_stdio.c -L rust/target/release -lgrpc_dc -Wl,-rpath,$PWD/rust/target/release -o c/build/echo_client_stdio")
          (test-loop "./c/build/tests ~a"
                     '("TestCodec" "TestEcho" "TestBdd" "TestBddSchemas" "TestPbMessages")))
@@ -1671,12 +1671,14 @@
       "WORKDIR /src\n"
       "COPY rust ./rust\n"
       "COPY crates/kafka-native ./crates/kafka-native\n"
+      "COPY crates/kafka-service ./crates/kafka-service\n"
+      "COPY apps/kafka-proxy ./apps/kafka-proxy\n"
       "COPY webrtc/rust ./webrtc/rust\n"
       "COPY proto ./proto\n"
-      "RUN cd rust && cargo build --release --locked --features kafka-tls,webrtc --example kafka_proxy\n"
+      "RUN cd apps/kafka-proxy && cargo build --release --locked --features kafka-tls,webrtc\n"
       "FROM debian:bookworm-slim\n"
       "RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*\n"
-      "COPY --from=build /src/rust/target/release/examples/kafka_proxy /usr/local/bin/kafka_proxy\n"
+      "COPY --from=build /src/apps/kafka-proxy/target/release/kafka_proxy /usr/local/bin/kafka_proxy\n"
       "ENTRYPOINT [\"kafka_proxy\"]\n"
       "CMD [\"--help\"]\n")
      out))
@@ -1846,15 +1848,44 @@
   (when (directory-exists? kafka-proxy-out)
     (delete-directory/files kafka-proxy-out))
   (make-directory* kafka-proxy-out)
-  (for ([dir (in-list '("rust" "webrtc/rust" "proto" "fixtures" "crates/kafka-native"))])
-    (make-directory* (path-only (build-path kafka-proxy-out dir)))
-    (copy-directory/files (build-path out-dir dir)
-                          (build-path kafka-proxy-out dir)))
+  ;; Allowlist: only the proxy app (Cargo.toml + src) at the
+  ;; repo root; dependencies resolve from crates.io at the
+  ;; release version (grpc-dc, kafka-native, kafka-service).
+  (make-directory* (build-path kafka-proxy-out "src"))
+  (copy-file (build-path out-dir "apps/kafka-proxy/src/main.rs")
+             (build-path kafka-proxy-out "src/main.rs") #t)
+  (let* ([cargo (build-path out-dir "apps/kafka-proxy/Cargo.toml")]
+         [text (file->string cargo)]
+         [bare (if (string-prefix? version "v") (substring version 1) version)]
+         [text (string-replace text "grpc-dc = { path = \"../../rust\" }"
+                               (string-append "grpc-dc = { version = \"" bare "\", git = \"https://github.com/browser-grpc/grpc-over-datachannels\", tag = \"" version "\" }"))]
+         [text (string-replace text "kafka-native = { path = \"../../crates/kafka-native\" }"
+                               (string-append "kafka-native = { version = \"" bare "\", git = \"https://github.com/browser-grpc/kafka-native\", tag = \"" version "\" }"))]
+         [text (string-replace text "kafka-service = { path = \"../../crates/kafka-service\" }"
+                               (string-append "kafka-service = { version = \"" bare "\", git = \"https://github.com/browser-grpc/kafka-native\", tag = \"" version "\" }"))]
+         [text (string-replace text "version = \"0.1.0\""
+                               (string-append "version = \"" bare "\""))])
+    (call-with-output-file (build-path kafka-proxy-out "Cargo.toml")
+      (lambda (out) (display text out)) #:exists 'replace))
   (for ([f (in-list '("LICENSE" "KAFKA.md" "CONTRIBUTING.md" "SECURITY.md"))])
     (copy-file (build-path out-dir f) (build-path kafka-proxy-out f) #t))
   (make-directory* (build-path kafka-proxy-out "docker"))
-  (copy-file (build-path out-dir "docker/kafka-proxy.Dockerfile")
-             (build-path kafka-proxy-out "docker/kafka-proxy.Dockerfile") #t)
+  (emit-kp-file
+   "docker/kafka-proxy.Dockerfile"
+   (string-append
+    "# Kafka proxy — generated. DO NOT EDIT.\n"
+    "#   docker build -f docker/kafka-proxy.Dockerfile -t kafka-proxy .\n"
+    "#   docker run --rm kafka-proxy --tcp 0.0.0.0:50201 --broker kafka:9092\n"
+    "FROM rust:1-bookworm AS build\n"
+    "WORKDIR /src\n"
+    "COPY Cargo.toml ./Cargo.toml\n"
+    "COPY src ./src\n"
+    "RUN cargo build --release --features kafka-tls,webrtc\n"
+    "FROM debian:bookworm-slim\n"
+    "RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*\n"
+    "COPY --from=build /src/target/release/kafka_proxy /usr/local/bin/kafka_proxy\n"
+    "ENTRYPOINT [\"kafka_proxy\"]\n"
+    "CMD [\"--help\"]\n"))
   (emit-kp-file
    "RELEASE.json"
    (string-append "{\n  \"version\": \"" version "\",\n"
@@ -1862,7 +1893,7 @@
                   "  \"generated\": true\n}\n"))
   (emit-kp-file "AGENTS.md"
     (agents-md "run or embed the Kafka-over-gRPC proxy and the generated Kafka clients."
-               "see the repo CI workflow / docker/kafka-proxy-ci entry; the proxy itself is in crates/."))
+               "see the repo CI workflow / docker/kafka-proxy-ci entry; the proxy crate is at the repo root (src/main.rs), dependencies from crates.io."))
   (emit-kp-file
    "README.md"
    (string-append
@@ -1888,7 +1919,7 @@
     "on the project blog.\n"
     "\n"
     "This repository is a generated export (version " version "); the\n"
-    "proxy sources live in `rust/examples/kafka_proxy/`.\n"
+    "proxy sources live in `apps/kafka-proxy/` in the source repo; this export carries the proxy crate at its root.\n"
     "\n"
     "## Run\n"
     "\n"
@@ -1932,11 +1963,8 @@
     "RUN curl -fsSL https://linux.pkg.redpanda.com/setup-redpanda.deb.sh | bash && apt-get update && apt-get install -y --no-install-recommends redpanda && rm -rf /var/lib/apt/lists/*\n"
     "ENV KAFKA_HOME=/opt/kafka\n"
     "WORKDIR /src\n"
-    "COPY rust ./rust\n"
-    "COPY crates/kafka-native ./crates/kafka-native\n"
-    "COPY webrtc/rust ./webrtc/rust\n"
-    "COPY proto ./proto\n"
-    "COPY fixtures ./fixtures\n"
+    "COPY Cargo.toml ./Cargo.toml\n"
+    "COPY src ./src\n"
     "COPY scripts/run-e2e.sh ./scripts/run-e2e.sh\n"
     "CMD [\"bash\", \"scripts/run-e2e.sh\"]\n"))
   (emit-kp-file
@@ -2019,17 +2047,13 @@
     "}\n"
     "FAILED=0\n"
     "start_kafka || exit 1\n"
-    "echo \"== rust e2e (apache kafka)\"\n"
-    "(cd \"$ROOT/rust\" && KAFKA_PROXY_E2E_BROKER=127.0.0.1:19092 cargo test --locked --test kafka_proxy_e2e) || FAILED=1\n"
-    "if [ -x \"$REDPANDA_BIN\" ] || command -v redpanda >/dev/null 2>&1; then\n"
-    "  start_redpanda || FAILED=1\n"
-    "  if [ \"$FAILED\" -eq 0 ]; then\n"
-    "    echo \"== rust e2e (redpanda)\"\n"
-    "    (cd \"$ROOT/rust\" && KAFKA_PROXY_E2E_BROKER=127.0.0.1:19093 cargo test --locked --test kafka_proxy_e2e) || FAILED=1\n"
-    "  fi\n"
-    "else\n"
-    "  echo \"note: redpanda binary not found; kafka leg only\"\n"
-    "fi\n"
+    "echo \"== build kafka_proxy\"\n"
+    "(cd \"$ROOT\" && cargo build --features kafka-tls,webrtc) || FAILED=1\n"
+    "echo \"== proxy startup smoke (apache kafka)\"\n"
+    "\"$ROOT/target/debug/kafka_proxy\" --tcp 127.0.0.1:50201 --broker 127.0.0.1:19092 >\"$TMP/proxy.log\" 2>&1 &\n"
+    "PIDS+=($!)\n"
+    "wait_port 127.0.0.1:50201 60 kafka-proxy || { tail -20 \"$TMP/proxy.log\" >&2; FAILED=1; }\n"
+    "echo \"note: full proxy e2e runs in the main grpc-over-datachannels repo (make test-kafka)\"\n"
     "exit \"$FAILED\"\n")
    #o755)
   (emit-kp-file
@@ -2061,7 +2085,19 @@
       (for ([p (in-list kp-leaks)]) (eprintf "  ~a\n" p))
       (exit 1))
     (printf "releasegen: kafka-proxy export: ~a files, leak gate OK\n"
-            (length kp-files))))
+            (length kp-files)))
+  ;; Boundary gate: the proxy repo must not carry native
+  ;; client sources (it depends on published kafka-native).
+  (let* ([kp-bad (filter (lambda (p)
+                           (let ([t (path->string p)])
+                             (or (string-contains? t "crates/kafka-native")
+                                 (string-suffix? t "client.rs"))))
+                         (find-files file-exists? kafka-proxy-out))])
+    (unless (null? kp-bad)
+      (eprintf "releasegen: KAFKA-PROXY BOUNDARY GATE FAILED:\n")
+      (for ([p (in-list kp-bad)]) (eprintf "  ~a\n" p))
+      (exit 1))
+    (printf "releasegen: kafka-proxy boundary gate OK\n")))
 
 (define kn-bare-version
   (if (string-prefix? version "v") (substring version 1) version))
@@ -2086,14 +2122,20 @@
   (when (directory-exists? kafka-native-out)
     (delete-directory/files kafka-native-out))
   (make-directory* kafka-native-out)
-  (for ([dir (in-list '("rust" "python" "proto" "fixtures" "webrtc/rust"))])
-    (make-directory* (path-only (build-path kafka-native-out dir)))
-    (copy-directory/files (build-path out-dir dir)
-                          (build-path kafka-native-out dir)))
-  ;; Maintained crate sources: tracked files only, so build
-  ;; output never crosses.
+  ;; Allowlist export (no wholesale tree copies): the two
+  ;; maintained crates (tracked files only, so build output
+  ;; never crosses), the Python native wrapper + messages, and
+  ;; the Kafka proto. No rust/, webrtc/, fixtures/, or proxy
+  ;; sources — dependencies resolve from crates.io.
+  (make-directory* (build-path kafka-native-out "python/grpcdc"))
+  (for ([f (in-list '("kafka_native.py" "kafka_pb.py"))])
+    (copy-file (build-path out-dir "python/grpcdc" f)
+               (build-path kafka-native-out "python/grpcdc" f) #t))
+  (make-directory* (build-path kafka-native-out "proto"))
+  (copy-file (build-path out-dir "proto/kafka.proto")
+             (build-path kafka-native-out "proto/kafka.proto") #t)
   (for ([rel (in-list (string-split
-                       (sh "git ls-files crates/kafka-native")
+                       (sh "git ls-files crates/kafka-native crates/kafka-service")
                        "\n"))])
     (define dest (build-path kafka-native-out rel))
     (make-directory* (path-only dest))
@@ -2107,7 +2149,7 @@
                   "  \"generated\": true\n}\n"))
   (emit-kn-file "AGENTS.md"
     (agents-md "embed the in-process Kafka client (Rust crate, C ABI, Python bindings)."
-               "cargo build/test in crates/kafka-native; FFI smoke test in tests/."))
+               "cargo build/test in crates/kafka-native + crates/kafka-service; FFI smoke test in crates/kafka-service/tests/."))
   (emit-kn-file
    "README.md"
    (string-append
@@ -2151,7 +2193,7 @@
     "```\n"
     "\n"
     "C: link `libkafka_native` and include\n"
-    "`crates/kafka-native/include/kafka_native.h`. Calls take a\n"
+    "`crates/kafka-service/include/kafka_native.h`. Calls take a\n"
     "method name and the protobuf-encoded request and return the\n"
     "protobuf-encoded response.\n"
     "\n"
@@ -2187,17 +2229,14 @@
     "#   docker build -f docker/kafka-native-ci.Dockerfile -t kafka-native-ci .\n"
     "#   docker run --rm kafka-native-ci\n"
     "FROM rust:1-bookworm\n"
-    "RUN apt-get update && apt-get install -y --no-install-recommends default-jdk-headless curl ca-certificates procps python3 gcc && rm -rf /var/lib/apt/lists/*\n"
+    "RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates procps python3 gcc && rm -rf /var/lib/apt/lists/*\n"
     "RUN curl -fsSL https://downloads.apache.org/kafka/4.3.1/kafka_2.13-4.3.1.tgz -o /tmp/kafka.tgz && mkdir -p /opt/kafka && tar -xzf /tmp/kafka.tgz -C /opt/kafka --strip-components=1 && rm /tmp/kafka.tgz\n"
     "ENV KAFKA_HOME=/opt/kafka\n"
     "WORKDIR /src\n"
-    "COPY rust ./rust\n"
-    "COPY webrtc/rust ./webrtc/rust\n"
     "COPY crates ./crates\n"
     "COPY python ./python\n"
     "COPY proto ./proto\n"
-    "COPY fixtures ./fixtures\n"
-    "COPY scripts/run-e2e.sh ./scripts/run-e2e.sh\n"
+    "COPY scripts ./scripts\n"
     "CMD [\"bash\", \"scripts/run-e2e.sh\"]\n"))
   (emit-kn-file
    "scripts/run-e2e.sh"
@@ -2257,16 +2296,13 @@
     "}\n"
     "FAILED=0\n"
     "start_kafka || exit 1\n"
-    "echo \"== rust direct + admin (apache kafka)\"\n"
-    "(cd \"$ROOT/rust\" && KAFKA_PROXY_E2E_BROKER=127.0.0.1:19092 cargo test --test kafka_direct_e2e --test kafka_admin_e2e) || FAILED=1\n"
-    "echo \"== rust ffi (apache kafka)\"\n"
-    "(cd \"$ROOT/rust\" && KAFKA_PROXY_E2E_BROKER=127.0.0.1:19092 cargo test --test kafka_native_ffi_e2e) || FAILED=1\n"
-    "echo \"== building libkafka_native\"\n"
+    "echo \"== building crates (kafka-native + kafka-service)\"\n"
     "(cd \"$ROOT/crates/kafka-native\" && cargo build) || FAILED=1\n"
+    "(cd \"$ROOT/crates/kafka-service\" && cargo build && cp target/debug/libkafka_service.so target/debug/libkafka_native.so) || FAILED=1\n"
     "echo \"== c ffi smoke\"\n"
-    "cc -O1 -I\"$ROOT/crates/kafka-native/include\" \"$ROOT/crates/kafka-native/tests/ffi_smoke.c\" -L\"$ROOT/crates/kafka-native/target/debug\" -lkafka_native -Wl,-rpath,\"$ROOT/crates/kafka-native/target/debug\" -o \"$TMP/ffi_smoke\" && \"$TMP/ffi_smoke\" 127.0.0.1:19092 || FAILED=1\n"
+    "cc -O1 -I\"$ROOT/crates/kafka-service/include\" \"$ROOT/crates/kafka-service/tests/ffi_smoke.c\" -L\"$ROOT/crates/kafka-service/target/debug\" -lkafka_native -Wl,-rpath,\"$ROOT/crates/kafka-service/target/debug\" -o \"$TMP/ffi_smoke\" && \"$TMP/ffi_smoke\" 127.0.0.1:19092 || FAILED=1\n"
     "echo \"== python native (apache kafka)\"\n"
-    "(cd \"$ROOT/python\" && KAFKA_E2E_BROKER=127.0.0.1:19092 GRPC_DC_KAFKA_NATIVE_LIB=\"$ROOT/crates/kafka-native/target/debug/libkafka_native.so\" python3 -m unittest tests.test_kafka_native) || FAILED=1\n"
+    "mkdir -p \"$TMP/grpcdc\" && cp \"$ROOT/python/grpcdc/kafka_native.py\" \"$ROOT/python/grpcdc/kafka_pb.py\" \"$TMP/grpcdc/\" && touch \"$TMP/grpcdc/__init__.py\" && cp \"$ROOT/crates/kafka-service/target/debug/libkafka_native.so\" \"$TMP/grpcdc/\" && (cd \"$TMP\" && GRPC_DC_KAFKA_NATIVE_LIB=\"$TMP/grpcdc/libkafka_native.so\" python3 \"$ROOT/scripts/native_smoke.py\" 127.0.0.1:19092) || FAILED=1\n"
     "exit \"$FAILED\"\n")
    #o755)
   (define kn-kn-bare-version
@@ -2285,7 +2321,7 @@
                                   (string-append "version = \"" kn-bare-version "\""))]
          [stamped (string-replace stamped
                                   "grpc-dc = { path = \"../../rust\" }"
-                                  (string-append "grpc-dc = { version = \"" kn-bare-version "\", path = \"../../rust\" }"))])
+                                  (string-append "grpc-dc = { version = \"" kn-bare-version "\", git = \"https://github.com/browser-grpc/grpc-over-datachannels\", tag = \"" version "\" }"))])
     (call-with-output-file cargo
       (lambda (out) (display stamped out))
       #:exists 'replace))
@@ -2302,24 +2338,24 @@
     (call-with-output-file lock
       (lambda (out) (display stamped out))
       #:exists 'replace))
-  (let* ([rust-cargo (build-path kafka-native-out "rust/Cargo.toml")]
-         [stamped (string-replace (file->string rust-cargo)
-                                  "version = \"0.1.0\""
-                                  (string-append "version = \"" kn-bare-version "\""))])
-    (call-with-output-file rust-cargo
-      (lambda (out) (display stamped out))
-      #:exists 'replace))
   (make-directory* (build-path kafka-native-out "crates/kafka-native/src/gen"))
-  (for ([gen (in-list '("kafka_pb.rs" "kafka_grpc_dc.rs"
+  (copy-file (build-path out-dir "rust/gen/kafka_pb.rs")
+             (build-path kafka-native-out "crates/kafka-native/src/gen/kafka_pb.rs") #t)
+  (make-directory* (build-path kafka-native-out "crates/kafka-service/src/gen"))
+  (for ([gen (in-list '("kafka_grpc_dc.rs"
                         "kafka_streams_pb.rs" "kafka_streams_processor_pb.rs"))])
     (copy-file (build-path out-dir "rust/gen" gen)
-               (build-path kafka-native-out "crates/kafka-native/src/gen" gen)
+               (build-path kafka-native-out "crates/kafka-service/src/gen" gen)
                #t))
   (let* ([lib (build-path kafka-native-out "crates/kafka-native/src/lib.rs")]
          [rewritten (string-replace (file->string lib)
                                     "../../../rust/gen/kafka_pb.rs"
-                                    "gen/kafka_pb.rs")]
-         [rewritten (string-replace rewritten
+                                    "gen/kafka_pb.rs")])
+    (call-with-output-file lib
+      (lambda (out) (display rewritten out))
+      #:exists 'replace))
+  (let* ([lib (build-path kafka-native-out "crates/kafka-service/src/lib.rs")]
+         [rewritten (string-replace (file->string lib)
                                     "../../../rust/gen/kafka_grpc_dc.rs"
                                     "gen/kafka_grpc_dc.rs")]
          [rewritten (string-replace rewritten
@@ -2331,6 +2367,38 @@
     (call-with-output-file lib
       (lambda (out) (display rewritten out))
       #:exists 'replace))
+  ;; kafka-service stamps: release version, kafka-native dep
+  ;; gains the version (path kept; cargo strips it on publish),
+  ;; grpc-dc resolves from crates.io (no rust/ tree here).
+  (let* ([cargo (build-path kafka-native-out "crates/kafka-service/Cargo.toml")]
+         [stamped (string-replace (file->string cargo)
+                                  "version = \"0.1.0\""
+                                  (string-append "version = \"" kn-bare-version "\""))]
+         [stamped (string-replace stamped
+                                  "kafka-native = { path = \"../kafka-native\" }"
+                                  (string-append "kafka-native = { version = \"" kn-bare-version "\", git = \"https://github.com/browser-grpc/kafka-native\", tag = \"" version "\" }"))]
+         [stamped (string-replace stamped
+                                  "grpc-dc = { path = \"../../rust\" }"
+                                  (string-append "grpc-dc = { version = \"" kn-bare-version "\", git = \"https://github.com/browser-grpc/grpc-over-datachannels\", tag = \"" version "\" }"))])
+    (call-with-output-file cargo
+      (lambda (out) (display stamped out))
+      #:exists 'replace))
+  (emit-kn-file
+   "scripts/native_smoke.py"
+   (string-append
+    "import sys\n"
+    "sys.path.insert(0, '.')\n"
+    "from grpcdc.kafka_native import NativeKafkaClient\n"
+    "from grpcdc import kafka_pb\n"
+    "broker = sys.argv[1] if len(sys.argv) > 1 else '127.0.0.1:19092'\n"
+    "c = NativeKafkaClient(broker)\n"
+    "md = c.Metadata(kafka_pb.MetadataRequest())\n"
+    "print('brokers:', len(md.brokers))\n"
+    "r = c.CreateTopics(kafka_pb.CreateTopicsRequest(topics=[kafka_pb.NewTopic(name='native-smoke', num_partitions=1, replication_factor=1)]))\n"
+    "assert all(t.error_code == 0 for t in r.topics), r\n"
+    "g = c.ListGroups(kafka_pb.ListGroupsRequest())\n"
+    "print('groups ok:', g.error_code)\n"
+    "print('native_smoke: OK')\n"))
   (emit-kn-file
    ".github/workflows/publish-crates.yml"
    (string-append
@@ -2356,6 +2424,15 @@
     "        run: |\n"
     "          for i in $(seq 1 20); do\n"
     "            cargo publish --token ${{ steps.auth.outputs.token }} && exit 0\n"
+    "            sleep 30\n"
+    "          done\n"
+    "          exit 1\n"
+    "      - name: Publish kafka-service (retry while the index catches up)\n"
+    "        working-directory: crates/kafka-service\n"
+    "        run: |\n"
+    "          cargo update -p grpc-dc -p kafka-native || true\n"
+    "          for i in $(seq 1 20); do\n"
+    "            cargo publish --allow-dirty --token ${{ steps.auth.outputs.token }} && exit 0\n"
     "            sleep 30\n"
     "          done\n"
     "          exit 1\n"))
@@ -2410,10 +2487,10 @@
     "            set -e\n"
     "            curl --proto \"=https\" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal >/dev/null\n"
     "            export PATH=\"$HOME/.cargo/bin:$PATH\"\n"
-    "            (cd crates/kafka-native && cargo build --release)\n"
+    "            (cd crates/kafka-service && cargo build --release)\n"
     "            mkdir -p wheel/grpcdc wheel/dist\n"
-    "            cp python/grpcdc/*.py wheel/grpcdc/\n"
-    "            cp crates/kafka-native/target/release/libkafka_native.so wheel/grpcdc/\n"
+    "            cp python/grpcdc/kafka_native.py python/grpcdc/kafka_pb.py wheel/grpcdc/\n"
+    "            cp crates/kafka-service/target/release/libkafka_service.so wheel/grpcdc/libkafka_native.so\n"
     "            cp python/pyproject-kafka-native.toml wheel/pyproject.toml\n"
     "            cp python/setup-kafka-native.py wheel/setup.py\n"
     "            cp README.md wheel/README.md\n"
@@ -2439,17 +2516,17 @@
     "        if: ${{ !matrix.image }}\n"
     "        run: |\n"
     "          if [ \"${{ matrix.macarch }}\" = \"x86_64\" ]; then\n"
-    "            (cd crates/kafka-native && cargo build --release --target x86_64-apple-darwin)\n"
-    "            LIB=crates/kafka-native/target/x86_64-apple-darwin/release/libkafka_native.dylib\n"
+    "            (cd crates/kafka-service && cargo build --release --target x86_64-apple-darwin)\n"
+    "            LIB=crates/kafka-service/target/x86_64-apple-darwin/release/libkafka_service.dylib\n"
     "            TAG=macosx_10_12_x86_64\n"
     "          else\n"
-    "            (cd crates/kafka-native && cargo build --release)\n"
-    "            LIB=crates/kafka-native/target/release/libkafka_native.dylib\n"
+    "            (cd crates/kafka-service && cargo build --release)\n"
+    "            LIB=crates/kafka-service/target/release/libkafka_service.dylib\n"
     "            TAG=macosx_11_0_arm64\n"
     "          fi\n"
-    "          if [ -f \"$LIB\" ]; then echo \"built $LIB\"; else echo \"LIB MISSING: $LIB\"; find crates/kafka-native/target -name 'libkafka_native*' 2>/dev/null | head -3; fi\n"
+    "          if [ -f \"$LIB\" ]; then echo \"built $LIB\"; else echo \"LIB MISSING: $LIB\"; find crates/kafka-service/target -name 'libkafka_service*' 2>/dev/null | head -3; fi\n"
     "          mkdir -p wheel/grpcdc wheel/dist\n"
-    "          cp python/grpcdc/*.py wheel/grpcdc/\n"
+    "          cp python/grpcdc/kafka_native.py python/grpcdc/kafka_pb.py wheel/grpcdc/\n"
     "          cp \"$LIB\" wheel/grpcdc/libkafka_native.dylib\n"
     "          cp python/pyproject-kafka-native.toml wheel/pyproject.toml\n"
     "          cp python/setup-kafka-native.py wheel/setup.py\n"
@@ -2471,12 +2548,13 @@
     "      - name: Assemble sdist tree (crate sources, no prebuilt lib)\n"
     "        run: |\n"
     "          mkdir -p wheel/grpcdc wheel/crates\n"
-    "          cp python/grpcdc/*.py wheel/grpcdc/\n"
+    "          cp python/grpcdc/kafka_native.py python/grpcdc/kafka_pb.py wheel/grpcdc/\n"
     "          cp python/pyproject-kafka-native.toml wheel/pyproject.toml\n"
     "          cp python/setup-kafka-native.py wheel/setup.py\n"
     "          cp python/MANIFEST-kafka-native.in wheel/MANIFEST.in\n"
     "          cp README.md wheel/README.md\n"
     "          cp -r crates/kafka-native wheel/crates/kafka-native\n"
+    "          cp -r crates/kafka-service wheel/crates/kafka-service\n"
     "          rm -rf wheel/crates/kafka-native/target\n"
     "          cp -r rust wheel/rust\n"
     "          rm -rf wheel/rust/target\n"
@@ -2562,21 +2640,21 @@
     "            (\n"
     "                c\n"
     "                for c in (\n"
-    "                    os.path.join(here, \"crates\", \"kafka-native\"),\n"
-    "                    os.path.join(here, \"..\", \"crates\", \"kafka-native\"),\n"
+    "                    os.path.join(here, \"crates\", \"kafka-service\"),\n"
+    "                    os.path.join(here, \"..\", \"crates\", \"kafka-service\"),\n"
     "                )\n"
     "                if os.path.exists(os.path.join(c, \"Cargo.toml\"))\n"
     "            ),\n"
-    "            os.path.join(here, \"crates\", \"kafka-native\"),\n"
+    "            os.path.join(here, \"crates\", \"kafka-service\"),\n"
     "        )\n"
     "        subprocess.check_call([\"cargo\", \"build\", \"--release\"], cwd=crate)\n"
     "        built = []\n"
     "        for name in LIB_NAMES:\n"
-    "            built += glob.glob(os.path.join(crate, \"target\", \"release\", name))\n"
+    "            built += glob.glob(os.path.join(crate, \"target\", \"release\", name.replace(\"kafka_native\", \"kafka_service\")))\n"
     "        if not built:\n"
     "            raise RuntimeError(\"cargo build produced no libkafka_native library\")\n"
     "        os.makedirs(dest_dir, exist_ok=True)\n"
-    "        shutil.copy(built[0], dest_dir)\n"
+    "        shutil.copy(built[0], os.path.join(dest_dir, os.path.basename(built[0]).replace(\"kafka_service\", \"kafka_native\")))\n"
     "\n"
     "\n"
     "setup(cmdclass={\"bdist_wheel\": PlatformWheel, \"build_py\": BuildPy})\n"))
@@ -2586,8 +2664,7 @@
     "include README.md\n"
     "include Cargo.lock\n"
     "recursive-include crates/kafka-native *.rs *.toml *.lock *.h\n"
-    "recursive-include rust *.rs *.toml\n"
-    "recursive-include webrtc *.rs *.toml\n"))
+    "recursive-include crates/kafka-service *.rs *.toml *.lock *.h\n"))
 (emit-kn-file
    ".github/workflows/ci.yml"
    (string-append
@@ -2615,7 +2692,26 @@
       (for ([p (in-list kn-leaks)]) (eprintf "  ~a\n" p))
       (exit 1))
     (printf "releasegen: kafka-native export: ~a files, leak gate OK\n"
-            (length kn-files))))
+            (length kn-files)))
+  ;; Boundary gate: no proxy, no gRPC stubs, no service
+  ;; exports in the native crate.
+  (let* ([kn-bad (filter (lambda (p)
+                           (let ([t (path->string p)])
+                             (or (string-contains? t "kafka_proxy")
+                                 (string-contains? t "webrtc")
+                                 (string-suffix? t "kafka_grpc_dc.py"))))
+                         (find-files file-exists? kafka-native-out))]
+         [kn-lib (file->string (build-path kafka-native-out "crates/kafka-native/src/lib.rs"))]
+         [kn-bad (if (or (string-contains? kn-lib "pub use service")
+                         (string-contains? kn-lib "pub mod service")
+                         (string-contains? kn-lib "pub mod streams"))
+                     (cons 'kafka-native-exports-service-layer kn-bad)
+                     kn-bad)])
+    (unless (null? kn-bad)
+      (eprintf "releasegen: KAFKA-NATIVE BOUNDARY GATE FAILED:\n")
+      (for ([p (in-list kn-bad)]) (eprintf "  ~a\n" p))
+      (exit 1))
+    (printf "releasegen: kafka-native boundary gate OK\n")))
 
 ;; ---------------------------------------------------------------------------
 ;; Dedicated eventbus repo export (browser-grpc/eventbus):
