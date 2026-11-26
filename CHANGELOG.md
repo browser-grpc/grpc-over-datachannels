@@ -3,7 +3,7 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.47.3 — 2026-11-26 (published to GitHub/npm/PyPI/GHCR/Maven Central/GitHub Maven/pub.dev/crates.io/RubyGems/LuaRocks/JSR)
+## v0.47.3 — 2026-11-26 (published to GitHub/npm/PyPI/GHCR/NuGet/Maven Central/GitHub Maven/pub.dev/crates.io/RubyGems/LuaRocks/JSR)
 
 - Kafka de-confusion pass: a "Which Kafka package do I
   need?" decision guide opens KAFKA.md; every Kafka README
