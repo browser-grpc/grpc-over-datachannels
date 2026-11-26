@@ -2395,7 +2395,7 @@
     "md = c.Metadata(kafka_pb.MetadataRequest())\n"
     "print('brokers:', len(md.brokers))\n"
     "r = c.CreateTopics(kafka_pb.CreateTopicsRequest(topics=[kafka_pb.NewTopic(name='native-smoke', num_partitions=1, replication_factor=1)]))\n"
-    "assert all(t.error_code == 0 for t in r.topics), r\n"
+    "assert all(t.error_code == 0 for t in r.results), r\n"
     "g = c.ListGroups(kafka_pb.ListGroupsRequest())\n"
     "print('groups ok:', g.error_code)\n"
     "print('native_smoke: OK')\n"))
