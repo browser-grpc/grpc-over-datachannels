@@ -3,6 +3,14 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.48.4 — 2026-11-26
+
+- kafka-native macOS wheel fix: the in-repo
+  `kafka-native` patch for building `kafka-service`
+  now uses `perl -i` (BSD-safe) instead of `sed c\`,
+  which macOS sed cannot do in one line. Linux wheels
+  and the sdist already passed in v0.48.3.
+
 ## v0.48.3 — 2026-11-26 (published to GitHub/npm/PyPI/GHCR/NuGet/Maven Central/GitHub Maven/pub.dev/crates.io/RubyGems/LuaRocks/JSR)
 
 - kafka-native wheel fix: the PyPI wheel legs patch
