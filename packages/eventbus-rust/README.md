@@ -4,7 +4,7 @@ Event bus over gRPC — generated grpcdc.events.v1 publish/subscribe clients ove
 
 ```toml
 [dependencies]
-eventbus-grpc = "0.48.4"
+eventbus-grpc = "0.48.5"
 ```
 
 (depends on the `grpc-dc` crate).

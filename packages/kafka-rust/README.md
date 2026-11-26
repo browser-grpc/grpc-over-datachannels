@@ -6,7 +6,7 @@ What this is: generated gRPC **client stubs** for the `grpcdc.kafka.v1` service 
 
 ```toml
 [dependencies]
-kafka-grpc = "0.48.4"
+kafka-grpc = "0.48.5"
 ```
 
 (depends on the `grpc-dc` crate).
