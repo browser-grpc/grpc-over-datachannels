@@ -1788,6 +1788,31 @@
 ;; leak rule: no Racket source ever crosses.
 ;; ---------------------------------------------------------------------------
 
+;; AGENTS.md for every generated repo: agents (and contributors)
+;; must not treat a release snapshot as the source of truth.
+;; Emitted per export next to RELEASE.json; a hand-added file in a
+;; published repo would be deleted by the next rsync publish.
+(define (agents-md blurb test-hint)
+  (string-append
+   "# AGENTS.md\n"
+   "\n"
+   "This repository is a **generated export** of grpc-over-datachannels "
+   version " (source commit `" source-commit "`), produced by the\n"
+   "project's code generator. It is a release snapshot, not the\n"
+   "development tree.\n"
+   "\n"
+   "## For AI agents and contributors\n"
+   "\n"
+   "- Do not treat this tree as the source of truth: generated files\n"
+   "  are overwritten on every release, and changes to generated\n"
+   "  files here cannot be merged upstream.\n"
+   "- Use this repo as a library/examples snapshot: " blurb "\n"
+   "- Build/test: " test-hint "\n"
+   "- Report bugs or request features in the main repository:\n"
+   "  https://github.com/browser-grpc/grpc-over-datachannels/issues\n"
+   "  (include the release version above and the language).\n"
+   "- Docs: https://browser-grpc.github.io/grpc-over-datachannels/\n"))
+
 (define (emit-kp-file rel text [mode #f])
   (define dest (build-path kafka-proxy-out rel))
   (make-directory* (path-only dest))
@@ -1813,6 +1838,9 @@
    (string-append "{\n  \"version\": \"" version "\",\n"
                   "  \"sourceCommit\": \"" source-commit "\",\n"
                   "  \"generated\": true\n}\n"))
+  (emit-kp-file "AGENTS.md"
+    (agents-md "run or embed the Kafka-over-gRPC proxy and the generated Kafka clients."
+               "see the repo CI workflow / docker/kafka-proxy-ci entry; the proxy itself is in crates/."))
   (emit-kp-file
    "README.md"
    (string-append
@@ -2049,6 +2077,9 @@
    (string-append "{\n  \"version\": \"" version "\",\n"
                   "  \"sourceCommit\": \"" source-commit "\",\n"
                   "  \"generated\": true\n}\n"))
+  (emit-kn-file "AGENTS.md"
+    (agents-md "embed the in-process Kafka client (Rust crate, C ABI, Python bindings)."
+               "cargo build/test in crates/kafka-native; FFI smoke test in tests/."))
   (emit-kn-file
    "README.md"
    (string-append
@@ -2598,6 +2629,9 @@
    (string-append "{\n  \"version\": \"" version "\",\n"
                   "  \"sourceCommit\": \"" source-commit "\",\n"
                   "  \"generated\": true\n}\n"))
+  (emit-eb-file "AGENTS.md"
+    (agents-md "run the generated EventBus brokers/clients in any language."
+               "see EVENTBUS.md and the per-language examples; brokers are generated per language."))
   (emit-eb-file
    "README.md"
    (string-append
@@ -2916,6 +2950,13 @@
 
 (call-with-output-file (build-path out-dir "README.md")
   (lambda (out) (display readme out)) #:exists 'replace)
+
+(call-with-output-file (build-path out-dir "AGENTS.md")
+  (lambda (out)
+    (display (agents-md "run generated gRPC clients/servers in 16+ languages, browser and native, or run the live in-browser generator."
+                        "per-language tests live in each language directory; `make test` in a dev checkout, or the repo CI workflows here.")
+             out))
+  #:exists 'replace)
 
 ;; Newcomer path: three copy-paste routes (browser first call,
 ;; Docker client/server pair, own .proto stubs). Curated deep
@@ -3439,6 +3480,9 @@
    (string-append "{\n  \"version\": \"" version "\",\n"
                   "  \"sourceCommit\": \"" source-commit "\",\n"
                   "  \"generated\": true\n}\n"))
+  (emit-ex-file "AGENTS.md"
+    (agents-md "browse the catalog and follow links to runnable examples in the main repo at this release's tag; this repo copies no code."
+               "no build here — run an example from the linked main-repo tree instead."))
   (emit-ex-file
    "README.md"
    (string-append
@@ -3639,6 +3683,9 @@
      "  },\n"
      "  \"require\": { \"php\": \">=8.1\" }\n"
      "}\n"))
+  (emit-php-file php-out "AGENTS.md"
+    (agents-md "install with `composer require browser-grpc/grpc-dc` and use the generated PHP runtime/clients."
+               "php -l over lib/; examples link from the README."))
   (emit-php-file php-out "README.md"
     (string-append
      "# grpc-dc (PHP)\n\n"
@@ -3683,6 +3730,9 @@
      "    \"browser-grpc/grpc-dc\": \"^" npm-version "\"\n"
      "  }\n"
      "}\n"))
+  (emit-php-file kafka-php-out "AGENTS.md"
+    (agents-md "install with `composer require browser-grpc/kafka-grpc` and use the generated Kafka PHP clients."
+               "php -l over lib/; examples link from the README."))
   (emit-php-file kafka-php-out "README.md"
     (string-append
      "# kafka-grpc (PHP)\n\n"
@@ -3721,6 +3771,9 @@
      "    \"browser-grpc/grpc-dc\": \"^" npm-version "\"\n"
      "  }\n"
      "}\n"))
+  (emit-php-file eventbus-php-out "AGENTS.md"
+    (agents-md "install with `composer require browser-grpc/eventbus-grpc` and use the generated EventBus PHP clients."
+               "php -l over lib/; examples link from the README."))
   (emit-php-file eventbus-php-out "README.md"
     (string-append
      "# eventbus-grpc (PHP)\n\n"
