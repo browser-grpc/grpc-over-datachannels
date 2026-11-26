@@ -2487,7 +2487,7 @@
     "            set -e\n"
     "            curl --proto \"=https\" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal >/dev/null\n"
     "            export PATH=\"$HOME/.cargo/bin:$PATH\"\n"
-    "            (cd crates/kafka-service && cargo build --release)\n"
+    "            (cd crates/kafka-service && cargo build --release --config 'patch.crates-io.kafka-native.path="../kafka-native"')\n"
     "            mkdir -p wheel/grpcdc wheel/dist\n"
     "            cp python/grpcdc/kafka_native.py python/grpcdc/kafka_pb.py wheel/grpcdc/\n"
     "            cp crates/kafka-service/target/release/libkafka_service.so wheel/grpcdc/libkafka_native.so\n"
@@ -2516,11 +2516,11 @@
     "        if: ${{ !matrix.image }}\n"
     "        run: |\n"
     "          if [ \"${{ matrix.macarch }}\" = \"x86_64\" ]; then\n"
-    "            (cd crates/kafka-service && cargo build --release --target x86_64-apple-darwin)\n"
+    "            (cd crates/kafka-service && cargo build --release --target x86_64-apple-darwin --config 'patch.crates-io.kafka-native.path="../kafka-native"')\n"
     "            LIB=crates/kafka-service/target/x86_64-apple-darwin/release/libkafka_service.dylib\n"
     "            TAG=macosx_10_12_x86_64\n"
     "          else\n"
-    "            (cd crates/kafka-service && cargo build --release)\n"
+    "            (cd crates/kafka-service && cargo build --release --config 'patch.crates-io.kafka-native.path="../kafka-native"')\n"
     "            LIB=crates/kafka-service/target/release/libkafka_service.dylib\n"
     "            TAG=macosx_11_0_arm64\n"
     "          fi\n"
@@ -2555,11 +2555,7 @@
     "          cp README.md wheel/README.md\n"
     "          cp -r crates/kafka-native wheel/crates/kafka-native\n"
     "          cp -r crates/kafka-service wheel/crates/kafka-service\n"
-    "          rm -rf wheel/crates/kafka-native/target\n"
-    "          cp -r rust wheel/rust\n"
-    "          rm -rf wheel/rust/target\n"
-    "          cp -r webrtc wheel/webrtc\n"
-    "          rm -rf wheel/webrtc/*/target\n"
+    "          rm -rf wheel/crates/kafka-native/target wheel/crates/kafka-service/target\n"
     "          cp crates/kafka-native/Cargo.lock wheel/Cargo.lock\n"
     "      - name: Build sdist\n"
     "        working-directory: wheel\n"
@@ -4383,6 +4379,17 @@
 ;; (without it the stubs' Channel calls have no Message impls).
 (copy-kafka-file "crates/kafka-native/src/pb_message_impl.rs"
                  "kafka-rust/src/pb_message_impl.rs")
+;; The streams/processor Message impls live in kafka-service
+;; since the crate split; kafka-rust needs both halves.
+(let* ([svc (build-path out-dir "crates/kafka-service/src/pb_message_impl.rs")]
+       [dest (build-path kafka-root "kafka-rust/src/pb_message_impl.rs")])
+  (when (file-exists? svc)
+    (call-with-output-file dest #:exists 'append
+      (lambda (out)
+        (display (string-replace (file->string svc)
+                                 "//! `grpc_dc::Message` adapters for the generated streams/processor\n//! messages (same bridge pattern as the echo demo).\n"
+                                 "// streams/processor Message adapters (from kafka-service).\n")
+                 out)))))
 (emit-kafka-file "kafka-rust/src/lib.rs"
   "pub mod kafka_pb;\npub mod kafka_grpc_dc;\npub mod kafka_streams_pb;\npub mod kafka_streams_processor_pb;\npub mod kafka_streams_grpc_dc;\npub mod kafka_streams_processor_grpc_dc;\n\npub use kafka_pb as pb;\npub use kafka_streams_pb as streams_pb;\npub use kafka_streams_processor_pb as processor_pb;\n\nmod pb_message_impl;\n")
 (emit-kafka-file "kafka-rust/Cargo.toml"
