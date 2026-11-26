@@ -3,6 +3,13 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.48.2 — 2026-11-26
+
+- Publish fix: kafka-native/kafka-service `cargo publish`
+  now refreshes `Cargo.lock` and uses `--allow-dirty`
+  (the version-only `grpc-dc` dependency made the stamped
+  lock go dirty during publish in v0.48.0/v0.48.1).
+
 ## v0.48.1 — 2026-11-26
 
 - Crates fix for the v0.48.0 publish: `kafka-grpc`'s
