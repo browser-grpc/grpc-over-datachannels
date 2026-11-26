@@ -13,7 +13,7 @@
 //! by replaying the already-committed source range without
 //! emitting, then resumes live at the committed offset.
 
-use crate::client::{decode_assignment, encode_subscription, Broker};
+use kafka_native::client::{decode_assignment, encode_subscription, Broker};
 use crate::streams_pb as spb;
 use grpc_dc::{CallCtx, ServiceDef, Status};
 use std::collections::HashMap;
@@ -1256,7 +1256,7 @@ struct TxnState {
 }
 
 struct Membership {
-    coordinator: Arc<tokio::sync::Mutex<crate::client::Conn>>,
+    coordinator: Arc<tokio::sync::Mutex<kafka_native::client::Conn>>,
     generation_id: i32,
     member_id: String,
     partitions: Vec<i32>,

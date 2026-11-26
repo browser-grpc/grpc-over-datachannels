@@ -405,8 +405,8 @@ start_redpanda_tls() {
 # by the generated JS client over its HTTP/2 transport.
 run_http2_suite() {
     echo "== building kafka_proxy (webrtc)"
-    (cd "$ROOT/rust" && cargo build --features webrtc,kafka-tls --example kafka_proxy) || return 1
-    local proxy_bin="$ROOT/rust/target/debug/examples/kafka_proxy"
+    (cd "$ROOT/apps/kafka-proxy" && cargo build --features webrtc,kafka-tls) || return 1
+    local proxy_bin="$ROOT/apps/kafka-proxy/target/debug/kafka_proxy"
     "$proxy_bin" --webrtc-direct 127.0.0.1:40401 --broker "$KAFKA_ADDR" \
         >"$TMP/proxy-webrtc.log" 2>&1 &
     PIDS+=($!)
@@ -440,41 +440,41 @@ run_native_legs() {
     run "rust direct e2e (apache kafka)" env KAFKA_PROXY_E2E_BROKER="$KAFKA_ADDR" \
         bash -c "cd '$ROOT/rust' && cargo test --test kafka_direct_e2e --test kafka_admin_e2e --test kafka_kip848_e2e --test kafka_share_e2e"
     echo "== building libkafka_native (cdylib)"
-    (cd "$ROOT/crates/kafka-native" && cargo build) || { FAILED=1; return 1; }
+    (cd "$ROOT/crates/kafka-service" && cargo build && cp target/debug/libkafka_service.so target/debug/libkafka_native.so) || { FAILED=1; return 1; }
     run "python native e2e (apache kafka)" env \
         KAFKA_E2E_BROKER="$KAFKA_ADDR" \
-        GRPC_DC_KAFKA_NATIVE_LIB="$ROOT/crates/kafka-native/target/debug/libkafka_native.so" \
+        GRPC_DC_KAFKA_NATIVE_LIB="$ROOT/crates/kafka-service/target/debug/libkafka_native.so" \
         bash -c "cd '$ROOT/python' && python3 -m unittest tests.test_kafka_native"
     run "rust ffi e2e (apache kafka)" env KAFKA_PROXY_E2E_BROKER="$KAFKA_ADDR" \
         bash -c "cd '$ROOT/rust' && cargo test --test kafka_native_ffi_e2e"
     run "ruby native e2e (apache kafka)" env \
         KAFKA_E2E_BROKER="$KAFKA_ADDR" \
-        GRPC_DC_KAFKA_NATIVE_LIB="$ROOT/crates/kafka-native/target/debug/libkafka_native.so" \
+        GRPC_DC_KAFKA_NATIVE_LIB="$ROOT/crates/kafka-service/target/debug/libkafka_native.so" \
         bash -c "cd '$ROOT' && ruby ruby/tests/main.rb TestKafkaNative"
     run "dart native e2e (apache kafka)" env \
         KAFKA_E2E_BROKER="$KAFKA_ADDR" \
-        GRPC_DC_KAFKA_NATIVE_LIB="$ROOT/crates/kafka-native/target/debug/libkafka_native.so" \
+        GRPC_DC_KAFKA_NATIVE_LIB="$ROOT/crates/kafka-service/target/debug/libkafka_native.so" \
         bash -c "cd '$ROOT/dart' && dart tests/main.dart TestKafkaNative"
     run "csharp native e2e (apache kafka)" env \
         KAFKA_E2E_BROKER="$KAFKA_ADDR" \
-        GRPC_DC_KAFKA_NATIVE_LIB="$ROOT/crates/kafka-native/target/debug/libkafka_native.so" \
+        GRPC_DC_KAFKA_NATIVE_LIB="$ROOT/crates/kafka-service/target/debug/libkafka_native.so" \
         bash -c "cd '$ROOT/csharp' && dotnet run --project tests/Tests.csproj -c Release -- TestKafkaNative"
     run "swift native e2e (apache kafka)" env KAFKA_E2E_BROKER="$KAFKA_ADDR" \
-        bash -c "mkdir -p '$TMP/swiftmod' && printf 'module KafkaNativeC [system] {\n  header \"$ROOT/crates/kafka-native/include/kafka_native.h\"\n  link \"kafka_native\"\n  export *\n}\n' > '$TMP/swiftmod/module.modulemap' && swiftc -swift-version 5 -O '$ROOT'/swift/grpcdc/*.swift '$ROOT/swift/tests/TestKafkaNative.swift' -I '$TMP/swiftmod' -L '$ROOT/crates/kafka-native/target/debug' -lkafka_native -o '$TMP/swift_kafka_native' && LD_LIBRARY_PATH='$ROOT/crates/kafka-native/target/debug' '$TMP/swift_kafka_native'"
+        bash -c "mkdir -p '$TMP/swiftmod' && printf 'module KafkaNativeC [system] {\n  header \"$ROOT/crates/kafka-service/include/kafka_native.h\"\n  link \"kafka_native\"\n  export *\n}\n' > '$TMP/swiftmod/module.modulemap' && swiftc -swift-version 5 -O '$ROOT'/swift/grpcdc/*.swift '$ROOT/swift/tests/TestKafkaNative.swift' -I '$TMP/swiftmod' -L '$ROOT/crates/kafka-service/target/debug' -lkafka_native -o '$TMP/swift_kafka_native' && LD_LIBRARY_PATH='$ROOT/crates/kafka-service/target/debug' '$TMP/swift_kafka_native'"
     run "cpp native e2e (apache kafka)" env KAFKA_E2E_BROKER="$KAFKA_ADDR" \
-        bash -c "g++ -std=c++17 -pthread -O1 -I'$ROOT/cpp' -I'$ROOT' -I'$ROOT/crates/kafka-native/include' '$ROOT/cpp/tests/test_kafka_native.cpp' -L'$ROOT/crates/kafka-native/target/debug' -lkafka_native -Wl,-rpath,'$ROOT/crates/kafka-native/target/debug' -o '$TMP/cpp_kafka_native' && '$TMP/cpp_kafka_native'"
+        bash -c "g++ -std=c++17 -pthread -O1 -I'$ROOT/cpp' -I'$ROOT' -I'$ROOT/crates/kafka-service/include' '$ROOT/cpp/tests/test_kafka_native.cpp' -L'$ROOT/crates/kafka-service/target/debug' -lkafka_native -Wl,-rpath,'$ROOT/crates/kafka-service/target/debug' -o '$TMP/cpp_kafka_native' && '$TMP/cpp_kafka_native'"
     run "go native e2e (apache kafka)" env \
         KAFKA_E2E_BROKER="$KAFKA_ADDR" \
         GOFLAGS=-buildvcs=false \
-        CGO_LDFLAGS="-L$ROOT/crates/kafka-native/target/debug -Wl,-rpath,$ROOT/crates/kafka-native/target/debug" \
+        CGO_LDFLAGS="-L$ROOT/crates/kafka-service/target/debug -Wl,-rpath,$ROOT/crates/kafka-service/target/debug" \
         bash -c "cd '$ROOT/go' && go test -tags kafka_native -run TestKafkaNativeRoundtrip ."
     run "js native e2e (apache kafka)" env \
         KAFKA_E2E_BROKER="$KAFKA_ADDR" \
         GRPC_DC_KAFKA_NATIVE_ADDON="$TMP/kafka_native_addon.node" \
-        bash -c "cc -O2 -fPIC -shared -I/usr/local/include/node -I'$ROOT/crates/kafka-native/include' '$ROOT/js/src/kafka_native_addon.c' -L'$ROOT/crates/kafka-native/target/debug' -lkafka_native -Wl,-rpath,'$ROOT/crates/kafka-native/target/debug' -o '$TMP/kafka_native_addon.node' && cd '$ROOT/js' && node --test test/kafka_native.test.js"
+        bash -c "cc -O2 -fPIC -shared -I/usr/local/include/node -I'$ROOT/crates/kafka-service/include' '$ROOT/js/src/kafka_native_addon.c' -L'$ROOT/crates/kafka-service/target/debug' -lkafka_native -Wl,-rpath,'$ROOT/crates/kafka-service/target/debug' -o '$TMP/kafka_native_addon.node' && cd '$ROOT/js' && node --test test/kafka_native.test.js"
     run "php native e2e (apache kafka)" env \
         KAFKA_E2E_BROKER="$KAFKA_ADDR" \
-        GRPC_DC_KAFKA_NATIVE_LIB="$ROOT/crates/kafka-native/target/debug/libkafka_native.so" \
+        GRPC_DC_KAFKA_NATIVE_LIB="$ROOT/crates/kafka-service/target/debug/libkafka_native.so" \
         bash -c "cd '$ROOT/php' && php -d ffi.enable=true tests/main.php TestKafkaNative"
     run "js differential e2e (proxy vs native)" env \
         KAFKA_E2E_BROKER="$KAFKA_ADDR" \
@@ -485,29 +485,29 @@ run_native_legs() {
         KAFKA_E2E_BROKER="$KAFKA_ADDR" \
         KAFKA_E2E_PROXY_ADDR="$PROXY_KAFKA_ADDR" \
         GOFLAGS=-buildvcs=false \
-        CGO_LDFLAGS="-L$ROOT/crates/kafka-native/target/debug -Wl,-rpath,$ROOT/crates/kafka-native/target/debug" \
+        CGO_LDFLAGS="-L$ROOT/crates/kafka-service/target/debug -Wl,-rpath,$ROOT/crates/kafka-service/target/debug" \
         bash -c "cd '$ROOT/go' && go test -tags kafka_native -run TestKafkaDifferential -count=1 ."
     run "dart differential e2e (proxy vs native)" env \
         KAFKA_E2E_BROKER="$KAFKA_ADDR" \
         KAFKA_E2E_PROXY_ADDR="$PROXY_KAFKA_ADDR" \
-        GRPC_DC_KAFKA_NATIVE_LIB="$ROOT/crates/kafka-native/target/debug/libkafka_native.so" \
+        GRPC_DC_KAFKA_NATIVE_LIB="$ROOT/crates/kafka-service/target/debug/libkafka_native.so" \
         bash -c "cd '$ROOT/dart' && dart tests/main.dart TestKafkaDifferential"
     run "csharp differential e2e (proxy vs native)" env \
         KAFKA_E2E_BROKER="$KAFKA_ADDR" \
         KAFKA_E2E_PROXY_ADDR="$PROXY_KAFKA_ADDR" \
-        GRPC_DC_KAFKA_NATIVE_LIB="$ROOT/crates/kafka-native/target/debug/libkafka_native.so" \
+        GRPC_DC_KAFKA_NATIVE_LIB="$ROOT/crates/kafka-service/target/debug/libkafka_native.so" \
         bash -c "cd '$ROOT/csharp' && dotnet run --project tests --no-build -- TestKafkaDifferential"
     run "python differential e2e (proxy vs native)" env \
         KAFKA_E2E_BROKER="$KAFKA_ADDR" \
         KAFKA_E2E_PROXY_ADDR="$PROXY_KAFKA_ADDR" \
-        GRPC_DC_KAFKA_NATIVE_LIB="$ROOT/crates/kafka-native/target/debug/libkafka_native.so" \
+        GRPC_DC_KAFKA_NATIVE_LIB="$ROOT/crates/kafka-service/target/debug/libkafka_native.so" \
         bash -c "cd '$ROOT/python' && python3 -m unittest tests.test_kafka_native.TestKafkaDifferential"
     run "java native e2e (apache kafka)" env \
         KAFKA_E2E_BROKER="$KAFKA_ADDR" \
         GRPC_DC_KAFKA_NATIVE_JNI="$TMP/libkafka_native_jni.so" \
-        bash -c "cc -shared -fPIC -I$(dirname $(dirname $(readlink -f $(command -v javac))))/include -I$(dirname $(dirname $(readlink -f $(command -v javac))))/include/linux -I'$ROOT/crates/kafka-native/include' '$ROOT/java/jni/kafka_native_jni.c' -L'$ROOT/crates/kafka-native/target/debug' -lkafka_native -o '$TMP/libkafka_native_jni.so' && cd '$ROOT/java' && mkdir -p '$TMP/jbuild' && javac -encoding UTF-8 -d '$TMP/jbuild' grpcdc/KafkaNative.java grpcdc/Marshaler.java grpcdc/Unmarshaler.java grpcdc/kafka/v1/*.java tests/TestKafkaNative.java && LD_LIBRARY_PATH='$ROOT/crates/kafka-native/target/debug' java -cp '$TMP/jbuild' tests.TestKafkaNative"
+        bash -c "cc -shared -fPIC -I$(dirname $(dirname $(readlink -f $(command -v javac))))/include -I$(dirname $(dirname $(readlink -f $(command -v javac))))/include/linux -I'$ROOT/crates/kafka-service/include' '$ROOT/java/jni/kafka_native_jni.c' -L'$ROOT/crates/kafka-service/target/debug' -lkafka_native -o '$TMP/libkafka_native_jni.so' && cd '$ROOT/java' && mkdir -p '$TMP/jbuild' && javac -encoding UTF-8 -d '$TMP/jbuild' grpcdc/KafkaNative.java grpcdc/Marshaler.java grpcdc/Unmarshaler.java grpcdc/kafka/v1/*.java tests/TestKafkaNative.java && LD_LIBRARY_PATH='$ROOT/crates/kafka-service/target/debug' java -cp '$TMP/jbuild' tests.TestKafkaNative"
     run "c ffi smoke (apache kafka)" \
-        bash -c "cc -O1 -I'$ROOT/crates/kafka-native/include' '$ROOT/crates/kafka-native/tests/ffi_smoke.c' -L'$ROOT/crates/kafka-native/target/debug' -lkafka_native -Wl,-rpath,'$ROOT/crates/kafka-native/target/debug' -o '$TMP/ffi_smoke' && '$TMP/ffi_smoke' '$KAFKA_ADDR'"
+        bash -c "cc -O1 -I'$ROOT/crates/kafka-service/include' '$ROOT/crates/kafka-service/tests/ffi_smoke.c' -L'$ROOT/crates/kafka-service/target/debug' -lkafka_native -Wl,-rpath,'$ROOT/crates/kafka-service/target/debug' -o '$TMP/ffi_smoke' && '$TMP/ffi_smoke' '$KAFKA_ADDR'"
 }
 
 run_sasl_suites() {
@@ -643,8 +643,8 @@ main() {
     build_clients || exit 1
 
     echo "== building kafka_proxy"
-    (cd "$ROOT/rust" && cargo build --features kafka-tls --example kafka_proxy) || exit 1
-    local proxy_bin="$ROOT/rust/target/debug/examples/kafka_proxy"
+    (cd "$ROOT/apps/kafka-proxy" && cargo build --features kafka-tls) || exit 1
+    local proxy_bin="$ROOT/apps/kafka-proxy/target/debug/kafka_proxy"
 
     "$proxy_bin" --tcp "$PROXY_KAFKA_ADDR" --broker "$KAFKA_ADDR" \
         >"$TMP/proxy-kafka.log" 2>&1 &
@@ -681,7 +681,7 @@ main() {
     run "python native sasl e2e (apache kafka)" env \
         KAFKA_E2E_SASL_BROKER="$KAFKA_SASL_ADDR" \
         KAFKA_E2E_SASL_USER=proxy KAFKA_E2E_SASL_PASS=proxy-secret \
-        GRPC_DC_KAFKA_NATIVE_LIB="$ROOT/crates/kafka-native/target/debug/libkafka_native.so" \
+        GRPC_DC_KAFKA_NATIVE_LIB="$ROOT/crates/kafka-service/target/debug/libkafka_native.so" \
         bash -c "cd '$ROOT/python' && python3 -m unittest tests.test_kafka_native.TestKafkaNativeSasl"
 
     start_redpanda_sasl || exit 1
@@ -709,7 +709,7 @@ main() {
     run "python native tls e2e (redpanda)" env \
         KAFKA_E2E_TLS_BROKER="$TLS_REDPANDA_ADDR" \
         KAFKA_E2E_TLS_CA="$TLS_CA" \
-        GRPC_DC_KAFKA_NATIVE_LIB="$ROOT/crates/kafka-native/target/debug/libkafka_native.so" \
+        GRPC_DC_KAFKA_NATIVE_LIB="$ROOT/crates/kafka-service/target/debug/libkafka_native.so" \
         bash -c "cd '$ROOT/python' && python3 -m unittest tests.test_kafka_native.TestKafkaNativeTls"
 
     run_http2_suite || FAILED=1

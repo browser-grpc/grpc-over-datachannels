@@ -3,7 +3,7 @@
 //! producer sessions (idempotence/transactions) and consumer
 //! group memberships on behalf of clients.
 
-use crate::client::{
+use kafka_native::client::{
     decode_assignment, decode_subscription, encode_assignment, encode_subscription, Broker,
     KafkaConfig, API_CONSUMER_GROUP_HEARTBEAT,
 };
@@ -47,7 +47,7 @@ pub struct KafkaService {
 /// KIP-932 share group member held by the service (the
 /// SharePoll/ShareAck session counterpart of ProducerSession).
 pub struct ShareSession {
-    coordinator: Arc<Mutex<crate::client::Conn>>,
+    coordinator: Arc<Mutex<kafka_native::client::Conn>>,
     group_id: String,
     topics: Vec<String>,
     state: Mutex<ShareSessionState>,
@@ -1117,10 +1117,10 @@ impl crate::stub::Kafka for KafkaService {
                 .or_default()
                 .push((entry.offset, entry.ack_type as u8));
         }
-        let mut acks: Vec<([u8; 16], i32, Vec<crate::client::ShareAckBatch>)> = Vec::new();
+        let mut acks: Vec<([u8; 16], i32, Vec<kafka_native::client::ShareAckBatch>)> = Vec::new();
         for ((id, partition), mut entries) in per_partition {
             entries.sort_unstable();
-            let mut batches: Vec<crate::client::ShareAckBatch> = Vec::new();
+            let mut batches: Vec<kafka_native::client::ShareAckBatch> = Vec::new();
             for (offset, ack_type) in entries {
                 match batches.last_mut() {
                     Some(last)
@@ -1128,7 +1128,7 @@ impl crate::stub::Kafka for KafkaService {
                     {
                         last.last_offset = offset;
                     }
-                    _ => batches.push(crate::client::ShareAckBatch {
+                    _ => batches.push(kafka_native::client::ShareAckBatch {
                         first_offset: offset,
                         last_offset: offset,
                         ack_type,
@@ -1338,7 +1338,7 @@ async fn run_subscribe_848(
     groups: Arc<Mutex<HashMap<String, GroupSession>>>,
     req: &crate::pb::GroupSubscribeRequest,
     tx: &tokio::sync::mpsc::UnboundedSender<Result<crate::pb::GroupSubscribeResponse, Status>>,
-    coordinator: Arc<Mutex<crate::client::Conn>>,
+    coordinator: Arc<Mutex<kafka_native::client::Conn>>,
 ) -> Sub848 {
     let session_timeout_ms = if req.session_timeout_ms > 0 {
         req.session_timeout_ms

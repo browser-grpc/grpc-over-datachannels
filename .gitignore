@@ -105,6 +105,8 @@ generated_images/
 # YouTube video build output (sources live in video/scripts/)
 /video/out/
 /crates/kafka-native/target/
+/crates/kafka-service/target/
+/apps/kafka-proxy/target/
 /crates/dc-sctp-ffi/target/
 /crates/dc-bridge-wasm/target/
 /crates/dc-bridge-wasm/pkg/
