@@ -3,6 +3,25 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.48.0 — 2026-11-26
+
+- **Breaking (Rust):** the Kafka code is split by role.
+  `kafka_native` now exports only the direct client
+  (`Broker`, configs); `KafkaService`/`StreamsService` and
+  the C ABI moved to a new `kafka-service` crate (published
+  on crates.io alongside `kafka-native`; the cdylib is
+  staged as `libkafka_native.so`, ABI symbols unchanged).
+  The proxy binary moved from `rust/examples/kafka_proxy`
+  to `apps/kafka-proxy`. Generated exports are allowlisted:
+  the kafka-native repo ships only the native/service
+  crates, the Python native wrapper+messages, and
+  `kafka.proto`; the kafka-proxy repo ships only the proxy
+  crate and depends on the released `grpc-dc`/`kafka-native`/
+  `kafka-service`. The Python `kafka-native` wheel is
+  narrowed to the wrapper, Kafka messages, and the shared
+  library. `kafka-native` remains native-only; browser
+  Kafka stays `kafka-grpc` through `kafka-proxy`.
+
 ## v0.47.3 — 2026-11-26 (published to GitHub/npm/PyPI/GHCR/NuGet/Maven Central/GitHub Maven/pub.dev/crates.io/RubyGems/LuaRocks/JSR)
 
 - Kafka de-confusion pass: a "Which Kafka package do I
