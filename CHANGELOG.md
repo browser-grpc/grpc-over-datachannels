@@ -3,7 +3,7 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.48.2 — 2026-11-26
+## v0.48.2 — 2026-11-26 (published to GitHub/npm/PyPI/GHCR/NuGet/Maven Central/GitHub Maven/pub.dev/crates.io/RubyGems/LuaRocks/JSR)
 
 - Publish fix: kafka-native/kafka-service `cargo publish`
   now refreshes `Cargo.lock` and uses `--allow-dirty`
