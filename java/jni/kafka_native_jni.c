@@ -5,7 +5,7 @@
  * Build (Linux):
  *   cc -shared -fPIC \
  *     -I$JAVA_HOME/include -I$JAVA_HOME/include/linux \
- *     -Icrates/kafka-native/include \
+ *     -Icrates/kafka-service/include \
  *     java/jni/kafka_native_jni.c \
  *     -Lcrates/kafka-native/target/debug -lkafka_native \
  *     -o libkafka_native_jni.so
