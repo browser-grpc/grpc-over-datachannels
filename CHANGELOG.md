@@ -3,7 +3,7 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.48.0 — 2026-11-26
+## v0.48.0 — 2026-11-26 (published to GitHub/npm/PyPI/GHCR/NuGet/Maven Central/GitHub Maven/pub.dev/RubyGems/LuaRocks/JSR)
 
 - **Breaking (Rust):** the Kafka code is split by role.
   `kafka_native` now exports only the direct client
