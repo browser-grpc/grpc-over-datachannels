@@ -295,6 +295,31 @@ else
   echo "note: no examples export at $EX_EXPORT; skipping repo publish"
 fi
 
+# ------------------------------------------------------------------
+# 1e. Discoverability for the generated sibling repos
+#     (idempotent; aligned every publish, same pattern as the
+#     main repo edit in section 1): homepage + topics GitHub
+#     search indexes. Without this the siblings carry only the
+#     one-time --description from repo creation and are nearly
+#     invisible in GitHub search.
+# ------------------------------------------------------------------
+SITE_URL="https://browser-grpc.github.io/grpc-over-datachannels/"
+repo_discover() {
+  _repo="$1"; shift
+  _args=""
+  for _t in "$@"; do _args="$_args --add-topic $_t"; done
+  # shellcheck disable=SC2086
+  gh repo edit "$_repo" --homepage "$SITE_URL" $_args 2>/dev/null | grep -v "graphql:" || true
+}
+repo_discover "$KP_REPO" kafka redpanda grpc webrtc protobuf streaming browser
+repo_discover "$KN_REPO" kafka redpanda rust grpc ffi python c-api
+repo_discover "$EB_REPO" grpc webrtc pubsub protobuf browser event-bus
+repo_discover "$EX_REPO" grpc webrtc examples protobuf browser codegen
+repo_discover "$PHP_REPO" php grpc packagist webrtc protobuf
+repo_discover "$KPHP_REPO" php kafka grpc packagist webrtc
+repo_discover "$EBPHP_REPO" php grpc packagist pubsub webrtc
+echo "discoverability: sibling repo homepage+topics aligned"
+
 DEFAULT_BRANCH="$(gh repo view "$REPO" --json defaultBranchRef --jq .defaultBranchRef.name)"
 echo "default branch: $DEFAULT_BRANCH"
 
