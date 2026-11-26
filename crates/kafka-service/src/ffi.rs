@@ -20,7 +20,7 @@
 //! SASL/TLS are available through `kafka_native_new_v2`
 //! and its `KafkaNativeConfig` struct.
 
-use crate::client::KafkaConfig;
+use kafka_native::client::KafkaConfig;
 use crate::service::KafkaService;
 use crate::stub::Kafka;
 use futures_util::StreamExt;
@@ -201,11 +201,11 @@ pub unsafe extern "C" fn kafka_native_new_v2(cfg: *const KafkaNativeConfig) -> *
                 );
             };
             match mech.as_str() {
-                "PLAIN" => Some(crate::client::SaslConfig::Plain {
+                "PLAIN" => Some(kafka_native::client::SaslConfig::Plain {
                     username: user,
                     password: pass,
                 }),
-                "SCRAM-SHA-256" | "SCRAM-SHA-512" => Some(crate::client::SaslConfig::Scram {
+                "SCRAM-SHA-256" | "SCRAM-SHA-512" => Some(kafka_native::client::SaslConfig::Scram {
                     mechanism: mech,
                     username: user,
                     password: pass,
@@ -226,7 +226,7 @@ pub unsafe extern "C" fn kafka_native_new_v2(cfg: *const KafkaNativeConfig) -> *
             (Err(e), _) | (_, Err(e)) => return fail(&e, std::ptr::null_mut()),
         };
     let tls = if tls_ca_cert.is_some() || cfg.tls_insecure_skip_verify != 0 {
-        Some(crate::client::TlsConfig {
+        Some(kafka_native::client::TlsConfig {
             ca_cert: tls_ca_cert,
             server_name: tls_server_name,
             insecure_skip_verify: cfg.tls_insecure_skip_verify != 0,

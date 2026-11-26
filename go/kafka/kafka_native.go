@@ -18,7 +18,7 @@
 package v1
 
 /*
-#cgo CFLAGS: -I${SRCDIR}/../../crates/kafka-native/include
+#cgo CFLAGS: -I${SRCDIR}/../../crates/kafka-service/include
 #cgo LDFLAGS: -lkafka_native
 
 #include "kafka_native.h"

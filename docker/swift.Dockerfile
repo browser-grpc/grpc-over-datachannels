@@ -12,6 +12,7 @@ COPY swift ./swift
 COPY rust ./rust
 COPY webrtc/rust ./webrtc/rust
 COPY crates/kafka-native ./crates/kafka-native
+COPY crates/kafka-service ./crates/kafka-service
 RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable && export PATH="$HOME/.cargo/bin:$PATH" && cd rust && cargo build --release
 COPY fixtures ./fixtures
 COPY bin ./bin

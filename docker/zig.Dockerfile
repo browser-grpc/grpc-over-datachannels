@@ -14,6 +14,7 @@ COPY zig ./zig
 COPY rust ./rust
 COPY webrtc/rust ./webrtc/rust
 COPY crates/kafka-native ./crates/kafka-native
+COPY crates/kafka-service ./crates/kafka-service
 COPY fixtures ./fixtures
 COPY bin ./bin
 COPY webapp/testdata ./webapp/testdata

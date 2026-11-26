@@ -6,7 +6,7 @@
 //! Broker legs need KAFKA_PROXY_E2E_BROKER=host:port; the
 //! error-path tests always run.
 
-use kafka_native::ffi::*;
+use kafka_service::ffi::*;
 use std::ffi::{c_char, CString};
 use std::ptr;
 

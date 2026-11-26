@@ -19,6 +19,7 @@ COPY webrtc/go ./webrtc/go
 COPY webrtc/rust ./webrtc/rust
 COPY rust ./rust
 COPY crates/kafka-native ./crates/kafka-native
+COPY crates/kafka-service ./crates/kafka-service
 COPY crates/dc-sctp-ffi ./crates/dc-sctp-ffi
 COPY crates/dc-dtls-ffi ./crates/dc-dtls-ffi
 COPY crates/dc-ice-ffi ./crates/dc-ice-ffi

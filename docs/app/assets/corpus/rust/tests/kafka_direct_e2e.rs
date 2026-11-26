@@ -9,8 +9,9 @@
 
 use futures_util::StreamExt;
 use kafka_native::client::KafkaConfig;
-use kafka_native::stub::Kafka;
-use kafka_native::{pb, Broker, KafkaService};
+use kafka_service::stub::Kafka;
+use kafka_native::{pb, Broker};
+use kafka_service::KafkaService;
 use std::sync::Arc;
 
 fn broker_or_skip() -> Option<String> {

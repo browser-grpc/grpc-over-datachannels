@@ -2,13 +2,13 @@
 name = "kafka-native"
 version = "0.1.0"
 edition = "2021"
-description = "Kafka protocol client for grpc-dc: dependency-free Kafka wire implementation behind the grpcdc.kafka.v1 service, usable in-process (library) or via the kafka_proxy sidecar"
+description = "Kafka protocol client: dependency-free Kafka wire implementation for Apache Kafka/Redpanda, embedded in-process via Broker (direct, no gRPC)"
 license = "Apache-2.0"
 
 [lib]
 name = "kafka_native"
 path = "src/lib.rs"
-crate-type = ["lib", "cdylib"]
+crate-type = ["lib"]
 
 [features]
 default = ["kafka-tls"]

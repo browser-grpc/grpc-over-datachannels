@@ -64,7 +64,6 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`grpc_dc_proxy.rs`](examples/grpc_dc_proxy.rs) — Generated suite/example
 - [`main.rs`](examples/interop_server_stdio/main.rs) — Generated suite/example
 - [`pb_glue.rs`](examples/interop_server_stdio/pb_glue.rs) — Generated suite/example
-- [`main.rs`](examples/kafka_proxy/main.rs) — Generated suite/example
 - [`plugin_host.rs`](examples/plugin_host.rs) — Generated suite/example
 - [`rendezvous_echo.rs`](examples/rendezvous_echo.rs) — Echo: all four call shapes
 

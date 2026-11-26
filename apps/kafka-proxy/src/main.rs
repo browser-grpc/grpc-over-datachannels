@@ -23,8 +23,9 @@
 
 use bytes::Bytes;
 use grpc_dc::{DcTransport, Server, Status};
-use kafka_native::stub::kafka_service;
-use kafka_native::{processor_context_service, streams_service, KafkaConfig, KafkaService, SaslConfig, StreamsService, TlsConfig};
+use kafka_service::stub::kafka_service;
+use kafka_native::{KafkaConfig, SaslConfig, TlsConfig};
+use kafka_service::{processor_context_service, streams_service, KafkaService, StreamsService};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};

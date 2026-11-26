@@ -10,11 +10,11 @@
 //! than failing a broker that cannot run share groups.
 
 use kafka_native::client::KafkaConfig;
-use kafka_native::service::KafkaService;
-use kafka_native::{pb, stub};
+use kafka_service::KafkaService;
+use kafka_native::pb;
+use kafka_service::stub::{kafka_service as kafka_service_fn, KafkaClient};
 use grpc_dc::{loopback_pair, Channel, DcTransport, Server};
 use std::sync::Arc;
-use stub::{kafka_service, KafkaClient};
 
 async fn setup(broker: &str) -> KafkaClient {
     let (a, b) = loopback_pair();
@@ -25,7 +25,7 @@ async fn setup(broker: &str) -> KafkaClient {
         tls: None,
     }));
     let server_transport: Arc<dyn DcTransport> = Arc::new(b);
-    tokio::spawn(Server::serve(server_transport, vec![kafka_service(service)]));
+    tokio::spawn(Server::serve(server_transport, vec![kafka_service_fn(service)]));
     let client_transport: Arc<dyn DcTransport> = Arc::new(a);
     KafkaClient::new(Channel::new(client_transport))
 }

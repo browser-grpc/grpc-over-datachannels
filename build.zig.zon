@@ -1,6 +1,6 @@
 .{
     .name = .grpc_dc,
-    .version = "0.47.3",
+    .version = "0.48.0",
     .fingerprint = 0xf71c4e31e7d21092,
     .minimum_zig_version = "0.15.1",
     .dependencies = .{},

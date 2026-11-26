@@ -1,0 +1,17 @@
+[package]
+name = "kafka-service"
+version = "0.1.0"
+edition = "2021"
+description = "gRPC service layer over the kafka-native protocol client: KafkaService, StreamsService, and the libkafka_native C ABI (cdylib)"
+license = "Apache-2.0"
+
+[lib]
+name = "kafka_service"
+path = "src/lib.rs"
+crate-type = ["lib", "cdylib"]
+
+[dependencies]
+kafka-native = { path = "../kafka-native" }
+grpc-dc = { path = "../../rust" }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "sync", "time", "io-util", "net"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
