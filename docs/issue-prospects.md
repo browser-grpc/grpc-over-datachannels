@@ -25,8 +25,8 @@ before engaging (never comment twice on the same thread).
 | [Support Client Streaming for fetch API — connectrpc/connect-es#669](https://github.com/connectrpc/connect-es/issues/669) | 2023-06-06 | 15 comments | Client-streaming without fetch-API limits, via data channel transport | new |
 | [WebTransport transport — connectrpc/connect-es#1106](https://github.com/connectrpc/connect-es/issues/1106) | 2024-06-13 | 16 comments; appetite for non-HTTP transports | WebRTC data channel is the shipped alternative transport | new |
 | [Support HTTP/2 bidirectional streaming (gRPC) in Workers/Durable Objects — cloudflare/workerd#6455](https://github.com/cloudflare/workerd/issues/6455) | 2026-03-29 | 12 comments | Edge/browser-adjacent bidi streaming want | new |
-| [console: Watch streams disabled — gRPC-web does not support bidirectional streaming — rbkrabbe/ginnungagap#53](https://github.com/rbkrabbe/ginnungagap/issues/53) | 2026-06-06 | small project, explicit limitation | Direct swap story; small projects reply best | drafted |
-| [Support for grpc-web — spring-projects/spring-grpc#427](https://github.com/spring-projects/spring-grpc/issues/427) | 2026-09-08 | server-side project wanting browser story | Java stubs on both sides; browser angle confirmed in body | drafted |
+| [console: Watch streams disabled — gRPC-web does not support bidirectional streaming — rbkrabbe/ginnungagap#53](https://github.com/rbkrabbe/ginnungagap/issues/53) | 2026-06-06 | small project, explicit limitation | Direct swap story; small projects reply best | engaged |
+| [Support for grpc-web — spring-projects/spring-grpc#427](https://github.com/spring-projects/spring-grpc/issues/427) | 2026-09-08 | server-side project wanting browser story | Java stubs on both sides; browser angle confirmed in body | engaged |
 
 ## Tier 2 — adjacent (transport/framework appetite)
 
