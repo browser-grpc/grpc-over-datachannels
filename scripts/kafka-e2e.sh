@@ -476,6 +476,10 @@ run_native_legs() {
         KAFKA_E2E_BROKER="$KAFKA_ADDR" \
         GRPC_DC_KAFKA_NATIVE_LIB="$ROOT/crates/kafka-service/target/debug/libkafka_native.so" \
         bash -c "cd '$ROOT/php' && php -d ffi.enable=true tests/main.php TestKafkaNative"
+    run "zig native e2e (apache kafka)" env \
+        KAFKA_E2E_BROKER="$KAFKA_ADDR" \
+        GRPC_DC_KAFKA_NATIVE_LIB="$ROOT/crates/kafka-service/target/debug/libkafka_native.so" \
+        bash -c "cd '$ROOT/zig' && zig build --prefix build && ./build/bin/tests TestKafkaNative"
     run "js differential e2e (proxy vs native)" env \
         KAFKA_E2E_BROKER="$KAFKA_ADDR" \
         KAFKA_E2E_PROXY_ADDR="$PROXY_KAFKA_ADDR" \

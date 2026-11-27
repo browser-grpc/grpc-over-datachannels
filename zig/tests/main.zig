@@ -15,6 +15,7 @@ const test_pb_messages = @import("test_pb_messages.zig");
 const test_bdd_schemas = @import("test_bdd_schemas.zig");
 const test_sidecar = @import("test_sidecar.zig");
 const test_kafka_e2e = @import("test_kafka_e2e.zig");
+const test_kafka_native = @import("test_kafka_native.zig");
 const test_eventbus = @import("test_eventbus.zig");
 
 // Test runner: ./tests <TestCodec|TestEcho|TestInterop|TestOracle|TestDynamic>
@@ -61,6 +62,8 @@ pub fn main() !void {
         test_sidecar.testSidecar(alloc);
     } else if (std.mem.eql(u8, name, "TestKafkaE2E")) {
         test_kafka_e2e.testKafkaE2E(alloc);
+    } else if (std.mem.eql(u8, name, "TestKafkaNative")) {
+        test_kafka_native.testKafkaNative(alloc);
     } else {
         std.debug.print("unknown test: {s}\n", .{name});
         std.process.exit(2);
