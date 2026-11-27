@@ -57,6 +57,23 @@ Three form factors, one wire implementation
 - `kafka-proxy` — the `kafka_proxy` sidecar, a thin host over
   the same crate (stdio / TCP / WebRTC-Direct listeners).
 
+## Getting libkafka_native
+
+Every language's native wrapper loads one shared library,
+`libkafka_native` (the Rust `kafka-service` cdylib). Get it
+for your platform from the kafka-native repo's release
+assets — `libkafka_native-<linux-x64|linux-arm64|darwin-arm64>.tar.gz`
+(library + `kafka_native.h`):
+
+https://github.com/browser-grpc/kafka-native/releases
+
+Or build it: `cargo build --release` in `crates/kafka-service`
+of that repo (artifact is `libkafka_service.*`; rename/copy
+to `libkafka_native.*`). Python (PyPI) and Node (npm
+`@browser-grpc/kafka-native`) bundle it per platform; other
+wrappers find it via `GRPC_DC_KAFKA_NATIVE_LIB` /
+`GRPC_DC_KAFKA_NATIVE_JNI` or the loader path.
+
 Native coverage (in the `make test-kafka` gate): Rust direct
 `Broker` roundtrip + admin (configs, partitions, groups) and
 in-process `KafkaService`; FFI error paths (unknown method,

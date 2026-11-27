@@ -715,6 +715,8 @@ if [ -d "$KN_EXPORT" ]; then
     echo "note: kafka-native publish-crates dispatch failed (Trusted Publisher pending?)"
   gh workflow run publish-pypi.yml --repo "$KN_REPO" 2>&1 || \
     echo "note: kafka-native publish-pypi dispatch failed (Trusted Publisher pending?)"
+  gh workflow run release-binaries.yml --repo "$KN_REPO" 2>&1 || \
+    echo "note: kafka-native release-binaries dispatch failed"
 fi
 
 # ------------------------------------------------------------------
@@ -757,6 +759,35 @@ if [ -f CHANGELOG.md ] && git rev-parse --git-dir >/dev/null 2>&1 \
     echo "note: changelog update skipped (nothing to commit)"
   fi
 fi
+
+# ------------------------------------------------------------------
+# 4d. Generated-repo CI sweep: a release is not done until the
+#     generated repos' own CIs are green. Each repo's latest
+#     CI run on main is watched; on failure it is re-run once
+#     (the common cause is the registry race: the repo was
+#     pushed before its crates.io deps landed) and watched
+#     again. Loud notes, never a failed release.
+# ------------------------------------------------------------------
+echo "== generated-repo CI sweep"
+for grepo in "$REPO" "$KP_REPO" "$KN_REPO" "$EB_REPO" "$EX_REPO"; do
+  GRID="$(gh run list --repo "$grepo" --workflow ci.yml --branch main --limit 1 --json databaseId -q '.[0].databaseId' 2>/dev/null)"
+  if [ -z "$GRID" ]; then
+    echo "generated-ci: $grepo: no CI run found; skipping"
+    continue
+  fi
+  if gh run watch "$GRID" --repo "$grepo" --exit-status >/dev/null 2>&1; then
+    echo "generated-ci: $grepo: OK (run $GRID)"
+  else
+    echo "generated-ci: $grepo: failed (run $GRID); re-running once"
+    gh run rerun "$GRID" --repo "$grepo" >/dev/null 2>&1 || true
+    sleep 10
+    if gh run watch "$GRID" --repo "$grepo" --exit-status >/dev/null 2>&1; then
+      echo "generated-ci: $grepo: OK after re-run (run $GRID)"
+    else
+      echo "note: generated-ci: $grepo: STILL FAILING (run $GRID); check https://github.com/$grepo/actions"
+    fi
+  fi
+done
 
 # ------------------------------------------------------------------
 # 5. Verify the live site (Pages builds take a minute or so;
