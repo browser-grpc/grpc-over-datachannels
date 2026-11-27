@@ -2134,6 +2134,147 @@ object StructDc {
 GRPC_RUNTIME_EOF
 )
 
+(define scala-kafka-native-body
+#<<GRPC_RUNTIME_EOF
+package grpcdc
+
+import grpcdc.kafka.v1.*
+import scala.native
+
+/** In-process Kafka client via libkafka_native (native only).
+  *
+  * The collapsed form of the Kafka proxy: the Kafka protocol
+  * implementation runs in this process through the
+  * kafka-native shared library, instead of in a kafka_proxy
+  * sidecar reached over gRPC. Scala reaches the C ABI through
+  * the same JNI shim as the Java client
+  * (java/jni/kafka_native_jni.c, built into
+  * libkafka_native_jni). Method surface mirrors the generated
+  * KafkaClient; requests and responses are the same generated
+  * KafkaMessages types.
+  *
+  * Shim location: the GRPC_DC_KAFKA_NATIVE_JNI environment
+  * variable (full path), or "kafka_native_jni" on the loader
+  * path.
+  */
+class KafkaNativeException(message: String) extends RuntimeException(message)
+
+class KafkaNative(broker: String, clientId: String = "grpc-dc-kafka-native") extends AutoCloseable {
+  KafkaNative.loadLibrary()
+  private var handle: Long = nativeNew(broker, clientId)
+  if (handle == 0L) throw new KafkaNativeException(Option(nativeLastError()).getOrElse("kafka-native error"))
+
+  override def close(): Unit = {
+    if (handle != 0L) {
+      nativeFree(handle)
+      handle = 0L
+    }
+  }
+
+  private def unary[T <: grpcdc.Unmarshaler](method: String, req: grpcdc.Marshaler, make: () => T): T = {
+    val data = nativeCall(handle, method, req.marshalDc())
+    if (data == null) throw new KafkaNativeException(Option(nativeLastError()).getOrElse("kafka-native error"))
+    val resp = make()
+    resp.unmarshalDc(data)
+    resp
+  }
+
+  private def stream[T <: grpcdc.Unmarshaler](method: String, req: grpcdc.Marshaler, make: () => T): Iterator[T] = {
+    val s = nativeStreamNew(handle, method, req.marshalDc())
+    if (s == 0L) throw new KafkaNativeException(Option(nativeLastError()).getOrElse("kafka-native error"))
+    new Iterator[T] {
+      private var pending: Option[T] = None
+      private var done = false
+
+      private def fill(): Unit = {
+        if (pending.isDefined || done) return
+        val data = nativeStreamNext(s)
+        if (data == null) {
+          val err = nativeStreamError(s)
+          done = true
+          nativeStreamFree(s)
+          if (err != null && err.nonEmpty) throw new KafkaNativeException(err)
+          return
+        }
+        val resp = make()
+        resp.unmarshalDc(data)
+        pending = Some(resp)
+      }
+
+      def hasNext: Boolean = {
+        fill()
+        pending.isDefined
+      }
+
+      def next(): T = {
+        fill()
+        val out = pending.getOrElse(throw new NoSuchElementException())
+        pending = None
+        out
+      }
+    }
+  }
+
+  def metadata(req: MetadataRequest): MetadataResponse = unary("Metadata", req, () => new MetadataResponse)
+  def openProducer(req: OpenProducerRequest): OpenProducerResponse = unary("OpenProducer", req, () => new OpenProducerResponse)
+  def closeProducer(req: CloseProducerRequest): CloseProducerResponse = unary("CloseProducer", req, () => new CloseProducerResponse)
+  def endTransaction(req: EndTransactionRequest): EndTransactionResponse = unary("EndTransaction", req, () => new EndTransactionResponse)
+  def produce(req: ProduceRequest): ProduceResponse = unary("Produce", req, () => new ProduceResponse)
+  def consume(req: ConsumeRequest): Iterator[ConsumeResponse] = stream("Consume", req, () => new ConsumeResponse)
+  def subscribe(req: GroupSubscribeRequest): Iterator[GroupSubscribeResponse] = stream("Subscribe", req, () => new GroupSubscribeResponse)
+  def listOffsets(req: ListOffsetsRequest): ListOffsetsResponse = unary("ListOffsets", req, () => new ListOffsetsResponse)
+  def commitOffset(req: CommitOffsetRequest): CommitOffsetResponse = unary("CommitOffset", req, () => new CommitOffsetResponse)
+  def fetchOffset(req: FetchOffsetRequest): FetchOffsetResponse = unary("FetchOffset", req, () => new FetchOffsetResponse)
+  def createTopics(req: CreateTopicsRequest): CreateTopicsResponse = unary("CreateTopics", req, () => new CreateTopicsResponse)
+  def deleteTopics(req: DeleteTopicsRequest): DeleteTopicsResponse = unary("DeleteTopics", req, () => new DeleteTopicsResponse)
+  def describeConfigs(req: DescribeConfigsRequest): DescribeConfigsResponse = unary("DescribeConfigs", req, () => new DescribeConfigsResponse)
+  def alterConfigs(req: AlterConfigsRequest): AlterConfigsResponse = unary("AlterConfigs", req, () => new AlterConfigsResponse)
+  def createPartitions(req: CreatePartitionsRequest): CreatePartitionsResponse = unary("CreatePartitions", req, () => new CreatePartitionsResponse)
+  def deleteRecords(req: DeleteRecordsRequest): DeleteRecordsResponse = unary("DeleteRecords", req, () => new DeleteRecordsResponse)
+  def listGroups(req: ListGroupsRequest): ListGroupsResponse = unary("ListGroups", req, () => new ListGroupsResponse)
+  def describeGroups(req: DescribeGroupsRequest): DescribeGroupsResponse = unary("DescribeGroups", req, () => new DescribeGroupsResponse)
+  def deleteGroups(req: DeleteGroupsRequest): DeleteGroupsResponse = unary("DeleteGroups", req, () => new DeleteGroupsResponse)
+  def deleteGroupOffsets(req: DeleteGroupOffsetsRequest): DeleteGroupOffsetsResponse = unary("DeleteGroupOffsets", req, () => new DeleteGroupOffsetsResponse)
+  def describeAcls(req: DescribeAclsRequest): DescribeAclsResponse = unary("DescribeAcls", req, () => new DescribeAclsResponse)
+  def createAcls(req: CreateAclsRequest): CreateAclsResponse = unary("CreateAcls", req, () => new CreateAclsResponse)
+  def deleteAcls(req: DeleteAclsRequest): DeleteAclsResponse = unary("DeleteAcls", req, () => new DeleteAclsResponse)
+  def listTransactions(req: ListTransactionsRequest): ListTransactionsResponse = unary("ListTransactions", req, () => new ListTransactionsResponse)
+  def describeTransactions(req: DescribeTransactionsRequest): DescribeTransactionsResponse = unary("DescribeTransactions", req, () => new DescribeTransactionsResponse)
+  def describeShareGroups(req: DescribeShareGroupsRequest): DescribeShareGroupsResponse = unary("DescribeShareGroups", req, () => new DescribeShareGroupsResponse)
+  def openShareGroup(req: OpenShareGroupRequest): OpenShareGroupResponse = unary("OpenShareGroup", req, () => new OpenShareGroupResponse)
+  def sharePoll(req: SharePollRequest): SharePollResponse = unary("SharePoll", req, () => new SharePollResponse)
+  def shareAck(req: ShareAckRequest): ShareAckResponse = unary("ShareAck", req, () => new ShareAckResponse)
+  def closeShareGroup(req: CloseShareGroupRequest): CloseShareGroupResponse = unary("CloseShareGroup", req, () => new CloseShareGroupResponse)
+
+  @native def nativeNew(broker: String, clientId: String): Long
+  @native def nativeFree(handle: Long): Unit
+  @native def nativeCall(handle: Long, method: String, req: Array[Byte]): Array[Byte]
+  @native def nativeStreamNew(handle: Long, method: String, req: Array[Byte]): Long
+  @native def nativeStreamNext(stream: Long): Array[Byte]
+  @native def nativeStreamError(stream: Long): String
+  @native def nativeStreamFree(stream: Long): Unit
+  @native def nativeLastError(): String
+}
+
+object KafkaNative {
+  private var loaded = false
+
+  def loadLibrary(): Unit = {
+    if (loaded) return
+    loaded = true
+    val jni = System.getenv("GRPC_DC_KAFKA_NATIVE_JNI")
+    try {
+      if (jni != null && jni.nonEmpty) System.load(jni)
+      else System.loadLibrary("kafka_native_jni")
+    } catch {
+      case e: UnsatisfiedLinkError =>
+        throw new KafkaNativeException("libkafka_native_jni not loadable: " + e.getMessage)
+    }
+  }
+}
+GRPC_RUNTIME_EOF
+)
+
 (define (emit-scala-runtime-files)
   (list
    (cons "grpcdc/Status.scala" scala-status-body)
@@ -2146,4 +2287,5 @@ GRPC_RUNTIME_EOF
    (cons "grpcdc/SidecarTransport.scala" scala-sidecar-body)
    (cons "grpcdc/Futures.scala" scala-futures-body)
    (cons "grpcdc/Dynamic.scala" scala-dynamic-body)
-   (cons "grpcdc/StructDc.scala" scala-structdc-body)))
+   (cons "grpcdc/StructDc.scala" scala-structdc-body)
+   (cons "grpcdc/KafkaNative.scala" scala-kafka-native-body)))
