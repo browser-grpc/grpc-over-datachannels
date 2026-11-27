@@ -483,7 +483,7 @@ run_native_legs() {
     run "kotlin native e2e (apache kafka)" env \
         KAFKA_E2E_BROKER="$KAFKA_ADDR" \
         GRPC_DC_KAFKA_NATIVE_JNI="$TMP/libkafka_native_jni.so" \
-        bash -c "cc -shared -fPIC -I$(dirname $(dirname $(readlink -f $(command -v javac))))/include -I$(dirname $(dirname $(readlink -f $(command -v javac))))/include/linux -I'$ROOT/crates/kafka-service/include' '$ROOT/java/jni/kafka_native_jni.c' -L'$ROOT/crates/kafka-service/target/debug' -lkafka_native -o '$TMP/libkafka_native_jni.so' && cd '$ROOT' && java -Djava.library.path='$ROOT/crates/kafka-service/target/debug' -jar kotlin/build/tests.jar TestKafkaNative"
+        bash -c "cc -shared -fPIC -I$(dirname $(dirname $(readlink -f $(command -v javac))))/include -I$(dirname $(dirname $(readlink -f $(command -v javac))))/include/linux -I'$ROOT/crates/kafka-service/include' '$ROOT/java/jni/kafka_native_jni.c' -L'$ROOT/crates/kafka-service/target/debug' -lkafka_native -o '$TMP/libkafka_native_jni.so' && cd '$ROOT' && LD_LIBRARY_PATH='$ROOT/crates/kafka-service/target/debug' java -jar kotlin/build/tests.jar TestKafkaNative"
     run "lua native e2e (apache kafka)" env \
         KAFKA_E2E_BROKER="$KAFKA_ADDR" \
         LUA_CPATH="$TMP/?.so" \
