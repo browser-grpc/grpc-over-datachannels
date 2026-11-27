@@ -3,6 +3,17 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.49.1 — 2026-11-26
+
+- npm prebuild fix: the macOS (`darwin-arm64`) addon
+  build needs `-undefined dynamic_lookup` (N-API symbols
+  resolve from Node at load time); linux legs already
+  passed. Also, the kafka-native `release-binaries`
+  workflow now patches `kafka-native` to the in-repo
+  crate before building (it raced the crates.io publish).
+  Maven Central for v0.49.0 was re-dispatched after a
+  transient failure.
+
 ## v0.49.0 — 2026-11-26 (published to GitHub/PyPI/GHCR/NuGet/GitHub Maven/pub.dev/crates.io/RubyGems/LuaRocks/JSR)
 
 - **Kafka native everywhere:** generated kafka-native
