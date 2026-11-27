@@ -2720,6 +2720,124 @@ return {
 GRPC_RUNTIME_EOF
 )
 
+(define lua-kafka-native-body
+#<<GRPC_RUNTIME_EOF
+-- In-process Kafka client via libkafka_native (native only).
+--
+-- The collapsed form of the Kafka proxy: the Kafka protocol
+-- implementation runs in this process through the
+-- kafka-native shared library (C ABI via the
+-- kafka_native_core C bridge module, lua/native/), instead
+-- of in a kafka_proxy sidecar reached over gRPC. Method
+-- surface mirrors the generated KafkaClient; requests and
+-- responses are the same generated kafka_messages types.
+--
+-- The bridge module must be on package.cpath
+-- (kafka_native_core.so, built from
+-- lua/native/kafka_native_lua.c); the library itself is
+-- found by the dynamic loader (LD_LIBRARY_PATH/rpath).
+--
+-- Usage:
+--   local KafkaNative = require("grpcdc.kafka_native")
+--   local M = require("examples.kafka_messages")
+--   local client = KafkaNative.new("127.0.0.1:9092", nil, M)
+--   local resp = client:createTopics(M.CreateTopicsRequest.new({...}))
+
+local core = require("kafka_native_core")
+
+local KafkaNative = {}
+KafkaNative.__index = KafkaNative
+
+function KafkaNative.new(broker, clientId, messages)
+  local handle = core.new(broker, clientId or "grpc-dc-kafka-native")
+  if handle == nil then
+    error("KafkaNative: " .. core.last_error())
+  end
+  return setmetatable({ _handle = handle, _m = messages }, KafkaNative)
+end
+
+function KafkaNative:close()
+  if self._handle ~= nil then
+    core.close(self._handle)
+    self._handle = nil
+  end
+end
+
+function KafkaNative:unary(method, req, respClass)
+  local data = core.call(self._handle, method, req:marshalDc())
+  if data == nil then
+    error("KafkaNative " .. method .. ": " .. core.last_error())
+  end
+  local resp = respClass.new()
+  resp:unmarshalDc(data)
+  return resp
+end
+
+-- Returns an iterator function yielding response chunks.
+function KafkaNative:stream(method, req, respClass)
+  local stream = core.stream_new(self._handle, method, req:marshalDc())
+  if stream == nil then
+    error("KafkaNative " .. method .. ": " .. core.last_error())
+  end
+  return function()
+    local data, err = core.stream_next(stream)
+    if data == nil then
+      if err ~= nil then error("KafkaNative " .. method .. ": " .. err) end
+      return nil
+    end
+    local resp = respClass.new()
+    resp:unmarshalDc(data)
+    return resp
+  end
+end
+
+local function defUnary(name, method, respField)
+  KafkaNative[name] = function(self, req)
+    return self:unary(method, req, self._m[respField])
+  end
+end
+
+local function defStream(name, method, respField)
+  KafkaNative[name] = function(self, req)
+    return self:stream(method, req, self._m[respField])
+  end
+end
+
+defUnary("metadata", "Metadata", "MetadataResponse")
+defUnary("openProducer", "OpenProducer", "OpenProducerResponse")
+defUnary("closeProducer", "CloseProducer", "CloseProducerResponse")
+defUnary("endTransaction", "EndTransaction", "EndTransactionResponse")
+defUnary("produce", "Produce", "ProduceResponse")
+defStream("consume", "Consume", "ConsumeResponse")
+defStream("subscribe", "Subscribe", "GroupSubscribeResponse")
+defUnary("listOffsets", "ListOffsets", "ListOffsetsResponse")
+defUnary("commitOffset", "CommitOffset", "CommitOffsetResponse")
+defUnary("fetchOffset", "FetchOffset", "FetchOffsetResponse")
+defUnary("createTopics", "CreateTopics", "CreateTopicsResponse")
+defUnary("deleteTopics", "DeleteTopics", "DeleteTopicsResponse")
+defUnary("describeConfigs", "DescribeConfigs", "DescribeConfigsResponse")
+defUnary("alterConfigs", "AlterConfigs", "AlterConfigsResponse")
+defUnary("createPartitions", "CreatePartitions", "CreatePartitionsResponse")
+defUnary("deleteRecords", "DeleteRecords", "DeleteRecordsResponse")
+defUnary("listGroups", "ListGroups", "ListGroupsResponse")
+defUnary("describeGroups", "DescribeGroups", "DescribeGroupsResponse")
+defUnary("deleteGroups", "DeleteGroups", "DeleteGroupsResponse")
+defUnary("deleteGroupOffsets", "DeleteGroupOffsets", "DeleteGroupOffsetsResponse")
+defUnary("describeAcls", "DescribeAcls", "DescribeAclsResponse")
+defUnary("createAcls", "CreateAcls", "CreateAclsResponse")
+defUnary("deleteAcls", "DeleteAcls", "DeleteAclsResponse")
+defUnary("listTransactions", "ListTransactions", "ListTransactionsResponse")
+defUnary("describeTransactions", "DescribeTransactions", "DescribeTransactionsResponse")
+defUnary("describeShareGroups", "DescribeShareGroups", "DescribeShareGroupsResponse")
+defUnary("openShareGroup", "OpenShareGroup", "OpenShareGroupResponse")
+defUnary("sharePoll", "SharePoll", "SharePollResponse")
+defUnary("shareAck", "ShareAck", "ShareAckResponse")
+defUnary("closeShareGroup", "CloseShareGroup", "CloseShareGroupResponse")
+
+return KafkaNative
+GRPC_RUNTIME_EOF
+)
+
 (define (emit-lua-runtime-files)
   (list
    (cons "grpcdc/status.lua" lua-status-body)
@@ -2732,4 +2850,5 @@ GRPC_RUNTIME_EOF
    (cons "grpcdc/memory_transport.lua" lua-memory-body)
    (cons "grpcdc/sidecar_transport.lua" lua-sidecar-body)
    (cons "grpcdc/structdc.lua" lua-structdc-body)
-   (cons "grpcdc/dynamic.lua" lua-dynamic-body)))
+   (cons "grpcdc/dynamic.lua" lua-dynamic-body)
+   (cons "grpcdc/kafka_native.lua" lua-kafka-native-body)))

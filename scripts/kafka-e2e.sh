@@ -484,6 +484,11 @@ run_native_legs() {
         KAFKA_E2E_BROKER="$KAFKA_ADDR" \
         GRPC_DC_KAFKA_NATIVE_JNI="$TMP/libkafka_native_jni.so" \
         bash -c "cc -shared -fPIC -I$(dirname $(dirname $(readlink -f $(command -v javac))))/include -I$(dirname $(dirname $(readlink -f $(command -v javac))))/include/linux -I'$ROOT/crates/kafka-service/include' '$ROOT/java/jni/kafka_native_jni.c' -L'$ROOT/crates/kafka-service/target/debug' -lkafka_native -o '$TMP/libkafka_native_jni.so' && cd '$ROOT' && java -Djava.library.path='$ROOT/crates/kafka-service/target/debug' -jar kotlin/build/tests.jar TestKafkaNative"
+    run "lua native e2e (apache kafka)" env \
+        KAFKA_E2E_BROKER="$KAFKA_ADDR" \
+        LUA_CPATH="$TMP/?.so" \
+        LD_LIBRARY_PATH="$ROOT/crates/kafka-service/target/debug" \
+        bash -c "cc -O2 -fPIC -shared -I/usr/include/lua5.4 '$ROOT/lua/native/kafka_native_lua.c' -L'$ROOT/crates/kafka-service/target/debug' -lkafka_native -Wl,-rpath,'$ROOT/crates/kafka-service/target/debug' -o '$TMP/kafka_native_core.so' && cd '$ROOT' && lua5.4 lua/tests/main.lua TestKafkaNative"
     run "zig native e2e (apache kafka)" env \
         KAFKA_E2E_BROKER="$KAFKA_ADDR" \
         GRPC_DC_KAFKA_NATIVE_LIB="$ROOT/crates/kafka-service/target/debug/libkafka_native.so" \
