@@ -3,6 +3,27 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.49.0 — 2026-11-26
+
+- **Kafka native everywhere:** generated kafka-native
+  FFI wrappers for the four languages that lacked them —
+  **Kotlin** and **Scala** (via the shared JNI shim),
+  **Zig** (extern C ABI), and **Lua** (new
+  `kafka_native_core` C bridge module +
+  `grpcdc/kafka_native.lua`). Every native wrapper now
+  has a `TestKafkaNative` roundtrip (create/metadata/
+  produce/consume/list-offsets) in `make test-kafka` —
+  14 native legs, all passing.
+- **Packaging:** new npm package
+  `@browser-grpc/kafka-native` (JS wrapper + messages +
+  per-platform prebuilt `libkafka_native` for
+  linux-x64/linux-arm64/darwin-arm64), and per-platform
+  `libkafka_native` binaries attached to kafka-native
+  GitHub releases for the other wrappers (see "Getting
+  libkafka_native" in KAFKA.md). One Rust implementation
+  (`kafka-native` + `kafka-service`) under every wrapper;
+  no language reimplements the Kafka protocol.
+
 ## v0.48.8 — 2026-11-26 (published to GitHub/npm/PyPI/GHCR/NuGet/Maven Central/GitHub Maven/pub.dev/crates.io/RubyGems/LuaRocks/JSR)
 
 - kafka-proxy standalone build, final form: builds
