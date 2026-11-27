@@ -1870,6 +1870,8 @@
          ;; has no `webrtc` feature (its dc-webrtc path dep
          ;; cannot publish), so --webrtc-direct is served by
          ;; the GHCR image built from the main export instead.
+         [text (string-replace text "webrtc = [\"grpc-dc/webrtc\"]"
+                               "webrtc = []")]
          [text (string-replace text "kafka-native = { path = \"../../crates/kafka-native\" }"
                                (string-append "kafka-native = { version = \"" bare "\" }"))]
          [text (string-replace text "kafka-service = { path = \"../../crates/kafka-service\" }"
