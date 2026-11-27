@@ -3,7 +3,7 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.49.0 — 2026-11-26
+## v0.49.0 — 2026-11-26 (published to GitHub/PyPI/GHCR/NuGet/GitHub Maven/pub.dev/crates.io/RubyGems/LuaRocks/JSR)
 
 - **Kafka native everywhere:** generated kafka-native
   FFI wrappers for the four languages that lacked them —
