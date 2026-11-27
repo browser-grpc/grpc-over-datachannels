@@ -1,6 +1,6 @@
 Gem::Specification.new do |spec|
   spec.name = "kafka-grpc"
-  spec.version = "0.48.8"
+  spec.version = "0.49.0"
   spec.authors = ["John Davis"]
   spec.email = ["jdavis@pcprogramming.com"]
   spec.summary = "Kafka over gRPC — generated grpcdc.kafka.v1 Ruby clients"
@@ -11,5 +11,5 @@ Gem::Specification.new do |spec|
   spec.metadata = { "homepage_uri" => spec.homepage, "source_code_uri" => "https://github.com/browser-grpc/grpc-over-datachannels/tree/main/packages/kafka-ruby" }
   spec.files = Dir["lib/**/*.rb", "README.md", "LICENSE"]
   spec.require_paths = ["lib"]
-  spec.add_runtime_dependency "grpc-dc", "= 0.48.8"
+  spec.add_runtime_dependency "grpc-dc", "= 0.49.0"
 end

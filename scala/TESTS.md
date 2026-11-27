@@ -31,6 +31,7 @@ propagation) is documented in [`TRACING.md`](TRACING.md).
 - [`TestInteropOracle.scala`](tests/TestInteropOracle.scala) — Official-implementation oracle, via the proxy
 - [`TestInteropServerOracle.scala`](tests/TestInteropServerOracle.scala) — Official-implementation oracle, via the proxy
 - [`TestKafkaE2E.scala`](tests/TestKafkaE2E.scala) — Kafka end-to-end (broker legs env-gated)
+- [`TestKafkaNative.scala`](tests/TestKafkaNative.scala) — Kafka end-to-end (broker legs env-gated)
 - [`TestOracle.scala`](tests/TestOracle.scala) — Official-implementation oracle, via the proxy
 - [`TestPbMessages.scala`](tests/TestPbMessages.scala) — Generated suite/example
 - [`TestSidecar.scala`](tests/TestSidecar.scala) — Sidecar transport

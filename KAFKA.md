@@ -29,6 +29,22 @@ the generated service and speaks the Kafka binary protocol to
 Apache Kafka (KRaft) or Redpanda, negotiating API versions per
 connection.
 
+## Getting libkafka_native
+
+Every language's native wrapper loads one shared library,
+`libkafka_native` (the Rust `kafka-service` cdylib). Get it
+for your platform from the kafka-native repo's release
+assets — `libkafka_native-<linux-x64|linux-arm64|darwin-arm64>.tar.gz`
+(library + `kafka_native.h`):
+
+https://github.com/browser-grpc/kafka-native/releases
+
+Or build it: `cargo build --release` in `crates/kafka-service`
+of that repo (artifact is `libkafka_service.*`; rename/copy
+to `libkafka_native.*`). Python (PyPI) and Node (npm
+`@browser-grpc/kafka-native`) bundle it per platform; other
+wrappers find it via `GRPC_DC_KAFKA_NATIVE_LIB` /
+`GRPC_DC_KAFKA_NATIVE_JNI` or the loader path.
 ## Run the proxy
 
 ```sh

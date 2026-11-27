@@ -1,6 +1,6 @@
 Gem::Specification.new do |spec|
   spec.name = "grpc-dc"
-  spec.version = "0.48.8"
+  spec.version = "0.49.0"
   spec.authors = ["John Davis"]
   spec.email = ["jdavis@pcprogramming.com"]
   spec.summary = "gRPC over WebRTC DataChannels, dependency-free generated Ruby runtime"

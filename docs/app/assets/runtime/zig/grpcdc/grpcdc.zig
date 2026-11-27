@@ -14,3 +14,4 @@ pub const memory_transport = @import("memory_transport.zig");
 pub const sidecar_transport = @import("sidecar_transport.zig");
 pub const http2_transport = @import("http2_transport.zig");
 pub const dynamic = @import("dynamic.zig");
+pub const kafka_native = @import("kafka_native.zig");

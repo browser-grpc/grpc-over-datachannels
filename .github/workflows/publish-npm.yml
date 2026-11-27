@@ -9,7 +9,44 @@ permissions:
   contents: read
   id-token: write
 jobs:
+  prebuilds:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            plat: linux-x64
+            lib: libkafka_native.so
+            srclib: libkafka_service.so
+          - runner: ubuntu-24.04-arm
+            plat: linux-arm64
+            lib: libkafka_native.so
+            srclib: libkafka_service.so
+          - runner: macos-latest
+            plat: darwin-arm64
+            lib: libkafka_native.dylib
+            srclib: libkafka_service.dylib
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build libkafka_native + N-API addon
+        run: |
+          VER=$(node -v)
+          curl -sL https://nodejs.org/dist/$VER/node-$VER-headers.tar.gz | tar xz -C /tmp
+          (cd crates/kafka-service && cargo build --release)
+          mkdir -p packages/kafka-native-js/prebuilds/${{ matrix.plat }}
+          cp crates/kafka-service/target/release/${{ matrix.srclib }} packages/kafka-native-js/prebuilds/${{ matrix.plat }}/${{ matrix.lib }}
+          cc -O2 -fPIC -shared -I/tmp/node-$VER/include/node -Icrates/kafka-service/include packages/kafka-native-js/kafka_native_addon.c -Lpackages/kafka-native-js/prebuilds/${{ matrix.plat }} -lkafka_native -Wl,-rpath,'$ORIGIN' -o packages/kafka-native-js/prebuilds/${{ matrix.plat }}/kafka_native_addon.node
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prebuild-${{ matrix.plat }}
+          path: packages/kafka-native-js/prebuilds
   publish:
+    needs: prebuilds
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,4 +62,13 @@ jobs:
         run: npm publish --provenance --access public
       - if: "!cancelled()"
         working-directory: packages/eventbus-js
+        run: npm publish --provenance --access public
+      - if: "!cancelled()"
+        uses: actions/download-artifact@v4
+        with:
+          pattern: prebuild-*
+          path: packages/kafka-native-js/prebuilds
+          merge-multiple: true
+      - if: "!cancelled()"
+        working-directory: packages/kafka-native-js
         run: npm publish --provenance --access public
