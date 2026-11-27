@@ -209,11 +209,12 @@ COPY rust/Cargo.toml rust/Cargo.lock ./rust/
 COPY webrtc/rust/Cargo.toml webrtc/rust/Cargo.lock ./webrtc/rust/
 COPY wasm/rust/Cargo.toml wasm/rust/Cargo.lock ./wasm/rust/
 COPY crates/kafka-native/Cargo.toml crates/kafka-native/Cargo.lock ./crates/kafka-native/
+COPY crates/kafka-service/Cargo.toml crates/kafka-service/Cargo.lock ./crates/kafka-service/
 COPY proxy/tcp-sidecar/Cargo.toml proxy/tcp-sidecar/Cargo.lock ./proxy/tcp-sidecar/
 # Empty target stubs so the fetch layer can parse the manifests;
 # `COPY . .` below replaces them with the real sources.
-RUN mkdir -p rust/src webrtc/rust/src wasm/rust/src crates/kafka-native/src proxy/tcp-sidecar/src \
-  && touch rust/src/lib.rs webrtc/rust/src/lib.rs wasm/rust/src/lib.rs crates/kafka-native/src/lib.rs proxy/tcp-sidecar/src/lib.rs \
+RUN mkdir -p rust/src webrtc/rust/src wasm/rust/src crates/kafka-native/src crates/kafka-service/src proxy/tcp-sidecar/src \
+  && touch rust/src/lib.rs webrtc/rust/src/lib.rs wasm/rust/src/lib.rs crates/kafka-native/src/lib.rs crates/kafka-service/src/lib.rs proxy/tcp-sidecar/src/lib.rs \
   && cd rust && cargo fetch --locked \
   && cd ../wasm/rust && cargo fetch --locked \
   && cd ../../proxy/tcp-sidecar && cargo fetch --locked
@@ -300,12 +301,15 @@ RUN apt-get update \
 COPY fixtures ./fixtures
 COPY rust ./rust
 COPY crates/kafka-native ./crates/kafka-native
+COPY crates/kafka-service ./crates/kafka-service
+COPY apps/kafka-proxy ./apps/kafka-proxy
 COPY webrtc/rust ./webrtc/rust
 COPY wasm/rust ./wasm/rust
 RUN cd rust && cargo test --locked --no-run \
   && cargo build --locked --examples \
-  && cargo test --locked --no-run --features kafka-tls --example kafka_proxy \
-  && cd ../webrtc/rust && cargo test --locked --no-run
+  && cargo test --locked --no-run --features kafka-tls \
+  && cd ../apps/kafka-proxy && cargo build --locked --features kafka-tls \
+  && cd ../../webrtc/rust && cargo test --locked --no-run
 
 # The Go WebRTC stack links the Rust FFI cores (in-repo
 # release paths in the bindings' cgo directives), so the
