@@ -3,7 +3,7 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
-## v0.49.1 — 2026-11-26
+## v0.49.1 — 2026-11-26 (published to GitHub/PyPI/GHCR/NuGet/Maven Central/GitHub Maven/pub.dev/crates.io/RubyGems/LuaRocks/JSR)
 
 - npm prebuild fix: the macOS (`darwin-arm64`) addon
   build needs `-undefined dynamic_lookup` (N-API symbols
