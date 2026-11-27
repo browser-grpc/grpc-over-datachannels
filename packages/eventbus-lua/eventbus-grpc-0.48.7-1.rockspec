@@ -1,8 +1,8 @@
 package = "eventbus-grpc"
-version = "0.48.6-1"
+version = "0.48.7-1"
 source = {
   url = "git+https://github.com/browser-grpc/grpc-over-datachannels",
-  tag = "v0.48.6",
+  tag = "v0.48.7",
 }
 description = {
   summary = "Event bus over gRPC for Lua: generated grpcdc.events.v1 publish/subscribe clients",
@@ -11,7 +11,7 @@ description = {
 }
 dependencies = {
   "lua >= 5.4",
-  "grpc-dc >= 0.48.6",
+  "grpc-dc >= 0.48.7",
 }
 build = {
   type = "builtin",
