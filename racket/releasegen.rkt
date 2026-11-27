@@ -1865,9 +1865,11 @@
          ;; grpc-dc is replaced by the same git source).
          [text (string-replace text "grpc-dc = { path = \"../../rust\" }"
                                (string-append "grpc-dc = { version = \"" bare "\" }"))]
-         [text (string-append text
-                               "\n[patch.crates-io]\n"
-                               "grpc-dc = { version = \"=" bare "\", git = \"https://github.com/browser-grpc/grpc-over-datachannels\", tag = \"" version "\" }\n")]
+         ;; No [patch]: the standalone proxy builds against
+         ;; crates.io only (stdio/TCP). The crates.io grpc-dc
+         ;; has no `webrtc` feature (its dc-webrtc path dep
+         ;; cannot publish), so --webrtc-direct is served by
+         ;; the GHCR image built from the main export instead.
          [text (string-replace text "kafka-native = { path = \"../../crates/kafka-native\" }"
                                (string-append "kafka-native = { version = \"" bare "\" }"))]
          [text (string-replace text "kafka-service = { path = \"../../crates/kafka-service\" }"
@@ -1889,7 +1891,7 @@
     "WORKDIR /src\n"
     "COPY Cargo.toml ./Cargo.toml\n"
     "COPY src ./src\n"
-    "RUN cargo build --release --features kafka-tls,webrtc\n"
+    "RUN cargo build --release --features kafka-tls\n"
     "FROM debian:bookworm-slim\n"
     "RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*\n"
     "COPY --from=build /src/target/release/kafka_proxy /usr/local/bin/kafka_proxy\n"
@@ -2057,7 +2059,7 @@
     "FAILED=0\n"
     "start_kafka || exit 1\n"
     "echo \"== build kafka_proxy\"\n"
-    "(cd \"$ROOT\" && cargo build --features kafka-tls,webrtc) || FAILED=1\n"
+    "(cd \"$ROOT\" && cargo build --features kafka-tls) || FAILED=1\n"
     "echo \"== proxy startup smoke (apache kafka)\"\n"
     "\"$ROOT/target/debug/kafka_proxy\" --tcp 127.0.0.1:50201 --broker 127.0.0.1:19092 >\"$TMP/proxy.log\" 2>&1 &\n"
     "PIDS+=($!)\n"
