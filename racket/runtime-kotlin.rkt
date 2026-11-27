@@ -3007,6 +3007,148 @@ private object StructdcPure {
 GRPC_RUNTIME_EOF
 )
 
+(define kotlin-kafka-native-body
+#<<GRPC_RUNTIME_EOF
+package grpcdc
+
+import grpcdc.kafka.v1.*
+
+/**
+ * In-process Kafka client via libkafka_native (native only).
+ *
+ * The collapsed form of the Kafka proxy: the Kafka protocol
+ * implementation runs in this process through the
+ * kafka-native shared library, instead of in a kafka_proxy
+ * sidecar reached over gRPC. Kotlin reaches the C ABI through
+ * the same JNI shim as the Java client
+ * (java/jni/kafka_native_jni.c, built into
+ * libkafka_native_jni) because the JVM needs JNI for stable
+ * FFI. Method surface mirrors the generated KafkaClient;
+ * requests and responses are the same generated
+ * KafkaMessages types.
+ *
+ * Shim location: the GRPC_DC_KAFKA_NATIVE_JNI environment
+ * variable (full path), or "kafka_native_jni" on the loader
+ * path.
+ */
+class KafkaNativeException(message: String) : RuntimeException(message)
+
+class KafkaNative(broker: String, clientId: String = "grpc-dc-kafka-native") : AutoCloseable {
+    private var handle: Long = 0
+
+    init {
+        handle = nativeNew(broker, clientId)
+        if (handle == 0L) throw KafkaNativeException(nativeLastError() ?: "kafka-native error")
+    }
+
+    override fun close() {
+        if (handle != 0L) {
+            nativeFree(handle)
+            handle = 0
+        }
+    }
+
+    private fun <T> unary(method: String, req: Marshaler, make: () -> T): T where T : Unmarshaler {
+        val data = nativeCall(handle, method, req.marshalDc())
+            ?: throw KafkaNativeException(nativeLastError() ?: "kafka-native error")
+        val resp = make()
+        resp.unmarshalDc(data)
+        return resp
+    }
+
+    private fun <T> stream(method: String, req: Marshaler, make: () -> T): Iterator<T> where T : Unmarshaler {
+        val stream = nativeStreamNew(handle, method, req.marshalDc())
+        if (stream == 0L) throw KafkaNativeException(nativeLastError() ?: "kafka-native error")
+        return object : Iterator<T> {
+            private var pending: T? = null
+            private var loaded = false
+            private var done = false
+
+            private fun fill() {
+                if (loaded || done) return
+                val data = nativeStreamNext(stream)
+                if (data == null) {
+                    val err = nativeStreamError(stream)
+                    done = true
+                    nativeStreamFree(stream)
+                    if (!err.isNullOrEmpty()) throw KafkaNativeException(err)
+                    return
+                }
+                val resp = make()
+                resp.unmarshalDc(data)
+                pending = resp
+                loaded = true
+            }
+
+            override fun hasNext(): Boolean {
+                fill()
+                return loaded
+            }
+
+            override fun next(): T {
+                fill()
+                val out = pending ?: throw NoSuchElementException()
+                pending = null
+                loaded = false
+                return out
+            }
+        }
+    }
+
+    fun metadata(req: MetadataRequest): MetadataResponse = unary("Metadata", req, ::MetadataResponse)
+    fun openProducer(req: OpenProducerRequest): OpenProducerResponse = unary("OpenProducer", req, ::OpenProducerResponse)
+    fun closeProducer(req: CloseProducerRequest): CloseProducerResponse = unary("CloseProducer", req, ::CloseProducerResponse)
+    fun endTransaction(req: EndTransactionRequest): EndTransactionResponse = unary("EndTransaction", req, ::EndTransactionResponse)
+    fun produce(req: ProduceRequest): ProduceResponse = unary("Produce", req, ::ProduceResponse)
+    fun consume(req: ConsumeRequest): Iterator<ConsumeResponse> = stream("Consume", req, ::ConsumeResponse)
+    fun subscribe(req: GroupSubscribeRequest): Iterator<GroupSubscribeResponse> = stream("Subscribe", req, ::GroupSubscribeResponse)
+    fun listOffsets(req: ListOffsetsRequest): ListOffsetsResponse = unary("ListOffsets", req, ::ListOffsetsResponse)
+    fun commitOffset(req: CommitOffsetRequest): CommitOffsetResponse = unary("CommitOffset", req, ::CommitOffsetResponse)
+    fun fetchOffset(req: FetchOffsetRequest): FetchOffsetResponse = unary("FetchOffset", req, ::FetchOffsetResponse)
+    fun createTopics(req: CreateTopicsRequest): CreateTopicsResponse = unary("CreateTopics", req, ::CreateTopicsResponse)
+    fun deleteTopics(req: DeleteTopicsRequest): DeleteTopicsResponse = unary("DeleteTopics", req, ::DeleteTopicsResponse)
+    fun describeConfigs(req: DescribeConfigsRequest): DescribeConfigsResponse = unary("DescribeConfigs", req, ::DescribeConfigsResponse)
+    fun alterConfigs(req: AlterConfigsRequest): AlterConfigsResponse = unary("AlterConfigs", req, ::AlterConfigsResponse)
+    fun createPartitions(req: CreatePartitionsRequest): CreatePartitionsResponse = unary("CreatePartitions", req, ::CreatePartitionsResponse)
+    fun deleteRecords(req: DeleteRecordsRequest): DeleteRecordsResponse = unary("DeleteRecords", req, ::DeleteRecordsResponse)
+    fun listGroups(req: ListGroupsRequest): ListGroupsResponse = unary("ListGroups", req, ::ListGroupsResponse)
+    fun describeGroups(req: DescribeGroupsRequest): DescribeGroupsResponse = unary("DescribeGroups", req, ::DescribeGroupsResponse)
+    fun deleteGroups(req: DeleteGroupsRequest): DeleteGroupsResponse = unary("DeleteGroups", req, ::DeleteGroupsResponse)
+    fun deleteGroupOffsets(req: DeleteGroupOffsetsRequest): DeleteGroupOffsetsResponse = unary("DeleteGroupOffsets", req, ::DeleteGroupOffsetsResponse)
+    fun describeAcls(req: DescribeAclsRequest): DescribeAclsResponse = unary("DescribeAcls", req, ::DescribeAclsResponse)
+    fun createAcls(req: CreateAclsRequest): CreateAclsResponse = unary("CreateAcls", req, ::CreateAclsResponse)
+    fun deleteAcls(req: DeleteAclsRequest): DeleteAclsResponse = unary("DeleteAcls", req, ::DeleteAclsResponse)
+    fun listTransactions(req: ListTransactionsRequest): ListTransactionsResponse = unary("ListTransactions", req, ::ListTransactionsResponse)
+    fun describeTransactions(req: DescribeTransactionsRequest): DescribeTransactionsResponse = unary("DescribeTransactions", req, ::DescribeTransactionsResponse)
+    fun describeShareGroups(req: DescribeShareGroupsRequest): DescribeShareGroupsResponse = unary("DescribeShareGroups", req, ::DescribeShareGroupsResponse)
+    fun openShareGroup(req: OpenShareGroupRequest): OpenShareGroupResponse = unary("OpenShareGroup", req, ::OpenShareGroupResponse)
+    fun sharePoll(req: SharePollRequest): SharePollResponse = unary("SharePoll", req, ::SharePollResponse)
+    fun shareAck(req: ShareAckRequest): ShareAckResponse = unary("ShareAck", req, ::ShareAckResponse)
+    fun closeShareGroup(req: CloseShareGroupRequest): CloseShareGroupResponse = unary("CloseShareGroup", req, ::CloseShareGroupResponse)
+
+    companion object {
+        init {
+            val jni = System.getenv("GRPC_DC_KAFKA_NATIVE_JNI")
+            try {
+                if (!jni.isNullOrEmpty()) System.load(jni) else System.loadLibrary("kafka_native_jni")
+            } catch (e: UnsatisfiedLinkError) {
+                throw KafkaNativeException("libkafka_native_jni not loadable: " + e.message)
+            }
+        }
+
+        @JvmStatic private external fun nativeNew(broker: String, clientId: String): Long
+        @JvmStatic private external fun nativeFree(handle: Long)
+        @JvmStatic private external fun nativeCall(handle: Long, method: String, req: ByteArray): ByteArray?
+        @JvmStatic private external fun nativeStreamNew(handle: Long, method: String, req: ByteArray): Long
+        @JvmStatic private external fun nativeStreamNext(stream: Long): ByteArray?
+        @JvmStatic private external fun nativeStreamError(stream: Long): String?
+        @JvmStatic private external fun nativeStreamFree(stream: Long)
+        @JvmStatic private external fun nativeLastError(): String?
+    }
+}
+GRPC_RUNTIME_EOF
+)
+
 (define (emit-kotlin-runtime-files)
   (list
    (cons "grpcdc/Status.kt" kotlin-status-body)
@@ -3020,7 +3162,8 @@ GRPC_RUNTIME_EOF
    (cons "grpcdc/SidecarTransport.kt" kotlin-sidecar-body)
    (cons "grpcdc/AsyncPump.kt" kotlin-async-body)
    (cons "grpcdc/Dynamic.kt" kotlin-dynamic-body)
-   (cons "grpcdc/StructDc.kt" kotlin-structdc-body)))
+   (cons "grpcdc/StructDc.kt" kotlin-structdc-body)
+   (cons "grpcdc/KafkaNative.kt" kotlin-kafka-native-body)))
 
 ;; ---------------------------------------------------------------------------
 ;; Kotlin/Wasm variant: the same bodies, with JVM-only APIs
