@@ -3,6 +3,17 @@
 All notable changes to grpc-over-datachannels. Versions are
 curated release tags on `master`; dates are the tag dates.
 
+## v0.48.7 — 2026-11-26
+
+- kafka-proxy standalone build fix: it now depends on
+  `grpc-dc` from the release git tag instead of crates.io
+  (the published `grpc-dc` has no `webrtc` feature — its
+  `dc-webrtc` path dependency cannot ship on crates.io —
+  and the proxy needs that feature for `--webrtc-direct`).
+  `kafka-service` was published to crates.io (0.48.6) and
+  its Trusted Publishing is configured, so the full
+  standalone kafka-proxy build now resolves.
+
 ## v0.48.6 — 2026-11-26 (published to GitHub/npm/PyPI/GHCR/NuGet/Maven Central/GitHub Maven/pub.dev/crates.io/RubyGems/LuaRocks/JSR)
 
 - kafka-native CI fix: restore `default-jdk-headless`

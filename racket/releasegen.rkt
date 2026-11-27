@@ -1857,8 +1857,12 @@
   (let* ([cargo (build-path out-dir "apps/kafka-proxy/Cargo.toml")]
          [text (file->string cargo)]
          [bare (if (string-prefix? version "v") (substring version 1) version)]
+         ;; grpc-dc from the release git tag, not crates.io:
+         ;; the published grpc-dc has no `webrtc` feature
+         ;; (its dc-webrtc path dep cannot publish), and the
+         ;; proxy needs it for --webrtc-direct.
          [text (string-replace text "grpc-dc = { path = \"../../rust\" }"
-                               (string-append "grpc-dc = { version = \"" bare "\" }"))]
+                               (string-append "grpc-dc = { git = \"https://github.com/browser-grpc/grpc-over-datachannels\", tag = \"" version "\" }"))]
          [text (string-replace text "kafka-native = { path = \"../../crates/kafka-native\" }"
                                (string-append "kafka-native = { version = \"" bare "\" }"))]
          [text (string-replace text "kafka-service = { path = \"../../crates/kafka-service\" }"
