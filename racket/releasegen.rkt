@@ -1867,7 +1867,7 @@
                                (string-append "grpc-dc = { version = \"" bare "\" }"))]
          [text (string-append text
                                "\n[patch.crates-io]\n"
-                               "grpc-dc = { version = \"=\"" bare "\", git = \"https://github.com/browser-grpc/grpc-over-datachannels\", tag = \"" version "\" }\n")]
+                               "grpc-dc = { version = \"=" bare "\", git = \"https://github.com/browser-grpc/grpc-over-datachannels\", tag = \"" version "\" }\n")]
          [text (string-replace text "kafka-native = { path = \"../../crates/kafka-native\" }"
                                (string-append "kafka-native = { version = \"" bare "\" }"))]
          [text (string-replace text "kafka-service = { path = \"../../crates/kafka-service\" }"
