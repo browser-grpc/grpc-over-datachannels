@@ -1,6 +1,6 @@
 {
   "name": "@browser-grpc/kafka-native",
-  "version": "0.49.0",
+  "version": "0.49.1",
   "description": "Kafka native client for Node: in-process Kafka protocol via libkafka_native (direct, no gRPC/proxy), generated kafka_pb messages included",
   "type": "module",
   "main": "index.js",
