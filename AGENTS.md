@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This repository is a **generated export** of grpc-over-datachannels v0.48.7 (source commit `9f299cf21ff7661f6d5c918d5e85103b19c4ba37`), produced by the
+This repository is a **generated export** of grpc-over-datachannels v0.48.8 (source commit `f5dd216b355d76a8e7337e719c177664881bfa41`), produced by the
 project's code generator. It is a release snapshot, not the
 development tree.
 
