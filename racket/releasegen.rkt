@@ -2512,6 +2512,7 @@
     "        env:\n"
     "          GH_TOKEN: ${{ github.token }}\n"
     "        run: |\n"
+    "          perl -i.bak -pe \"s|^kafka-native =.*|kafka-native = { path = \\\"../kafka-native\\\" }|\" crates/kafka-service/Cargo.toml\n"
     "          (cd crates/kafka-service && cargo build --release)\n"
     "          VER=$(python3 -c \"import json; print(json.load(open('RELEASE.json'))['version'])\")\n"
     "          mkdir -p dist/libkafka_native-${{ matrix.plat }}\n"
